@@ -18,6 +18,8 @@ import {
   type CommitmentSnapshot,
   type ContributionClaim,
   type EmployeeConfirmation,
+  type EvidenceLink,
+  type EvidenceNode,
   type LegalGateRecord,
   type PolicyDefinition,
   type WorkPackage,
@@ -26,6 +28,8 @@ import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
   CreateContributionClaimInput,
+  CreateEvidenceInput,
+  CreateEvidenceLinkInput,
   CreateWorkPackageInput,
 } from "@anari/contracts";
 import { hashLedgerEntry } from "@anari/ledger";
@@ -510,6 +514,91 @@ export class PgStore implements IncentiveStore {
     });
   }
 
+  async createEvidence(input: CreateEvidenceInput): Promise<EvidenceNode> {
+    return this.tx(async (client) => {
+      const id = randomUUID();
+      const { rows } = await client.query(
+        `INSERT INTO evidence_nodes
+          (id, tenant_id, evidence_type, subject_type, subject_id,
+           source_system, source_uri, observed_at, quality_status,
+           normalized_payload, payload_hash, supersedes_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, now()),$9,$10,$11,$12)
+         RETURNING *`,
+        [
+          id,
+          this.tenantId,
+          input.evidenceType,
+          input.subjectType,
+          input.subjectId,
+          input.sourceSystem,
+          input.sourceUri ?? null,
+          input.observedAt ?? null,
+          input.qualityStatus ?? "UNVERIFIED",
+          JSON.stringify(input.normalizedPayload),
+          sha256(input.normalizedPayload),
+          input.supersedesId ?? null,
+        ],
+      );
+      return this.mapEvidence(rows[0]);
+    });
+  }
+
+  async listEvidence(
+    subjectType?: string,
+    subjectId?: string,
+  ): Promise<EvidenceNode[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM evidence_nodes
+          WHERE tenant_id=$1
+            AND ($2::text IS NULL OR subject_type=$2)
+            AND ($3::uuid IS NULL OR subject_id=$3)
+          ORDER BY observed_at DESC`,
+        [this.tenantId, subjectType ?? null, subjectId ?? null],
+      );
+      return rows.map((row) => this.mapEvidence(row));
+    });
+  }
+
+  async linkEvidence(
+    fromEvidenceId: string,
+    input: CreateEvidenceLinkInput,
+  ): Promise<EvidenceLink> {
+    return this.tx(async (client) => {
+      const id = randomUUID();
+      const { rows } = await client.query(
+        `INSERT INTO evidence_links
+          (id, tenant_id, from_evidence_id, to_evidence_id, relation_type, rationale)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (tenant_id, from_evidence_id, to_evidence_id, relation_type)
+         DO UPDATE SET rationale = COALESCE(EXCLUDED.rationale, evidence_links.rationale)
+         RETURNING *`,
+        [
+          id,
+          this.tenantId,
+          fromEvidenceId,
+          input.toEvidenceId,
+          input.relationType,
+          input.rationale ?? null,
+        ],
+      );
+      return this.mapEvidenceLink(rows[0]);
+    });
+  }
+
+  async listEvidenceLinks(evidenceId: string): Promise<EvidenceLink[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM evidence_links
+          WHERE tenant_id=$1
+            AND (from_evidence_id=$2 OR to_evidence_id=$2)
+          ORDER BY created_at`,
+        [this.tenantId, evidenceId],
+      );
+      return rows.map((row) => this.mapEvidenceLink(row));
+    });
+  }
+
   async createCalculationRun(
     input: CreateCalculationRunInput,
   ): Promise<CalculationRun> {
@@ -799,7 +888,7 @@ export class PgStore implements IncentiveStore {
 
   async createAppeal(input: {
     appellantPersonId: string;
-    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER" | "CALCULATION";
     targetId: string;
     reasonCode: string;
     statement: string;
@@ -1183,6 +1272,36 @@ export class PgStore implements IncentiveStore {
       resolution: row.resolution ?? undefined,
       createdAt: iso(row.created_at)!,
       resolvedAt: iso(row.resolved_at),
+    };
+  }
+
+  private mapEvidence(row: QueryResultRow): EvidenceNode {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      evidenceType: row.evidence_type,
+      subjectType: row.subject_type,
+      subjectId: row.subject_id,
+      sourceSystem: row.source_system,
+      sourceUri: row.source_uri ?? undefined,
+      observedAt: iso(row.observed_at)!,
+      qualityStatus: row.quality_status,
+      normalizedPayload: asJson(row.normalized_payload, {}),
+      payloadHash: row.payload_hash,
+      supersedesId: row.supersedes_id ?? undefined,
+      createdAt: iso(row.created_at)!,
+    };
+  }
+
+  private mapEvidenceLink(row: QueryResultRow): EvidenceLink {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      fromEvidenceId: row.from_evidence_id,
+      toEvidenceId: row.to_evidence_id,
+      relationType: row.relation_type,
+      rationale: row.rationale ?? undefined,
+      createdAt: iso(row.created_at)!,
     };
   }
 

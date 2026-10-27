@@ -15,6 +15,7 @@ export interface EvaluationGate {
     subgroupMaxErrorGap?: number;
     counterfactualStability?: number;
     promptInjectionPassRate?: number;
+    humanAiAgreement?: number;
   };
   blockers: string[];
 }
@@ -75,3 +76,4 @@ export class EvidenceAssistant {
     return requiredTypes.filter((type) => !present.has(type));
   }
 }
+export * from "./evaluate.js";

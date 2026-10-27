@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>N-Perform 员工确认</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #16181d;
+      --muted: #5f6672;
+      --line: #e4e7ec;
+      --accent: #1d5cff;
+      --accent-ink: #ffffff;
+      --good: #0b7a53;
+      --warn: #a15c00;
+      --bad: #b42318;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --card: #171a21;
+        --ink: #f2f4f7;
+        --muted: #a7aebb;
+        --line: #2a2f3a;
+        --accent: #6d95ff;
+        --accent-ink: #0b1020;
+        --good: #6fd3a8;
+        --warn: #ffc46b;
+        --bad: #ff8a80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      padding: 32px 18px 64px;
+    }
+    main { max-width: 880px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+    p.lede { color: var(--muted); margin: 0 0 24px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } body { padding: 20px 14px 48px; } }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, textarea, button { font: inherit; }
+    input, textarea {
+      width: 100%;
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 9px 10px;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    button {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 9px;
+      padding: 8px 13px;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    button.danger { color: var(--bad); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 10px; white-space: pre-wrap; }
+    .status[data-kind="ok"] { color: var(--good); }
+    .status[data-kind="warn"] { color: var(--warn); }
+    .status[data-kind="bad"] { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
+    th { color: var(--muted); font-weight: 500; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+    .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>N-Perform 员工确认</h1>
+    <p class="lede">查看本人的计算依据、确认金额、提出异议或申诉。此页面是开发用最小员工端，生产环境需接入身份认证。</p>
+
+    <section class="card">
+      <div class="grid">
+        <div>
+          <label for="personId">员工 ID</label>
+          <input id="personId" value="00000000-0000-4000-8000-000000000001" />
+        </div>
+        <div>
+          <label for="runId">计算批次 ID</label>
+          <input id="runId" placeholder="CALCULATION_RUN_ID" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="load">加载我的计算</button>
+        <button id="confirm">确认</button>
+        <button class="danger" id="object">提出异议</button>
+        <button id="appeal">发起申诉</button>
+      </div>
+      <div class="status" id="status"></div>
+    </section>
+
+    <section class="card" id="result" hidden>
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+        <strong id="runTitle">计算明细</strong>
+        <span class="pill" id="runStatus"></span>
+      </div>
+      <table>
+        <thead>
+        <tr><th>参与人</th><th>工作包</th><th>激励类型</th><th class="num">金额</th></tr>
+        </thead>
+        <tbody id="lines"></tbody>
+      </table>
+      <div class="note" id="hash"></div>
+    </section>
+
+    <section class="card">
+      <label for="reason">异议/申诉理由</label>
+      <textarea id="reason" placeholder="请说明你认为哪些证据/贡献/金额需要复核。"></textarea>
+      <div class="note">提出异议会阻止正式锁账；申诉会进入独立复核流程。请勿填写与本次计算无关的敏感信息。</div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let currentRun = null;
+
+    function setStatus(text, kind = "") {
+      const el = $("status");
+      el.textContent = text;
+      el.dataset.kind = kind;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "content-type": "application/json" },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = body?.error?.message || `HTTP ${response.status}`;
+        const details = body?.error?.details ? `\n${JSON.stringify(body.error.details, null, 2)}` : "";
+        throw new Error(message + details);
+      }
+      return body.data;
+    }
+
+    async function loadRun() {
+      const runId = $("runId").value.trim();
+      if (!runId) { setStatus("请先填写计算批次 ID", "warn"); return; }
+      setStatus("加载中…");
+      try {
+        currentRun = await api(`/api/v1/calculation-runs/${runId}`);
+        $("result").hidden = false;
+        $("runTitle").textContent = `计算明细 · ${currentRun.mode}`;
+        $("runStatus").textContent = currentRun.status;
+        $("lines").innerHTML = (currentRun.lines || []).map((line) => `
+          <tr>
+            <td>${escapeHtml(line.personId)}</td>
+            <td>${escapeHtml(line.workPackageId)}</td>
+            <td>${escapeHtml(line.incentiveType)}</td>
+            <td class="num">${escapeHtml(line.roundedAmount)} ${escapeHtml(line.currency)}</td>
+          </tr>`).join("");
+        $("hash").textContent = `结果哈希：${currentRun.resultHash || "—"}`;
+        setStatus("已加载。请核对金额与证据后再确认。", "ok");
+      } catch (error) {
+        setStatus(String(error.message), "bad");
+      }
+    }
+
+    async function recordConfirmation(decision) {
+      const runId = $("runId").value.trim();
+      const personId = $("personId").value.trim();
+      if (!runId || !personId) { setStatus("请填写员工 ID 与计算批次 ID", "warn"); return; }
+      try {
+        const result = await api("/api/v1/employee-confirmations", {
+          method: "POST",
+          body: JSON.stringify({
+            personId,
+            targetType: "CALCULATION",
+            targetId: runId,
+            decision,
+            reason: decision === "OBJECTED" ? $("reason").value.trim() : undefined,
+          }),
+        });
+        setStatus(`已记录：${result.decision}`, decision === "OBJECTED" ? "warn" : "ok");
+      } catch (error) {
+        setStatus(String(error.message), "bad");
+      }
+    }
+
+    async function createAppeal() {
+      const runId = $("runId").value.trim();
+      const personId = $("personId").value.trim();
+      const statement = $("reason").value.trim();
+      if (!runId || !personId || statement.length < 5) {
+        setStatus("请填写员工 ID、计算批次 ID，并至少写 5 个字的申诉理由", "warn");
+        return;
+      }
+      try {
+        const appeal = await api("/api/v1/appeals", {
+          method: "POST",
+          body: JSON.stringify({
+            appellantPersonId: personId,
+            targetType: "CALCULATION",
+            targetId: runId,
+            reasonCode: "CALCULATION_OBJECTION",
+            statement,
+          }),
+        });
+        setStatus(`申诉已创建：${appeal.id}（${appeal.status}）`, "warn");
+      } catch (error) {
+        setStatus(String(error.message), "bad");
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[char]));
+    }
+
+    $("load").addEventListener("click", loadRun);
+    $("confirm").addEventListener("click", () => recordConfirmation("CONFIRMED"));
+    $("object").addEventListener("click", () => recordConfirmation("OBJECTED"));
+    $("appeal").addEventListener("click", createAppeal);
+  </script>
+</body>
+</html>

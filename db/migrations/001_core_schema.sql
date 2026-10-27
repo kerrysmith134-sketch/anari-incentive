@@ -188,6 +188,64 @@ CREATE TABLE webhook_inbox (
 );
 
 -- ---------------------------------------------------------------------------
+-- Evidence graph
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE raw_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  source_system text NOT NULL,
+  source_record_id text NOT NULL,
+  source_event_version text NOT NULL DEFAULT '1',
+  event_type text NOT NULL,
+  occurred_at timestamptz,
+  ingested_at timestamptz NOT NULL DEFAULT now(),
+  payload jsonb NOT NULL,
+  payload_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, source_system, source_record_id, source_event_version),
+  UNIQUE (tenant_id, id)
+);
+
+CREATE TABLE evidence_nodes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  raw_event_id uuid,
+  evidence_type text NOT NULL,
+  subject_type text NOT NULL,
+  subject_id uuid NOT NULL,
+  source_system text NOT NULL,
+  source_uri text,
+  observed_at timestamptz NOT NULL,
+  quality_status quality_status NOT NULL DEFAULT 'UNVERIFIED',
+  confidence numeric(5,4),
+  normalized_payload jsonb NOT NULL,
+  payload_hash text NOT NULL,
+  supersedes_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+  UNIQUE (tenant_id, id),
+  FOREIGN KEY (tenant_id, raw_event_id) REFERENCES raw_events(tenant_id, id),
+  FOREIGN KEY (tenant_id, supersedes_id) REFERENCES evidence_nodes(tenant_id, id)
+);
+CREATE INDEX idx_evidence_subject ON evidence_nodes(tenant_id, subject_type, subject_id, observed_at DESC);
+
+CREATE TABLE evidence_links (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  from_evidence_id uuid NOT NULL,
+  to_evidence_id uuid NOT NULL,
+  relation_type text NOT NULL CHECK (relation_type IN ('SUPPORTS','CONTRADICTS','DEPENDS_ON','CORRECTS','CONTEXT')),
+  rationale text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, id),
+  UNIQUE (tenant_id, from_evidence_id, to_evidence_id, relation_type),
+  FOREIGN KEY (tenant_id, from_evidence_id) REFERENCES evidence_nodes(tenant_id, id),
+  FOREIGN KEY (tenant_id, to_evidence_id) REFERENCES evidence_nodes(tenant_id, id),
+  CHECK (from_evidence_id <> to_evidence_id)
+);
+
+-- ---------------------------------------------------------------------------
 -- Work packages, deliverables, acceptances
 -- ---------------------------------------------------------------------------
 
@@ -648,7 +706,7 @@ CREATE TABLE appeal_cases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES tenants(id),
   appellant_person_id uuid NOT NULL,
-  target_type text NOT NULL CHECK (target_type IN ('ATTRIBUTION','EVALUATION','LEDGER')),
+  target_type text NOT NULL CHECK (target_type IN ('ATTRIBUTION','EVALUATION','LEDGER','CALCULATION')),
   target_id uuid NOT NULL,
   appeal_reason_code text NOT NULL,
   statement text NOT NULL,

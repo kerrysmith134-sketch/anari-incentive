@@ -144,6 +144,9 @@ Additional application-level invariants:
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
+| `POST /evidence` | — | Creates an evidence node with provenance and quality status |
+| `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
+| `POST /evidence/:id/links` | both evidence nodes exist | SUPPORTS / CONTRADICTS / DEPENDS_ON / CORRECTS / CONTEXT |
 | `POST /employee-confirmations` | target exists | VIEWED / CONFIRMED / OBJECTED |
 | `POST /appeals` | — | OPEN |
 | `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |
@@ -186,3 +189,22 @@ Before a `FORMAL` run can be locked, every participant must have a `CONFIRMED` r
 ### AI gate
 
 Numeric AI scoring is not available in the first slice. `packages/ai-gate` exposes evidence summary and gap detection only; `assertScoringAllowed` throws until a gate with a passed evaluation protocol is supplied.
+
+
+---
+
+## 6. Evidence graph
+
+An `EvidenceNode` records `evidenceType`, `subjectType/subjectId`, `sourceSystem`, `sourceUri`, `observedAt`, `qualityStatus`, `normalizedPayload` and a payload hash. `EvidenceLink` records `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, `CORRECTS` or `CONTEXT` between two nodes. A contribution claim may cite evidence IDs, but a citation is not a substitute for verification. Evidence corrections should create a new node with `supersedesId` rather than mutating history.
+
+## 7. AI evaluation harness
+
+`packages/ai-gate/evaluate.ts` computes:
+
+- human-human Cohen's kappa;
+- human-AI agreement;
+- subgroup maximum error gap;
+- counterfactual stability;
+- prompt-injection pass rate.
+
+The resulting `EvaluationGate` blocks numeric AI scoring when any threshold fails. The gate is deliberately separate from the evidence assistant: summarisation/gap detection can run; scoring cannot.

@@ -134,6 +134,37 @@ describePg("PgStore vertical slice", () => {
     expect(await store.verifyLedger()).toBe(true);
   });
 
+  it("stores an evidence graph with provenance and links", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const first = await store.createEvidence({
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "CRM",
+      normalizedPayload: { accepted: true },
+      qualityStatus: "VALID",
+    });
+    const second = await store.createEvidence({
+      evidenceType: "CUSTOMER_FEEDBACK",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "SUPPORT",
+      normalizedPayload: { score: 5 },
+      qualityStatus: "VALID",
+    });
+    const linked = await store.linkEvidence(first.id, {
+      toEvidenceId: second.id,
+      relationType: "SUPPORTS",
+      rationale: "Feedback confirms delivery",
+    });
+    expect(linked.relationType).toBe("SUPPORTS");
+
+    const evidence = await store.listEvidence("WORK_PACKAGE", workPackageId);
+    expect(evidence).toHaveLength(2);
+    const links = await store.listEvidenceLinks(first.id);
+    expect(links).toHaveLength(1);
+  });
+
   it("blocks a formal run without a complete legal gate", async () => {
     const workPackageId = await acceptedWorkPackage();
     await confirmedClaim(workPackageId, OWNER);

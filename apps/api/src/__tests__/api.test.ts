@@ -146,6 +146,15 @@ beforeEach(() => {
   app = buildApp(new Store());
 });
 
+describe("employee view", () => {
+  it("serves the minimal employee confirmation page", async () => {
+    const response = await app.inject({ method: "GET", url: "/" } as never);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("N-Perform 员工确认");
+  });
+});
+
 describe("vertical slice", () => {
   it("runs work package -> claim -> attribution -> shadow calculation", async () => {
     const workPackageId = await createAcceptedWorkPackage();
@@ -323,6 +332,60 @@ describe("vertical slice", () => {
     });
     expect(decision.status).toBe(422);
     expect(decision.body.error.code).toBe("INVARIANT_VIOLATION");
+  });
+
+  it("creates an evidence graph and links supporting/counter evidence", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const first = await call("POST", "/api/v1/evidence", {
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "CRM",
+      normalizedPayload: { accepted: true, deliveredAt: "2026-10-20" },
+      qualityStatus: "VALID",
+    });
+    expect(first.status).toBe(201);
+    const evidenceId = first.body.data.id as string;
+
+    const second = await call("POST", "/api/v1/evidence", {
+      evidenceType: "CUSTOMER_FEEDBACK",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "SUPPORT",
+      normalizedPayload: { score: 5 },
+      qualityStatus: "VALID",
+    });
+    expect(second.status).toBe(201);
+    const counterId = second.body.data.id as string;
+
+    expect(
+      (
+        await call("POST", `/api/v1/evidence/${evidenceId}/links`, {
+          toEvidenceId: counterId,
+          relationType: "SUPPORTS",
+          rationale: "Customer feedback confirms the delivery",
+        })
+      ).status,
+    ).toBe(201);
+
+    const list = await call(
+      "GET",
+      `/api/v1/evidence?subjectType=WORK_PACKAGE&subjectId=${workPackageId}`,
+    );
+    expect(list.body.data).toHaveLength(2);
+    const links = await call("GET", `/api/v1/evidence/${evidenceId}/links`);
+    expect(links.body.data[0].relationType).toBe("SUPPORTS");
+
+    const claim = await call("POST", "/api/v1/contribution-claims", {
+      workPackageId,
+      claimantPersonId: OWNER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimedContribution: { dimensions: ["QUALITY"], summary: "Delivered" },
+      evidenceRefs: [evidenceId, counterId],
+      rationale: "Delivery and customer feedback",
+    });
+    expect(claim.status).toBe(201);
+    expect(claim.body.data.evidenceRefs).toEqual([evidenceId, counterId]);
   });
 
   it("runs an independent appeal review and preserves the original decision", async () => {

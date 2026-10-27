@@ -235,11 +235,52 @@ export interface PolicyDefinition {
   };
 }
 
+export type EvidenceQualityStatus =
+  | "VALID"
+  | "MISSING"
+  | "STALE"
+  | "CONFLICTED"
+  | "UNVERIFIED"
+  | "INVALID";
+
+export type EvidenceRelationType =
+  | "SUPPORTS"
+  | "CONTRADICTS"
+  | "DEPENDS_ON"
+  | "CORRECTS"
+  | "CONTEXT";
+
+export interface EvidenceNode {
+  id: UUID;
+  tenantId: UUID;
+  evidenceType: string;
+  subjectType: string;
+  subjectId: UUID;
+  sourceSystem: string;
+  sourceUri?: string;
+  observedAt: string;
+  qualityStatus: EvidenceQualityStatus;
+  normalizedPayload: Record<string, unknown>;
+  payloadHash: string;
+  supersedesId?: UUID;
+  createdAt: string;
+}
+
+export interface EvidenceLink {
+  id: UUID;
+  tenantId: UUID;
+  fromEvidenceId: UUID;
+  toEvidenceId: UUID;
+  relationType: EvidenceRelationType;
+  rationale?: string;
+  createdAt: string;
+}
+
 export interface AppealCase {
   id: UUID;
   tenantId: UUID;
   appellantPersonId: UUID;
-  targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+  targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER" | "CALCULATION";
   targetId: UUID;
   reasonCode: string;
   statement: string;

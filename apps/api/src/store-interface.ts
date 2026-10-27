@@ -7,6 +7,8 @@ import type {
   ConfirmationTargetType,
   ContributionClaim,
   EmployeeConfirmation,
+  EvidenceLink,
+  EvidenceNode,
   LegalGateRecord,
   PolicyDefinition,
   WorkPackage,
@@ -15,6 +17,8 @@ import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
   CreateContributionClaimInput,
+  CreateEvidenceInput,
+  CreateEvidenceLinkInput,
   CreateWorkPackageInput,
 } from "@anari/contracts";
 
@@ -69,6 +73,14 @@ export interface IncentiveStore {
   recordLegalGate(input: RecordLegalGateInput): Promise<LegalGateRecord>;
   getLegalGate(policyVersionId: string): Promise<LegalGateRecord | undefined>;
 
+  createEvidence(input: CreateEvidenceInput): Promise<EvidenceNode>;
+  listEvidence(subjectType?: string, subjectId?: string): Promise<EvidenceNode[]>;
+  linkEvidence(
+    fromEvidenceId: string,
+    input: CreateEvidenceLinkInput,
+  ): Promise<EvidenceLink>;
+  listEvidenceLinks(evidenceId: string): Promise<EvidenceLink[]>;
+
   createCalculationRun(
     input: CreateCalculationRunInput,
   ): Promise<CalculationRun>;
@@ -84,7 +96,7 @@ export interface IncentiveStore {
 
   createAppeal(input: {
     appellantPersonId: string;
-    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER" | "CALCULATION";
     targetId: string;
     reasonCode: string;
     statement: string;

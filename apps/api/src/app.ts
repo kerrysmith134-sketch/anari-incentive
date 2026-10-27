@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -10,6 +11,8 @@ import {
   createAttributionDecisionSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
+  createEvidenceLinkSchema,
+  createEvidenceSchema,
   createWorkPackageSchema,
   lockCalculationRunSchema,
   recordConfirmationSchema,
@@ -48,6 +51,11 @@ function parse<T>(schema: ZodType<T>, value: unknown): T {
 function idOf(request: FastifyRequest): string {
   return (request.params as IdParams).id;
 }
+
+const employeeUi = readFileSync(
+  new URL("../public/index.html", import.meta.url),
+  "utf8",
+);
 
 export function buildApp(
   store: IncentiveStore = new Store(),
@@ -116,7 +124,38 @@ export function buildApp(
     });
   });
 
+  app.get("/", async (_request, reply) =>
+    reply.type("text/html; charset=utf-8").send(employeeUi),
+  );
+
   app.get("/health", async (request) => data({ status: "ok" }, request));
+
+  app.post("/api/v1/evidence", async (request, reply) => {
+    const body = parse(createEvidenceSchema, request.body);
+    return reply.status(201).send(data(await store.createEvidence(body), request));
+  });
+
+  app.get("/api/v1/evidence", async (request) => {
+    const query = request.query as {
+      subjectType?: string;
+      subjectId?: string;
+    };
+    return data(
+      await store.listEvidence(query.subjectType, query.subjectId),
+      request,
+    );
+  });
+
+  app.post("/api/v1/evidence/:id/links", async (request, reply) => {
+    const body = parse(createEvidenceLinkSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await store.linkEvidence(idOf(request), body), request));
+  });
+
+  app.get("/api/v1/evidence/:id/links", async (request) =>
+    data(await store.listEvidenceLinks(idOf(request)), request),
+  );
 
   app.post("/api/v1/work-packages", async (request, reply) => {
     const body = parse(createWorkPackageSchema, request.body);

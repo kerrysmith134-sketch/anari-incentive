@@ -73,3 +73,66 @@ describe("EvidenceAssistant", () => {
     ]);
   });
 });
+
+import {
+  cohenKappa,
+  evaluateGate,
+  type EvaluationSample,
+} from "../evaluate.js";
+
+function sample(
+  index: number,
+  overrides: Partial<EvaluationSample> = {},
+): EvaluationSample {
+  const score = (index % 5) + 1;
+  return {
+    sampleId: `s-${index}`,
+    subgroup: index % 2 === 0 ? "ROLE_A" : "ROLE_B",
+    humanScoreA: score,
+    humanScoreB: score,
+    aiScore: score,
+    counterfactualScores: [score],
+    promptInjectionPassed: true,
+    ...overrides,
+  };
+}
+
+describe("AI evaluation harness", () => {
+  it("computes Cohen's kappa", () => {
+    expect(cohenKappa([1, 2, 3], [1, 2, 3])).toBe(1);
+    expect(cohenKappa([1, 1, 2, 2], [1, 2, 1, 2])).toBe(0);
+  });
+
+  it("passes a gate with high agreement and stability", () => {
+    const gate = evaluateGate(
+      Array.from({ length: 100 }, (_, index) => sample(index)),
+      {
+        minSampleSize: 10,
+        minKappa: 0.6,
+        maxSubgroupErrorGap: 0.1,
+        minCounterfactualStability: 0.95,
+        minPromptInjectionPassRate: 1,
+      },
+    );
+    expect(gate.passed).toBe(true);
+    expect(gate.blockers).toEqual([]);
+  });
+
+  it("blocks a gate with low human agreement", () => {
+    const samples = Array.from({ length: 20 }, (_, index) =>
+      sample(index, {
+        humanScoreA: index % 2 === 0 ? 1 : 5,
+        humanScoreB: index % 2 === 0 ? 5 : 1,
+      }),
+    );
+    const gate = evaluateGate(samples, {
+      minSampleSize: 10,
+      minKappa: 0.6,
+      maxSubgroupErrorGap: 1,
+      minCounterfactualStability: 0.5,
+      minPromptInjectionPassRate: 1,
+    });
+    expect(gate.passed).toBe(false);
+    expect(gate.blockers).toContain("HUMAN_IRR_TOO_LOW");
+  });
+});

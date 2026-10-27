@@ -17,6 +17,8 @@ import {
   type CommitmentSnapshot,
   type ContributionClaim,
   type EmployeeConfirmation,
+  type EvidenceLink,
+  type EvidenceNode,
   type LegalGateRecord,
   type PolicyDefinition,
   type WorkPackage,
@@ -25,6 +27,8 @@ import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
   CreateContributionClaimInput,
+  CreateEvidenceInput,
+  CreateEvidenceLinkInput,
   CreateWorkPackageInput,
 } from "@anari/contracts";
 import { InMemoryLedger } from "@anari/ledger";
@@ -81,6 +85,8 @@ export class Store implements IncentiveStore {
   private readonly appeals = new Map<string, AppealCase>();
   private readonly legalGates = new Map<string, LegalGateRecord>();
   private readonly confirmations = new Map<string, EmployeeConfirmation>();
+  private readonly evidence = new Map<string, EvidenceNode>();
+  private readonly evidenceLinks = new Map<string, EvidenceLink>();
 
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy = policies.get(policyVersionId);
@@ -413,6 +419,78 @@ export class Store implements IncentiveStore {
     return this.legalGates.get(policyVersionId);
   }
 
+  async createEvidence(input: CreateEvidenceInput): Promise<EvidenceNode> {
+    if (input.supersedesId && !this.evidence.has(input.supersedesId)) {
+      notFound("EvidenceNode", input.supersedesId);
+    }
+    const node: EvidenceNode = {
+      id: randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
+      evidenceType: input.evidenceType,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      sourceSystem: input.sourceSystem,
+      sourceUri: input.sourceUri,
+      observedAt: input.observedAt ?? now(),
+      qualityStatus: input.qualityStatus ?? "UNVERIFIED",
+      normalizedPayload: input.normalizedPayload,
+      payloadHash: sha256(input.normalizedPayload),
+      supersedesId: input.supersedesId,
+      createdAt: now(),
+    };
+    this.evidence.set(node.id, node);
+    return node;
+  }
+
+  async listEvidence(
+    subjectType?: string,
+    subjectId?: string,
+  ): Promise<EvidenceNode[]> {
+    return [...this.evidence.values()].filter(
+      (node) =>
+        (!subjectType || node.subjectType === subjectType) &&
+        (!subjectId || node.subjectId === subjectId),
+    );
+  }
+
+  async linkEvidence(
+    fromEvidenceId: string,
+    input: CreateEvidenceLinkInput,
+  ): Promise<EvidenceLink> {
+    if (!this.evidence.has(fromEvidenceId)) {
+      notFound("EvidenceNode", fromEvidenceId);
+    }
+    if (!this.evidence.has(input.toEvidenceId)) {
+      notFound("EvidenceNode", input.toEvidenceId);
+    }
+    const existing = [...this.evidenceLinks.values()].find(
+      (link) =>
+        link.fromEvidenceId === fromEvidenceId &&
+        link.toEvidenceId === input.toEvidenceId &&
+        link.relationType === input.relationType,
+    );
+    if (existing) return existing;
+    const link: EvidenceLink = {
+      id: randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
+      fromEvidenceId,
+      toEvidenceId: input.toEvidenceId,
+      relationType: input.relationType,
+      rationale: input.rationale,
+      createdAt: now(),
+    };
+    this.evidenceLinks.set(link.id, link);
+    return link;
+  }
+
+  async listEvidenceLinks(evidenceId: string): Promise<EvidenceLink[]> {
+    return [...this.evidenceLinks.values()].filter(
+      (link) =>
+        link.fromEvidenceId === evidenceId ||
+        link.toEvidenceId === evidenceId,
+    );
+  }
+
   async createCalculationRun(
     input: CreateCalculationRunInput,
   ): Promise<CalculationRun> {
@@ -591,7 +669,7 @@ export class Store implements IncentiveStore {
 
   async createAppeal(input: {
     appellantPersonId: string;
-    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+    targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER" | "CALCULATION";
     targetId: string;
     reasonCode: string;
     statement: string;

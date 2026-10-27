@@ -142,9 +142,37 @@ export type LockCalculationRunInput = z.infer<
 
 export const createAppealSchema = z.object({
   appellantPersonId: uuidSchema,
-  targetType: z.enum(["ATTRIBUTION", "EVALUATION", "LEDGER"]),
+  targetType: z.enum(["ATTRIBUTION", "EVALUATION", "LEDGER", "CALCULATION"]),
   targetId: uuidSchema,
   reasonCode: z.string().min(1),
   statement: z.string().min(5),
 });
 export type CreateAppealInput = z.infer<typeof createAppealSchema>;
+
+export const createEvidenceSchema = z.object({
+  evidenceType: z.string().min(1),
+  subjectType: z.string().min(1),
+  subjectId: uuidSchema,
+  sourceSystem: z.string().min(1),
+  sourceUri: z.string().optional(),
+  observedAt: z.string().datetime().optional(),
+  qualityStatus: z
+    .enum(["VALID", "MISSING", "STALE", "CONFLICTED", "UNVERIFIED", "INVALID"])
+    .default("UNVERIFIED"),
+  normalizedPayload: z.record(z.unknown()),
+  supersedesId: uuidSchema.optional(),
+});
+export type CreateEvidenceInput = z.input<typeof createEvidenceSchema>;
+
+export const createEvidenceLinkSchema = z.object({
+  toEvidenceId: uuidSchema,
+  relationType: z.enum([
+    "SUPPORTS",
+    "CONTRADICTS",
+    "DEPENDS_ON",
+    "CORRECTS",
+    "CONTEXT",
+  ]),
+  rationale: z.string().optional(),
+});
+export type CreateEvidenceLinkInput = z.infer<typeof createEvidenceLinkSchema>;

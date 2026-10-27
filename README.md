@@ -17,15 +17,19 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
 | Reference policy pack | `fixtures/policies/order-contribution-v1.json` + 5 order fixtures with expected outputs |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
+| Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
 | Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
 | Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS |
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
+| AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
+| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal |
+| Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **35 unit/API tests + 3 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference match, legal gate, confirmations/objections, appeals, ledger immutability/idempotency/reversal, and RLS |
+| Tests | **42 unit/API tests + 4 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -93,7 +97,12 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/` | Minimal employee confirmation page |
 | GET | `/health` | Liveness |
+| POST | `/api/v1/evidence` | Create evidence node |
+| GET | `/api/v1/evidence?subjectType=&subjectId=` | List evidence for a subject |
+| POST | `/api/v1/evidence/:id/links` | Link supporting/counter/dependency evidence |
+| GET | `/api/v1/evidence/:id/links` | List evidence links |
 | POST | `/api/v1/work-packages` | Create work package (DRAFT) |
 | GET | `/api/v1/work-packages` | List |
 | GET | `/api/v1/work-packages/:id` | Get |
@@ -161,16 +170,17 @@ Then a `FORMAL` run also requires confirmed attribution for every participant an
 ## Repository layout
 
 ```
-apps/api/                 Fastify API, in-memory store, PostgreSQL store
+apps/api/                 Fastify API, in-memory store, PostgreSQL store, public employee page
 packages/domain/          Canonical states, types, invariants
 packages/contracts/       Zod request schemas
 packages/policy-dsl/      Deterministic decimal, order-contribution policy, reference
 packages/ledger/          Append-only ledger, idempotency, hash chain
 packages/ai-gate/         Evaluation gate + non-scoring evidence assistant
-fixtures/                 Reference policy and anonymized order fixtures
+fixtures/                 Reference policy, anonymized order fixtures, reconciliation CSV
 db/migrations/            PostgreSQL schema and money-path invariants
 db/seed/                  Demo tenant/people/cycle/policy + RLS app role
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
+scripts/reconcile.ts     CSV vs engine reconciliation
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision
@@ -189,14 +199,15 @@ tests/                    Cross-package fixture/E2E tests
 5. **Formal calculation requires a server-side legal gate.** A request cannot self-assert legal approval.
 6. **Formal locking requires employee confirmation.** An objection blocks locking and routes to appeal/recalculation.
 7. **Same input + policy + engine version → same result hash.**
-8. **AI is optional and gated.** Evidence summary/gap detection are allowed; numeric scoring requires a passed evaluation gate.
+8. **Evidence has provenance.** Evidence nodes link to subjects and to each other; a claim reference is not proof by itself.
+9. **AI is optional and gated.** Evidence summary/gap detection are allowed; numeric scoring requires a passed evaluation gate with IRR, subgroup, counterfactual and prompt-injection evidence.
 
 ## Next steps (12-week sprint)
 
 - W1–2: pick 5–10 real cross-team orders, map work packages/evidence, baseline coverage/time/disputes.
 - W3–4: legal review, employee consultation plan, DPIA, minimum-wage/deduction check.
-- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **API slice done; UI/connector pending**.
-- W7–8: reference policy pack, independent spreadsheet/script reconciliation, shadow settlement — **reference pack and fixtures done; spreadsheet/script reconciliation pending**.
+- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **evidence API, employee page, confirmation/appeal done; real connector pending**.
+- W7–8: reference policy pack, independent spreadsheet/script reconciliation, shadow settlement — **reference pack, fixtures and CSV reconciliation done; shadow settlement with real data pending**.
 - W9–10: 20–50 person cycle; measure coverage, time, disputes, trust.
 - W11–12: finance reconciliation, appeal drill, Go/No-Go.
 
