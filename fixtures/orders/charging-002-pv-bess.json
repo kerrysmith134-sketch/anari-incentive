@@ -1,0 +1,37 @@
+{
+  "name": "pv-bess-charging-integrated",
+  "description": "PV+BESS+charging integrated site; fully collected; accepted.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "mode": "SHADOW",
+    "order": {
+      "id": "charging-order-002",
+      "grossProfit": "3000000",
+      "currency": "CNY",
+      "contractAmount": "4000000",
+      "cashCollected": "4000000",
+      "projectType": "PV_BESS_CHARGING",
+      "siteId": "site-shenzhen-002",
+      "safetyIncidents": 0,
+      "acceptanceStatus": "ACCEPTED"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.35", "role": "SOLUTION_ENGINEER"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.25", "role": "DELIVERY_MANAGER"}
+    ]
+  },
+  "expected": {
+    "pool": "120000",
+    "poolRounded": "114000",
+    "cashFactor": "1",
+    "retentionHeld": "6000",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "45600"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "39900"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "28500"}
+    ]
+  }
+}

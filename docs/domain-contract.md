@@ -208,3 +208,18 @@ An `EvidenceNode` records `evidenceType`, `subjectType/subjectId`, `sourceSystem
 - prompt-injection pass rate.
 
 The resulting `EvaluationGate` blocks numeric AI scoring when any threshold fails. The gate is deliberately separate from the evidence assistant: summarisation/gap detection can run; scoring cannot.
+
+---
+
+## 8. Charging project policy (`CHARGING_PROJECT_CONTRIBUTION_V1`)
+
+```
+basePool = min(grossProfit × 4%, 150,000)
+cashFactor = min(1, cashCollected / contractAmount)
+cashAdjustedPool = basePool × (60% + 40% × cashFactor)
+retention = cashAdjustedPool × 5%
+payablePool = cashAdjustedPool − retention
+line = payablePool × confirmed attribution weight
+```
+
+Quality gates: customer acceptance must be `ACCEPTED`; no open safety incident. The policy is routed by `policy_version.rule_ast.code`; the generic `ORDER_CONTRIBUTION_V1` remains available for non-project orders. Both use the same allocation and deterministic hash helpers.

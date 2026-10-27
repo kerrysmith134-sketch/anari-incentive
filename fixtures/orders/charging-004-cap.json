@@ -1,0 +1,35 @@
+{
+  "name": "large-site-cap",
+  "description": "Large site hits the 150,000 pool cap; 50% cash collected.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "mode": "SHADOW",
+    "order": {
+      "id": "charging-order-004",
+      "grossProfit": "10000000",
+      "currency": "CNY",
+      "contractAmount": "12000000",
+      "cashCollected": "6000000",
+      "projectType": "PV_BESS_CHARGING",
+      "siteId": "site-guangzhou-004",
+      "safetyIncidents": 0,
+      "acceptanceStatus": "ACCEPTED"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.7", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.3", "role": "DELIVERY_MANAGER"}
+    ]
+  },
+  "expected": {
+    "pool": "150000",
+    "poolRounded": "114000",
+    "cashFactor": "0.5",
+    "retentionHeld": "6000",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "79800"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "34200"}
+    ]
+  }
+}

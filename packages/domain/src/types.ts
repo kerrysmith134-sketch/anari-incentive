@@ -106,6 +106,14 @@ export interface OrderFact {
   id: string;
   grossProfit: DecimalString;
   currency: string;
+  /** Charging/energy-project fields; optional for the generic order policy. */
+  contractAmount?: DecimalString;
+  cashCollected?: DecimalString;
+  retentionAmount?: DecimalString;
+  projectType?: string;
+  siteId?: string;
+  safetyIncidents?: number;
+  acceptanceStatus?: "ACCEPTED" | "PENDING" | "REJECTED";
 }
 
 export interface ParticipantInput {
@@ -228,6 +236,15 @@ export interface PolicyDefinition {
   poolRate: DecimalString;
   poolCap: DecimalString;
   rounding: "HALF_UP" | "HALF_EVEN" | "DOWN";
+  /** Charging-project policy: share of the pool exposed to cash collection. */
+  cashCollectionWeight?: DecimalString;
+  /** Charging-project policy: share of the pool held until warranty expiry. */
+  retentionHoldbackRate?: DecimalString;
+  /** Charging-project policy: hard quality gates. */
+  qualityGate?: {
+    requireAcceptance: boolean;
+    blockOnSafetyIncident: boolean;
+  };
   /** Optional display guard; payroll compliance is still a separate gate. */
   minimumWage?: {
     monthlyMinimum: DecimalString;

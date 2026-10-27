@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { PgStore } from "../pg-store.js";
-import { REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
@@ -70,9 +70,9 @@ describePg("PgStore vertical slice", () => {
     return { claim, decision };
   }
 
-  async function completeGate() {
+  async function completeGate(policyVersionId = REFERENCE_POLICY_ID) {
     return store.recordLegalGate({
-      policyVersionId: REFERENCE_POLICY_ID,
+      policyVersionId,
       democraticProcedureRef: "pg-dp-1",
       employeeNoticeRef: "pg-notice-1",
       dataProtectionAssessmentRef: "pg-dpia-1",
@@ -163,6 +163,50 @@ describePg("PgStore vertical slice", () => {
     expect(evidence).toHaveLength(2);
     const links = await store.listEvidenceLinks(first.id);
     expect(links).toHaveLength(1);
+  });
+
+  it("calculates a charging project through PostgreSQL", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate(CHARGING_POLICY_ID);
+
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: CHARGING_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "pg-charging-001",
+        grossProfit: "1000000",
+        currency: "CNY",
+        contractAmount: "2000000",
+        cashCollected: "1500000",
+        projectType: "DC_FAST_CHARGING_STATION",
+        siteId: "site-pg-001",
+        safetyIncidents: 0,
+        acceptanceStatus: "ACCEPTED",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "SALES_LEAD",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "DELIVERY_MANAGER",
+        },
+      ],
+    });
+    expect(run.status).toBe("CALCULATED");
+    expect(run.lines.map((line) => line.roundedAmount)).toEqual([
+      "20520",
+      "13680",
+    ]);
+    expect(run.lines[0]!.trace.retentionHeld).toBe("1800");
   });
 
   it("blocks a formal run without a complete legal gate", async () => {

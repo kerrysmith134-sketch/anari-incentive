@@ -32,7 +32,12 @@ import type {
   CreateWorkPackageInput,
 } from "@anari/contracts";
 import { InMemoryLedger } from "@anari/ledger";
-import { calculateOrderContribution, sha256 } from "@anari/policy-dsl";
+import {
+  PolicyGateError,
+  calculateChargingProjectContribution,
+  calculateOrderContribution,
+  sha256,
+} from "@anari/policy-dsl";
 import type {
   IncentiveStore,
   RecordConfirmationInput,
@@ -527,7 +532,18 @@ export class Store implements IncentiveStore {
       legalGate: gate,
     };
 
-    const result = calculateOrderContribution(policy, calculationInput);
+    let result;
+    try {
+      result =
+        policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
+          ? calculateChargingProjectContribution(policy, calculationInput)
+          : calculateOrderContribution(policy, calculationInput);
+    } catch (error) {
+      if (error instanceof PolicyGateError) {
+        throw new CalculationBlockedError(error.blockers);
+      }
+      throw error;
+    }
     const run: CalculationRun = {
       id: randomUUID(),
       tenantId: DEFAULT_TENANT_ID,

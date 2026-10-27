@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { Store } from "../store.js";
-import { REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
@@ -94,10 +94,10 @@ async function createConfirmedClaim(
   return { claimId, decisionId: decision.body.data.id as string };
 }
 
-async function recordCompleteLegalGate() {
+async function recordCompleteLegalGate(policyVersionId = REFERENCE_POLICY_ID) {
   const gate = await call(
     "POST",
-    `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+    `/api/v1/policy-versions/${policyVersionId}/legal-gate`,
     {
       policyApproved: true,
       minimumWageChecked: true,
@@ -332,6 +332,83 @@ describe("vertical slice", () => {
     });
     expect(decision.status).toBe(422);
     expect(decision.body.error.code).toBe("INVARIANT_VIOLATION");
+  });
+
+  it("calculates a charging project with cash weighting and retention", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate(CHARGING_POLICY_ID);
+
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: CHARGING_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "charging-api-001",
+        grossProfit: "1000000",
+        currency: "CNY",
+        contractAmount: "2000000",
+        cashCollected: "1500000",
+        projectType: "DC_FAST_CHARGING_STATION",
+        siteId: "site-api-001",
+        safetyIncidents: 0,
+        acceptanceStatus: "ACCEPTED",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "SALES_LEAD",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "DELIVERY_MANAGER",
+        },
+      ],
+    });
+    expect(run.status).toBe(201);
+    expect(run.body.data.lines.map((line: { roundedAmount: string }) => line.roundedAmount)).toEqual([
+      "20520",
+      "13680",
+    ]);
+    expect(run.body.data.lines[0].trace.retentionHeld).toBe("1800");
+  });
+
+  it("blocks a charging project with an open safety incident", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate(CHARGING_POLICY_ID);
+
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: CHARGING_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "charging-api-002",
+        grossProfit: "1000000",
+        currency: "CNY",
+        contractAmount: "2000000",
+        cashCollected: "1500000",
+        safetyIncidents: 1,
+        acceptanceStatus: "ACCEPTED",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "1",
+          role: "SALES_LEAD",
+        },
+      ],
+    });
+    expect(run.status).toBe(422);
+    expect(run.body.error.code).toBe("CALCULATION_BLOCKED");
+    expect(run.body.error.details.blockers).toContain("SAFETY_INCIDENT_OPEN");
   });
 
   it("creates an evidence graph and links supporting/counter evidence", async () => {

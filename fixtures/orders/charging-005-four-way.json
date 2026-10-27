@@ -1,0 +1,39 @@
+{
+  "name": "four-way-contribution",
+  "description": "Four roles share a fully collected project equally.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "mode": "SHADOW",
+    "order": {
+      "id": "charging-order-005",
+      "grossProfit": "2000000",
+      "currency": "CNY",
+      "contractAmount": "2500000",
+      "cashCollected": "2500000",
+      "projectType": "DC_FAST_CHARGING_STATION",
+      "siteId": "site-beijing-005",
+      "safetyIncidents": 0,
+      "acceptanceStatus": "ACCEPTED"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "SOLUTION_ENGINEER"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "DELIVERY_MANAGER"},
+      {"personId": "00000000-0000-4000-8000-000000000004", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "O&M_LEAD"}
+    ]
+  },
+  "expected": {
+    "pool": "80000",
+    "poolRounded": "76000",
+    "cashFactor": "1",
+    "retentionHeld": "4000",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "19000"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "19000"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "19000"},
+      {"personId": "00000000-0000-4000-8000-000000000004", "roundedAmount": "19000"}
+    ]
+  }
+}

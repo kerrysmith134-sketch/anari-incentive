@@ -33,7 +33,12 @@ import type {
   CreateWorkPackageInput,
 } from "@anari/contracts";
 import { hashLedgerEntry } from "@anari/ledger";
-import { calculateOrderContribution, sha256 } from "@anari/policy-dsl";
+import {
+  PolicyGateError,
+  calculateChargingProjectContribution,
+  calculateOrderContribution,
+  sha256,
+} from "@anari/policy-dsl";
 import type {
   IncentiveStore,
   RecordConfirmationInput,
@@ -73,6 +78,14 @@ function normalizeAmount(value: string): string {
   const [whole, fraction = ""] = unsigned.split(".");
   const normalized = `${whole}.${(fraction + "000000").slice(0, 6)}`;
   return negative ? `-${normalized}` : normalized;
+}
+
+/** Human/API-facing amount: drop trailing zeros, e.g. 20520.000000 -> 20520. */
+function trimAmount(value: string): string {
+  const [whole, fraction] = value.split(".");
+  if (!fraction) return value;
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed.length > 0 ? `${whole}.${trimmed}` : whole!;
 }
 
 export class PgStore implements IncentiveStore {
@@ -661,7 +674,18 @@ export class PgStore implements IncentiveStore {
         participants: input.participants,
         legalGate: gate,
       };
-      const result = calculateOrderContribution(policy, calculationInput);
+      let result;
+      try {
+        result =
+          policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
+            ? calculateChargingProjectContribution(policy, calculationInput)
+            : calculateOrderContribution(policy, calculationInput);
+      } catch (error) {
+        if (error instanceof PolicyGateError) {
+          throw new CalculationBlockedError(error.blockers);
+        }
+        throw error;
+      }
       const runId = randomUUID();
       const warnings =
         input.mode === "FORMAL"
@@ -690,6 +714,35 @@ export class PgStore implements IncentiveStore {
         ],
       );
 
+      const lineIds = new Map<string, string>();
+      for (const line of result.lines) {
+        const lineId = randomUUID();
+        lineIds.set(line.lineKey, lineId);
+        await client.query(
+          `INSERT INTO calculation_lines
+            (id, tenant_id, calculation_run_id, line_key, person_id,
+             work_package_id, incentive_type, base_amount, multiplier,
+             raw_amount, rounded_amount, currency, trace, result_hash)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [
+            lineId,
+            this.tenantId,
+            runId,
+            line.lineKey,
+            line.personId,
+            line.workPackageId,
+            line.incentiveType,
+            line.baseAmount,
+            line.multiplier,
+            line.rawAmount,
+            line.roundedAmount,
+            line.currency,
+            JSON.stringify(line.trace),
+            result.resultHash,
+          ],
+        );
+      }
+
       if (input.mode === "FORMAL") {
         await client.query(
           "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
@@ -705,31 +758,7 @@ export class PgStore implements IncentiveStore {
         let prevHash = lastResult.rows[0]?.entry_hash ?? "GENESIS";
 
         for (const line of result.lines) {
-          const lineId = randomUUID();
-          await client.query(
-            `INSERT INTO calculation_lines
-              (id, tenant_id, calculation_run_id, line_key, person_id,
-               work_package_id, incentive_type, base_amount, multiplier,
-               raw_amount, rounded_amount, currency, trace, result_hash)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-            [
-              lineId,
-              this.tenantId,
-              runId,
-              line.lineKey,
-              line.personId,
-              line.workPackageId,
-              line.incentiveType,
-              line.baseAmount,
-              line.multiplier,
-              line.rawAmount,
-              line.roundedAmount,
-              line.currency,
-              JSON.stringify(line.trace),
-              result.resultHash,
-            ],
-          );
-
+          const lineId = lineIds.get(line.lineKey)!;
           const ledgerId = randomUUID();
           const createdAt = new Date().toISOString();
           const idempotencyKey = `${runId}:${line.lineKey}:INCENTIVE`;
@@ -1040,7 +1069,7 @@ export class PgStore implements IncentiveStore {
           calculationRunId: entry.calculationRunId,
           calculationLineId: entry.calculationLineId,
           entryType: entry.entryType,
-          amount: entry.amount,
+          amount: normalizeAmount(entry.amount),
           currency: entry.currency,
           sourceEntryId: entry.sourceEntryId,
           idempotencyKey: entry.idempotencyKey,
@@ -1196,10 +1225,10 @@ export class PgStore implements IncentiveStore {
         personId: line.person_id,
         workPackageId: line.work_package_id,
         incentiveType: line.incentive_type,
-        baseAmount: line.base_amount,
-        multiplier: line.multiplier,
-        rawAmount: line.raw_amount,
-        roundedAmount: line.rounded_amount,
+        baseAmount: trimAmount(line.base_amount),
+        multiplier: trimAmount(line.multiplier),
+        rawAmount: trimAmount(line.raw_amount),
+        roundedAmount: trimAmount(line.rounded_amount),
         currency: line.currency,
         trace: line.trace,
       })),
@@ -1346,7 +1375,7 @@ export class PgStore implements IncentiveStore {
       calculationRunId: row.calculation_run_id,
       calculationLineId: row.calculation_line_id ?? undefined,
       entryType: row.entry_type,
-      amount: normalizeAmount(row.amount),
+      amount: trimAmount(row.amount),
       currency: row.currency,
       status: row.status,
       sourceEntryId: row.source_entry_id ?? undefined,

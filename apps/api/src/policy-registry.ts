@@ -16,6 +16,22 @@ export const referencePolicy: PolicyDefinition = {
   minimumWage: { monthlyMinimum: "2690", checked: false },
 };
 
+export const CHARGING_POLICY_ID = "00000000-0000-4000-8000-000000000101";
+
+export const chargingProjectPolicy: PolicyDefinition = {
+  code: "CHARGING_PROJECT_CONTRIBUTION_V1",
+  version: 1,
+  currency: "CNY",
+  poolRate: "0.04",
+  poolCap: "150000",
+  rounding: "HALF_UP",
+  cashCollectionWeight: "0.4",
+  retentionHoldbackRate: "0.05",
+  qualityGate: { requireAcceptance: true, blockOnSafetyIncident: true },
+  minimumWage: { monthlyMinimum: "2690", checked: false },
+};
+
 export const policies = new Map<string, PolicyDefinition>([
   [REFERENCE_POLICY_ID, referencePolicy],
+  [CHARGING_POLICY_ID, chargingProjectPolicy],
 ]);

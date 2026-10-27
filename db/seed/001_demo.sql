@@ -51,6 +51,28 @@ VALUES (
 )
 ON CONFLICT (tenant_id, policy_code, version) DO NOTHING;
 
+INSERT INTO policy_versions (
+  id, tenant_id, policy_code, version, scope, status,
+  effective_from, rule_ast, rule_schema_version, content_hash,
+  approved_by, approved_at, published_at
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000101',
+  '00000000-0000-4000-8000-000000000001',
+  'CHARGING_PROJECT_CONTRIBUTION_V1',
+  1,
+  '{"legalEntity":"anari-demo","jurisdiction":"CN","projectTypes":["DC_FAST_CHARGING_STATION","PV_BESS_CHARGING"]}'::jsonb,
+  'PUBLISHED',
+  '2026-10-01T00:00:00Z',
+  '{"code":"CHARGING_PROJECT_CONTRIBUTION_V1","version":1,"currency":"CNY","poolRate":"0.04","poolCap":"150000","rounding":"HALF_UP","cashCollectionWeight":"0.4","retentionHoldbackRate":"0.05","qualityGate":{"requireAcceptance":true,"blockOnSafetyIncident":true},"minimumWage":{"monthlyMinimum":"2690","checked":false}}'::jsonb,
+  '1.0',
+  'demo-policy-hash-charging-v1',
+  '00000000-0000-4000-8000-000000000003',
+  '2026-10-01T00:00:00Z',
+  '2026-10-01T00:00:00Z'
+)
+ON CONFLICT (tenant_id, policy_code, version) DO NOTHING;
+
 COMMIT;
 
 -- Application role for RLS tests / local API. The role deliberately has

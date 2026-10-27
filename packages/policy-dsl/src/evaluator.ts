@@ -71,26 +71,30 @@ function normalizeWeights(
  * rounded lines equal to the rounded pool and gives the independent reference
  * a precise, reproducible tie-break rule.
  */
-export function calculateOrderContribution(
+export interface AllocatePoolOptions {
+  incentiveType?: string;
+  baseAmount?: bigint;
+  trace?: Record<string, unknown>;
+}
+
+/**
+ * Allocate a rounded pool across participants using human-confirmed weights.
+ *
+ * Lines are first floored to cents, then the remaining cents are allocated by
+ * the largest fractional remainder ("largest remainder" / Hamilton method).
+ * Remainder ties are broken by personId ascending. This keeps the sum of
+ * rounded lines equal to the rounded pool and gives the independent reference
+ * a precise, reproducible tie-break rule.
+ */
+export function allocatePool(
   policy: PolicyDefinition,
   input: CalculationInput,
-): OrderContributionResult {
-  if (input.order.currency !== policy.currency) {
-    throw new Error(
-      `Currency mismatch: order ${input.order.currency}, policy ${policy.currency}`,
-    );
-  }
-  const grossProfit = parseDecimal(input.order.grossProfit);
-  if (grossProfit < 0n) {
-    throw new Error("Gross profit cannot be negative");
-  }
-
-  const pool = min(
-    mul(grossProfit, parseDecimal(policy.poolRate)),
-    parseDecimal(policy.poolCap),
-  );
-  const poolRounded = roundTo(pool, 2, policy.rounding);
+  poolRounded: bigint,
+  options: AllocatePoolOptions = {},
+): CalculationLine[] {
   const { total, parsed } = normalizeWeights(input.participants);
+  const incentiveType = options.incentiveType ?? "ORDER_CONTRIBUTION";
+  const baseAmount = options.baseAmount ?? parseDecimal(input.order.grossProfit);
 
   const participants: AllocatableParticipant[] = parsed.map((item) => {
     const normalized = div(item.weight, total);
@@ -142,16 +146,16 @@ export function calculateOrderContribution(
     );
   }
 
-  const lines: CalculationLine[] = participants.map((participant) => ({
+  return participants.map((participant) => ({
     lineKey: [
       participant.personId,
       participant.workPackageId,
-      "ORDER_CONTRIBUTION",
+      incentiveType,
     ].join(":"),
     personId: participant.personId,
     workPackageId: participant.workPackageId,
-    incentiveType: "ORDER_CONTRIBUTION",
-    baseAmount: formatDecimal(grossProfit),
+    incentiveType,
+    baseAmount: formatDecimal(baseAmount),
     multiplier: formatDecimal(participant.normalized),
     rawAmount: formatDecimal(participant.raw),
     roundedAmount: formatDecimal(participant.rounded),
@@ -159,16 +163,48 @@ export function calculateOrderContribution(
     trace: {
       policyCode: policy.code,
       policyVersion: policy.version,
-      pool: formatDecimal(pool),
       poolRounded: formatDecimal(poolRounded),
       poolRate: policy.poolRate,
       poolCap: policy.poolCap,
-      grossProfit: formatDecimal(grossProfit),
+      baseAmount: formatDecimal(baseAmount),
       normalizedWeight: formatDecimal(participant.normalized),
       rounding: policy.rounding,
       engineVersion: ENGINE_VERSION,
+      ...options.trace,
     },
   }));
+}
+
+/**
+ * Deterministic order-contribution pool calculation.
+ *
+ * Policy:
+ *   pool = min(grossProfit * poolRate, poolCap)
+ *   line = pool * normalized attribution weight
+ */
+export function calculateOrderContribution(
+  policy: PolicyDefinition,
+  input: CalculationInput,
+): OrderContributionResult {
+  if (input.order.currency !== policy.currency) {
+    throw new Error(
+      `Currency mismatch: order ${input.order.currency}, policy ${policy.currency}`,
+    );
+  }
+  const grossProfit = parseDecimal(input.order.grossProfit);
+  if (grossProfit < 0n) {
+    throw new Error("Gross profit cannot be negative");
+  }
+
+  const pool = min(
+    mul(grossProfit, parseDecimal(policy.poolRate)),
+    parseDecimal(policy.poolCap),
+  );
+  const poolRounded = roundTo(pool, 2, policy.rounding);
+  const lines = allocatePool(policy, input, poolRounded, {
+    baseAmount: grossProfit,
+    trace: { pool: formatDecimal(pool) },
+  });
 
   const inputSnapshotHash = sha256(input);
   const resultHash = sha256({

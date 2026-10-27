@@ -1,0 +1,37 @@
+{
+  "name": "charging-retrofit",
+  "description": "Small retrofit with only 25% cash collected; exercises cash weighting and cent remainder.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "mode": "SHADOW",
+    "order": {
+      "id": "charging-order-003",
+      "grossProfit": "500000",
+      "currency": "CNY",
+      "contractAmount": "800000",
+      "cashCollected": "200000",
+      "projectType": "CHARGING_RETROFIT",
+      "siteId": "site-hangzhou-003",
+      "safetyIncidents": 0,
+      "acceptanceStatus": "ACCEPTED"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "DELIVERY_MANAGER"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "COMMISSIONING_ENGINEER"}
+    ]
+  },
+  "expected": {
+    "pool": "20000",
+    "poolRounded": "13300",
+    "cashFactor": "0.25",
+    "retentionHeld": "700",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "4433.34"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "4433.33"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "4433.33"}
+    ]
+  }
+}

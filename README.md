@@ -4,7 +4,9 @@
 
 This repository is the implementation baseline for PRD V4.1. It does **not** try to be a generic HRIS, payroll system, project-management suite, or “AI gives everyone a score” product. It connects business facts, work packages, deliverables, acceptance, contribution claims, attribution decisions, deterministic calculation, approval, employee confirmation/appeal, and an append-only ledger — so a company can explain **who contributed to what, and why a payment is what it is**.
 
-> Status: **Sprint 0/1 vertical slice**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with a reference policy pack, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, an AI evaluation gate scaffold, tests, and PostgreSQL migrations. It is not production-ready.
+> **First wedge**: EV charging / PV+BESS+charging project delivery — initially DC fast-charging station EPC. The industry profile, work-package template, evidence map and risk list are in [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md).
+>
+> Status: **Sprint 0/1/2 vertical slice**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with a reference policy pack, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, an AI evaluation gate scaffold, tests, and PostgreSQL migrations. It is not production-ready.
 
 ---
 
@@ -15,7 +17,8 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
-| Reference policy pack | `fixtures/policies/order-contribution-v1.json` + 5 order fixtures with expected outputs |
+| Charging policy | `CHARGING_PROJECT_CONTRIBUTION_V1`: project gross profit × 4% (cap 150k), 40% cash-collection weighting, 5% retention holdback, acceptance/safety gates |
+| Reference policy pack | generic `order-contribution-v1` + `charging-project-contribution-v1`; 5 generic + 5 charging project fixtures with expected outputs |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
@@ -29,7 +32,7 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **42 unit/API tests + 4 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| Tests | **56 unit/API tests + 5 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -39,7 +42,7 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;
 - Full project management, HRIS, payroll;
-- Employee-facing UI (the API is the current surface).
+- Full employee-facing UI (a minimal page exists at `/`); real Feishu/CRM connector.
 
 These are deliberately deferred per `docs/PRD_V4.1_评审修订版.md`.
 
@@ -138,12 +141,12 @@ curl -s http://localhost:3000/api/v1/calculation-runs \
   -H 'content-type: application/json' \
   -d '{
     "cycleId": "00000000-0000-4000-8000-000000000020",
-    "policyVersionId": "00000000-0000-4000-8000-000000000100",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
     "mode": "SHADOW",
-    "order": {"id": "order-1", "grossProfit": "100000", "currency": "CNY"},
+    "order": {"id": "charging-order-1", "grossProfit": "1000000", "currency": "CNY", "contractAmount": "2000000", "cashCollected": "1500000", "projectType": "DC_FAST_CHARGING_STATION", "siteId": "site-001", "safetyIncidents": 0, "acceptanceStatus": "ACCEPTED"},
     "participants": [
-      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.6", "role": "OWNER"},
-      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "CONTRIBUTOR"}
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.6", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "DELIVERY_MANAGER"}
     ]
   }' | jq
 ```
@@ -183,6 +186,7 @@ scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 scripts/reconcile.ts     CSV vs engine reconciliation
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
+  wedge-ev-charging.md    EV charging / PV+BESS+charging wedge profile
   REVIEW_2026-10-27.md    Full review that drove the revision
   domain-contract.md      State machines, money-path invariants, commands
   adr/                    Architecture decision records
@@ -217,5 +221,6 @@ See `docs/PRD_V4.1_评审修订版.md` §11 for Go/No-Go and kill criteria.
 
 - Full review: [`docs/REVIEW_2026-10-27.md`](docs/REVIEW_2026-10-27.md)
 - Revised PRD: [`docs/PRD_V4.1_评审修订版.md`](docs/PRD_V4.1_评审修订版.md)
+- EV charging wedge: [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md)
 - Domain contract: [`docs/domain-contract.md`](docs/domain-contract.md)
 - ADRs: [`docs/adr/`](docs/adr/)

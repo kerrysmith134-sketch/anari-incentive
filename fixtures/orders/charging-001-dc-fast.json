@@ -1,0 +1,37 @@
+{
+  "name": "dc-fast-charging-station",
+  "description": "120kW DC fast-charging station, 20 piles; 75% cash collected; accepted.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "mode": "SHADOW",
+    "order": {
+      "id": "charging-order-001",
+      "grossProfit": "1000000",
+      "currency": "CNY",
+      "contractAmount": "2000000",
+      "cashCollected": "1500000",
+      "projectType": "DC_FAST_CHARGING_STATION",
+      "siteId": "site-shanghai-001",
+      "safetyIncidents": 0,
+      "acceptanceStatus": "ACCEPTED"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.5", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.3", "role": "SOLUTION_ENGINEER"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.2", "role": "DELIVERY_MANAGER"}
+    ]
+  },
+  "expected": {
+    "pool": "40000",
+    "poolRounded": "34200",
+    "cashFactor": "0.75",
+    "retentionHeld": "1800",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "17100"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "10260"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "6840"}
+    ]
+  }
+}
