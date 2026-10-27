@@ -1,0 +1,33 @@
+{
+  "name": "single-contributor",
+  "description": "A single accountable owner receives the whole pool.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000100",
+    "mode": "SHADOW",
+    "order": {
+      "id": "order-004",
+      "grossProfit": "80000",
+      "currency": "CNY"
+    },
+    "participants": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "1",
+        "role": "OWNER"
+      }
+    ]
+  },
+  "expected": {
+    "pool": "4000",
+    "poolRounded": "4000",
+    "lines": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "roundedAmount": "4000"
+      }
+    ]
+  }
+}

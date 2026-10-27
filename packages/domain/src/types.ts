@@ -126,6 +126,40 @@ export interface CalculationInput {
   legalGate?: LegalGate;
 }
 
+/**
+ * Server-side legal-gate record. Callers cannot self-assert a gate on a
+ * calculation request; the calculation reads this record by policy version.
+ */
+export interface LegalGateRecord extends LegalGate {
+  id: UUID;
+  tenantId: UUID;
+  policyVersionId: UUID;
+  recordedBy: UUID;
+  recordedAt: string;
+}
+
+export type ConfirmationTargetType =
+  | "EVALUATION"
+  | "ATTRIBUTION"
+  | "CALCULATION"
+  | "LEDGER";
+
+export type ConfirmationDecision = "VIEWED" | "CONFIRMED" | "OBJECTED";
+
+export interface EmployeeConfirmation {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  targetType: ConfirmationTargetType;
+  targetId: UUID;
+  decision: ConfirmationDecision;
+  reason?: string;
+  viewedAt?: string;
+  confirmedAt?: string;
+  objectedAt?: string;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;
@@ -144,6 +178,7 @@ export interface CalculationRun {
   id: UUID;
   tenantId: UUID;
   cycleId: UUID;
+  mode: CalculationMode;
   policyVersionId: UUID;
   engineVersion: string;
   inputSnapshotHash: string;

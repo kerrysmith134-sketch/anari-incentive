@@ -1,0 +1,53 @@
+{
+  "name": "rounding-remainder",
+  "description": "A 5 CNY pool split three ways exercises largest-remainder allocation.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000100",
+    "mode": "SHADOW",
+    "order": {
+      "id": "order-003",
+      "grossProfit": "100",
+      "currency": "CNY"
+    },
+    "participants": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "1",
+        "role": "OWNER"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "1",
+        "role": "CONTRIBUTOR"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000003",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "1",
+        "role": "CONTRIBUTOR"
+      }
+    ]
+  },
+  "expected": {
+    "pool": "5",
+    "poolRounded": "5",
+    "lines": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "roundedAmount": "1.67"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "roundedAmount": "1.67"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000003",
+        "roundedAmount": "1.66"
+      }
+    ]
+  }
+}

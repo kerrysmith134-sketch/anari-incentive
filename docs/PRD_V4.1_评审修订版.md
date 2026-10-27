@@ -424,8 +424,11 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `packages/domain`：canonical 状态机、类型、核心不变量；
 - `packages/policy-dsl`：确定性 decimal、订单贡献池计算、独立参照、哈希；
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
-- `apps/api`：工作包→claim→decision→calculation→approve→lock 的最小 API；
+- `packages/ai-gate`：评测门禁 + 非评分证据助手；
+- `apps/api`：工作包→claim→decision→legal gate→calculation→confirmation→approve→lock 的最小 API；内存与 PostgreSQL 两种存储；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
+- `db/seed`：demo tenant/people/cycle/policy + RLS app role；
+- `fixtures`：reference policy + 5 个订单 fixture；
 - `docs/adr`：关键架构决策。
 
 该切片**不是**完整 P0；它是 P0 的第一个可运行骨架，用于验证领域契约、金额路径和测试方式。

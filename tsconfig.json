@@ -15,7 +15,8 @@
       "@anari/domain": ["packages/domain/src/index.ts"],
       "@anari/contracts": ["packages/contracts/src/index.ts"],
       "@anari/policy-dsl": ["packages/policy-dsl/src/index.ts"],
-      "@anari/ledger": ["packages/ledger/src/index.ts"]
+      "@anari/ledger": ["packages/ledger/src/index.ts"],
+      "@anari/ai-gate": ["packages/ai-gate/src/index.ts"]
     },
     "types": ["node", "vitest/globals"],
     "noEmit": true

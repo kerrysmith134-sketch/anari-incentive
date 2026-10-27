@@ -16,6 +16,30 @@ export class LedgerError extends Error {
   }
 }
 
+export interface LedgerHashInput {
+  id: string;
+  tenantId: string;
+  personId: string;
+  cycleId: string;
+  calculationRunId: string;
+  calculationLineId?: string;
+  entryType: LedgerEntryType;
+  amount: string;
+  currency: string;
+  sourceEntryId?: string;
+  idempotencyKey: string;
+  prevHash: string;
+  createdAt: string;
+}
+
+/**
+ * Hash used by both the in-memory ledger and the PostgreSQL store. It covers
+ * the immutable economic content, not mutable workflow status.
+ */
+export function hashLedgerEntry(input: LedgerHashInput): string {
+  return sha256(input);
+}
+
 export interface AppendLedgerInput {
   tenantId: string;
   personId: string;
@@ -210,7 +234,7 @@ export class InMemoryLedger {
    * new entries.
    */
   private hashEntry(entry: AmountLedgerEntry): string {
-    return sha256({
+    return hashLedgerEntry({
       id: entry.id,
       tenantId: entry.tenantId,
       personId: entry.personId,

@@ -10,6 +10,7 @@ export default defineConfig({
       "@anari/contracts": `${root}packages/contracts/src/index.ts`,
       "@anari/policy-dsl": `${root}packages/policy-dsl/src/index.ts`,
       "@anari/ledger": `${root}packages/ledger/src/index.ts`,
+      "@anari/ai-gate": `${root}packages/ai-gate/src/index.ts`,
     },
   },
   test: {

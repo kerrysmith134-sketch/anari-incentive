@@ -1,0 +1,53 @@
+{
+  "name": "cap-with-three-contributors",
+  "description": "High-margin order hits the cap and is split 40/35/25.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000100",
+    "mode": "SHADOW",
+    "order": {
+      "id": "order-005",
+      "grossProfit": "5000000",
+      "currency": "CNY"
+    },
+    "participants": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "0.4",
+        "role": "OWNER"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "0.35",
+        "role": "CONTRIBUTOR"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000003",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "0.25",
+        "role": "CONTRIBUTOR"
+      }
+    ]
+  },
+  "expected": {
+    "pool": "100000",
+    "poolRounded": "100000",
+    "lines": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "roundedAmount": "40000"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "roundedAmount": "35000"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000003",
+        "roundedAmount": "25000"
+      }
+    ]
+  }
+}

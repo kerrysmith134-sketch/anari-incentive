@@ -142,8 +142,13 @@ Additional application-level invariants:
 | `POST /attribution-decisions` | Claim SUBMITTED/UNDER_REVIEW, adjudicator ≠ claimant | Decision + claim status |
 | `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution | CALCULATED; FORMAL writes ledger |
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
-| `POST /calculation-runs/:id/lock` | APPROVED, confirmation | LOCKED; locks ledger |
+| `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
+| `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
+| `POST /employee-confirmations` | target exists | VIEWED / CONFIRMED / OBJECTED |
 | `POST /appeals` | — | OPEN |
+| `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |
+| `POST /appeals/:id/review` | TRIAGED | UNDER_REVIEW |
+| `POST /appeals/:id/resolve` | UNDER_REVIEW, reviewer ≠ appellant | CLOSED or RECALCULATION_REQUIRED |
 
 ---
 
@@ -156,3 +161,28 @@ Any change to a state, transition, object, or money-path invariant requires:
 3. a contract/state-machine test;
 4. an ADR update if semantics are non-obvious;
 5. a note in the PRD change log.
+
+
+---
+
+## 5. Legal gate and employee confirmation
+
+### Legal gate
+
+A `FORMAL` calculation does not accept a gate from the request body. The gate must be recorded through `POST /policy-versions/:id/legal-gate` and is read from `legal_gate_records`. Required for formal settlement:
+
+- `policyApproved`
+- `minimumWageChecked`
+- `democraticProcedureRef`
+- `employeeNoticeRef`
+- `dataProtectionAssessmentRef`
+
+Missing any of these blocks the run with `CALCULATION_BLOCKED`. A `SHADOW` run may proceed without the gate and produces no ledger entries.
+
+### Employee confirmation
+
+Before a `FORMAL` run can be locked, every participant must have a `CONFIRMED` record for `target_type='CALCULATION'` and `target_id=<run id>`. A `VIEWED` record is not a confirmation. An `OBJECTED` record blocks locking and must be routed to appeal / recalculation. The original calculation and ledger history are preserved.
+
+### AI gate
+
+Numeric AI scoring is not available in the first slice. `packages/ai-gate` exposes evidence summary and gap detection only; `assertScoringAllowed` throws until a gate with a passed evaluation protocol is supplied.

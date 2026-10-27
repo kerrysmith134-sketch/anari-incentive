@@ -65,9 +65,11 @@ function normalizeWeights(
  *   pool = min(grossProfit * poolRate, poolCap)
  *   line = pool * normalized attribution weight
  *
- * The final cents are allocated with the largest-remainder method so that the
- * sum of rounded lines equals the rounded pool exactly. Remainder ties are
- * broken by personId to keep results deterministic.
+ * Lines are first floored to cents, then the remaining cents are allocated by
+ * the largest fractional remainder ("largest remainder" / Hamilton method).
+ * Remainder ties are broken by personId ascending. This keeps the sum of
+ * rounded lines equal to the rounded pool and gives the independent reference
+ * a precise, reproducible tie-break rule.
  */
 export function calculateOrderContribution(
   policy: PolicyDefinition,
@@ -93,7 +95,8 @@ export function calculateOrderContribution(
   const participants: AllocatableParticipant[] = parsed.map((item) => {
     const normalized = div(item.weight, total);
     const raw = div(mul(poolRounded, item.weight), total);
-    const rounded = roundTo(raw, 2, policy.rounding);
+    // Floor first; leftover cents are distributed deterministically below.
+    const rounded = roundTo(raw, 2, "DOWN");
     return {
       personId: item.source.personId,
       workPackageId: item.source.workPackageId,

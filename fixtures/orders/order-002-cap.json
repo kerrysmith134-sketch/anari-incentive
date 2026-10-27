@@ -1,0 +1,43 @@
+{
+  "name": "pool-cap",
+  "description": "High-margin order hits the 100,000 pool cap.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000100",
+    "mode": "SHADOW",
+    "order": {
+      "id": "order-002",
+      "grossProfit": "10000000",
+      "currency": "CNY"
+    },
+    "participants": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "0.7",
+        "role": "OWNER"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "workPackageId": "00000000-0000-4000-8000-000000000010",
+        "attributionWeight": "0.3",
+        "role": "CONTRIBUTOR"
+      }
+    ]
+  },
+  "expected": {
+    "pool": "100000",
+    "poolRounded": "100000",
+    "lines": [
+      {
+        "personId": "00000000-0000-4000-8000-000000000001",
+        "roundedAmount": "70000"
+      },
+      {
+        "personId": "00000000-0000-4000-8000-000000000002",
+        "roundedAmount": "30000"
+      }
+    ]
+  }
+}

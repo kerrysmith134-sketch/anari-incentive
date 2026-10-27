@@ -495,6 +495,7 @@ CREATE TABLE calculation_runs (
   tenant_id uuid NOT NULL REFERENCES tenants(id),
   cycle_id uuid NOT NULL,
   policy_version_id uuid NOT NULL,
+  mode text NOT NULL DEFAULT 'SHADOW' CHECK (mode IN ('SHADOW','FORMAL')),
   engine_version text NOT NULL,
   input_snapshot_hash text NOT NULL,
   input_snapshot jsonb NOT NULL,

@@ -1,0 +1,12 @@
+{
+  "code": "ORDER_CONTRIBUTION_V1",
+  "version": 1,
+  "currency": "CNY",
+  "poolRate": "0.05",
+  "poolCap": "100000",
+  "rounding": "HALF_UP",
+  "minimumWage": {
+    "monthlyMinimum": "2690",
+    "checked": false
+  }
+}

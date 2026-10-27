@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { Store } from "../store.js";
+import { REFERENCE_POLICY_ID } from "../policy-registry.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
 const ADJUDICATOR = "00000000-0000-4000-8000-000000000003";
+const CYCLE = "00000000-0000-4000-8000-000000000020";
 
 let app: FastifyInstance;
 
@@ -40,7 +42,13 @@ async function createAcceptedWorkPackage() {
   expect(created.status).toBe(201);
   const id = created.body.data.id as string;
 
-  expect((await call("POST", `/api/v1/work-packages/${id}/commit`, { expectedVersion: 1 })).status).toBe(200);
+  expect(
+    (
+      await call("POST", `/api/v1/work-packages/${id}/commit`, {
+        expectedVersion: 1,
+      })
+    ).status,
+  ).toBe(200);
   expect((await call("POST", `/api/v1/work-packages/${id}/start`)).status).toBe(200);
   expect((await call("POST", `/api/v1/work-packages/${id}/submit`)).status).toBe(200);
   expect(
@@ -83,7 +91,55 @@ async function createConfirmedClaim(
     rationale: "Evidence supports the claim",
   });
   expect(decision.status).toBe(201);
-  return claimId;
+  return { claimId, decisionId: decision.body.data.id as string };
+}
+
+async function recordCompleteLegalGate() {
+  const gate = await call(
+    "POST",
+    `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+    {
+      policyApproved: true,
+      minimumWageChecked: true,
+      democraticProcedureRef: "demo-dp-1",
+      employeeNoticeRef: "demo-notice-1",
+      dataProtectionAssessmentRef: "demo-dpia-1",
+      recordedBy: ADJUDICATOR,
+    },
+  );
+  expect(gate.status).toBe(200);
+}
+
+async function formalRun(workPackageId: string) {
+  return call("POST", "/api/v1/calculation-runs", {
+    cycleId: CYCLE,
+    policyVersionId: REFERENCE_POLICY_ID,
+    mode: "FORMAL",
+    order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
+    participants: [
+      {
+        personId: OWNER,
+        workPackageId,
+        attributionWeight: "0.6",
+        role: "OWNER",
+      },
+      {
+        personId: MEMBER,
+        workPackageId,
+        attributionWeight: "0.4",
+        role: "CONTRIBUTOR",
+      },
+    ],
+  });
+}
+
+async function confirmCalculation(runId: string, personId: string) {
+  return call("POST", "/api/v1/employee-confirmations", {
+    personId,
+    targetType: "CALCULATION",
+    targetId: runId,
+    decision: "CONFIRMED",
+  });
 }
 
 beforeEach(() => {
@@ -97,8 +153,8 @@ describe("vertical slice", () => {
     await createConfirmedClaim(workPackageId, MEMBER);
 
     const shadow = await call("POST", "/api/v1/calculation-runs", {
-      cycleId: "00000000-0000-4000-8000-000000000020",
-      policyVersionId: "policy-v1",
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
       mode: "SHADOW",
       order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
       participants: [
@@ -123,71 +179,54 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger")).body.data).toHaveLength(0);
   });
 
-  it("blocks formal calculation without the legal gate", async () => {
+  it("blocks formal calculation without a server-side legal gate", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);
     await createConfirmedClaim(workPackageId, MEMBER);
 
-    const formal = await call("POST", "/api/v1/calculation-runs", {
-      cycleId: "00000000-0000-4000-8000-000000000020",
-      policyVersionId: "policy-v1",
-      mode: "FORMAL",
-      order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
-      participants: [
-        {
-          personId: OWNER,
-          workPackageId,
-          attributionWeight: "0.6",
-          role: "OWNER",
-        },
-        {
-          personId: MEMBER,
-          workPackageId,
-          attributionWeight: "0.4",
-          role: "CONTRIBUTOR",
-        },
-      ],
-    });
+    const formal = await formalRun(workPackageId);
     expect(formal.status).toBe(422);
     expect(formal.body.error.code).toBe("CALCULATION_BLOCKED");
     expect(formal.body.error.details.blockers).toContain("LEGAL_GATE_MISSING");
   });
 
-  it("creates, approves and locks a formal run with ledger entries", async () => {
+  it("reports missing legal-gate references explicitly", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);
     await createConfirmedClaim(workPackageId, MEMBER);
-
-    const formal = await call("POST", "/api/v1/calculation-runs", {
-      cycleId: "00000000-0000-4000-8000-000000000020",
-      policyVersionId: "policy-v1",
-      mode: "FORMAL",
-      order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
-      participants: [
-        {
-          personId: OWNER,
-          workPackageId,
-          attributionWeight: "0.6",
-          role: "OWNER",
-        },
-        {
-          personId: MEMBER,
-          workPackageId,
-          attributionWeight: "0.4",
-          role: "CONTRIBUTOR",
-        },
-      ],
-      legalGate: {
+    await call(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      {
         policyApproved: true,
         minimumWageChecked: true,
-        democraticProcedureRef: "demo-dp-1",
-        employeeNoticeRef: "demo-notice-1",
-        dataProtectionAssessmentRef: "demo-dpia-1",
+        recordedBy: ADJUDICATOR,
       },
-    });
+    );
+
+    const formal = await formalRun(workPackageId);
+    expect(formal.status).toBe(422);
+    expect(formal.body.error.details.blockers).toEqual(
+      expect.arrayContaining([
+        "DEMOCRATIC_PROCEDURE_MISSING",
+        "EMPLOYEE_NOTICE_MISSING",
+        "DATA_PROTECTION_ASSESSMENT_MISSING",
+      ]),
+    );
+  });
+
+  it("creates, confirms, approves and locks a formal run", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+
+    const formal = await formalRun(workPackageId);
     expect(formal.status).toBe(201);
     const runId = formal.body.data.id as string;
-    expect(formal.body.data.status).toBe("CALCULATED");
+
+    expect((await confirmCalculation(runId, OWNER)).status).toBe(201);
+    expect((await confirmCalculation(runId, MEMBER)).status).toBe(201);
 
     const ledgerBefore = await call("GET", "/api/v1/ledger");
     expect(ledgerBefore.body.data).toHaveLength(2);
@@ -203,8 +242,40 @@ describe("vertical slice", () => {
     expect(locked.body.data.status).toBe("LOCKED");
 
     const ledgerAfter = await call("GET", "/api/v1/ledger");
-    expect(ledgerAfter.body.data.every((entry: { status: string }) => entry.status === "LOCKED")).toBe(true);
+    expect(
+      ledgerAfter.body.data.every(
+        (entry: { status: string }) => entry.status === "LOCKED",
+      ),
+    ).toBe(true);
     expect((await call("GET", "/api/v1/ledger/verify")).body.data.valid).toBe(true);
+  });
+
+  it("blocks locking when an employee objects", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const formal = await formalRun(workPackageId);
+    const runId = formal.body.data.id as string;
+
+    await confirmCalculation(runId, OWNER);
+    const objection = await call("POST", "/api/v1/employee-confirmations", {
+      personId: MEMBER,
+      targetType: "CALCULATION",
+      targetId: runId,
+      decision: "OBJECTED",
+      reason: "Contribution weight does not reflect my delivery",
+    });
+    expect(objection.status).toBe(201);
+
+    await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    const locked = await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
+      confirmation: "LOCK_CALCULATION",
+    });
+    expect(locked.status).toBe(422);
+    expect(locked.body.error.details.blockers).toContain(
+      `EMPLOYEE_OBJECTION:${MEMBER}`,
+    );
   });
 
   it("rejects illegal state transitions", async () => {
@@ -252,5 +323,50 @@ describe("vertical slice", () => {
     });
     expect(decision.status).toBe(422);
     expect(decision.body.error.code).toBe("INVARIANT_VIOLATION");
+  });
+
+  it("runs an independent appeal review and preserves the original decision", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const { claimId, decisionId } = await createConfirmedClaim(workPackageId, OWNER);
+    const appeal = await call("POST", "/api/v1/appeals", {
+      appellantPersonId: OWNER,
+      targetType: "ATTRIBUTION",
+      targetId: decisionId,
+      reasonCode: "EVIDENCE_NOT_CONSIDERED",
+      statement: "A key delivery was not included in the decision",
+    });
+    expect(appeal.status).toBe(201);
+    const appealId = appeal.body.data.id as string;
+
+    const selfTriage = await call("POST", `/api/v1/appeals/${appealId}/triage`, {
+      reviewerPersonId: OWNER,
+    });
+    expect(selfTriage.status).toBe(409);
+
+    expect(
+      (
+        await call("POST", `/api/v1/appeals/${appealId}/triage`, {
+          reviewerPersonId: ADJUDICATOR,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("POST", `/api/v1/appeals/${appealId}/review`)).status).toBe(200);
+    const resolved = await call("POST", `/api/v1/appeals/${appealId}/resolve`, {
+      reviewerPersonId: ADJUDICATOR,
+      resolution: "CHANGE",
+      rationale: "The missing delivery changes the attribution",
+    });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.status).toBe("RECALCULATION_REQUIRED");
+
+    const decisions = await call(
+      "GET",
+      `/api/v1/attribution-decisions?claimId=${claimId}`,
+    );
+    expect(decisions.body.data[0].id).toBe(decisionId);
+    expect(decisions.body.data[0].status).toBe("CONFIRMED");
+
+    const appealAfter = await call("GET", `/api/v1/appeals/${appealId}`);
+    expect(appealAfter.body.data.status).toBe("RECALCULATION_REQUIRED");
   });
 });

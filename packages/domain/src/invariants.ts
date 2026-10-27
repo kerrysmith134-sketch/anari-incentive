@@ -2,7 +2,9 @@ import type {
   AttributionDecision,
   CalculationLine,
   CalculationMode,
+  CalculationRun,
   ContributionClaim,
+  EmployeeConfirmation,
   LegalGate,
 } from "./types.js";
 
@@ -103,4 +105,31 @@ export function assertSameCurrency(
       );
     }
   }
+}
+
+/**
+ * A FORMAL run may not be locked until every participant has confirmed the
+ * calculation. An objection blocks locking and must go through appeal /
+ * recalculation rather than being silently overridden.
+ */
+export function confirmationBlockers(
+  run: Pick<CalculationRun, "id" | "mode" | "lines">,
+  confirmations: EmployeeConfirmation[],
+): string[] {
+  if (run.mode !== "FORMAL") return [];
+  const blockers: string[] = [];
+  for (const line of run.lines) {
+    const confirmation = confirmations.find(
+      (candidate) =>
+        candidate.personId === line.personId &&
+        candidate.targetType === "CALCULATION" &&
+        candidate.targetId === run.id,
+    );
+    if (!confirmation || confirmation.decision === "VIEWED") {
+      blockers.push(`MISSING_EMPLOYEE_CONFIRMATION:${line.personId}`);
+    } else if (confirmation.decision === "OBJECTED") {
+      blockers.push(`EMPLOYEE_OBJECTION:${line.personId}`);
+    }
+  }
+  return blockers;
 }

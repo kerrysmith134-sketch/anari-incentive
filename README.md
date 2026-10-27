@@ -4,7 +4,7 @@
 
 This repository is the implementation baseline for PRD V4.1. It does **not** try to be a generic HRIS, payroll system, project-management suite, or “AI gives everyone a score” product. It connects business facts, work packages, deliverables, acceptance, contribution claims, attribution decisions, deterministic calculation, approval, employee confirmation/appeal, and an append-only ledger — so a company can explain **who contributed to what, and why a payment is what it is**.
 
-> Status: **Sprint 0 / first vertical slice**. The repository contains a runnable API, domain state machines, a deterministic policy evaluator, an append-only ledger, tests, and PostgreSQL migrations. It is not production-ready.
+> Status: **Sprint 0/1 vertical slice**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with a reference policy pack, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, an AI evaluation gate scaffold, tests, and PostgreSQL migrations. It is not production-ready.
 
 ---
 
@@ -15,16 +15,21 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
-| Independent reference | Separate `Number`-based reference calculation for the first slice; mismatch is visible in tests |
-| Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain |
-| Legal gate | `FORMAL` calculation requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; `SHADOW` can run without payment effect |
+| Reference policy pack | `fixtures/policies/order-contribution-v1.json` + 5 order fixtures with expected outputs |
+| Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
+| Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
+| Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
+| Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
+| Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
+| Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS |
+| AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | 21 tests covering state transitions, self-adjudication block, deterministic results, reference match, legal gate, ledger immutability/idempotency/reversal |
+| Tests | **35 unit/API tests + 3 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference match, legal gate, confirmations/objections, appeals, ledger immutability/idempotency/reversal, and RLS |
 
 ## What is intentionally not implemented yet
 
-- AI scoring / Evaluation Agent (only evidence assistance is allowed until the evaluation gate passes);
+- AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
 - Agent Runtime / autonomous execution;
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
@@ -38,7 +43,7 @@ These are deliberately deferred per `docs/PRD_V4.1_评审修订版.md`.
 
 ## Quick start
 
-### Option A: local Node.js 20+
+### Option A: local Node.js 20+ (memory store)
 
 ```bash
 npm install
@@ -48,28 +53,37 @@ npm run dev
 # API at http://localhost:3000
 ```
 
-### Option B: Docker-only (no local Node required)
+### Option B: Docker-only
 
 ```bash
 docker run --rm -v "$PWD":/app -w /app node:22-alpine \
   sh -c "npm install && npm test && npm run dev"
 ```
 
-### Database
+### PostgreSQL-backed API
 
 ```bash
 docker compose up -d postgres
 export DATABASE_URL="postgres://anari:anari@localhost:5432/anari_incentive"
 npm run db:migrate
+npm run db:seed
+STORE=postgres DATABASE_URL="$DATABASE_URL" npm run dev
 ```
 
-The migrations are:
+The seed creates:
+- tenant `00000000-0000-4000-8000-000000000001`;
+- people `...0001` (owner), `...0002` (contributor), `...0003` (adjudicator);
+- cycle `...0020`;
+- reference policy `...0100`;
+- a non-superuser `anari_app` role (password `anari_app`) with `NOBYPASSRLS` for RLS testing.
 
-1. `db/migrations/001_core_schema.sql` — core objects, canonical state enums, money fields, ledger, audit, outbox/inbox;
-2. `db/migrations/002_governance_schema.sql` — employee representation/notices/confirmations, policy change governance, budgets, financial facts, model evaluation, settlement evidence, privacy/retention;
-3. `db/migrations/003_money_path_invariants.sql` — non-overlap constraints, locked-ledger immutability, audit hash chain, settlement/ledger matching, approval consumption guard, RLS for core tables.
+### PostgreSQL integration tests
 
-> **RLS note**: the app role must be `NOBYPASSRLS` and must `SET LOCAL app.tenant_id = '<uuid>'` at the start of each transaction. The in-memory API currently uses a demo tenant; production auth/tenant context is not wired yet.
+```bash
+npm run test:pg
+```
+
+This starts a disposable `postgres:16-alpine` container on port `55432`, applies the migrations and seed, then runs `PgStore` tests as `anari_app` so RLS is actually enforced.
 
 ---
 
@@ -92,14 +106,21 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/contribution-claims/:id/submit` | DRAFT → SUBMITTED |
 | POST | `/api/v1/attribution-decisions` | Formal decision; claimant cannot be adjudicator |
 | GET | `/api/v1/attribution-decisions?claimId=` | List decisions |
+| POST | `/api/v1/policy-versions/:id/legal-gate` | Record server-side legal gate |
+| GET | `/api/v1/policy-versions/:id/legal-gate` | Read legal gate |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |
 | POST | `/api/v1/calculation-runs/:id/approve` | CALCULATED → APPROVED |
-| POST | `/api/v1/calculation-runs/:id/lock` | APPROVED → LOCKED; locks ledger entries |
+| POST | `/api/v1/calculation-runs/:id/lock` | APPROVED → LOCKED; locks ledger entries; formal runs require confirmations |
+| POST | `/api/v1/employee-confirmations` | VIEWED / CONFIRMED / OBJECTED |
+| GET | `/api/v1/employee-confirmations?personId=` | List confirmations |
 | GET | `/api/v1/ledger` | List ledger |
 | GET | `/api/v1/ledger/verify` | Verify hash chain |
 | POST | `/api/v1/appeals` | Open appeal |
-| GET | `/api/v1/appeals` | List appeals |
+| GET | `/api/v1/appeals` / `/:id` | List/get |
+| POST | `/api/v1/appeals/:id/triage` | OPEN → TRIAGED; assign reviewer |
+| POST | `/api/v1/appeals/:id/review` | TRIAGED → UNDER_REVIEW |
+| POST | `/api/v1/appeals/:id/resolve` | UNDER_REVIEW → DECIDED → CLOSED/RECALCULATION_REQUIRED |
 
 ### Example: shadow calculation
 
@@ -108,7 +129,7 @@ curl -s http://localhost:3000/api/v1/calculation-runs \
   -H 'content-type: application/json' \
   -d '{
     "cycleId": "00000000-0000-4000-8000-000000000020",
-    "policyVersionId": "policy-v1",
+    "policyVersionId": "00000000-0000-4000-8000-000000000100",
     "mode": "SHADOW",
     "order": {"id": "order-1", "grossProfit": "100000", "currency": "CNY"},
     "participants": [
@@ -118,25 +139,45 @@ curl -s http://localhost:3000/api/v1/calculation-runs \
   }' | jq
 ```
 
-`FORMAL` additionally requires `legalGate` with `policyApproved`, `minimumWageChecked`, `democraticProcedureRef`, `employeeNoticeRef`, `dataProtectionAssessmentRef`, and confirmed attribution for every participant. A missing gate returns `422 CALCULATION_BLOCKED`.
+`FORMAL` does **not** accept a `legalGate` in the request body. The gate must be recorded first:
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/policy-versions/00000000-0000-4000-8000-000000000100/legal-gate \
+  -H 'content-type: application/json' \
+  -d '{
+    "policyApproved": true,
+    "minimumWageChecked": true,
+    "democraticProcedureRef": "dp-2026-10",
+    "employeeNoticeRef": "notice-2026-10",
+    "dataProtectionAssessmentRef": "dpia-2026-10",
+    "recordedBy": "00000000-0000-4000-8000-000000000003"
+  }'
+```
+
+Then a `FORMAL` run also requires confirmed attribution for every participant and employee confirmations before `lock`. Missing gates return `422 CALCULATION_BLOCKED`.
 
 ---
 
 ## Repository layout
 
 ```
-apps/api/                 Fastify API and in-memory vertical slice
+apps/api/                 Fastify API, in-memory store, PostgreSQL store
 packages/domain/          Canonical states, types, invariants
 packages/contracts/       Zod request schemas
 packages/policy-dsl/      Deterministic decimal, order-contribution policy, reference
 packages/ledger/          Append-only ledger, idempotency, hash chain
+packages/ai-gate/         Evaluation gate + non-scoring evidence assistant
+fixtures/                 Reference policy and anonymized order fixtures
 db/migrations/            PostgreSQL schema and money-path invariants
+db/seed/                  Demo tenant/people/cycle/policy + RLS app role
+scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision
+  domain-contract.md      State machines, money-path invariants, commands
   adr/                    Architecture decision records
   source/                 V4.0 baseline documents (reference only)
-tests/                    Reserved for cross-package E2E tests
+tests/                    Cross-package fixture/E2E tests
 ```
 
 ## Design decisions that must not be weakened
@@ -145,16 +186,17 @@ tests/                    Reserved for cross-package E2E tests
 2. **Contribution claim ≠ attribution decision.** Self-claims never auto-approve.
 3. **One canonical state machine.** API, DB, and tests derive from `packages/domain/src/states.ts`.
 4. **Locked ledger is immutable.** Corrections append adjustments/reversals.
-5. **Formal calculation requires a legal gate.** Shadow calculation is explicitly non-payment.
-6. **Same input + policy + engine version → same result hash.**
-7. **AI is optional.** Core flows continue with AI disabled.
+5. **Formal calculation requires a server-side legal gate.** A request cannot self-assert legal approval.
+6. **Formal locking requires employee confirmation.** An objection blocks locking and routes to appeal/recalculation.
+7. **Same input + policy + engine version → same result hash.**
+8. **AI is optional and gated.** Evidence summary/gap detection are allowed; numeric scoring requires a passed evaluation gate.
 
 ## Next steps (12-week sprint)
 
 - W1–2: pick 5–10 real cross-team orders, map work packages/evidence, baseline coverage/time/disputes.
 - W3–4: legal review, employee consultation plan, DPIA, minimum-wage/deduction check.
-- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal.
-- W7–8: reference policy pack, independent spreadsheet/script reconciliation, shadow settlement.
+- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **API slice done; UI/connector pending**.
+- W7–8: reference policy pack, independent spreadsheet/script reconciliation, shadow settlement — **reference pack and fixtures done; spreadsheet/script reconciliation pending**.
 - W9–10: 20–50 person cycle; measure coverage, time, disputes, trust.
 - W11–12: finance reconciliation, appeal drill, Go/No-Go.
 
@@ -164,4 +206,5 @@ See `docs/PRD_V4.1_评审修订版.md` §11 for Go/No-Go and kill criteria.
 
 - Full review: [`docs/REVIEW_2026-10-27.md`](docs/REVIEW_2026-10-27.md)
 - Revised PRD: [`docs/PRD_V4.1_评审修订版.md`](docs/PRD_V4.1_评审修订版.md)
+- Domain contract: [`docs/domain-contract.md`](docs/domain-contract.md)
 - ADRs: [`docs/adr/`](docs/adr/)

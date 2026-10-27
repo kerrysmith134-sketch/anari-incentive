@@ -77,6 +77,7 @@ CREATE TABLE employee_confirmations (
   cycle_id uuid,
   target_type text NOT NULL CHECK (target_type IN ('EVALUATION','ATTRIBUTION','CALCULATION','LEDGER')),
   target_id uuid NOT NULL,
+  decision text NOT NULL DEFAULT 'VIEWED' CHECK (decision IN ('VIEWED','CONFIRMED','OBJECTED')),
   viewed_at timestamptz,
   confirmed_at timestamptz,
   objection_at timestamptz,
@@ -87,6 +88,23 @@ CREATE TABLE employee_confirmations (
   UNIQUE (tenant_id, id),
   FOREIGN KEY (tenant_id, person_id) REFERENCES people(tenant_id, id),
   FOREIGN KEY (tenant_id, cycle_id) REFERENCES evaluation_cycles(tenant_id, id)
+);
+
+CREATE TABLE legal_gate_records (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  policy_version_id uuid NOT NULL,
+  democratic_procedure_ref text,
+  employee_notice_ref text,
+  data_protection_assessment_ref text,
+  minimum_wage_checked boolean NOT NULL DEFAULT false,
+  policy_approved boolean NOT NULL DEFAULT false,
+  recorded_by uuid NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, policy_version_id),
+  UNIQUE (tenant_id, id),
+  FOREIGN KEY (tenant_id, policy_version_id) REFERENCES policy_versions(tenant_id, id),
+  FOREIGN KEY (tenant_id, recorded_by) REFERENCES people(tenant_id, id)
 );
 
 -- ---------------------------------------------------------------------------

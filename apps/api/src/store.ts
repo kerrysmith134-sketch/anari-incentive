@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  appealCaseTransitions,
   assertAdjudicatorIsNotClaimant,
   assertTransition,
   attributionDecisionTransitions,
   calculationRunTransitions,
+  confirmationBlockers,
   contributionClaimTransitions,
   legalGateBlockers,
   workPackageTransitions,
@@ -14,7 +16,8 @@ import {
   type CalculationRun,
   type CommitmentSnapshot,
   type ContributionClaim,
-  type LegalGate,
+  type EmployeeConfirmation,
+  type LegalGateRecord,
   type PolicyDefinition,
   type WorkPackage,
 } from "@anari/domain";
@@ -26,9 +29,15 @@ import type {
 } from "@anari/contracts";
 import { InMemoryLedger } from "@anari/ledger";
 import { calculateOrderContribution, sha256 } from "@anari/policy-dsl";
+import type {
+  IncentiveStore,
+  RecordConfirmationInput,
+  RecordLegalGateInput,
+  ResolveAppealInput,
+} from "./store-interface.js";
+import { policies } from "./policy-registry.js";
 
 export const DEFAULT_TENANT_ID = "tenant-demo";
-export const DEFAULT_ENGINE_VERSION = "policy-dsl/0.1.0";
 
 export class NotFoundError extends Error {
   readonly code = "RESOURCE_NOT_FOUND";
@@ -51,21 +60,6 @@ export class CalculationBlockedError extends Error {
   }
 }
 
-const policies = new Map<string, PolicyDefinition>([
-  [
-    "policy-v1",
-    {
-      code: "ORDER_CONTRIBUTION_V1",
-      version: 1,
-      currency: "CNY",
-      poolRate: "0.05",
-      poolCap: "100000",
-      rounding: "HALF_UP",
-      minimumWage: { monthlyMinimum: "2690", checked: false },
-    },
-  ],
-]);
-
 function now(): string {
   return new Date().toISOString();
 }
@@ -74,21 +68,29 @@ function notFound(kind: string, id: string): never {
   throw new NotFoundError(`${kind} ${id} not found`);
 }
 
-export class Store {
+/**
+ * In-memory implementation used by the API tests and local demos. The
+ * PostgreSQL implementation (`PgStore`) must expose the same behaviour.
+ */
+export class Store implements IncentiveStore {
   readonly ledger = new InMemoryLedger();
   private readonly workPackages = new Map<string, WorkPackage>();
   private readonly claims = new Map<string, ContributionClaim>();
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
   private readonly appeals = new Map<string, AppealCase>();
+  private readonly legalGates = new Map<string, LegalGateRecord>();
+  private readonly confirmations = new Map<string, EmployeeConfirmation>();
 
-  getPolicy(policyVersionId: string): PolicyDefinition {
+  async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy = policies.get(policyVersionId);
     if (!policy) notFound("Policy", policyVersionId);
     return policy;
   }
 
-  createWorkPackage(input: CreateWorkPackageInput): WorkPackage {
+  async createWorkPackage(
+    input: CreateWorkPackageInput,
+  ): Promise<WorkPackage> {
     const timestamp = now();
     const workPackage: WorkPackage = {
       id: randomUUID(),
@@ -108,16 +110,19 @@ export class Store {
     return workPackage;
   }
 
-  getWorkPackage(id: string): WorkPackage {
+  async getWorkPackage(id: string): Promise<WorkPackage> {
     return this.workPackages.get(id) ?? notFound("WorkPackage", id);
   }
 
-  listWorkPackages(): WorkPackage[] {
+  async listWorkPackages(): Promise<WorkPackage[]> {
     return [...this.workPackages.values()];
   }
 
-  commitWorkPackage(id: string, expectedVersion: number): WorkPackage {
-    const workPackage = this.getWorkPackage(id);
+  async commitWorkPackage(
+    id: string,
+    expectedVersion: number,
+  ): Promise<WorkPackage> {
+    const workPackage = await this.getWorkPackage(id);
     if (workPackage.version !== expectedVersion) {
       throw new ConflictError(
         `expected version ${expectedVersion}, actual ${workPackage.version}`,
@@ -155,8 +160,8 @@ export class Store {
     return workPackage;
   }
 
-  startWorkPackage(id: string): WorkPackage {
-    const workPackage = this.getWorkPackage(id);
+  async startWorkPackage(id: string): Promise<WorkPackage> {
+    const workPackage = await this.getWorkPackage(id);
     assertTransition(
       workPackageTransitions,
       "WorkPackage",
@@ -169,8 +174,8 @@ export class Store {
     return workPackage;
   }
 
-  submitWorkPackage(id: string): WorkPackage {
-    const workPackage = this.getWorkPackage(id);
+  async submitWorkPackage(id: string): Promise<WorkPackage> {
+    const workPackage = await this.getWorkPackage(id);
     assertTransition(
       workPackageTransitions,
       "WorkPackage",
@@ -183,11 +188,11 @@ export class Store {
     return workPackage;
   }
 
-  acceptWorkPackage(
+  async acceptWorkPackage(
     id: string,
     reviewerPersonId: string,
-  ): WorkPackage {
-    const workPackage = this.getWorkPackage(id);
+  ): Promise<WorkPackage> {
+    const workPackage = await this.getWorkPackage(id);
     if (reviewerPersonId === workPackage.ownerPersonId) {
       throw new ConflictError(
         "the work-package owner cannot accept their own delivery",
@@ -205,12 +210,12 @@ export class Store {
     return workPackage;
   }
 
-  rejectWorkPackage(
+  async rejectWorkPackage(
     id: string,
     reviewerPersonId: string,
     reason: string,
-  ): WorkPackage {
-    const workPackage = this.getWorkPackage(id);
+  ): Promise<WorkPackage> {
+    const workPackage = await this.getWorkPackage(id);
     if (reviewerPersonId === workPackage.ownerPersonId) {
       throw new ConflictError(
         "the work-package owner cannot reject their own delivery",
@@ -229,8 +234,10 @@ export class Store {
     return workPackage;
   }
 
-  createClaim(input: CreateContributionClaimInput): ContributionClaim {
-    const workPackage = this.getWorkPackage(input.workPackageId);
+  async createClaim(
+    input: CreateContributionClaimInput,
+  ): Promise<ContributionClaim> {
+    const workPackage = await this.getWorkPackage(input.workPackageId);
     if (workPackage.status !== "ACCEPTED") {
       throw new ConflictError(
         "a contribution claim requires an accepted work package",
@@ -260,12 +267,12 @@ export class Store {
     return claim;
   }
 
-  getClaim(id: string): ContributionClaim {
+  async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
   }
 
-  submitClaim(id: string): ContributionClaim {
-    const claim = this.getClaim(id);
+  async submitClaim(id: string): Promise<ContributionClaim> {
+    const claim = await this.getClaim(id);
     assertTransition(
       contributionClaimTransitions,
       "ContributionClaim",
@@ -279,10 +286,10 @@ export class Store {
     return claim;
   }
 
-  createAttributionDecision(
+  async createAttributionDecision(
     input: CreateAttributionDecisionInput,
-  ): AttributionDecision {
-    const claim = this.getClaim(input.claimId);
+  ): Promise<AttributionDecision> {
+    const claim = await this.getClaim(input.claimId);
     if (claim.status === "SUBMITTED") {
       assertTransition(
         contributionClaimTransitions,
@@ -353,13 +360,13 @@ export class Store {
     return decision;
   }
 
-  listDecisions(claimId?: string): AttributionDecision[] {
+  async listDecisions(claimId?: string): Promise<AttributionDecision[]> {
     return [...this.decisions.values()].filter(
       (decision) => !claimId || decision.claimId === claimId,
     );
   }
 
-  hasConfirmedAttribution(
+  private hasConfirmedAttribution(
     workPackageId: string,
     personId: string,
   ): boolean {
@@ -380,14 +387,38 @@ export class Store {
     );
   }
 
-  createCalculationRun(
+  async recordLegalGate(
+    input: RecordLegalGateInput,
+  ): Promise<LegalGateRecord> {
+    const existing = this.legalGates.get(input.policyVersionId);
+    const record: LegalGateRecord = {
+      id: existing?.id ?? randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
+      policyVersionId: input.policyVersionId,
+      democraticProcedureRef: input.democraticProcedureRef,
+      employeeNoticeRef: input.employeeNoticeRef,
+      dataProtectionAssessmentRef: input.dataProtectionAssessmentRef,
+      minimumWageChecked: input.minimumWageChecked,
+      policyApproved: input.policyApproved,
+      recordedBy: input.recordedBy,
+      recordedAt: now(),
+    };
+    this.legalGates.set(input.policyVersionId, record);
+    return record;
+  }
+
+  async getLegalGate(
+    policyVersionId: string,
+  ): Promise<LegalGateRecord | undefined> {
+    return this.legalGates.get(policyVersionId);
+  }
+
+  async createCalculationRun(
     input: CreateCalculationRunInput,
-  ): CalculationRun {
-    const policy = this.getPolicy(input.policyVersionId);
-    const blockers = legalGateBlockers(
-      input.mode,
-      input.legalGate as LegalGate | undefined,
-    );
+  ): Promise<CalculationRun> {
+    const policy = await this.getPolicy(input.policyVersionId);
+    const gate = await this.getLegalGate(input.policyVersionId);
+    const blockers = legalGateBlockers(input.mode, gate);
 
     if (input.mode === "FORMAL") {
       for (const participant of input.participants) {
@@ -415,7 +446,7 @@ export class Store {
       mode: input.mode,
       order: input.order,
       participants: input.participants,
-      legalGate: input.legalGate,
+      legalGate: gate,
     };
 
     const result = calculateOrderContribution(policy, calculationInput);
@@ -423,6 +454,7 @@ export class Store {
       id: randomUUID(),
       tenantId: DEFAULT_TENANT_ID,
       cycleId: input.cycleId,
+      mode: input.mode,
       policyVersionId: input.policyVersionId,
       engineVersion: result.engineVersion,
       inputSnapshotHash: result.inputSnapshotHash,
@@ -461,16 +493,16 @@ export class Store {
     return run;
   }
 
-  getRun(id: string): CalculationRun {
+  async getRun(id: string): Promise<CalculationRun> {
     return this.runs.get(id) ?? notFound("CalculationRun", id);
   }
 
-  listRuns(): CalculationRun[] {
+  async listRuns(): Promise<CalculationRun[]> {
     return [...this.runs.values()];
   }
 
-  approveRun(id: string): CalculationRun {
-    const run = this.getRun(id);
+  async approveRun(id: string): Promise<CalculationRun> {
+    const run = await this.getRun(id);
     assertTransition(
       calculationRunTransitions,
       "CalculationRun",
@@ -481,11 +513,17 @@ export class Store {
     return run;
   }
 
-  lockRun(id: string, confirmation: string): CalculationRun {
+  async lockRun(id: string, confirmation: string): Promise<CalculationRun> {
     if (confirmation !== "LOCK_CALCULATION") {
       throw new ConflictError("invalid lock confirmation");
     }
-    const run = this.getRun(id);
+    const run = await this.getRun(id);
+    const blockers = confirmationBlockers(run, [
+      ...this.confirmations.values(),
+    ]);
+    if (blockers.length > 0) {
+      throw new CalculationBlockedError(blockers);
+    }
     assertTransition(
       calculationRunTransitions,
       "CalculationRun",
@@ -502,13 +540,62 @@ export class Store {
     return run;
   }
 
-  createAppeal(input: {
+  async recordConfirmation(
+    input: RecordConfirmationInput,
+  ): Promise<EmployeeConfirmation> {
+    await this.assertConfirmationTarget(input);
+    const key = `${input.personId}:${input.targetType}:${input.targetId}`;
+    const existing = this.confirmations.get(key);
+    const timestamp = now();
+    const record: EmployeeConfirmation = existing ?? {
+      id: randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
+      personId: input.personId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      decision: "VIEWED",
+      createdAt: timestamp,
+    };
+    record.decision = input.decision;
+    if (input.decision === "VIEWED") record.viewedAt = timestamp;
+    if (input.decision === "CONFIRMED") record.confirmedAt = timestamp;
+    if (input.decision === "OBJECTED") {
+      record.objectedAt = timestamp;
+      record.reason = input.reason;
+    }
+    this.confirmations.set(key, record);
+    return record;
+  }
+
+  async listConfirmations(
+    personId?: string,
+  ): Promise<EmployeeConfirmation[]> {
+    return [...this.confirmations.values()].filter(
+      (confirmation) => !personId || confirmation.personId === personId,
+    );
+  }
+
+  private async assertConfirmationTarget(
+    input: RecordConfirmationInput,
+  ): Promise<void> {
+    if (input.targetType === "CALCULATION") {
+      await this.getRun(input.targetId);
+    } else if (input.targetType === "ATTRIBUTION") {
+      if (!this.decisions.has(input.targetId)) {
+        notFound("AttributionDecision", input.targetId);
+      }
+    } else if (input.targetType === "LEDGER") {
+      this.ledger.get(input.targetId);
+    }
+  }
+
+  async createAppeal(input: {
     appellantPersonId: string;
     targetType: "ATTRIBUTION" | "EVALUATION" | "LEDGER";
     targetId: string;
     reasonCode: string;
     statement: string;
-  }): AppealCase {
+  }): Promise<AppealCase> {
     const appeal: AppealCase = {
       id: randomUUID(),
       tenantId: DEFAULT_TENANT_ID,
@@ -524,15 +611,93 @@ export class Store {
     return appeal;
   }
 
-  listAppeals(): AppealCase[] {
+  async getAppeal(id: string): Promise<AppealCase> {
+    return this.appeals.get(id) ?? notFound("AppealCase", id);
+  }
+
+  async listAppeals(): Promise<AppealCase[]> {
     return [...this.appeals.values()];
   }
 
-  listLedger(tenantId = DEFAULT_TENANT_ID): AmountLedgerEntry[] {
+  async triageAppeal(
+    id: string,
+    reviewerPersonId: string,
+  ): Promise<AppealCase> {
+    const appeal = await this.getAppeal(id);
+    if (reviewerPersonId === appeal.appellantPersonId) {
+      throw new ConflictError("the appellant cannot triage their own appeal");
+    }
+    assertTransition(
+      appealCaseTransitions,
+      "AppealCase",
+      appeal.status,
+      "TRIAGED",
+    );
+    appeal.status = "TRIAGED";
+    appeal.reviewerPersonId = reviewerPersonId;
+    return appeal;
+  }
+
+  async reviewAppeal(id: string): Promise<AppealCase> {
+    const appeal = await this.getAppeal(id);
+    assertTransition(
+      appealCaseTransitions,
+      "AppealCase",
+      appeal.status,
+      "UNDER_REVIEW",
+    );
+    appeal.status = "UNDER_REVIEW";
+    return appeal;
+  }
+
+  async resolveAppeal(
+    id: string,
+    input: ResolveAppealInput,
+  ): Promise<AppealCase> {
+    const appeal = await this.getAppeal(id);
+    if (
+      input.reviewerPersonId === appeal.appellantPersonId ||
+      (appeal.reviewerPersonId &&
+        input.reviewerPersonId !== appeal.reviewerPersonId)
+    ) {
+      throw new ConflictError(
+        "the appellant or a different reviewer cannot resolve this appeal",
+      );
+    }
+    assertTransition(
+      appealCaseTransitions,
+      "AppealCase",
+      appeal.status,
+      "DECIDED",
+    );
+    appeal.status = "DECIDED";
+    appeal.resolution = `${input.resolution}: ${input.rationale}`;
+    appeal.resolvedAt = now();
+    if (input.resolution === "CHANGE") {
+      assertTransition(
+        appealCaseTransitions,
+        "AppealCase",
+        appeal.status,
+        "RECALCULATION_REQUIRED",
+      );
+      appeal.status = "RECALCULATION_REQUIRED";
+    } else {
+      assertTransition(
+        appealCaseTransitions,
+        "AppealCase",
+        appeal.status,
+        "CLOSED",
+      );
+      appeal.status = "CLOSED";
+    }
+    return appeal;
+  }
+
+  async listLedger(tenantId = DEFAULT_TENANT_ID): Promise<AmountLedgerEntry[]> {
     return this.ledger.list(tenantId);
   }
 
-  verifyLedger(tenantId = DEFAULT_TENANT_ID): boolean {
+  async verifyLedger(tenantId = DEFAULT_TENANT_ID): Promise<boolean> {
     return this.ledger.verifyChain(tenantId);
   }
 }
