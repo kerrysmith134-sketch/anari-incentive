@@ -1,0 +1,18 @@
+{
+  "name": "@anari/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anari/contracts": "0.1.0",
+    "@anari/domain": "0.1.0",
+    "@anari/ledger": "0.1.0",
+    "@anari/policy-dsl": "0.1.0",
+    "fastify": "^5.0.0",
+    "zod": "^3.23.8"
+  }
+}

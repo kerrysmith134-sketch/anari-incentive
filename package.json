@@ -1,0 +1,30 @@
+{
+  "name": "anari-incentive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "N-Perform — multi-party contribution attribution and incentive settlement assurance layer",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "tsx apps/api/src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "psql \"$DATABASE_URL\" -f db/migrations/001_core_schema.sql -f db/migrations/002_governance_schema.sql -f db/migrations/003_money_path_invariants.sql"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

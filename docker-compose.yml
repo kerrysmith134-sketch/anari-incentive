@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: anari-incentive-postgres
+    environment:
+      POSTGRES_USER: anari
+      POSTGRES_PASSWORD: anari
+      POSTGRES_DB: anari_incentive
+    ports:
+      - "5432:5432"
+    volumes:
+      - anari_incentive_pgdata:/var/lib/postgresql/data
+
+volumes:
+  anari_incentive_pgdata:
