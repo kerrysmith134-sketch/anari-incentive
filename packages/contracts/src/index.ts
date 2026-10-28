@@ -174,6 +174,7 @@ export const createEvidenceSchema = z.object({
     .default("UNVERIFIED"),
   normalizedPayload: z.record(z.unknown()),
   supersedesId: uuidSchema.optional(),
+  submittedBy: uuidSchema.optional(),
 });
 export type CreateEvidenceInput = z.input<typeof createEvidenceSchema>;
 

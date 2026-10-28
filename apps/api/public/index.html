@@ -129,6 +129,43 @@
 
     <section class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>我的证据</strong>
+        <button id="refreshEvidence">刷新证据</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="evidenceSubjectType">对象类型</label>
+          <input id="evidenceSubjectType" value="WORK_PACKAGE" />
+        </div>
+        <div>
+          <label for="evidenceSubjectId">对象 ID</label>
+          <input id="evidenceSubjectId" value="00000000-0000-4000-8000-000000000010" />
+        </div>
+        <div>
+          <label for="evidenceType">证据类型</label>
+          <input id="evidenceType" value="DELIVERY_RECORD" />
+        </div>
+        <div>
+          <label for="evidenceSource">来源系统</label>
+          <input id="evidenceSource" value="EMPLOYEE" />
+        </div>
+      </div>
+      <label for="evidencePayload" style="margin-top:10px">证据内容（JSON）</label>
+      <textarea id="evidencePayload">{"delivered":true}</textarea>
+      <div class="actions">
+        <button class="primary" id="createEvidence">提交证据</button>
+      </div>
+      <div class="status" id="evidenceStatus"></div>
+      <table>
+        <thead>
+        <tr><th>类型</th><th>对象</th><th>质量</th><th>提交时间</th></tr>
+        </thead>
+        <tbody id="evidenceRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong>我的评价决策</strong>
         <button id="loadEvaluations">加载评价</button>
       </div>
@@ -242,6 +279,49 @@
       }
     }
 
+    async function loadEvidence() {
+      $("evidenceStatus").textContent = "加载中…";
+      try {
+        const evidence = await api("/api/v1/evidence");
+        $("evidenceRows").innerHTML = evidence.map((node) => `
+          <tr>
+            <td>${escapeHtml(node.evidenceType)}</td>
+            <td>${escapeHtml(node.subjectType)} ${escapeHtml(node.subjectId.slice(0, 8))}</td>
+            <td><span class="pill">${escapeHtml(node.qualityStatus)}</span></td>
+            <td>${escapeHtml(node.createdAt)}</td>
+          </tr>`).join("");
+        $("evidenceStatus").textContent = `共 ${evidence.length} 条证据`;
+      } catch (error) {
+        $("evidenceStatus").textContent = String(error.message);
+      }
+    }
+
+    async function createEvidence() {
+      try {
+        let payload;
+        try {
+          payload = JSON.parse($("evidencePayload").value || "{}");
+        } catch {
+          throw new Error("证据内容必须是合法 JSON");
+        }
+        await api("/api/v1/evidence", {
+          method: "POST",
+          body: JSON.stringify({
+            evidenceType: $("evidenceType").value.trim(),
+            subjectType: $("evidenceSubjectType").value.trim(),
+            subjectId: $("evidenceSubjectId").value.trim(),
+            sourceSystem: $("evidenceSource").value.trim(),
+            qualityStatus: "UNVERIFIED",
+            normalizedPayload: payload,
+          }),
+        });
+        $("evidenceStatus").textContent = "证据已提交";
+        await loadEvidence();
+      } catch (error) {
+        $("evidenceStatus").textContent = String(error.message);
+      }
+    }
+
     async function loadEvaluations() {
       const personId = $("personId").value.trim();
       if (!personId) {
@@ -277,6 +357,10 @@
     $("object").addEventListener("click", () => recordConfirmation("OBJECTED"));
     $("appeal").addEventListener("click", createAppeal);
     $("loadEvaluations").addEventListener("click", loadEvaluations);
+    $("refreshEvidence").addEventListener("click", loadEvidence);
+    $("createEvidence").addEventListener("click", createEvidence);
+
+    loadEvidence();
   </script>
 </body>
 </html>

@@ -627,17 +627,33 @@ export function buildApp(
 
   app.post("/api/v1/evidence", async (request, reply) => {
     const body = parse(createEvidenceSchema, request.body);
-    return reply.status(201).send(data(await storeFor(request).createEvidence(body), request));
+    const person = personFilter(request);
+    if (person && body.submittedBy && body.submittedBy !== person) {
+      throw new ForbiddenError("cannot submit evidence as another person");
+    }
+    const submittedBy = person ?? body.submittedBy;
+    return reply.status(201).send(
+      data(
+        await storeFor(request).createEvidence({ ...body, submittedBy }),
+        request,
+      ),
+    );
   });
 
   app.get("/api/v1/evidence", async (request) => {
-    requireRoles(request, "manager", "finance");
+    const person = personFilter(request);
     const query = request.query as {
       subjectType?: string;
       subjectId?: string;
     };
+    const evidence = await storeFor(request).listEvidence(
+      query.subjectType,
+      query.subjectId,
+    );
     return data(
-      await storeFor(request).listEvidence(query.subjectType, query.subjectId),
+      person
+        ? evidence.filter((node) => node.submittedBy === person)
+        : evidence,
       request,
     );
   });

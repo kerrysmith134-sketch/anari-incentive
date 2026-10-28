@@ -499,7 +499,9 @@ describePg("PgStore vertical slice", () => {
       sourceSystem: "CRM",
       normalizedPayload: { accepted: true },
       qualityStatus: "VALID",
+      submittedBy: OWNER,
     });
+    expect(first.submittedBy).toBe(OWNER);
     const second = await store.createEvidence({
       evidenceType: "CUSTOMER_FEEDBACK",
       subjectType: "WORK_PACKAGE",

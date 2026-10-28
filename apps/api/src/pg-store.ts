@@ -700,8 +700,8 @@ export class PgStore implements IncentiveStore {
         `INSERT INTO evidence_nodes
           (id, tenant_id, evidence_type, subject_type, subject_id,
            source_system, source_uri, observed_at, quality_status,
-           normalized_payload, payload_hash, supersedes_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, now()),$9,$10,$11,$12)
+           normalized_payload, payload_hash, supersedes_id, submitted_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, now()),$9,$10,$11,$12,$13)
          RETURNING *`,
         [
           id,
@@ -716,6 +716,7 @@ export class PgStore implements IncentiveStore {
           JSON.stringify(input.normalizedPayload),
           sha256(input.normalizedPayload),
           input.supersedesId ?? null,
+          input.submittedBy ?? null,
         ],
       );
       return this.mapEvidence(rows[0]);
@@ -2663,6 +2664,7 @@ export class PgStore implements IncentiveStore {
       normalizedPayload: asJson(row.normalized_payload, {}),
       payloadHash: row.payload_hash,
       supersedesId: row.supersedes_id ?? undefined,
+      submittedBy: row.submitted_by ?? undefined,
       createdAt: iso(row.created_at)!,
     };
   }

@@ -373,6 +373,75 @@ describe("tenant isolation", () => {
   });
 });
 
+describe("employee evidence", () => {
+  it("submits as self and lists only own evidence", async () => {
+    const ownerAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "owner",
+          roles: ["employee"],
+          personId: OWNER,
+        };
+      },
+    };
+    const memberAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "member",
+          roles: ["employee"],
+          personId: MEMBER,
+        };
+      },
+    };
+    const ownerApp = buildApp(appStore, undefined, ownerAuth);
+    const memberApp = buildApp(appStore, undefined, memberAuth);
+
+    const impersonation = await ownerApp.inject({
+      method: "POST",
+      url: "/api/v1/evidence",
+      payload: {
+        evidenceType: "DELIVERY_RECORD",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "00000000-0000-4000-8000-000000000010",
+        sourceSystem: "EMPLOYEE",
+        normalizedPayload: { delivered: true },
+        submittedBy: MEMBER,
+      },
+    } as never);
+    expect(impersonation.statusCode).toBe(403);
+
+    const created = await ownerApp.inject({
+      method: "POST",
+      url: "/api/v1/evidence",
+      payload: {
+        evidenceType: "DELIVERY_RECORD",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "00000000-0000-4000-8000-000000000010",
+        sourceSystem: "EMPLOYEE",
+        normalizedPayload: { delivered: true },
+      },
+    } as never);
+    expect(created.statusCode).toBe(201);
+    expect(created.json().data.submittedBy).toBe(OWNER);
+
+    const ownerList = await ownerApp.inject({
+      method: "GET",
+      url: "/api/v1/evidence",
+    } as never);
+    expect(ownerList.json().data).toHaveLength(1);
+    const memberList = await memberApp.inject({
+      method: "GET",
+      url: "/api/v1/evidence",
+    } as never);
+    expect(memberList.json().data).toHaveLength(0);
+
+    const adminList = await call("GET", "/api/v1/evidence");
+    expect(adminList.body.data).toHaveLength(1);
+  });
+});
+
 describe("employee data redaction", () => {
   it("returns only the employee's line and hides order economics", async () => {
     const workPackageId = await createAcceptedWorkPackage();
@@ -433,6 +502,7 @@ describe("employee view", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("N-Perform 员工确认");
     expect(response.body).toContain("我的评价决策");
+    expect(response.body).toContain("我的证据");
   });
 });
 

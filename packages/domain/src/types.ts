@@ -348,6 +348,8 @@ export interface EvidenceNode {
   normalizedPayload: Record<string, unknown>;
   payloadHash: string;
   supersedesId?: UUID;
+  /** Person who submitted the evidence, when it came from an employee. */
+  submittedBy?: UUID;
   createdAt: string;
 }
 

@@ -1804,6 +1804,9 @@ components:
           additionalProperties: true
         supersedesId:
           $ref: "#/components/schemas/Uuid"
+        submittedBy:
+          $ref: "#/components/schemas/Uuid"
+          description: Employees may only submit as themselves.
 
     IngestionEvent:
       type: object

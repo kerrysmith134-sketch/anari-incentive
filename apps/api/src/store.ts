@@ -577,6 +577,7 @@ export class Store implements IncentiveStore {
       normalizedPayload: input.normalizedPayload,
       payloadHash: sha256(input.normalizedPayload),
       supersedesId: input.supersedesId,
+      submittedBy: input.submittedBy,
       createdAt: now(),
     };
     this.evidence.set(node.id, node);

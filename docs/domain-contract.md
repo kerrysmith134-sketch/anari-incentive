@@ -227,7 +227,9 @@ Numeric AI scoring is not available in the first slice. `packages/ai-gate` expos
 
 ## 6. Evidence graph
 
-An `EvidenceNode` records `evidenceType`, `subjectType/subjectId`, `sourceSystem`, `sourceUri`, `observedAt`, `qualityStatus`, `normalizedPayload` and a payload hash. `EvidenceLink` records `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, `CORRECTS` or `CONTEXT` between two nodes. A contribution claim may cite evidence IDs, but a citation is not a substitute for verification. Evidence corrections should create a new node with `supersedesId` rather than mutating history.
+An `EvidenceNode` records `evidenceType`, `subjectType/subjectId`, `sourceSystem`, `sourceUri`, `observedAt`, `qualityStatus`, `normalizedPayload`, `submittedBy` and a payload hash. `EvidenceLink` records `SUPPORTS`, `CONTRADICTS`, `DEPENDS_ON`, `CORRECTS` or `CONTEXT` between two nodes. A contribution claim may cite evidence IDs, but a citation is not a substitute for verification. Evidence corrections should create a new node with `supersedesId` rather than mutating history.
+
+Employee-submitted evidence is attributed to the authenticated `personId`; an employee cannot submit as someone else. `GET /evidence` returns only that person's submissions for an employee, while manager/finance see the tenant. Evidence tables have RLS (`010_evidence_submitter_rls.sql`).
 
 ## 7. AI evaluation harness
 
