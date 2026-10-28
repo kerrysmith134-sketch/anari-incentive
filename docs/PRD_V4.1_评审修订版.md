@@ -478,6 +478,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 当前仓库已启动的纵向切片（见 `README.md`）：
 
 - `packages/domain`：canonical 状态机、类型、核心不变量；
+- 评价纵向切片：版本化 Rubric、证据绑定草稿（USER/AGENT/SYSTEM，含 strengths/counter-evidence/uncertainty）、提交后人工决策、禁止自评、决策版本化并 supersede 上一版；
 - `packages/policy-dsl`：确定性 decimal、订单贡献池计算、独立参照、哈希；
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL 命令，CSV 财务导出，行与账本强校验；

@@ -671,6 +671,120 @@ describe("vertical slice", () => {
     expect(fetched.body.data.lines).toHaveLength(2);
   });
 
+  it("runs a human-reviewed evaluation with versioned decisions", async () => {
+    const rubric = await call("POST", "/api/v1/rubrics", {
+      code: "PERFORMANCE_V1",
+      name: "Performance",
+      dimensions: ["QUALITY", "SPEED"],
+      scoringAnchors: { 1: "below", 3: "meets", 5: "exceeds" },
+      effectiveFrom: "2026-10-01",
+    });
+    expect(rubric.status).toBe(201);
+    const rubricId = rubric.body.data.id as string;
+
+    const firstDraft = await call("POST", "/api/v1/evaluation-drafts", {
+      cycleId: CYCLE,
+      personId: MEMBER,
+      generatedByType: "USER",
+      evidenceSnapshotHash: "evidence-1",
+      draftPayload: { summary: "Delivered the cycle scope" },
+      strengths: ["Delivery"],
+      counterEvidence: [],
+      missingInformation: [],
+    });
+    expect(firstDraft.status).toBe(201);
+    const firstDraftId = firstDraft.body.data.id as string;
+    await call("POST", `/api/v1/evaluation-drafts/${firstDraftId}/submit`);
+    const firstDecision = await call(
+      "POST",
+      `/api/v1/evaluation-drafts/${firstDraftId}/decision`,
+      {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubricId,
+        decision: "APPROVE",
+        scores: { QUALITY: 4, SPEED: 3 },
+        rationale: "Evidence supports the rating",
+      },
+    );
+    expect(firstDecision.status).toBe(200);
+    expect(firstDecision.body.data.draft.status).toBe("APPROVED");
+    expect(firstDecision.body.data.decision.decisionVersion).toBe(1);
+
+    const secondDraft = await call("POST", "/api/v1/evaluation-drafts", {
+      cycleId: CYCLE,
+      personId: MEMBER,
+      generatedByType: "SYSTEM",
+      evidenceSnapshotHash: "evidence-2",
+      draftPayload: { summary: "Corrected cycle evidence" },
+    });
+    const secondDraftId = secondDraft.body.data.id as string;
+    await call("POST", `/api/v1/evaluation-drafts/${secondDraftId}/submit`);
+    const secondDecision = await call(
+      "POST",
+      `/api/v1/evaluation-drafts/${secondDraftId}/decision`,
+      {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubricId,
+        decision: "APPROVE",
+        scores: { QUALITY: 5, SPEED: 4 },
+        rationale: "Corrected evidence",
+      },
+    );
+    expect(secondDecision.body.data.decision.decisionVersion).toBe(2);
+    expect(secondDecision.body.data.decision.supersedesId).toBe(
+      firstDecision.body.data.decision.id,
+    );
+
+    const decisions = await call(
+      "GET",
+      `/api/v1/evaluation-decisions?personId=${MEMBER}`,
+    );
+    expect(decisions.body.data).toHaveLength(2);
+    const latest = decisions.body.data.find(
+      (decision: { decisionVersion: number }) =>
+        decision.decisionVersion === 2,
+    );
+    expect(latest.status).toBe("APPROVED");
+    expect(
+      decisions.body.data.find(
+        (decision: { decisionVersion: number }) =>
+          decision.decisionVersion === 1,
+      ).status,
+    ).toBe("SUPERSEDED");
+  });
+
+  it("blocks self-review of an evaluation", async () => {
+    const rubric = await call("POST", "/api/v1/rubrics", {
+      code: "SELF_REVIEW_V1",
+      name: "Self review",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const draft = await call("POST", "/api/v1/evaluation-drafts", {
+      cycleId: CYCLE,
+      personId: ADJUDICATOR,
+      generatedByType: "USER",
+      evidenceSnapshotHash: "self-evidence",
+      draftPayload: { summary: "Self" },
+    });
+    const draftId = draft.body.data.id as string;
+    await call("POST", `/api/v1/evaluation-drafts/${draftId}/submit`);
+    const decision = await call(
+      "POST",
+      `/api/v1/evaluation-drafts/${draftId}/decision`,
+      {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubric.body.data.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 5 },
+        rationale: "Self review",
+      },
+    );
+    expect(decision.status).toBe(409);
+    expect(decision.body.error.message).toContain("SELF_REVIEW_FORBIDDEN");
+  });
+
   it("blocks locking when an employee objects", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);
@@ -1020,6 +1134,15 @@ describe("vertical slice", () => {
     );
     expect(published.body.data.approvedBy).toBe(ADJUDICATOR);
     expect(published.body.data.contentHash).toContain("sha256:");
+
+    const versions = await call("GET", "/api/v1/policy-versions");
+    expect(versions.status).toBe(200);
+    expect(
+      versions.body.data.some(
+        (version: { policyVersionId: string }) =>
+          version.policyVersionId === published.body.data.policyVersionId,
+      ),
+    ).toBe(true);
 
     const simulation = await call("POST", "/api/v1/policy-simulations", {
       currentPolicyVersionId: published.body.data.policyVersionId,

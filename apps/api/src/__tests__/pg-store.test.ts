@@ -198,6 +198,81 @@ describePg("PgStore vertical slice", () => {
     expect(audit.every((event) => event.eventHash.length > 0)).toBe(true);
   });
 
+  it("records human-reviewed evaluation decisions with versioning", async () => {
+    const rubric = await store.createRubric({
+      code: "PG_PERFORMANCE_V1",
+      name: "Postgres performance",
+      dimensions: ["QUALITY", "SPEED"],
+      scoringAnchors: { 1: "below", 3: "meets", 5: "exceeds" },
+      effectiveFrom: "2026-10-01",
+    });
+
+    const draft = await store.createEvaluationDraft({
+      cycleId: CYCLE,
+      personId: MEMBER,
+      generatedByType: "USER",
+      evidenceSnapshotHash: "pg-eval-evidence-1",
+      draftPayload: { summary: "First review" },
+      strengths: ["Delivery"],
+    });
+    await store.submitEvaluationDraft(draft.id);
+    const first = await store.decideEvaluationDraft(draft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: { QUALITY: 4, SPEED: 3 },
+      rationale: "Evidence supports the rating",
+    });
+    expect(first.draft.status).toBe("APPROVED");
+    expect(first.decision?.decisionVersion).toBe(1);
+
+    const secondDraft = await store.createEvaluationDraft({
+      cycleId: CYCLE,
+      personId: MEMBER,
+      generatedByType: "SYSTEM",
+      evidenceSnapshotHash: "pg-eval-evidence-2",
+      draftPayload: { summary: "Corrected review" },
+    });
+    await store.submitEvaluationDraft(secondDraft.id);
+    const second = await store.decideEvaluationDraft(secondDraft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: { QUALITY: 5, SPEED: 4 },
+      rationale: "Corrected evidence",
+    });
+    expect(second.decision?.decisionVersion).toBe(2);
+    expect(second.decision?.supersedesId).toBe(first.decision?.id);
+
+    const decisions = await store.listEvaluationDecisions({
+      personId: MEMBER,
+    });
+    expect(
+      decisions.find((decision) => decision.decisionVersion === 1)?.status,
+    ).toBe("SUPERSEDED");
+    expect(
+      decisions.find((decision) => decision.decisionVersion === 2)?.status,
+    ).toBe("APPROVED");
+
+    const selfDraft = await store.createEvaluationDraft({
+      cycleId: CYCLE,
+      personId: ADJUDICATOR,
+      generatedByType: "USER",
+      evidenceSnapshotHash: "pg-self",
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(selfDraft.id);
+    await expect(
+      store.decideEvaluationDraft(selfDraft.id, {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 5, SPEED: 5 },
+        rationale: "Self",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("stores an evidence graph with provenance and links", async () => {
     const workPackageId = await acceptedWorkPackage();
     const first = await store.createEvidence({
@@ -402,6 +477,15 @@ describePg("PgStore vertical slice", () => {
     const loaded = await store.getPolicy(published.policyVersionId);
     expect(loaded.code).toBe("GENERIC_CONTRIBUTION_V1");
     expect(loaded.version).toBe(42);
+
+    const versions = await store.listPolicyVersions();
+    expect(
+      versions.some(
+        (version) =>
+          version.policyVersionId === published.policyVersionId &&
+          version.code === "GENERIC_CONTRIBUTION_V1",
+      ),
+    ).toBe(true);
 
     await expect(
       store.publishPolicy({

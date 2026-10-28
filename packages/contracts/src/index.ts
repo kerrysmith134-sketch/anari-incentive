@@ -285,6 +285,47 @@ export const settlementCommandSchema = z.object({
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 
+export const createRubricSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  dimensions: z.array(z.string().min(1)).min(1),
+  scoringAnchors: z.record(z.unknown()),
+  scope: z.record(z.unknown()).optional(),
+  effectiveFrom: z.string().min(1),
+});
+export type CreateRubricBody = z.infer<typeof createRubricSchema>;
+
+export const createEvaluationDraftSchema = z.object({
+  cycleId: uuidSchema,
+  personId: uuidSchema,
+  generatedByType: z.enum(["AGENT", "USER", "SYSTEM"]),
+  generatedById: uuidSchema.optional(),
+  modelProvider: z.string().optional(),
+  modelName: z.string().optional(),
+  promptVersion: z.string().optional(),
+  agentTaskId: uuidSchema.optional(),
+  evidenceSnapshotHash: z.string().min(1),
+  draftPayload: z.record(z.unknown()),
+  strengths: z.array(z.string()).default([]),
+  counterEvidence: z.array(z.string()).default([]),
+  missingInformation: z.array(z.string()).default([]),
+  uncertainty: z.record(z.unknown()).default({}),
+});
+export type CreateEvaluationDraftBody = z.input<
+  typeof createEvaluationDraftSchema
+>;
+
+export const decideEvaluationDraftSchema = z.object({
+  reviewerPersonId: uuidSchema,
+  rubricVersionId: uuidSchema,
+  decision: z.enum(["APPROVE", "REJECT"]),
+  scores: z.record(z.number().min(0).max(5)).default({}),
+  rationale: z.string().min(3),
+});
+export type DecideEvaluationDraftBody = z.infer<
+  typeof decideEvaluationDraftSchema
+>;
+
 export const publishPolicySchema = z.object({
   policy: policyDefinitionSchema,
   policyVersionId: uuidSchema.optional(),

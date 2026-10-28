@@ -16,7 +16,7 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker exec "$CONTAINER" psql -U anari -d anari_incentive -c 'select 1' >/dev/null
-for file in db/migrations/001_core_schema.sql db/migrations/002_governance_schema.sql db/migrations/003_money_path_invariants.sql db/migrations/004_policy_succession.sql db/migrations/005_ledger_sequence.sql db/migrations/006_settlement_rls.sql db/migrations/007_agent_task_state.sql db/seed/001_demo.sql; do
+for file in db/migrations/001_core_schema.sql db/migrations/002_governance_schema.sql db/migrations/003_money_path_invariants.sql db/migrations/004_policy_succession.sql db/migrations/005_ledger_sequence.sql db/migrations/006_settlement_rls.sql db/migrations/007_agent_task_state.sql db/migrations/008_evaluation_rls.sql db/seed/001_demo.sql; do
   echo "applying $file"
   docker exec -i "$CONTAINER" psql -U anari -d anari_incentive -v ON_ERROR_STOP=1 < "$file" >/dev/null
 done

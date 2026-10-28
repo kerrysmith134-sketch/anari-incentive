@@ -56,8 +56,8 @@
     @media (max-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } body { padding: 20px 14px 48px; } }
     label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-    input, button { font: inherit; }
-    input {
+    input, select, button { font: inherit; }
+    input, select {
       width: 100%;
       background: transparent;
       color: var(--ink);
@@ -105,8 +105,8 @@
       <h2>政策影响模拟</h2>
       <div class="grid">
         <div>
-          <label>当前政策版本 ID</label>
-          <input id="currentPolicy" value="00000000-0000-4000-8000-000000000100" />
+          <label>当前政策版本</label>
+          <select id="currentPolicy"></select>
         </div>
         <div>
           <label>拟议提取率</label>
@@ -322,6 +322,19 @@
       }[char]));
     }
 
+    async function loadPolicies() {
+      try {
+        const versions = await api("/api/v1/policy-versions");
+        $("currentPolicy").innerHTML = versions.length
+          ? versions.map((version) =>
+              `<option value="${version.policyVersionId}">${escapeHtml(version.code)} v${version.version} (${escapeHtml(version.status)})</option>`,
+            ).join("")
+          : '<option value="00000000-0000-4000-8000-000000000100">GENERIC_CONTRIBUTION_V1 v1</option>';
+      } catch (error) {
+        setStatus("simStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadSettlements() {
       try {
         const batches = await api("/api/v1/settlement-batches");
@@ -433,6 +446,7 @@
       settlementCommand(button.dataset.batch, button.dataset.command);
     });
 
+    loadPolicies();
     loadTasks();
     loadSettlements();
     loadAudit();

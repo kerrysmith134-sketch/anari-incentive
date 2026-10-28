@@ -45,6 +45,15 @@ export const attributionDecisionStatuses = [
 export type AttributionDecisionStatus =
   (typeof attributionDecisionStatuses)[number];
 
+export const evaluationDraftStatuses = [
+  "DRAFT",
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+] as const;
+export type EvaluationDraftStatus =
+  (typeof evaluationDraftStatuses)[number];
+
 export const calculationRunStatuses = [
   "CREATED",
   "RUNNING",
@@ -129,6 +138,13 @@ export const attributionDecisionTransitions: TransitionMap<AttributionDecisionSt
     APPEALED: ["UNDER_REVIEW", "SUPERSEDED"],
     SUPERSEDED: [],
   };
+
+export const evaluationDraftTransitions: TransitionMap<EvaluationDraftStatus> = {
+  DRAFT: ["SUBMITTED"],
+  SUBMITTED: ["APPROVED", "REJECTED"],
+  APPROVED: [],
+  REJECTED: [],
+};
 
 export const calculationRunTransitions: TransitionMap<CalculationRunStatus> = {
   CREATED: ["RUNNING", "BLOCKED"],

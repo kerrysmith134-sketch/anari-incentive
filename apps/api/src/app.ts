@@ -13,8 +13,11 @@ import {
   createContributionClaimSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
+  createEvaluationDraftSchema,
   createEvidenceSchema,
+  createRubricSchema,
   createSettlementBatchSchema,
+  decideEvaluationDraftSchema,
   createWorkPackageSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
@@ -296,6 +299,98 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/rubrics", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createRubricSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createRubric(body), request));
+  });
+
+  app.get("/api/v1/rubrics", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).listRubrics(), request);
+  });
+
+  app.post("/api/v1/evaluation-drafts", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createEvaluationDraftSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createEvaluationDraft(body), request));
+  });
+
+  app.get("/api/v1/evaluation-drafts", async (request) => {
+    const query = request.query as { cycleId?: string; personId?: string };
+    const person = personFilter(request);
+    return data(
+      await storeFor(request).listEvaluationDrafts({
+        cycleId: query.cycleId,
+        personId: person ?? query.personId,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/evaluation-drafts/:id", async (request) => {
+    const draft = await storeFor(request).getEvaluationDraft(idOf(request));
+    const person = personFilter(request);
+    if (person && draft.personId !== person) {
+      throw new ForbiddenError("evaluation draft is not visible to this person");
+    }
+    return data(draft, request);
+  });
+
+  app.post("/api/v1/evaluation-drafts/:id/submit", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await storeFor(request).submitEvaluationDraft(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/evaluation-drafts/:id/decision", async (request) => {
+    requireRoles(request, "manager");
+    const body = parse(decideEvaluationDraftSchema, request.body);
+    return data(
+      await storeFor(request).decideEvaluationDraft(idOf(request), {
+        ...body,
+        scores: body.scores ?? {},
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/evaluation-decisions", async (request) => {
+    const query = request.query as { cycleId?: string; personId?: string };
+    const person = personFilter(request);
+    return data(
+      await storeFor(request).listEvaluationDecisions({
+        cycleId: query.cycleId,
+        personId: person ?? query.personId,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/evaluation-decisions/:id", async (request) => {
+    const decision = await storeFor(request).getEvaluationDecision(
+      idOf(request),
+    );
+    const person = personFilter(request);
+    if (person && decision.personId !== person) {
+      throw new ForbiddenError(
+        "evaluation decision is not visible to this person",
+      );
+    }
+    return data(decision, request);
+  });
+
+  app.get("/api/v1/policy-versions", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).listPolicyVersions(), request);
   });
 
   app.post("/api/v1/policy-versions", async (request, reply) => {

@@ -7,6 +7,7 @@ import {
   calculationRunTransitions,
   confirmationBlockers,
   contributionClaimTransitions,
+  evaluationDraftTransitions,
   legalGateBlockers,
   settlementBatchTransitions,
   workPackageTransitions,
@@ -19,14 +20,18 @@ import {
   type CommitmentSnapshot,
   type ContributionClaim,
   type EmployeeConfirmation,
+  type EvaluationDecision,
+  type EvaluationDraft,
   type EvidenceLink,
   type EvidenceNode,
   type IngestionBatch,
   type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
+  type PolicyVersionSummary,
   type PublishPolicyInput,
   type PublishedPolicy,
+  type Rubric,
   type SettlementBatch,
   type SettlementCommandInput,
   type SettlementCommandResult,
@@ -126,8 +131,15 @@ export class Store implements IncentiveStore {
   private readonly ingestedKeys = new Set<string>();
   private readonly publishedPolicies = new Map<string, PolicyDefinition>();
   private readonly publishedPolicyKeys = new Set<string>();
+  private readonly publishedPolicySummaries = new Map<
+    string,
+    PolicyVersionSummary
+  >();
   private readonly settlementBatches = new Map<string, SettlementBatch>();
   private readonly settlementLines = new Map<string, SettlementLine[]>();
+  private readonly rubrics = new Map<string, Rubric>();
+  private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
+  private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {}
 
@@ -141,6 +153,24 @@ export class Store implements IncentiveStore {
       policies.get(policyVersionId);
     if (!policy) notFound("Policy", policyVersionId);
     return policy;
+  }
+
+  async listPolicyVersions(): Promise<PolicyVersionSummary[]> {
+    const summaries = new Map<string, PolicyVersionSummary>();
+    for (const [id, policy] of policies) {
+      summaries.set(id, {
+        policyVersionId: id,
+        code: policy.code,
+        version: policy.version,
+        status: "PUBLISHED",
+      });
+    }
+    for (const [id, summary] of this.publishedPolicySummaries) {
+      summaries.set(id, summary);
+    }
+    return [...summaries.values()].sort(
+      (a, b) => a.code.localeCompare(b.code) || b.version - a.version,
+    );
   }
 
   async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
@@ -160,6 +190,15 @@ export class Store implements IncentiveStore {
     const contentHash = sha256(input.policy);
     this.publishedPolicies.set(policyVersionId, input.policy);
     this.publishedPolicyKeys.add(policyKey);
+    this.publishedPolicySummaries.set(policyVersionId, {
+      policyVersionId,
+      code: input.policy.code,
+      version: input.policy.version,
+      status: "PUBLISHED",
+      effectiveFrom: input.effectiveFrom,
+      contentHash,
+      publishedAt,
+    });
     return {
       policyVersionId,
       policy: input.policy,
@@ -885,6 +924,209 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createRubric(input: {
+    code: string;
+    name: string;
+    dimensions: string[];
+    scoringAnchors: Record<string, unknown>;
+    scope?: Record<string, unknown>;
+    effectiveFrom: string;
+  }): Promise<Rubric> {
+    const version =
+      Math.max(
+        0,
+        ...[...this.rubrics.values()]
+          .filter((rubric) => rubric.code === input.code)
+          .map((rubric) => rubric.version),
+      ) + 1;
+    const rubric: Rubric = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      code: input.code,
+      name: input.name,
+      dimensions: input.dimensions,
+      scoringAnchors: input.scoringAnchors,
+      scope: input.scope ?? {},
+      status: "ACTIVE",
+      version,
+      effectiveFrom: input.effectiveFrom,
+      createdAt: now(),
+    };
+    this.rubrics.set(rubric.id, rubric);
+    return rubric;
+  }
+
+  async listRubrics(): Promise<Rubric[]> {
+    return [...this.rubrics.values()].sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt),
+    );
+  }
+
+  async createEvaluationDraft(input: {
+    cycleId: string;
+    personId: string;
+    generatedByType: "AGENT" | "USER" | "SYSTEM";
+    generatedById?: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion?: string;
+    agentTaskId?: string;
+    evidenceSnapshotHash: string;
+    draftPayload: Record<string, unknown>;
+    strengths?: string[];
+    counterEvidence?: string[];
+    missingInformation?: string[];
+    uncertainty?: Record<string, unknown>;
+  }): Promise<EvaluationDraft> {
+    const timestamp = now();
+    const draft: EvaluationDraft = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      cycleId: input.cycleId,
+      personId: input.personId,
+      generatedByType: input.generatedByType,
+      generatedById: input.generatedById,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      agentTaskId: input.agentTaskId,
+      evidenceSnapshotHash: input.evidenceSnapshotHash,
+      draftPayload: input.draftPayload,
+      strengths: input.strengths ?? [],
+      counterEvidence: input.counterEvidence ?? [],
+      missingInformation: input.missingInformation ?? [],
+      uncertainty: input.uncertainty ?? {},
+      status: "DRAFT",
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.evaluationDrafts.set(draft.id, draft);
+    return draft;
+  }
+
+  async getEvaluationDraft(id: string): Promise<EvaluationDraft> {
+    const draft = this.evaluationDrafts.get(id);
+    if (!draft) notFound("EvaluationDraft", id);
+    return draft;
+  }
+
+  async listEvaluationDrafts(filter?: {
+    cycleId?: string;
+    personId?: string;
+  }): Promise<EvaluationDraft[]> {
+    return [...this.evaluationDrafts.values()]
+      .filter(
+        (draft) =>
+          (!filter?.cycleId || draft.cycleId === filter.cycleId) &&
+          (!filter?.personId || draft.personId === filter.personId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async submitEvaluationDraft(id: string): Promise<EvaluationDraft> {
+    const draft = await this.getEvaluationDraft(id);
+    assertTransition(
+      evaluationDraftTransitions,
+      "EvaluationDraft",
+      draft.status,
+      "SUBMITTED",
+    );
+    draft.status = "SUBMITTED";
+    draft.updatedAt = now();
+    return draft;
+  }
+
+  async decideEvaluationDraft(
+    id: string,
+    input: {
+      reviewerPersonId: string;
+      rubricVersionId: string;
+      decision: "APPROVE" | "REJECT";
+      scores: Record<string, number>;
+      rationale: string;
+    },
+  ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }> {
+    const draft = await this.getEvaluationDraft(id);
+    assertTransition(
+      evaluationDraftTransitions,
+      "EvaluationDraft",
+      draft.status,
+      input.decision === "APPROVE" ? "APPROVED" : "REJECTED",
+    );
+    if (input.reviewerPersonId === draft.personId) {
+      throw new ConflictError("SELF_REVIEW_FORBIDDEN");
+    }
+    const rubric = this.rubrics.get(input.rubricVersionId);
+    if (!rubric) notFound("Rubric", input.rubricVersionId);
+
+    const timestamp = now();
+    if (input.decision === "REJECT") {
+      draft.status = "REJECTED";
+      draft.updatedAt = timestamp;
+      return { draft };
+    }
+    if (Object.keys(input.scores).length === 0) {
+      throw new ConflictError("EVALUATION_SCORES_REQUIRED");
+    }
+    for (const dimension of rubric.dimensions) {
+      if (!(dimension in input.scores)) {
+        throw new ConflictError(`EVALUATION_DIMENSION_MISSING: ${dimension}`);
+      }
+    }
+
+    const prior = [...this.evaluationDecisions.values()]
+      .filter(
+        (candidate) =>
+          candidate.cycleId === draft.cycleId &&
+          candidate.personId === draft.personId,
+      )
+      .sort((a, b) => b.decisionVersion - a.decisionVersion);
+    const latest = prior[0];
+    for (const candidate of prior) {
+      if (candidate.status === "APPROVED") candidate.status = "SUPERSEDED";
+    }
+    const decision: EvaluationDecision = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      cycleId: draft.cycleId,
+      personId: draft.personId,
+      decisionVersion: (latest?.decisionVersion ?? 0) + 1,
+      status: "APPROVED",
+      rubricVersionId: input.rubricVersionId,
+      evidenceSnapshotHash: draft.evidenceSnapshotHash,
+      scores: input.scores,
+      rationale: input.rationale,
+      reviewerPersonId: input.reviewerPersonId,
+      approvedAt: timestamp,
+      supersedesId: latest?.id,
+      createdAt: timestamp,
+    };
+    this.evaluationDecisions.set(decision.id, decision);
+    draft.status = "APPROVED";
+    draft.updatedAt = timestamp;
+    return { draft, decision };
+  }
+
+  async listEvaluationDecisions(filter?: {
+    cycleId?: string;
+    personId?: string;
+  }): Promise<EvaluationDecision[]> {
+    return [...this.evaluationDecisions.values()]
+      .filter(
+        (decision) =>
+          (!filter?.cycleId || decision.cycleId === filter.cycleId) &&
+          (!filter?.personId || decision.personId === filter.personId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getEvaluationDecision(id: string): Promise<EvaluationDecision> {
+    const decision = this.evaluationDecisions.get(id);
+    if (!decision) notFound("EvaluationDecision", id);
+    return decision;
   }
 
   async createSettlementBatch(input: {

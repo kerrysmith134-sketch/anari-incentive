@@ -4,6 +4,7 @@ import type {
   CalculationRunStatus,
   ContributionClaimStatus,
   DataQualityIssueStatus,
+  EvaluationDraftStatus,
   SettlementBatchStatus,
   WorkPackageStatus,
 } from "./states.js";
@@ -274,6 +275,17 @@ export interface PolicyDefinition {
 }
 
 /** A policy version published through the governed policy control loop. */
+export interface PolicyVersionSummary {
+  policyVersionId: UUID;
+  code: string;
+  version: number;
+  status: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  contentHash?: string;
+  publishedAt?: string;
+}
+
 export interface PublishedPolicy {
   policyVersionId: UUID;
   policy: PolicyDefinition;
@@ -423,6 +435,61 @@ export interface SettlementCommandInput {
 export interface SettlementCommandResult {
   batch: SettlementBatch;
   csv?: string;
+}
+
+export interface Rubric {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  name: string;
+  dimensions: string[];
+  scoringAnchors: Record<string, unknown>;
+  scope: Record<string, unknown>;
+  status: string;
+  version: number;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  createdAt: string;
+}
+
+export interface EvaluationDraft {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  personId: UUID;
+  generatedByType: "AGENT" | "USER" | "SYSTEM";
+  generatedById?: UUID;
+  modelProvider?: string;
+  modelName?: string;
+  promptVersion?: string;
+  agentTaskId?: UUID;
+  evidenceSnapshotHash: string;
+  draftPayload: Record<string, unknown>;
+  strengths: string[];
+  counterEvidence: string[];
+  missingInformation: string[];
+  uncertainty: Record<string, unknown>;
+  status: EvaluationDraftStatus;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationDecision {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  personId: UUID;
+  decisionVersion: number;
+  status: "APPROVED" | "SUPERSEDED" | "WITHDRAWN";
+  rubricVersionId: UUID;
+  evidenceSnapshotHash: string;
+  scores: Record<string, number>;
+  rationale: string;
+  reviewerPersonId: UUID;
+  approvedAt?: string;
+  supersedesId?: UUID;
+  createdAt: string;
 }
 
 export interface AuditEvent {

@@ -9,13 +9,17 @@ import type {
   ContributionClaim,
   EmployeeConfirmation,
   EvidenceLink,
+  EvaluationDecision,
+  EvaluationDraft,
   EvidenceNode,
   IngestionBatch,
   IngestionResult,
   LegalGateRecord,
   PolicyDefinition,
+  PolicyVersionSummary,
   PublishPolicyInput,
   PublishedPolicy,
+  Rubric,
   SettlementBatch,
   SettlementCommandInput,
   SettlementCommandResult,
@@ -59,6 +63,7 @@ export interface IncentiveStore {
   /** Optional dependency check used by /ready. */
   ping?(): Promise<void>;
   getPolicy(policyVersionId: string): Promise<PolicyDefinition>;
+  listPolicyVersions(): Promise<PolicyVersionSummary[]>;
   publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
 
   createWorkPackage(input: CreateWorkPackageInput): Promise<WorkPackage>;
@@ -124,6 +129,53 @@ export interface IncentiveStore {
   listLedger(tenantId?: string): Promise<AmountLedgerEntry[]>;
   verifyLedger(tenantId?: string): Promise<boolean>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
+
+  createRubric(input: {
+    code: string;
+    name: string;
+    dimensions: string[];
+    scoringAnchors: Record<string, unknown>;
+    scope?: Record<string, unknown>;
+    effectiveFrom: string;
+  }): Promise<Rubric>;
+  listRubrics(): Promise<Rubric[]>;
+  createEvaluationDraft(input: {
+    cycleId: string;
+    personId: string;
+    generatedByType: "AGENT" | "USER" | "SYSTEM";
+    generatedById?: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion?: string;
+    agentTaskId?: string;
+    evidenceSnapshotHash: string;
+    draftPayload: Record<string, unknown>;
+    strengths?: string[];
+    counterEvidence?: string[];
+    missingInformation?: string[];
+    uncertainty?: Record<string, unknown>;
+  }): Promise<EvaluationDraft>;
+  getEvaluationDraft(id: string): Promise<EvaluationDraft>;
+  listEvaluationDrafts(filter?: {
+    cycleId?: string;
+    personId?: string;
+  }): Promise<EvaluationDraft[]>;
+  submitEvaluationDraft(id: string): Promise<EvaluationDraft>;
+  decideEvaluationDraft(
+    id: string,
+    input: {
+      reviewerPersonId: string;
+      rubricVersionId: string;
+      decision: "APPROVE" | "REJECT";
+      scores: Record<string, number>;
+      rationale: string;
+    },
+  ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }>;
+  listEvaluationDecisions(filter?: {
+    cycleId?: string;
+    personId?: string;
+  }): Promise<EvaluationDecision[]>;
+  getEvaluationDecision(id: string): Promise<EvaluationDecision>;
 
   createSettlementBatch(input: {
     cycleId: string;

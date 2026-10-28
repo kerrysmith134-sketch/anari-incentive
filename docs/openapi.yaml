@@ -24,6 +24,7 @@ tags:
   - name: Work packages
   - name: Contribution claims
   - name: Attribution
+  - name: Evaluation
   - name: Policy
   - name: Calculation
   - name: Confirmations
@@ -891,7 +892,215 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/rubrics:
+    get:
+      tags: [Evaluation]
+      summary: List rubrics
+      responses:
+        "200":
+          description: Rubrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Evaluation]
+      summary: Create a rubric version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRubric"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/evaluation-drafts:
+    get:
+      tags: [Evaluation]
+      summary: List evaluation drafts
+      parameters:
+        - name: cycleId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: personId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Drafts (employees see only their own)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Evaluation]
+      summary: Create an evaluation draft
+      description: A draft is evidence-bound input to a human decision; it cannot become a decision by itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEvaluationDraft"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/evaluation-drafts/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Get an evaluation draft
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/evaluation-drafts/{id}/submit:
+    post:
+      tags: [Evaluation]
+      summary: Submit a draft for human review
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/evaluation-drafts/{id}/decision:
+    post:
+      tags: [Evaluation]
+      summary: Approve or reject a submitted evaluation draft
+      description: Reviewer must not be the evaluated person. Approval creates a versioned decision and supersedes the previous approved decision for the same cycle/person.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideEvaluationDraft"
+      responses:
+        "200":
+          description: Decision result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/evaluation-decisions:
+    get:
+      tags: [Evaluation]
+      summary: List evaluation decisions
+      parameters:
+        - name: cycleId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: personId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Decisions (employees see only their own)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/evaluation-decisions/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Get an evaluation decision
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/policy-versions:
+    get:
+      tags: [Policy]
+      summary: List policy versions and effective windows
+      responses:
+        "200":
+          description: Policy versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Policy]
       summary: Publish an approved policy version
@@ -1547,6 +1756,93 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+
+    CreateRubric:
+      type: object
+      required: [code, name, dimensions, scoringAnchors, effectiveFrom]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        dimensions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        scoringAnchors:
+          type: object
+          additionalProperties: true
+        scope:
+          type: object
+          additionalProperties: true
+        effectiveFrom:
+          type: string
+          description: Effective date (YYYY-MM-DD)
+
+    CreateEvaluationDraft:
+      type: object
+      required:
+        [cycleId, personId, generatedByType, evidenceSnapshotHash, draftPayload]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        generatedByType:
+          type: string
+          enum: [AGENT, USER, SYSTEM]
+        generatedById:
+          $ref: "#/components/schemas/Uuid"
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        promptVersion:
+          type: string
+        agentTaskId:
+          $ref: "#/components/schemas/Uuid"
+        evidenceSnapshotHash:
+          type: string
+        draftPayload:
+          type: object
+          additionalProperties: true
+        strengths:
+          type: array
+          items:
+            type: string
+        counterEvidence:
+          type: array
+          items:
+            type: string
+        missingInformation:
+          type: array
+          items:
+            type: string
+        uncertainty:
+          type: object
+          additionalProperties: true
+
+    DecideEvaluationDraft:
+      type: object
+      required: [reviewerPersonId, rubricVersionId, decision, rationale]
+      properties:
+        reviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        rubricVersionId:
+          $ref: "#/components/schemas/Uuid"
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 5
+        rationale:
+          type: string
+          minLength: 3
 
     CreateSettlementBatch:
       type: object
