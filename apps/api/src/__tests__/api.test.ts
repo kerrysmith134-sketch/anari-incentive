@@ -12,6 +12,7 @@ const ADJUDICATOR = "00000000-0000-4000-8000-000000000003";
 const CYCLE = "00000000-0000-4000-8000-000000000020";
 
 let app: FastifyInstance;
+let appStore: Store;
 
 async function call(
   method: "GET" | "POST",
@@ -145,7 +146,8 @@ async function confirmCalculation(runId: string, personId: string) {
 }
 
 beforeEach(() => {
-  app = buildApp(new Store());
+  appStore = new Store();
+  app = buildApp(appStore);
 });
 
 describe("authentication", () => {
@@ -368,6 +370,59 @@ describe("tenant isolation", () => {
       headers: { "x-tenant-id": "tenant-b" },
     } as never);
     expect(tasksB.json().data).toHaveLength(0);
+  });
+});
+
+describe("employee data redaction", () => {
+  it("returns only the employee's line and hides order economics", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "SHADOW",
+      order: { id: "redaction-order", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "OWNER",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "CONTRIBUTOR",
+        },
+      ],
+    });
+    const runId = run.body.data.id as string;
+
+    const employee: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "employee-1",
+          roles: ["employee"],
+          personId: OWNER,
+        };
+      },
+    };
+    const employeeApp = buildApp(appStore, undefined, employee);
+    const visible = await employeeApp.inject({
+      method: "GET",
+      url: `/api/v1/calculation-runs/${runId}`,
+    } as never);
+    expect(visible.statusCode).toBe(200);
+    expect(visible.json().data.lines).toHaveLength(1);
+    expect(visible.json().data.lines[0].personId).toBe(OWNER);
+    expect(visible.json().data.lines[0].trace).toEqual({});
+    expect(visible.json().data.inputSnapshot.order.grossProfit).toBe(
+      "REDACTED",
+    );
+    expect(visible.json().data.inputSnapshot.participants).toHaveLength(1);
   });
 });
 

@@ -335,7 +335,7 @@ The employee/admin web pages are served without authentication, but every data-c
 - settlement and agent-task read endpoints are role-gated;
 - `GET /ledger/verify` and `GET /policy-versions/:id/legal-gate` are role-gated.
 
-Remaining limitation: evidence payloads and calculation input snapshots are not field-redacted. Do not expose those endpoints to roles that must not see tenant-wide business context until field-level authorization is added.
+Calculation runs are further redacted for employees: `lines` and `inputSnapshot.participants` are limited to the person, `line.trace` becomes `{}` and `order.grossProfit` becomes `REDACTED`. `GET /evidence` and `GET /evidence/:id/links` are manager/finance only. New sensitive fields must be added to this redaction policy explicitly.
 
 ---
 

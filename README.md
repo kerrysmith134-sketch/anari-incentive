@@ -44,7 +44,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks and settlement commands append hash-chained `audit_events`; `GET /audit-events` is role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **114 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **115 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -52,7 +52,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
 - Production CRM/ERP/Feishu connectors (generic CSV/HTTP connectors and an ingestion API exist; provider-specific OAuth and webhook signatures are pending);
 - Metrics/tracing export to an external observability backend;
-- Field-level redaction beyond calculation lines (run input snapshots and evidence payloads can still contain sensitive context);
+- Field-level policy for future sensitive fields (calculation lines/traces and order economics are redacted for employees; evidence reads are role-gated);
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;

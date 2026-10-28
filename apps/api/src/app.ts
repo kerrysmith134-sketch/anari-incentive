@@ -33,6 +33,7 @@ import {
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
+  type CalculationRun,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
@@ -110,6 +111,30 @@ function isPrivileged(request: FastifyRequest): boolean {
 
 function ownPersonId(request: FastifyRequest): string | undefined {
   return request.authContext?.personId;
+}
+
+/** Employee view of a run: own lines only, no pool trace or order economics. */
+function redactRunForPerson(
+  run: CalculationRun,
+  person: string,
+): CalculationRun {
+  return {
+    ...run,
+    inputSnapshot: {
+      ...run.inputSnapshot,
+      order: {
+        id: run.inputSnapshot.order.id,
+        grossProfit: "REDACTED",
+        currency: run.inputSnapshot.order.currency,
+      },
+      participants: run.inputSnapshot.participants.filter(
+        (participant) => participant.personId === person,
+      ),
+    },
+    lines: run.lines
+      .filter((line) => line.personId === person)
+      .map((line) => ({ ...line, trace: {} })),
+  };
 }
 
 /**
@@ -453,6 +478,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/evidence", async (request) => {
+    requireRoles(request, "manager", "finance");
     const query = request.query as {
       subjectType?: string;
       subjectId?: string;
@@ -470,9 +496,13 @@ export function buildApp(
       .send(data(await storeFor(request).linkEvidence(idOf(request), body), request));
   });
 
-  app.get("/api/v1/evidence/:id/links", async (request) =>
-    data(await storeFor(request).listEvidenceLinks(idOf(request)), request),
-  );
+  app.get("/api/v1/evidence/:id/links", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).listEvidenceLinks(idOf(request)),
+      request,
+    );
+  });
 
   app.post("/api/v1/work-packages", async (request, reply) => {
     const body = parse(createWorkPackageSchema, request.body);
@@ -652,10 +682,7 @@ export function buildApp(
     return data(
       runs
         .filter((run) => run.lines.some((line) => line.personId === person))
-        .map((run) => ({
-          ...run,
-          lines: run.lines.filter((line) => line.personId === person),
-        })),
+        .map((run) => redactRunForPerson(run, person)),
       request,
     );
   });
@@ -667,13 +694,7 @@ export function buildApp(
     if (!run.lines.some((line) => line.personId === person)) {
       throw new ForbiddenError("calculation run is not visible to this person");
     }
-    return data(
-      {
-        ...run,
-        lines: run.lines.filter((line) => line.personId === person),
-      },
-      request,
-    );
+    return data(redactRunForPerson(run, person), request);
   });
 
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
