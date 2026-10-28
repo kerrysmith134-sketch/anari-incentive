@@ -50,7 +50,10 @@ import {
   ForbiddenError,
   type Authenticator,
 } from "@anari/auth";
-import { simulatePolicyChange } from "@anari/policy-dsl";
+import {
+  diffPolicyDefinitions,
+  simulatePolicyChange,
+} from "@anari/policy-dsl";
 import { LedgerError } from "@anari/ledger";
 import {
   CalculationBlockedError,
@@ -536,6 +539,33 @@ export function buildApp(
   app.get("/api/v1/policy-versions", async (request) => {
     requireRoles(request, "manager", "finance");
     return data(await storeFor(request).listPolicyVersions(), request);
+  });
+
+  app.get("/api/v1/policy-versions/:id/diff", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { against?: string };
+    if (!query.against) {
+      throw new ConflictError("DIFF_TARGET_REQUIRED: against query is required");
+    }
+    const store = storeFor(request);
+    const base = await store.getPolicy(idOf(request));
+    const target = await store.getPolicy(query.against);
+    return data(
+      {
+        base: {
+          policyVersionId: idOf(request),
+          code: base.code,
+          version: base.version,
+        },
+        target: {
+          policyVersionId: query.against,
+          code: target.code,
+          version: target.version,
+        },
+        changes: diffPolicyDefinitions(base, target),
+      },
+      request,
+    );
   });
 
   app.post("/api/v1/policy-versions", async (request, reply) => {

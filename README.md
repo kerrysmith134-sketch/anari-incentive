@@ -39,14 +39,14 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
 | Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, submit/list own evidence, view/read own notifications, view own approved evaluation decisions |
-| Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
+| Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list/diff, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **132 unit/API tests + 17 PostgreSQL integration tests** covering state transitions, commitment snapshots, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **134 unit/API tests + 17 PostgreSQL integration tests** covering state transitions, commitment snapshots, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -212,6 +212,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/agent-tasks` | Enqueue a proactive agent task |
 | POST | `/api/v1/agent-tasks/scan` | Run a proactive scan: evidence gaps, anomalies, settlement readiness |
 | GET | `/api/v1/policy-versions` | List policy versions, status and effective windows |
+| GET | `/api/v1/policy-versions/:id/diff?against=` | Structural policy diff |
 | POST | `/api/v1/policy-versions` | Publish an approved policy version; closes the prior effective window |
 | POST | `/api/v1/policy-simulations` | Replay samples through current vs proposed policy; no publication |
 | GET | `/api/v1/agent-tasks` / `/:id` | List/get agent tasks |

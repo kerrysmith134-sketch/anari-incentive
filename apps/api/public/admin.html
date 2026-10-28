@@ -177,6 +177,20 @@
         </thead>
         <tbody id="policyVersions"></tbody>
       </table>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <label>对比基准</label>
+          <select id="diffBase"></select>
+        </div>
+        <div>
+          <label>对比目标</label>
+          <select id="diffTarget"></select>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="runPolicyDiff" style="width:100%">对比政策版本</button>
+        </div>
+      </div>
+      <pre id="policyDiff" hidden></pre>
     </section>
 
     <section class="card">
@@ -896,6 +910,27 @@
       }
     }
 
+    async function runPolicyDiff() {
+      try {
+        const baseId = $("diffBase").value;
+        const targetId = $("diffTarget").value;
+        if (!baseId || !targetId) throw new Error("请选择两个政策版本");
+        if (baseId === targetId) throw new Error("请选择不同的政策版本");
+        const result = await api(
+          `/api/v1/policy-versions/${baseId}/diff?against=${encodeURIComponent(targetId)}`,
+        );
+        $("policyDiff").hidden = false;
+        $("policyDiff").textContent = JSON.stringify(result.changes, null, 2);
+        setStatus(
+          "policyStatus",
+          `差异 ${result.changes.length} 项`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("policyStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAppeals() {
       try {
         const appeals = await api("/api/v1/appeals");
@@ -1186,6 +1221,13 @@
           <td>${escapeHtml(version.effectiveFrom || "—")}</td>
           <td>${escapeHtml(version.effectiveTo || "—")}</td>
         </tr>`).join("");
+        const options = versions.map(
+          (version) =>
+            `<option value="${version.policyVersionId}">${escapeHtml(version.code)} v${version.version}</option>`,
+        ).join("");
+        $("diffBase").innerHTML = options;
+        $("diffTarget").innerHTML = options;
+        if (versions.length > 1) $("diffTarget").selectedIndex = 1;
         setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
         setStatus("simStatus", String(error.message), "bad");
@@ -1367,6 +1409,7 @@
     $("refreshAudit").addEventListener("click", loadAudit);
     $("verifyAudit").addEventListener("click", verifyAudit);
     $("publishPolicy").addEventListener("click", publishPolicy);
+    $("runPolicyDiff").addEventListener("click", runPolicyDiff);
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {
       await loadWorkPackages();

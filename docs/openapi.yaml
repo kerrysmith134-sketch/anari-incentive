@@ -359,6 +359,31 @@ paths:
         "422":
           $ref: "#/components/responses/InvariantViolation"
 
+  /api/v1/policy-versions/{id}/diff:
+    get:
+      tags: [Policy]
+      summary: Structural diff against another policy version
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: against
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Policy changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/policy-versions/{id}/legal-gate:
     get:
       tags: [Policy]

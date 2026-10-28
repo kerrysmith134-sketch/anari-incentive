@@ -9,3 +9,4 @@ export * from "./cash-weighted-reserve-channel.js";
 export * from "./calculate.js";
 export * from "./simulate.js";
 export * from "./evaluation.js";
+export * from "./diff.js";

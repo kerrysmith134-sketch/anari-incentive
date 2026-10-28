@@ -654,6 +654,7 @@ describe("admin view", () => {
     expect(response.body).toContain("政策发布");
     expect(response.body).toContain("账本冲销");
     expect(response.body).toContain("通知中心");
+    expect(response.body).toContain("对比政策版本");
   });
 });
 
@@ -1699,6 +1700,17 @@ describe("vertical slice", () => {
           version.policyVersionId === published.body.data.policyVersionId,
       ),
     ).toBe(true);
+
+    const diff = await call(
+      "GET",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/diff?against=${published.body.data.policyVersionId}`,
+    );
+    expect(diff.status).toBe(200);
+    expect(diff.body.data.changes).toEqual(
+      expect.arrayContaining([
+        { path: "poolRate", before: "0.05", after: "0.07" },
+      ]),
+    );
 
     const simulation = await call("POST", "/api/v1/policy-simulations", {
       currentPolicyVersionId: published.body.data.policyVersionId,

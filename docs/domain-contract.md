@@ -182,6 +182,7 @@ Additional application-level invariants:
 | `POST /agent-tasks/scan` | — | Enqueues and runs evidence-gap, anomaly and settlement-readiness sweeps |
 | `POST /policy-simulations` | current policy exists | Recomputes samples; returns deltas and blockers; writes no money |
 | `GET /policy-versions` | manager/finance | Lists policy versions, status and effective windows |
+| `GET /policy-versions/:id/diff?against=` | manager/finance | Structural diff of two policy definitions |
 | `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL |
 | `POST /settlement-batches` | LOCKED ledger entries not in an active batch | DRAFT batch with one line per ledger entry |
 | `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV |
