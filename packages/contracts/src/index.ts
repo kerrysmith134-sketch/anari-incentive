@@ -146,6 +146,13 @@ export type CreateCalculationRunInput = z.infer<
   typeof createCalculationRunSchema
 >;
 
+export const createCalculationBatchSchema = z.object({
+  runs: z.array(createCalculationRunSchema).min(1).max(50),
+});
+export type CreateCalculationBatchInput = z.infer<
+  typeof createCalculationBatchSchema
+>;
+
 export const lockCalculationRunSchema = z.object({
   confirmation: z.literal("LOCK_CALCULATION"),
 });

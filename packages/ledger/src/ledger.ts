@@ -186,6 +186,34 @@ export class InMemoryLedger {
     return true;
   }
 
+  /**
+   * Dev-store rollback support for an all-or-nothing batch. PostgreSQL uses a
+   * transaction instead; this snapshot/restore pair must not be used to mutate
+   * settled history.
+   */
+  snapshot(): AmountLedgerEntry[] {
+    return structuredClone(this.entries);
+  }
+
+  restore(snapshot: AmountLedgerEntry[]): void {
+    this.entries.length = 0;
+    this.byIdempotencyKey.clear();
+    this.byCalculationLine.clear();
+    for (const entry of structuredClone(snapshot)) {
+      this.entries.push(entry);
+      this.byIdempotencyKey.set(
+        `${entry.tenantId}:${entry.idempotencyKey}`,
+        entry,
+      );
+      if (entry.calculationLineId) {
+        this.byCalculationLine.set(
+          `${entry.tenantId}:${entry.calculationLineId}:${entry.entryType}`,
+          entry,
+        );
+      }
+    }
+  }
+
   balance(personId: string, currency: string): number {
     return this.entries
       .filter(

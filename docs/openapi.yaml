@@ -421,6 +421,39 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/calculation-runs:batch:
+    post:
+      tags: [Calculation]
+      summary: Create up to 50 calculation runs atomically
+      description: All runs commit in one transaction; if any item is blocked, none are persisted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [runs]
+              properties:
+                runs:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    $ref: "#/components/schemas/CreateCalculationRun"
+      responses:
+        "201":
+          description: Created runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Blocked"
+
   /api/v1/calculation-runs:
     get:
       tags: [Calculation]

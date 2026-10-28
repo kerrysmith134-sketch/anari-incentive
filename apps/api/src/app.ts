@@ -9,6 +9,7 @@ import {
   commitWorkPackageSchema,
   createAppealSchema,
   createAttributionDecisionSchema,
+  createCalculationBatchSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
   approveAgentActionSchema,
@@ -995,6 +996,13 @@ export function buildApp(
     return reply
       .status(201)
       .send(data(await storeFor(request).createCalculationRun(body), request));
+  });
+
+  app.post("/api/v1/calculation-runs:batch", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createCalculationBatchSchema, request.body);
+    const runs = await storeFor(request).createCalculationRunsBatch(body.runs);
+    return reply.status(201).send(data({ runs }, request));
   });
 
   app.get("/api/v1/calculation-runs", async (request) => {

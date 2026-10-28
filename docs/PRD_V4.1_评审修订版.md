@@ -484,6 +484,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 员工端：确认/异议/申诉、提交并查看本人证据、查看/标记本人通知、查看本人已批准评价决策；
 - 站内通知：Agent 的补证、通知 owner/finance、升级动作落库为 in-app notification；DQ 指派、员工异议、申诉状态、评价提交/决策、结算调整也会通知相应人员；员工端可读/标记已读，管理端有通知中心；邮件/IM 投递仍作为外部适配器；证据记录 submittedBy，员工只能看到自己提交的证据；
 - 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；DATA_QUALITY Agent 会把证据质量问题落为 issue，BLOCKING 同时升级待人工处理；
+- 批量计算：`POST /calculation-runs:batch` 单事务处理 1–50 个计算，任一条阻断则全部回滚（内存与 PostgreSQL 一致）；
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL 命令，CSV 财务导出，行与账本强校验；
 - 账本冲销：`POST /ledger/:id/reverse` 追加锁定负向 REVERSAL，原条目保持 LOCKED，新条目进入同一哈希链；导出后更正通过 REQUIRE_ADJUSTMENT + 新批次处理；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；

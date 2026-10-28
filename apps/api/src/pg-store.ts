@@ -868,7 +868,25 @@ export class PgStore implements IncentiveStore {
   async createCalculationRun(
     input: CreateCalculationRunInput,
   ): Promise<CalculationRun> {
+    return this.tx((client) => this.createCalculationRunInTx(client, input));
+  }
+
+  async createCalculationRunsBatch(
+    inputs: CreateCalculationRunInput[],
+  ): Promise<CalculationRun[]> {
     return this.tx(async (client) => {
+      const runs: CalculationRun[] = [];
+      for (const input of inputs) {
+        runs.push(await this.createCalculationRunInTx(client, input));
+      }
+      return runs;
+    });
+  }
+
+  private async createCalculationRunInTx(
+    client: PoolClient,
+    input: CreateCalculationRunInput,
+  ): Promise<CalculationRun> {
       const policyResult = await client.query(
         "SELECT rule_ast FROM policy_versions WHERE tenant_id=$1 AND id=$2",
         [this.tenantId, input.policyVersionId],
@@ -1122,7 +1140,6 @@ export class PgStore implements IncentiveStore {
       }
 
       return this.loadRun(client, runId);
-    });
   }
 
   async getRun(id: string): Promise<CalculationRun> {

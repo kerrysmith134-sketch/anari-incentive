@@ -774,6 +774,66 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger/verify")).body.data.valid).toBe(true);
   });
 
+  it("creates calculation runs atomically in a batch", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const participants = [
+      {
+        personId: OWNER,
+        workPackageId,
+        attributionWeight: "0.6",
+        role: "OWNER",
+      },
+      {
+        personId: MEMBER,
+        workPackageId,
+        attributionWeight: "0.4",
+        role: "CONTRIBUTOR",
+      },
+    ];
+    const runInput = (orderId: string) => ({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: { id: orderId, grossProfit: "100000", currency: "CNY" },
+      participants,
+    });
+
+    const blocked = await call("POST", "/api/v1/calculation-runs:batch", {
+      runs: [
+        runInput("batch-order-1"),
+        {
+          ...runInput("batch-order-2"),
+          participants: [
+            {
+              personId: ADJUDICATOR,
+              workPackageId,
+              attributionWeight: "1",
+              role: "OWNER",
+            },
+          ],
+        },
+      ],
+    });
+    expect(blocked.status).toBe(422);
+    expect((await call("GET", "/api/v1/calculation-runs")).body.data).toHaveLength(
+      0,
+    );
+    expect((await call("GET", "/api/v1/ledger")).body.data).toHaveLength(0);
+
+    const batch = await call("POST", "/api/v1/calculation-runs:batch", {
+      runs: [runInput("batch-order-1"), runInput("batch-order-2")],
+    });
+    expect(batch.status).toBe(201);
+    expect(batch.body.data.runs).toHaveLength(2);
+    expect((await call("GET", "/api/v1/calculation-runs")).body.data).toHaveLength(
+      2,
+    );
+    expect((await call("GET", "/api/v1/ledger")).body.data).toHaveLength(4);
+  });
+
   it("requires approved evaluation decisions and applies their multipliers", async () => {
     const published = await call("POST", "/api/v1/policy-versions", {
       policy: {

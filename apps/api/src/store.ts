@@ -827,6 +827,25 @@ export class Store implements IncentiveStore {
     return run;
   }
 
+  async createCalculationRunsBatch(
+    inputs: CreateCalculationRunInput[],
+  ): Promise<CalculationRun[]> {
+    const runSnapshot = new Map(this.runs);
+    const ledgerSnapshot = this.ledger.snapshot();
+    try {
+      const runs: CalculationRun[] = [];
+      for (const input of inputs) {
+        runs.push(await this.createCalculationRun(input));
+      }
+      return runs;
+    } catch (error) {
+      this.runs.clear();
+      for (const [id, run] of runSnapshot) this.runs.set(id, run);
+      this.ledger.restore(ledgerSnapshot);
+      throw error;
+    }
+  }
+
   async getRun(id: string): Promise<CalculationRun> {
     return this.runs.get(id) ?? notFound("CalculationRun", id);
   }

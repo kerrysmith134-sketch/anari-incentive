@@ -108,6 +108,9 @@ export interface IncentiveStore {
   createCalculationRun(
     input: CreateCalculationRunInput,
   ): Promise<CalculationRun>;
+  createCalculationRunsBatch(
+    inputs: CreateCalculationRunInput[],
+  ): Promise<CalculationRun[]>;
   getRun(id: string): Promise<CalculationRun>;
   listRuns(): Promise<CalculationRun[]>;
   approveRun(id: string): Promise<CalculationRun>;

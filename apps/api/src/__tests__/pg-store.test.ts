@@ -344,6 +344,63 @@ describePg("PgStore vertical slice", () => {
     expect(allowed.status).toBe("CALCULATED");
   });
 
+  it("creates a PostgreSQL calculation batch atomically", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate();
+    const participants = [
+      {
+        personId: OWNER,
+        workPackageId,
+        attributionWeight: "0.6",
+        role: "OWNER",
+      },
+      {
+        personId: MEMBER,
+        workPackageId,
+        attributionWeight: "0.4",
+        role: "CONTRIBUTOR",
+      },
+    ];
+    const runInput = (orderId: string) => ({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL" as const,
+      order: { id: orderId, grossProfit: "100000", currency: "CNY" },
+      participants,
+    });
+    const runsBefore = (await store.listRuns()).length;
+    const ledgerBefore = (await store.listLedger()).length;
+
+    await expect(
+      store.createCalculationRunsBatch([
+        runInput("pg-batch-1"),
+        {
+          ...runInput("pg-batch-2"),
+          participants: [
+            {
+              personId: ADJUDICATOR,
+              workPackageId,
+              attributionWeight: "1",
+              role: "OWNER",
+            },
+          ],
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "CALCULATION_BLOCKED" });
+    expect((await store.listRuns()).length).toBe(runsBefore);
+    expect((await store.listLedger()).length).toBe(ledgerBefore);
+
+    const runs = await store.createCalculationRunsBatch([
+      runInput("pg-batch-1"),
+      runInput("pg-batch-2"),
+    ]);
+    expect(runs).toHaveLength(2);
+    expect((await store.listRuns()).length).toBe(runsBefore + 2);
+    expect((await store.listLedger()).length).toBe(ledgerBefore + 4);
+  });
+
   it("applies approved evaluation decisions to a formal calculation", async () => {
     const published = await store.publishPolicy({
       policy: {

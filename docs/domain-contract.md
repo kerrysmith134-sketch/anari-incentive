@@ -161,6 +161,7 @@ Additional application-level invariants:
 | `POST /evaluation-drafts/:id/submit` | DRAFT | SUBMITTED |
 | `POST /evaluation-drafts/:id/decision` | SUBMITTED, reviewer ≠ person, rubric scores complete | APPROVED + versioned decision, or REJECTED |
 | `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution; a policy with `evaluation` requires approved, matching decisions | CALCULATED; FORMAL writes ledger |
+| `POST /calculation-runs:batch` | 1–50 runs, same per-run rules | All-or-nothing in one transaction; any blocked item rolls back runs and ledger |
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
