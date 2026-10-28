@@ -544,6 +544,7 @@ describe("admin view", () => {
     expect(response.body).toContain("数据质量");
     expect(response.body).toContain("申诉处理");
     expect(response.body).toContain("贡献与认定");
+    expect(response.body).toContain("政策发布");
   });
 });
 

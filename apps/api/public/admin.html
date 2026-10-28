@@ -129,6 +129,57 @@
     </section>
 
     <section class="card">
+      <h2>政策发布</h2>
+      <div class="grid">
+        <div>
+          <label>政策编码</label>
+          <input id="policyCode" value="GENERIC_CONTRIBUTION_V1" />
+        </div>
+        <div>
+          <label>版本号</label>
+          <input id="policyVersion" value="2" />
+        </div>
+        <div>
+          <label>提取率</label>
+          <input id="policyRate" value="0.06" />
+        </div>
+        <div>
+          <label>封顶</label>
+          <input id="policyCap" value="120000" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>计算器</label>
+          <select id="policyCalculator">
+            <option value="SIMPLE_POOL">SIMPLE_POOL</option>
+            <option value="CASH_WEIGHTED_POOL">CASH_WEIGHTED_POOL</option>
+            <option value="CASH_WEIGHTED_RETENTION_POOL">CASH_WEIGHTED_RETENTION_POOL</option>
+            <option value="CASH_WEIGHTED_RESERVE_CHANNEL_POOL">CASH_WEIGHTED_RESERVE_CHANNEL_POOL</option>
+          </select>
+        </div>
+        <div>
+          <label>生效时间（ISO）</label>
+          <input id="policyEffectiveFrom" value="2027-01-01T00:00:00Z" />
+        </div>
+        <div>
+          <label>批准人 ID</label>
+          <input id="policyApprover" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="publishPolicy" style="width:100%">发布政策</button>
+        </div>
+      </div>
+      <div class="status" id="policyStatus"></div>
+      <table>
+        <thead>
+        <tr><th>编码</th><th>版本</th><th>状态</th><th>生效</th><th>结束</th></tr>
+        </thead>
+        <tbody id="policyVersions"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>Agent 任务</h2>
       <div class="actions">
         <button class="primary" id="scan">运行主动扫描</button>
@@ -1038,8 +1089,46 @@
               `<option value="${version.policyVersionId}">${escapeHtml(version.code)} v${version.version} (${escapeHtml(version.status)})</option>`,
             ).join("")
           : '<option value="00000000-0000-4000-8000-000000000100">GENERIC_CONTRIBUTION_V1 v1</option>';
+        $("policyVersions").innerHTML = versions.map((version) => `<tr>
+          <td>${escapeHtml(version.code)}</td>
+          <td>v${version.version}</td>
+          <td><span class="pill">${escapeHtml(version.status)}</span></td>
+          <td>${escapeHtml(version.effectiveFrom || "—")}</td>
+          <td>${escapeHtml(version.effectiveTo || "—")}</td>
+        </tr>`).join("");
+        setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
         setStatus("simStatus", String(error.message), "bad");
+      }
+    }
+
+    async function publishPolicy() {
+      try {
+        const version = Number($("policyVersion").value);
+        if (!Number.isInteger(version) || version < 1) {
+          throw new Error("版本号必须是正整数");
+        }
+        await api("/api/v1/policy-versions", {
+          method: "POST",
+          body: JSON.stringify({
+            policy: {
+              code: $("policyCode").value.trim(),
+              version,
+              currency: "CNY",
+              poolRate: $("policyRate").value.trim(),
+              poolCap: $("policyCap").value.trim(),
+              rounding: "HALF_UP",
+              calculator: $("policyCalculator").value,
+            },
+            effectiveFrom: $("policyEffectiveFrom").value.trim(),
+            approvedBy: $("policyApprover").value.trim(),
+          }),
+        });
+        setStatus("policyStatus", "政策已发布；FORMAL 计算仍需单独记录法律门禁", "ok");
+        await loadPolicies();
+        await loadAudit();
+      } catch (error) {
+        setStatus("policyStatus", String(error.message), "bad");
       }
     }
 
@@ -1143,6 +1232,7 @@
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
     $("refreshAudit").addEventListener("click", loadAudit);
+    $("publishPolicy").addEventListener("click", publishPolicy);
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {
       await loadWorkPackages();
