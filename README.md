@@ -77,6 +77,8 @@ npm run dev
 # API at http://localhost:3000
 # Employee page: http://localhost:3000/
 # Admin page:    http://localhost:3000/admin
+# In another terminal: full demo cycle through the API
+npm run demo:cycle
 ```
 
 `AUTH_MODE` defaults to `dev`, which accepts `X-Tenant-Id` / `X-User-Id`
@@ -272,6 +274,7 @@ scripts/reconcile.ts     CSV vs engine reconciliation
 scripts/agent-scan.ts    Cron/on-demand proactive agent scan
 scripts/import-csv.ts    CSV connector importer
 scripts/seed-policy-packs.ts  Import examples/verticals packs into PostgreSQL
+scripts/demo-cycle.ts    End-to-end API demo: package → claim → run → settlement → evaluation → DQ → appeal
 Dockerfile                API/worker image
 docker-compose.yml        postgres + migrate + api + worker
 docs/
