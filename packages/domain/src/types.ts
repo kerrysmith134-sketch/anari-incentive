@@ -161,7 +161,8 @@ export type ConfirmationTargetType =
   | "EVALUATION"
   | "ATTRIBUTION"
   | "CALCULATION"
-  | "LEDGER";
+  | "LEDGER"
+  | "SETTLEMENT";
 
 export type ConfirmationDecision = "VIEWED" | "CONFIRMED" | "OBJECTED";
 
@@ -421,6 +422,7 @@ export interface SettlementBatch {
   cycleId: UUID;
   batchNo: string;
   status: SettlementBatchStatus;
+  kind: "STANDARD" | "RECOVERY";
   currency: string;
   totalAmount: DecimalString;
   lineCount: number;

@@ -2116,6 +2116,7 @@ export class PgStore implements IncentiveStore {
 
   async createSettlementBatch(input: {
     cycleId: string;
+    kind?: "STANDARD" | "RECOVERY";
     currency?: string;
     batchNo?: string;
   }): Promise<SettlementBatch> {
@@ -2159,12 +2160,20 @@ export class PgStore implements IncentiveStore {
 
       const id = randomUUID();
       const batchNo = input.batchNo ?? `SB-${Date.now()}-${id.slice(0, 8)}`;
+      const kind = input.kind ?? "STANDARD";
+      const netTotal = entries.reduce(
+        (total, entry) => total + parseDecimal(String(entry.amount)),
+        0n,
+      );
+      if (netTotal < 0n && kind !== "RECOVERY") {
+        throw new ConflictError("NEGATIVE_SETTLEMENT_REQUIRES_RECOVERY");
+      }
       try {
         await client.query(
           `INSERT INTO settlement_batches
-            (id, tenant_id, cycle_id, batch_no, status, currency)
-           VALUES ($1,$2,$3,$4,'DRAFT',$5)`,
-          [id, this.tenantId, input.cycleId, batchNo, currency],
+            (id, tenant_id, cycle_id, batch_no, status, kind, currency)
+           VALUES ($1,$2,$3,$4,'DRAFT',$5,$6)`,
+          [id, this.tenantId, input.cycleId, batchNo, kind, currency],
         );
         for (const entry of entries) {
           await client.query(
@@ -2256,15 +2265,18 @@ export class PgStore implements IncentiveStore {
           await this.validateSettlementBatch(client, batch);
           await this.setSettlementStatus(client, id, "RECONCILING");
           break;
-        case "SUBMIT":
+        case "SUBMIT": {
           transition("PENDING_APPROVAL");
-          if (parseDecimal(batch.totalAmount) <= 0n) {
-            throw new ConflictError(
-              "EMPTY_SETTLEMENT: batch total must be positive",
-            );
+          const total = parseDecimal(batch.totalAmount);
+          if (total === 0n) {
+            throw new ConflictError("EMPTY_SETTLEMENT");
+          }
+          if (total < 0n && batch.kind !== "RECOVERY") {
+            throw new ConflictError("NEGATIVE_SETTLEMENT_REQUIRES_RECOVERY");
           }
           await this.setSettlementStatus(client, id, "PENDING_APPROVAL");
           break;
+        }
         case "APPROVE":
           transition("APPROVED");
           if (!input.actorPersonId) {
@@ -2279,8 +2291,39 @@ export class PgStore implements IncentiveStore {
             [input.actorPersonId, this.tenantId, id],
           );
           break;
-        case "LOCK":
+        case "LOCK": {
           transition("LOCKED");
+          if (batch.kind === "RECOVERY") {
+            const affected = [
+              ...new Set(
+                (batch.lines ?? [])
+                  .filter(
+                    (line) => line.active && parseDecimal(line.amount) < 0n,
+                  )
+                  .map((line) => line.personId),
+              ),
+            ];
+            const blockers: string[] = [];
+            for (const personId of affected) {
+              const { rows: confirmations } = await client.query(
+                `SELECT decision FROM employee_confirmations
+                  WHERE tenant_id=$1 AND person_id=$2
+                    AND target_type='SETTLEMENT' AND target_id=$3`,
+                [this.tenantId, personId, id],
+              );
+              const decision = confirmations[0]?.decision;
+              if (!decision) {
+                blockers.push(`RECOVERY_CONFIRMATION_MISSING:${personId}`);
+              } else if (decision === "OBJECTED") {
+                blockers.push(`RECOVERY_OBJECTION:${personId}`);
+              } else if (decision !== "CONFIRMED") {
+                blockers.push(`RECOVERY_CONFIRMATION_MISSING:${personId}`);
+              }
+            }
+            if (blockers.length > 0) {
+              throw new ConflictError(blockers.join(","));
+            }
+          }
           await client.query(
             `UPDATE settlement_batches
                 SET status='LOCKED', locked_at=now(), updated_at=now()
@@ -2288,6 +2331,7 @@ export class PgStore implements IncentiveStore {
             [this.tenantId, id],
           );
           break;
+        }
         case "EXPORT":
           transition("EXPORTED");
           await client.query(
@@ -2453,6 +2497,7 @@ export class PgStore implements IncentiveStore {
       cycleId: row.cycle_id,
       batchNo: row.batch_no,
       status: row.status,
+      kind: row.kind,
       currency: String(row.currency).trim(),
       totalAmount: trimAmount(normalizeAmount(String(row.total_amount))),
       lineCount: asNumber(row.line_count),
@@ -2907,6 +2952,12 @@ export class PgStore implements IncentiveStore {
         [this.tenantId, input.targetId],
       );
       if (rowCount === 0) notFound("AmountLedger", input.targetId);
+    } else if (input.targetType === "SETTLEMENT") {
+      const { rowCount } = await client.query(
+        "SELECT 1 FROM settlement_batches WHERE tenant_id=$1 AND id=$2",
+        [this.tenantId, input.targetId],
+      );
+      if (rowCount === 0) notFound("SettlementBatch", input.targetId);
     }
   }
 

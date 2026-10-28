@@ -243,6 +243,7 @@ export interface IncentiveStore {
 
   createSettlementBatch(input: {
     cycleId: string;
+    kind?: "STANDARD" | "RECOVERY";
     currency?: string;
     batchNo?: string;
   }): Promise<SettlementBatch>;

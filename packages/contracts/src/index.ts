@@ -90,7 +90,13 @@ export type RecordLegalGateBody = z.infer<typeof recordLegalGateSchema>;
 
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
-  targetType: z.enum(["EVALUATION", "ATTRIBUTION", "CALCULATION", "LEDGER"]),
+  targetType: z.enum([
+    "EVALUATION",
+    "ATTRIBUTION",
+    "CALCULATION",
+    "LEDGER",
+    "SETTLEMENT",
+  ]),
   targetId: uuidSchema,
   decision: z.enum(["VIEWED", "CONFIRMED", "OBJECTED"]),
   reason: z.string().optional(),
@@ -290,6 +296,7 @@ export type ReverseLedgerEntryBody = z.infer<
 
 export const createSettlementBatchSchema = z.object({
   cycleId: uuidSchema,
+  kind: z.enum(["STANDARD", "RECOVERY"]).default("STANDARD"),
   currency: z.string().length(3).optional(),
   batchNo: z.string().min(1).optional(),
 });

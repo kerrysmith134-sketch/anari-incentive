@@ -939,6 +939,8 @@ export class Store implements IncentiveStore {
       }
     } else if (input.targetType === "LEDGER") {
       this.ledger.get(input.targetId);
+    } else if (input.targetType === "SETTLEMENT") {
+      await this.getSettlementBatch(input.targetId);
     }
   }
 
@@ -1439,6 +1441,7 @@ export class Store implements IncentiveStore {
 
   async createSettlementBatch(input: {
     cycleId: string;
+    kind?: "STANDARD" | "RECOVERY";
     currency?: string;
     batchNo?: string;
   }): Promise<SettlementBatch> {
@@ -1491,16 +1494,22 @@ export class Store implements IncentiveStore {
       active: true,
       createdAt: timestamp,
     }));
+    const kind = input.kind ?? "STANDARD";
+    const total = sum(lines.map((line) => parseDecimal(line.amount)));
+    if (total < 0n && kind !== "RECOVERY") {
+      throw new ConflictError(
+        "NEGATIVE_SETTLEMENT_REQUIRES_RECOVERY",
+      );
+    }
     const batch: SettlementBatch = {
       id,
       tenantId: this.tenantId,
       cycleId: input.cycleId,
       batchNo,
       status: "DRAFT",
+      kind,
       currency,
-      totalAmount: formatDecimal(
-        sum(lines.map((line) => parseDecimal(line.amount))),
-      ),
+      totalAmount: formatDecimal(total),
       lineCount: lines.length,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -1561,10 +1570,12 @@ export class Store implements IncentiveStore {
       }
       case "SUBMIT": {
         transition("PENDING_APPROVAL");
-        if (parseDecimal(batch.totalAmount) <= 0n) {
-          throw new ConflictError(
-            "EMPTY_SETTLEMENT: batch total must be positive",
-          );
+        const total = parseDecimal(batch.totalAmount);
+        if (total === 0n) {
+          throw new ConflictError("EMPTY_SETTLEMENT");
+        }
+        if (total < 0n && batch.kind !== "RECOVERY") {
+          throw new ConflictError("NEGATIVE_SETTLEMENT_REQUIRES_RECOVERY");
         }
         batch.status = "PENDING_APPROVAL";
         break;
@@ -1583,6 +1594,33 @@ export class Store implements IncentiveStore {
       }
       case "LOCK": {
         transition("LOCKED");
+        if (batch.kind === "RECOVERY") {
+          const affected = [
+            ...new Set(
+              lines
+                .filter(
+                  (line) => line.active && parseDecimal(line.amount) < 0n,
+                )
+                .map((line) => line.personId),
+            ),
+          ];
+          const blockers: string[] = [];
+          for (const personId of affected) {
+            const confirmation = this.confirmations.get(
+              `${personId}:SETTLEMENT:${batch.id}`,
+            );
+            if (!confirmation) {
+              blockers.push(`RECOVERY_CONFIRMATION_MISSING:${personId}`);
+            } else if (confirmation.decision === "OBJECTED") {
+              blockers.push(`RECOVERY_OBJECTION:${personId}`);
+            } else if (confirmation.decision !== "CONFIRMED") {
+              blockers.push(`RECOVERY_CONFIRMATION_MISSING:${personId}`);
+            }
+          }
+          if (blockers.length > 0) {
+            throw new ConflictError(blockers.join(","));
+          }
+        }
         batch.status = "LOCKED";
         batch.lockedAt = now();
         break;

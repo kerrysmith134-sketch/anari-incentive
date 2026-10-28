@@ -129,6 +129,24 @@
 
     <section class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>扣回/回收确认</strong>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="settlementBatchId">结算批次 ID</label>
+          <input id="settlementBatchId" placeholder="RECOVERY_BATCH_ID" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="confirmRecovery">确认扣回</button>
+        <button class="danger" id="objectRecovery">反对扣回</button>
+      </div>
+      <div class="status" id="recoveryStatus"></div>
+      <div class="note">RECOVERY 批次锁定前，所有负数条目涉及的员工必须确认；反对会阻止锁定。</div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong>我的通知</strong>
         <button id="refreshNotifications">刷新通知</button>
       </div>
@@ -293,6 +311,33 @@
       }
     }
 
+    async function recordRecovery(decision) {
+      const personId = $("personId").value.trim();
+      const batchId = $("settlementBatchId").value.trim();
+      if (!personId || !batchId) {
+        $("recoveryStatus").textContent = "请填写员工 ID 与结算批次 ID";
+        return;
+      }
+      try {
+        const result = await api("/api/v1/employee-confirmations", {
+          method: "POST",
+          body: JSON.stringify({
+            personId,
+            targetType: "SETTLEMENT",
+            targetId: batchId,
+            decision,
+            reason:
+              decision === "OBJECTED"
+                ? $("reason").value.trim() || "Objected to recovery"
+                : undefined,
+          }),
+        });
+        $("recoveryStatus").textContent = `已记录：${result.decision}`;
+      } catch (error) {
+        $("recoveryStatus").textContent = String(error.message);
+      }
+    }
+
     async function loadNotifications() {
       $("notificationStatus").textContent = "加载中…";
       try {
@@ -405,6 +450,12 @@
     $("refreshEvidence").addEventListener("click", loadEvidence);
     $("createEvidence").addEventListener("click", createEvidence);
     $("refreshNotifications").addEventListener("click", loadNotifications);
+    $("confirmRecovery").addEventListener("click", () =>
+      recordRecovery("CONFIRMED"),
+    );
+    $("objectRecovery").addEventListener("click", () =>
+      recordRecovery("OBJECTED"),
+    );
     $("notificationRows").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notification]");
       if (!button) return;

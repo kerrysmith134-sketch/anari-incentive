@@ -222,6 +222,8 @@ Missing any of these blocks the run with `CALCULATION_BLOCKED`. A `SHADOW` run m
 
 Before a `FORMAL` run can be locked, every participant must have a `CONFIRMED` record for `target_type='CALCULATION'` and `target_id=<run id>`. A `VIEWED` record is not a confirmation. An `OBJECTED` record blocks locking and must be routed to appeal / recalculation. The original calculation and ledger history are preserved.
 
+A `RECOVERY` settlement batch uses `target_type='SETTLEMENT'` and `target_id=<batch id>` for the same rule; see §10.1.
+
 ### AI gate
 
 Numeric AI scoring is not available in the first slice. `packages/ai-gate` exposes evidence summary and gap detection only; `assertScoringAllowed` throws until a gate with a passed evaluation protocol is supplied.
@@ -347,7 +349,9 @@ A settlement batch is the bridge from locked money to finance:
 
 The settlement does not change the ledger and cannot create money. A re-settlement after cancellation is a new batch over the same locked ledger entries.
 
-A post-export correction is a new locked `REVERSAL` ledger entry linked to the original, not an edit. `REQUIRE_ADJUSTMENT` marks the old batch (`EXPORTED`/`ACKNOWLEDGED` → `ADJUSTMENT_REQUIRED`); a new settlement batch then picks up unbatched reversal/positive entries. If the unbatched net total is negative the batch cannot be created because `settlement_batches.total_amount >= 0`; such a recovery needs a future cycle or an explicit negative-settlement policy.
+A post-export correction is a new locked `REVERSAL` ledger entry linked to the original, not an edit. `REQUIRE_ADJUSTMENT` marks the old batch (`EXPORTED`/`ACKNOWLEDGED` → `ADJUSTMENT_REQUIRED`); a new settlement batch then picks up unbatched reversal/positive entries.
+
+A negative net total requires `kind = 'RECOVERY'`. `STANDARD` batches still enforce `total_amount >= 0`. Before a recovery batch can lock, every person with a negative active line must have a `CONFIRMED` employee confirmation with `target_type = 'SETTLEMENT'` and `target_id = batch.id`; an `OBJECTED` confirmation blocks the lock. Recovery creation notifies each affected person in-app.
 
 ---
 

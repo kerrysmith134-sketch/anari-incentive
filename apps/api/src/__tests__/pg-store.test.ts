@@ -401,6 +401,89 @@ describePg("PgStore vertical slice", () => {
     expect((await store.listLedger()).length).toBe(ledgerBefore + 4);
   });
 
+  it("requires confirmation to lock a PostgreSQL recovery batch", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate();
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: { id: "pg-recovery-order", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "OWNER",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "CONTRIBUTOR",
+        },
+      ],
+    });
+    await store.recordConfirmation({
+      personId: OWNER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.recordConfirmation({
+      personId: MEMBER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.approveRun(run.id);
+    await store.lockRun(run.id, "LOCK_CALCULATION");
+    const standard = await store.createSettlementBatch({ cycleId: CYCLE });
+    expect(standard.kind).toBe("STANDARD");
+    const ownerEntry = (await store.listLedger()).find(
+      (entry) =>
+        entry.calculationRunId === run.id &&
+        entry.personId === OWNER &&
+        entry.entryType === "INCENTIVE",
+    );
+    await store.reverseLedgerEntry(ownerEntry!.id, {
+      idempotencyKey: `pg-recovery-reversal-${run.id}`,
+      reason: "Clawback",
+      approvedBy: ADJUDICATOR,
+    });
+
+    await expect(
+      store.createSettlementBatch({ cycleId: CYCLE }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("NEGATIVE") });
+    const recovery = await store.createSettlementBatch({
+      cycleId: CYCLE,
+      kind: "RECOVERY",
+    });
+    expect(recovery.kind).toBe("RECOVERY");
+    expect(Number(recovery.totalAmount)).toBeLessThan(0);
+    await store.commandSettlementBatch(recovery.id, { command: "RECONCILE" });
+    await store.commandSettlementBatch(recovery.id, { command: "SUBMIT" });
+    await store.commandSettlementBatch(recovery.id, {
+      command: "APPROVE",
+      actorPersonId: ADJUDICATOR,
+    });
+    await expect(
+      store.commandSettlementBatch(recovery.id, { command: "LOCK" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await store.recordConfirmation({
+      personId: OWNER,
+      targetType: "SETTLEMENT",
+      targetId: recovery.id,
+      decision: "CONFIRMED",
+    });
+    const locked = await store.commandSettlementBatch(recovery.id, {
+      command: "LOCK",
+    });
+    expect(locked.batch.status).toBe("LOCKED");
+  });
+
   it("applies approved evaluation decisions to a formal calculation", async () => {
     const published = await store.publishPolicy({
       policy: {

@@ -1124,9 +1124,29 @@ export function buildApp(
   app.post("/api/v1/settlement-batches", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(createSettlementBatchSchema, request.body);
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).createSettlementBatch(body), request));
+    const store = storeFor(request);
+    const batch = await store.createSettlementBatch(body);
+    if (batch.kind === "RECOVERY") {
+      const lines = await store.listSettlementLines(batch.id);
+      const affected = [
+        ...new Set(
+          lines
+            .filter((line) => Number(line.amount) < 0)
+            .map((line) => line.personId),
+        ),
+      ];
+      for (const personId of affected) {
+        await notifyBestEffort(store, {
+          recipientPersonId: personId,
+          audience: "PERSON",
+          title: "Recovery settlement requires confirmation",
+          body: `Batch ${batch.batchNo} contains a negative adjustment; please review and confirm or object.`,
+          sourceType: "SETTLEMENT_BATCH",
+          sourceId: batch.id,
+        });
+      }
+    }
+    return reply.status(201).send(data(batch, request));
   });
 
   app.get("/api/v1/settlement-batches", async (request) => {

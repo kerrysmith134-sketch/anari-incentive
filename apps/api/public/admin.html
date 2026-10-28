@@ -224,6 +224,13 @@
           <input id="settlementApprover" value="00000000-0000-4000-8000-000000000003" />
         </div>
         <div>
+          <label>批次类型</label>
+          <select id="settlementKind">
+            <option value="STANDARD">STANDARD</option>
+            <option value="RECOVERY">RECOVERY</option>
+          </select>
+        </div>
+        <div>
           <label>调整原因</label>
           <input id="settlementReason" value="Post-export correction" />
         </div>
@@ -234,7 +241,7 @@
       <div class="status" id="settlementStatus"></div>
       <table>
         <thead>
-        <tr><th>批次</th><th>周期</th><th>状态</th><th>金额</th><th>行数</th><th>操作</th></tr>
+        <tr><th>批次</th><th>周期</th><th>类型</th><th>状态</th><th>金额</th><th>行数</th><th>操作</th></tr>
         </thead>
         <tbody id="settlements"></tbody>
       </table>
@@ -1317,6 +1324,7 @@
           return `<tr>
             <td class="mono">${escapeHtml(batch.batchNo)}</td>
             <td class="mono">${escapeHtml(batch.cycleId.slice(0, 8))}</td>
+            <td>${escapeHtml(batch.kind)}</td>
             <td><span class="pill">${escapeHtml(batch.status)}</span></td>
             <td class="mono">${escapeHtml(batch.totalAmount)} ${escapeHtml(batch.currency)}</td>
             <td>${batch.lineCount}</td>
@@ -1349,6 +1357,7 @@
           method: "POST",
           body: JSON.stringify({
             cycleId: $("settlementCycle").value.trim(),
+            kind: $("settlementKind").value,
             currency: $("settlementCurrency").value.trim(),
           }),
         });

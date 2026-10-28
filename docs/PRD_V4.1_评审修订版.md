@@ -487,6 +487,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 批量计算：`POST /calculation-runs:batch` 单事务处理 1–50 个计算，任一条阻断则全部回滚（内存与 PostgreSQL 一致）；
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL 命令，CSV 财务导出，行与账本强校验；
 - 账本冲销：`POST /ledger/:id/reverse` 追加锁定负向 REVERSAL，原条目保持 LOCKED，新条目进入同一哈希链；导出后更正通过 REQUIRE_ADJUSTMENT + 新批次处理；
+- RECOVERY 结算：负净额批次必须显式 `kind=RECOVERY`；锁账前每个负数条目员工须以 `SETTLEMENT` 确认，反对会阻断；创建时自动通知受影响员工；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储，按认证租户解析 store 与 Agent Runtime；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
 - `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；高风险命令按 `admin/manager/finance/integration` 角色授权；员工只能读取自己的工作包、claim、计算行、账本、确认与申诉，计算行/追溯/订单毛利对其脱敏，只能读取本人提交的 evidence，不能代他人提交证据/确认/申诉/申报；工作包承诺快照可按版本查询；

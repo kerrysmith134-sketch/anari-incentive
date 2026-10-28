@@ -7,7 +7,8 @@
 -- 004_policy_succession.sql, 005_ledger_sequence.sql,
 -- 006_settlement_rls.sql, 007_agent_task_state.sql,
 -- 008_evaluation_rls.sql, 009_data_quality_rls.sql,
--- 010_evidence_submitter_rls.sql and 011_notifications.sql.
+-- 010_evidence_submitter_rls.sql, 011_notifications.sql and
+-- 012_recovery_settlement.sql.
 
 BEGIN;
 

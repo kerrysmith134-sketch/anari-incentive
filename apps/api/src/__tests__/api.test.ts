@@ -610,6 +610,7 @@ describe("employee view", () => {
     expect(response.body).toContain("我的评价决策");
     expect(response.body).toContain("我的证据");
     expect(response.body).toContain("我的通知");
+    expect(response.body).toContain("扣回/回收确认");
   });
 });
 
@@ -1030,6 +1031,100 @@ describe("vertical slice", () => {
       { command: "RECONCILE" },
     );
     expect(reconciled.status).toBe(200);
+  });
+
+  it("requires employee confirmation for a negative recovery batch", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const formal = await formalRun(workPackageId);
+    const runId = formal.body.data.id as string;
+    await confirmCalculation(runId, OWNER);
+    await confirmCalculation(runId, MEMBER);
+    await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
+      confirmation: "LOCK_CALCULATION",
+    });
+    const ledger = await call("GET", "/api/v1/ledger");
+    const ownerEntry = ledger.body.data.find(
+      (entry: { personId: string; amount: string }) =>
+        entry.personId === OWNER && Number(entry.amount) > 0,
+    );
+    const standard = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+    });
+    expect(standard.status).toBe(201);
+    await call("POST", `/api/v1/ledger/${ownerEntry.id}/reverse`, {
+      idempotencyKey: "recovery-reversal-1",
+      reason: "Clawback after correction",
+      approvedBy: ADJUDICATOR,
+    });
+
+    const rejected = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+    });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error.message).toContain(
+      "NEGATIVE_SETTLEMENT_REQUIRES_RECOVERY",
+    );
+
+    const recovery = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+      kind: "RECOVERY",
+    });
+    expect(recovery.status).toBe(201);
+    expect(recovery.body.data.kind).toBe("RECOVERY");
+    expect(recovery.body.data.totalAmount).toBe("-3000");
+    const recoveryId = recovery.body.data.id as string;
+
+    await call(
+      "POST",
+      `/api/v1/settlement-batches/${recoveryId}/commands`,
+      { command: "RECONCILE" },
+    );
+    await call(
+      "POST",
+      `/api/v1/settlement-batches/${recoveryId}/commands`,
+      { command: "SUBMIT" },
+    );
+    await call(
+      "POST",
+      `/api/v1/settlement-batches/${recoveryId}/commands`,
+      { command: "APPROVE", actorPersonId: ADJUDICATOR },
+    );
+    const blocked = await call(
+      "POST",
+      `/api/v1/settlement-batches/${recoveryId}/commands`,
+      { command: "LOCK" },
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain(
+      `RECOVERY_CONFIRMATION_MISSING:${OWNER}`,
+    );
+
+    const notices = await call("GET", "/api/v1/notifications");
+    expect(
+      notices.body.data.some(
+        (notification: { recipientPersonId: string; title: string }) =>
+          notification.recipientPersonId === OWNER &&
+          notification.title === "Recovery settlement requires confirmation",
+      ),
+    ).toBe(true);
+
+    await call("POST", "/api/v1/employee-confirmations", {
+      personId: OWNER,
+      targetType: "SETTLEMENT",
+      targetId: recoveryId,
+      decision: "CONFIRMED",
+    });
+    const locked = await call(
+      "POST",
+      `/api/v1/settlement-batches/${recoveryId}/commands`,
+      { command: "LOCK" },
+    );
+    expect(locked.status).toBe(200);
+    expect(locked.body.data.batch.status).toBe("LOCKED");
   });
 
   it("reconciles, approves, locks and exports a settlement batch", async () => {
