@@ -653,6 +653,7 @@ describe("admin view", () => {
     expect(response.body).toContain("贡献与认定");
     expect(response.body).toContain("政策发布");
     expect(response.body).toContain("账本冲销");
+    expect(response.body).toContain("通知中心");
   });
 });
 
@@ -1075,6 +1076,14 @@ describe("vertical slice", () => {
     );
     expect(adjustment.status).toBe(200);
     expect(adjustment.body.data.batch.status).toBe("ADJUSTMENT_REQUIRED");
+    const notices = await call("GET", "/api/v1/notifications");
+    expect(
+      notices.body.data.some(
+        (notification: { audience: string; title: string }) =>
+          notification.audience === "FINANCE" &&
+          notification.title === "Settlement adjustment required",
+      ),
+    ).toBe(true);
   });
 
   it("tracks and waives data-quality issues", async () => {
@@ -1138,6 +1147,15 @@ describe("vertical slice", () => {
     );
     expect(
       list.body.data.some((issue: { id: string }) => issue.id === issueId),
+    ).toBe(true);
+
+    const notices = await call("GET", "/api/v1/notifications");
+    expect(
+      notices.body.data.some(
+        (notification: { recipientPersonId: string; title: string }) =>
+          notification.recipientPersonId === ADJUDICATOR &&
+          notification.title === "Data-quality issue assigned",
+      ),
     ).toBe(true);
   });
 
@@ -1247,6 +1265,15 @@ describe("vertical slice", () => {
           decision.decisionVersion === 1,
       ).status,
     ).toBe("SUPERSEDED");
+
+    const notices = await call("GET", "/api/v1/notifications");
+    expect(
+      notices.body.data.some(
+        (notification: { recipientPersonId: string; title: string }) =>
+          notification.recipientPersonId === MEMBER &&
+          notification.title === "Evaluation approved",
+      ),
+    ).toBe(true);
   });
 
   it("blocks self-review of an evaluation", async () => {
@@ -1871,5 +1898,14 @@ describe("vertical slice", () => {
 
     const appealAfter = await call("GET", `/api/v1/appeals/${appealId}`);
     expect(appealAfter.body.data.status).toBe("RECALCULATION_REQUIRED");
+
+    const notices = await call("GET", "/api/v1/notifications");
+    expect(
+      notices.body.data.some(
+        (notification: { recipientPersonId: string; title: string }) =>
+          notification.recipientPersonId === OWNER &&
+          notification.title === "Appeal resolved",
+      ),
+    ).toBe(true);
   });
 });

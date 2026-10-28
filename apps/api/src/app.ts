@@ -121,6 +121,24 @@ function ownPersonId(request: FastifyRequest): string | undefined {
   return request.authContext?.personId;
 }
 
+async function notifyBestEffort(
+  store: IncentiveStore,
+  input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  },
+): Promise<void> {
+  try {
+    await store.createNotification(input);
+  } catch (error) {
+    console.error("[notification] failed", error);
+  }
+}
+
 /** Employee view of a run: own lines only, no pool trace or order economics. */
 function redactRunForPerson(
   run: CalculationRun,
@@ -374,10 +392,19 @@ export function buildApp(
   app.post("/api/v1/data-quality-issues/:id/commands", async (request) => {
     requireRoles(request, "manager");
     const body = parse(dataQualityCommandSchema, request.body);
-    return data(
-      await storeFor(request).commandDataQualityIssue(idOf(request), body),
-      request,
-    );
+    const store = storeFor(request);
+    const issue = await store.commandDataQualityIssue(idOf(request), body);
+    if (body.command === "ASSIGN" && body.assignedTo) {
+      await notifyBestEffort(store, {
+        recipientPersonId: body.assignedTo,
+        audience: "PERSON",
+        title: "Data-quality issue assigned",
+        body: `${issue.issueCode} on ${issue.objectType} needs follow-up.`,
+        sourceType: "DATA_QUALITY_ISSUE",
+        sourceId: issue.id,
+      });
+    }
+    return data(issue, request);
   });
 
   app.post("/api/v1/evaluation-cycles", async (request, reply) => {
@@ -445,22 +472,40 @@ export function buildApp(
 
   app.post("/api/v1/evaluation-drafts/:id/submit", async (request) => {
     requireRoles(request, "manager");
-    return data(
-      await storeFor(request).submitEvaluationDraft(idOf(request)),
-      request,
-    );
+    const store = storeFor(request);
+    const draft = await store.submitEvaluationDraft(idOf(request));
+    await notifyBestEffort(store, {
+      audience: "MANAGER",
+      title: "Evaluation draft submitted",
+      body: `A draft for person ${draft.personId} is ready for review.`,
+      sourceType: "EVALUATION_DRAFT",
+      sourceId: draft.id,
+    });
+    return data(draft, request);
   });
 
   app.post("/api/v1/evaluation-drafts/:id/decision", async (request) => {
     requireRoles(request, "manager");
     const body = parse(decideEvaluationDraftSchema, request.body);
-    return data(
-      await storeFor(request).decideEvaluationDraft(idOf(request), {
-        ...body,
-        scores: body.scores ?? {},
-      }),
-      request,
-    );
+    const store = storeFor(request);
+    const result = await store.decideEvaluationDraft(idOf(request), {
+      ...body,
+      scores: body.scores ?? {},
+    });
+    await notifyBestEffort(store, {
+      recipientPersonId: result.draft.personId,
+      audience: "PERSON",
+      title:
+        result.draft.status === "APPROVED"
+          ? "Evaluation approved"
+          : "Evaluation draft rejected",
+      body: result.decision
+        ? `Evaluation decision v${result.decision.decisionVersion} approved.`
+        : "Your evaluation draft was rejected; a new draft may be required.",
+      sourceType: result.decision ? "EVALUATION_DECISION" : "EVALUATION_DRAFT",
+      sourceId: result.decision?.id ?? result.draft.id,
+    });
+    return data(result, request);
   });
 
   app.get("/api/v1/evaluation-decisions", async (request) => {
@@ -964,9 +1009,18 @@ export function buildApp(
     if (!isPrivileged(request) && !ownPersonId(request)) {
       throw new ForbiddenError("employee identity is required");
     }
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).recordConfirmation(body), request));
+    const store = storeFor(request);
+    const confirmation = await store.recordConfirmation(body);
+    if (body.decision === "OBJECTED") {
+      await notifyBestEffort(store, {
+        audience: "MANAGER",
+        title: "Employee objection raised",
+        body: `Person ${body.personId} objected to ${body.targetType} ${body.targetId}.`,
+        sourceType: body.targetType,
+        sourceId: body.targetId,
+      });
+    }
+    return reply.status(201).send(data(confirmation, request));
   });
 
   app.get("/api/v1/employee-confirmations", async (request) => {
@@ -1050,10 +1104,18 @@ export function buildApp(
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
     requireRoles(request, "finance");
     const body = parse(settlementCommandSchema, request.body);
-    return data(
-      await storeFor(request).commandSettlementBatch(idOf(request), body),
-      request,
-    );
+    const store = storeFor(request);
+    const result = await store.commandSettlementBatch(idOf(request), body);
+    if (body.command === "REQUIRE_ADJUSTMENT") {
+      await notifyBestEffort(store, {
+        audience: "FINANCE",
+        title: "Settlement adjustment required",
+        body: body.reason ?? `Batch ${result.batch.batchNo} needs correction.`,
+        sourceType: "SETTLEMENT_BATCH",
+        sourceId: result.batch.id,
+      });
+    }
+    return data(result, request);
   });
 
   app.post("/api/v1/appeals", async (request, reply) => {
@@ -1093,21 +1155,51 @@ export function buildApp(
   app.post("/api/v1/appeals/:id/triage", async (request) => {
     requireRoles(request, "manager");
     const body = parse(triageAppealSchema, request.body);
-    return data(
-      await storeFor(request).triageAppeal(idOf(request), body.reviewerPersonId),
-      request,
+    const store = storeFor(request);
+    const appeal = await store.triageAppeal(
+      idOf(request),
+      body.reviewerPersonId,
     );
+    await notifyBestEffort(store, {
+      recipientPersonId: appeal.appellantPersonId,
+      audience: "PERSON",
+      title: "Appeal triaged",
+      body: `Your appeal is now ${appeal.status}.`,
+      sourceType: "APPEAL",
+      sourceId: appeal.id,
+    });
+    return data(appeal, request);
   });
 
   app.post("/api/v1/appeals/:id/review", async (request) => {
     requireRoles(request, "manager");
-    return data(await storeFor(request).reviewAppeal(idOf(request)), request);
+    const store = storeFor(request);
+    const appeal = await store.reviewAppeal(idOf(request));
+    await notifyBestEffort(store, {
+      recipientPersonId: appeal.appellantPersonId,
+      audience: "PERSON",
+      title: "Appeal under review",
+      body: "A reviewer is examining your appeal.",
+      sourceType: "APPEAL",
+      sourceId: appeal.id,
+    });
+    return data(appeal, request);
   });
 
   app.post("/api/v1/appeals/:id/resolve", async (request) => {
     requireRoles(request, "manager");
     const body = parse(resolveAppealSchema, request.body);
-    return data(await storeFor(request).resolveAppeal(idOf(request), body), request);
+    const store = storeFor(request);
+    const appeal = await store.resolveAppeal(idOf(request), body);
+    await notifyBestEffort(store, {
+      recipientPersonId: appeal.appellantPersonId,
+      audience: "PERSON",
+      title: "Appeal resolved",
+      body: appeal.resolution ?? `Appeal status: ${appeal.status}`,
+      sourceType: "APPEAL",
+      sourceId: appeal.id,
+    });
+    return data(appeal, request);
   });
 
   return app;

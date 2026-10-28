@@ -314,6 +314,7 @@ EPC projects use projected gross profit, 40% cash weighting, 5% retention holdba
 - `DataQualitySkill` persists its findings through the T1 `record_data_quality_issue` tool, so agent findings become trackable issues; a blocking finding also creates a T2 escalation that waits for a human;
 - `EvaluationDraftSkill` assembles a person’s claims, decisions and evidence into a T1 `create_evaluation_draft` action. It emits no scores; the draft must still be submitted and approved by a human under §7.1;
 - `request_evidence` and `notify_owner` resolve the work-package owner and persist a PERSON notification; `notify_finance` uses FINANCE and `escalate` uses MANAGER. Notifications are in-app rows, not external delivery; external channels remain adapter work;
+- human workflow actions also notify: DQ assignment → assignee; confirmation objection → MANAGER; appeal triage/review/resolve → appellant; evaluation submit → MANAGER and decision → evaluated person; settlement `REQUIRE_ADJUSTMENT` → FINANCE. Notification creation is best-effort and does not roll back the primary action;
 - agent tools that write domain objects require a caller role allowed to call the corresponding API; the worker's service token must carry `manager` (or `admin`);
 - the worker calls `retryFailed` with backoff: only failed tasks that executed no action are retried; after 3 attempts the task is marked `deadLettered` and left `FAILED` for human review. A partially executed task is never retried automatically.
 

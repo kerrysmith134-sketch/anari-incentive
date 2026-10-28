@@ -356,6 +356,20 @@
     </section>
 
     <section class="card">
+      <h2>通知中心</h2>
+      <div class="actions">
+        <button id="refreshNotifications">刷新通知</button>
+      </div>
+      <div class="status" id="notificationStatus"></div>
+      <table>
+        <thead>
+        <tr><th>接收人</th><th>范围</th><th>标题</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="notificationRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>申诉处理</h2>
       <div class="grid">
         <div>
@@ -837,6 +851,35 @@
         await loadClaims();
       } catch (error) {
         setStatus("claimStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadNotifications() {
+      try {
+        const notifications = await api("/api/v1/notifications");
+        $("notificationRows").innerHTML = notifications.map((notification) => `<tr>
+          <td class="mono">${notification.recipientPersonId ? escapeHtml(notification.recipientPersonId.slice(0, 8)) : "—"}</td>
+          <td>${escapeHtml(notification.audience)}</td>
+          <td>${escapeHtml(notification.title)}<br><span class="pill">${escapeHtml(notification.body.slice(0, 90))}</span></td>
+          <td><span class="pill">${escapeHtml(notification.status)}</span></td>
+          <td>${
+            notification.status === "UNREAD"
+              ? `<button data-notification="${notification.id}">标记已读</button>`
+              : "—"
+          }</td>
+        </tr>`).join("");
+        setStatus("notificationStatus", `共 ${notifications.length} 条`, "ok");
+      } catch (error) {
+        setStatus("notificationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function markNotificationRead(id) {
+      try {
+        await api(`/api/v1/notifications/${id}/read`, { method: "POST" });
+        await loadNotifications();
+      } catch (error) {
+        setStatus("notificationStatus", String(error.message), "bad");
       }
     }
 
@@ -1332,6 +1375,12 @@
     $("createClaim").addEventListener("click", createClaim);
     $("createDecision").addEventListener("click", createDecision);
     $("refreshAppeals").addEventListener("click", loadAppeals);
+    $("refreshNotifications").addEventListener("click", loadNotifications);
+    $("notificationRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-notification]");
+      if (!button) return;
+      markNotificationRead(button.dataset.notification);
+    });
     $("createRubric").addEventListener("click", createRubric);
     $("createDraft").addEventListener("click", createEvaluationDraft);
     $("createDqIssue").addEventListener("click", createDqIssue);
@@ -1384,6 +1433,7 @@
     loadEvaluation();
     loadDqIssues();
     loadAppeals();
+    loadNotifications();
     loadWorkPackages();
     loadClaims();
   </script>
