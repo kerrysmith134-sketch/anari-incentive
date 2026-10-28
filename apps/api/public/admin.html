@@ -187,6 +187,90 @@
     </section>
 
     <section class="card">
+      <h2>贡献与认定</h2>
+      <div class="grid">
+        <div>
+          <label>工作包标题</label>
+          <input id="wpTitle" value="Cross-team delivery" />
+        </div>
+        <div>
+          <label>目标</label>
+          <input id="wpObjective" value="Deliver the customer order" />
+        </div>
+        <div>
+          <label>Owner ID</label>
+          <input id="wpOwner" value="00000000-0000-4000-8000-000000000001" />
+        </div>
+        <div>
+          <label>成员 ID（可选）</label>
+          <input id="wpMember" value="00000000-0000-4000-8000-000000000002" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createWp">创建工作包</button>
+        <button id="refreshWp">刷新</button>
+      </div>
+      <div class="status" id="wpStatus"></div>
+      <table>
+        <thead>
+        <tr><th>工作包</th><th>标题</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="workPackages"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label>工作包</label>
+          <select id="claimPackage"></select>
+        </div>
+        <div>
+          <label>申报人 ID</label>
+          <input id="claimPerson" value="00000000-0000-4000-8000-000000000001" />
+        </div>
+        <div>
+          <label>贡献摘要</label>
+          <input id="claimSummary" value="Delivered the agreed scope" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createClaim" style="width:100%">创建贡献申报</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+        <tr><th>申报</th><th>工作包</th><th>申报人</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="claims"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label>申报</label>
+          <select id="decisionClaim"></select>
+        </div>
+        <div>
+          <label>认定人 ID</label>
+          <input id="decisionAdjudicator" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div>
+          <label>认定结论</label>
+          <select id="decisionStatus">
+            <option value="CONFIRMED">CONFIRMED</option>
+            <option value="PARTIALLY_CONFIRMED">PARTIALLY_CONFIRMED</option>
+            <option value="REJECTED">REJECTED</option>
+          </select>
+        </div>
+        <div>
+          <label>理由</label>
+          <input id="decisionRationale" value="Evidence supports the claim" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createDecision">提交认定</button>
+      </div>
+      <div class="status" id="claimStatus"></div>
+    </section>
+
+    <section class="card">
       <h2>申诉处理</h2>
       <div class="grid">
         <div>
@@ -477,6 +561,198 @@
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[char]));
+    }
+
+    async function loadWorkPackages() {
+      try {
+        const packages = await api("/api/v1/work-packages");
+        $("workPackages").innerHTML = packages.map((wp) => {
+          const actions = wpActions(wp.status)
+            .map(
+              (command) =>
+                `<button data-wp="${wp.id}" data-wp-command="${command}">${command}</button>`,
+            )
+            .join(" ");
+          return `<tr>
+            <td class="mono">${escapeHtml(wp.id.slice(0, 8))}</td>
+            <td>${escapeHtml(wp.title)}</td>
+            <td><span class="pill">${escapeHtml(wp.status)}</span></td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        const claimable = packages.filter((wp) => wp.status === "ACCEPTED");
+        $("claimPackage").innerHTML = claimable.length
+          ? claimable.map((wp) =>
+              `<option value="${wp.id}">${escapeHtml(wp.title)}</option>`,
+            ).join("")
+          : '<option value="">暂无已验收工作包</option>';
+        setStatus("wpStatus", `共 ${packages.length} 个工作包`, "ok");
+      } catch (error) {
+        setStatus("wpStatus", String(error.message), "bad");
+      }
+    }
+
+    function wpActions(status) {
+      switch (status) {
+        case "DRAFT": return ["COMMIT"];
+        case "COMMITTED": return ["START"];
+        case "IN_PROGRESS": return ["SUBMIT"];
+        case "SUBMITTED": return ["ACCEPT", "REJECT"];
+        default: return [];
+      }
+    }
+
+    async function createWorkPackage() {
+      try {
+        const owner = $("wpOwner").value.trim();
+        const member = $("wpMember").value.trim();
+        const members = [
+          {
+            personId: owner,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+        ];
+        if (member && member !== owner) {
+          members.push({
+            personId: member,
+            responsibilityCode: "CONTRIBUTOR",
+            expectedOutput: "Supporting delivery",
+          });
+        }
+        await api("/api/v1/work-packages", {
+          method: "POST",
+          body: JSON.stringify({
+            title: $("wpTitle").value.trim(),
+            objective: $("wpObjective").value.trim(),
+            ownerPersonId: owner,
+            members,
+            acceptanceCriteria: ["Accepted by the reviewer"],
+          }),
+        });
+        setStatus("wpStatus", "工作包已创建", "ok");
+        await loadWorkPackages();
+      } catch (error) {
+        setStatus("wpStatus", String(error.message), "bad");
+      }
+    }
+
+    async function workPackageAction(workPackageId, command) {
+      try {
+        const current = await api(`/api/v1/work-packages/${workPackageId}`);
+        const path = `/api/v1/work-packages/${workPackageId}/${command.toLowerCase()}`;
+        let body;
+        if (command === "COMMIT") {
+          body = { expectedVersion: current.version };
+        } else if (command === "ACCEPT" || command === "REJECT") {
+          body = {
+            reviewerPersonId: $("decisionAdjudicator").value.trim(),
+            ...(command === "REJECT"
+              ? { reason: "Rejected in the admin console" }
+              : {}),
+          };
+        }
+        await api(path, {
+          method: "POST",
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        setStatus("wpStatus", `${command} 完成`, "ok");
+        await loadWorkPackages();
+      } catch (error) {
+        setStatus("wpStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadClaims() {
+      try {
+        const claims = await api("/api/v1/contribution-claims");
+        $("claims").innerHTML = claims.map((claim) => {
+          const actions =
+            claim.status === "DRAFT"
+              ? `<button data-claim="${claim.id}" data-claim-action="SUBMIT">SUBMIT</button>`
+              : "";
+          return `<tr>
+            <td class="mono">${escapeHtml(claim.id.slice(0, 8))}</td>
+            <td class="mono">${escapeHtml(claim.workPackageId.slice(0, 8))}</td>
+            <td class="mono">${escapeHtml(claim.claimantPersonId.slice(0, 8))}</td>
+            <td><span class="pill">${escapeHtml(claim.status)}</span></td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        const decidable = claims.filter(
+          (claim) =>
+            claim.status === "SUBMITTED" || claim.status === "UNDER_REVIEW",
+        );
+        $("decisionClaim").innerHTML = decidable.length
+          ? decidable.map((claim) =>
+              `<option value="${claim.id}">${escapeHtml(claim.id.slice(0, 8))} · ${escapeHtml(claim.status)}</option>`,
+            ).join("")
+          : '<option value="">暂无可认定申报</option>';
+        setStatus("claimStatus", `共 ${claims.length} 个申报`, "ok");
+      } catch (error) {
+        setStatus("claimStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createClaim() {
+      try {
+        const workPackageId = $("claimPackage").value;
+        if (!workPackageId) throw new Error("请先选择已验收工作包");
+        await api("/api/v1/contribution-claims", {
+          method: "POST",
+          body: JSON.stringify({
+            workPackageId,
+            claimantPersonId: $("claimPerson").value.trim(),
+            claimType: "DELIVERABLE_CONTRIBUTION",
+            claimedContribution: {
+              dimensions: ["QUALITY"],
+              summary: $("claimSummary").value.trim(),
+            },
+            evidenceRefs: [],
+            rationale: $("claimSummary").value.trim(),
+          }),
+        });
+        setStatus("claimStatus", "申报已创建", "ok");
+        await loadClaims();
+      } catch (error) {
+        setStatus("claimStatus", String(error.message), "bad");
+      }
+    }
+
+    async function submitClaim(claimId) {
+      try {
+        await api(`/api/v1/contribution-claims/${claimId}/submit`, {
+          method: "POST",
+        });
+        setStatus("claimStatus", "申报已提交", "ok");
+        await loadClaims();
+      } catch (error) {
+        setStatus("claimStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createDecision() {
+      try {
+        const claimId = $("decisionClaim").value;
+        if (!claimId) throw new Error("请选择待认定申报");
+        const status = $("decisionStatus").value;
+        await api("/api/v1/attribution-decisions", {
+          method: "POST",
+          body: JSON.stringify({
+            claimId,
+            adjudicatorPersonId: $("decisionAdjudicator").value.trim(),
+            status,
+            acceptedFacts: [],
+            rejectedFacts: [],
+            contributionDimensions: status === "REJECTED" ? {} : { QUALITY: 1 },
+            rationale: $("decisionRationale").value.trim(),
+          }),
+        });
+        setStatus("claimStatus", "认定已提交", "ok");
+        await loadClaims();
+      } catch (error) {
+        setStatus("claimStatus", String(error.message), "bad");
+      }
     }
 
     async function loadAppeals() {
@@ -867,6 +1143,13 @@
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
     $("refreshAudit").addEventListener("click", loadAudit);
+    $("createWp").addEventListener("click", createWorkPackage);
+    $("refreshWp").addEventListener("click", async () => {
+      await loadWorkPackages();
+      await loadClaims();
+    });
+    $("createClaim").addEventListener("click", createClaim);
+    $("createDecision").addEventListener("click", createDecision);
     $("refreshAppeals").addEventListener("click", loadAppeals);
     $("createRubric").addEventListener("click", createRubric);
     $("createDraft").addEventListener("click", createEvaluationDraft);
@@ -899,6 +1182,16 @@
         button.dataset.appealAction,
       );
     });
+    $("workPackages").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-wp]");
+      if (!button) return;
+      workPackageAction(button.dataset.wp, button.dataset.wpCommand);
+    });
+    $("claims").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-claim]");
+      if (!button) return;
+      submitClaim(button.dataset.claim);
+    });
 
     loadPolicies();
     loadTasks();
@@ -909,6 +1202,8 @@
     loadEvaluation();
     loadDqIssues();
     loadAppeals();
+    loadWorkPackages();
+    loadClaims();
   </script>
 </body>
 </html>
