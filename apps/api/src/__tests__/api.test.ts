@@ -545,6 +545,7 @@ describe("admin view", () => {
     expect(response.body).toContain("申诉处理");
     expect(response.body).toContain("贡献与认定");
     expect(response.body).toContain("政策发布");
+    expect(response.body).toContain("账本冲销");
   });
 });
 
@@ -798,6 +799,70 @@ describe("vertical slice", () => {
     ).toEqual(["1.5", "0.5"]);
   });
 
+  it("reverses a locked ledger entry and settles the net amount", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const formal = await formalRun(workPackageId);
+    const runId = formal.body.data.id as string;
+    await confirmCalculation(runId, OWNER);
+    await confirmCalculation(runId, MEMBER);
+    await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
+      confirmation: "LOCK_CALCULATION",
+    });
+
+    const ledger = await call("GET", "/api/v1/ledger");
+    const ownerEntry = ledger.body.data.find(
+      (entry: { personId: string; amount: string }) =>
+        entry.personId === OWNER && Number(entry.amount) > 0,
+    );
+    const reversal = await call(
+      "POST",
+      `/api/v1/ledger/${ownerEntry.id}/reverse`,
+      {
+        idempotencyKey: "reversal-demo-1",
+        reason: "Order value corrected",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(reversal.status).toBe(201);
+    expect(reversal.body.data.entryType).toBe("REVERSAL");
+    expect(Number(reversal.body.data.amount)).toBe(-3000);
+    expect(reversal.body.data.status).toBe("LOCKED");
+
+    const replay = await call(
+      "POST",
+      `/api/v1/ledger/${ownerEntry.id}/reverse`,
+      {
+        idempotencyKey: "reversal-demo-1",
+        reason: "Order value corrected",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(replay.body.data.id).toBe(reversal.body.data.id);
+
+    const after = await call("GET", "/api/v1/ledger");
+    expect(after.body.data).toHaveLength(3);
+    expect((await call("GET", "/api/v1/ledger/verify")).body.data.valid).toBe(
+      true,
+    );
+
+    const batch = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+    });
+    expect(batch.status).toBe(201);
+    expect(batch.body.data.totalAmount).toBe("2000");
+    expect(batch.body.data.lineCount).toBe(3);
+    const reconciled = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batch.body.data.id}/commands`,
+      { command: "RECONCILE" },
+    );
+    expect(reconciled.status).toBe(200);
+  });
+
   it("reconciles, approves, locks and exports a settlement batch", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);
@@ -891,6 +956,18 @@ describe("vertical slice", () => {
       `/api/v1/settlement-batches/${batchId}`,
     );
     expect(fetched.body.data.lines).toHaveLength(2);
+
+    const adjustment = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      {
+        command: "REQUIRE_ADJUSTMENT",
+        actorPersonId: ADJUDICATOR,
+        reason: "Post-export correction",
+      },
+    );
+    expect(adjustment.status).toBe(200);
+    expect(adjustment.body.data.batch.status).toBe("ADJUSTMENT_REQUIRED");
   });
 
   it("tracks and waives data-quality issues", async () => {

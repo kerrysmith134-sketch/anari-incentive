@@ -33,6 +33,7 @@ import {
   recordLegalGateSchema,
   rejectWorkPackageSchema,
   resolveAppealSchema,
+  reverseLedgerEntrySchema,
   settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
@@ -947,6 +948,19 @@ export function buildApp(
         : entries,
       request,
     );
+  });
+
+  app.post("/api/v1/ledger/:id/reverse", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(reverseLedgerEntrySchema, request.body);
+    return reply
+      .status(201)
+      .send(
+        data(
+          await storeFor(request).reverseLedgerEntry(idOf(request), body),
+          request,
+        ),
+      );
   });
 
   app.get("/api/v1/ledger/verify", async (request) => {

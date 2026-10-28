@@ -564,6 +564,33 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/ledger/{id}/reverse:
+    post:
+      tags: [Ledger]
+      summary: Append a locked reversal for a locked ledger entry
+      description: Creates a negative ledger entry linked to the original. The original stays locked; the reversal participates in the same tenant hash chain.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReverseLedgerEntry"
+      responses:
+        "201":
+          description: Reversal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/audit-events:
     get:
       tags: [Ledger]
@@ -2125,11 +2152,26 @@ components:
             - LOCK
             - EXPORT
             - ACKNOWLEDGE
+            - REQUIRE_ADJUSTMENT
             - CANCEL
         actorPersonId:
           $ref: "#/components/schemas/Uuid"
         externalReference:
           type: string
+        reason:
+          type: string
+
+    ReverseLedgerEntry:
+      type: object
+      required: [idempotencyKey, reason, approvedBy]
+      properties:
+        idempotencyKey:
+          type: string
+        reason:
+          type: string
+          minLength: 3
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     PublishPolicy:
       type: object

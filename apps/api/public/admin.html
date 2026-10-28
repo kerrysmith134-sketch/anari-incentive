@@ -209,6 +209,10 @@
           <label>财务批准人 ID</label>
           <input id="settlementApprover" value="00000000-0000-4000-8000-000000000003" />
         </div>
+        <div>
+          <label>调整原因</label>
+          <input id="settlementReason" value="Post-export correction" />
+        </div>
         <div style="display:flex;align-items:flex-end">
           <button class="primary" id="createSettlement" style="width:100%">生成批次</button>
         </div>
@@ -221,6 +225,35 @@
         <tbody id="settlements"></tbody>
       </table>
       <pre id="exportResult" hidden></pre>
+
+      <strong style="display:block;margin-top:18px">账本冲销</strong>
+      <div class="grid" style="margin-top:8px">
+        <div>
+          <label>账本条目 ID</label>
+          <input id="ledgerEntryId" placeholder="LOCKED_LEDGER_ID" />
+        </div>
+        <div>
+          <label>冲销原因</label>
+          <input id="reversalReason" value="Order value corrected" />
+        </div>
+        <div>
+          <label>幂等键</label>
+          <input id="reversalKey" value="reversal-1" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="danger" id="reverseLedger" style="width:100%">冲销账本条目</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="refreshLedger">刷新账本</button>
+      </div>
+      <div class="status" id="ledgerStatus"></div>
+      <table>
+        <thead>
+        <tr><th>账本</th><th>员工</th><th>类型</th><th>金额</th><th>状态</th></tr>
+        </thead>
+        <tbody id="ledgerEntries"></tbody>
+      </table>
     </section>
 
     <section class="card">
@@ -1146,6 +1179,46 @@
       }
     }
 
+    async function loadLedger() {
+      try {
+        const entries = await api("/api/v1/ledger");
+        $("ledgerEntries").innerHTML = entries.map((entry) => `<tr>
+          <td class="mono">${escapeHtml(entry.id.slice(0, 8))}</td>
+          <td class="mono">${escapeHtml(entry.personId.slice(0, 8))}</td>
+          <td>${escapeHtml(entry.entryType)}</td>
+          <td class="mono">${escapeHtml(entry.amount)} ${escapeHtml(entry.currency)}</td>
+          <td><span class="pill">${escapeHtml(entry.status)}</span></td>
+        </tr>`).join("");
+        setStatus("ledgerStatus", `共 ${entries.length} 条账本`, "ok");
+      } catch (error) {
+        setStatus("ledgerStatus", String(error.message), "bad");
+      }
+    }
+
+    async function reverseLedger() {
+      try {
+        const id = $("ledgerEntryId").value.trim();
+        if (!id) throw new Error("请填写账本条目 ID");
+        const reversal = await api(`/api/v1/ledger/${id}/reverse`, {
+          method: "POST",
+          body: JSON.stringify({
+            idempotencyKey: $("reversalKey").value.trim(),
+            reason: $("reversalReason").value.trim(),
+            approvedBy: $("settlementApprover").value.trim(),
+          }),
+        });
+        setStatus(
+          "ledgerStatus",
+          `冲销已入账：${reversal.amount} ${reversal.currency}`,
+          "ok",
+        );
+        await loadLedger();
+        await loadAudit();
+      } catch (error) {
+        setStatus("ledgerStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadSettlements() {
       try {
         const batches = await api("/api/v1/settlement-batches");
@@ -1178,8 +1251,8 @@
         case "PENDING_APPROVAL": return ["APPROVE", "CANCEL"];
         case "APPROVED": return ["LOCK"];
         case "LOCKED": return ["EXPORT"];
-        case "EXPORTED": return ["ACKNOWLEDGE"];
-        case "ADJUSTMENT_REQUIRED": return ["RECONCILE", "CANCEL"];
+        case "EXPORTED": return ["ACKNOWLEDGE", "REQUIRE_ADJUSTMENT"];
+        case "ACKNOWLEDGED": return ["REQUIRE_ADJUSTMENT"];
         default: return [];
       }
     }
@@ -1210,6 +1283,7 @@
             body: JSON.stringify({
               command,
               actorPersonId: $("settlementApprover").value.trim(),
+              reason: $("settlementReason").value.trim(),
             }),
           },
         );
@@ -1245,6 +1319,8 @@
     $("scan").addEventListener("click", scan);
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
+    $("reverseLedger").addEventListener("click", reverseLedger);
+    $("refreshLedger").addEventListener("click", loadLedger);
     $("refreshAudit").addEventListener("click", loadAudit);
     $("verifyAudit").addEventListener("click", verifyAudit);
     $("publishPolicy").addEventListener("click", publishPolicy);
@@ -1301,6 +1377,7 @@
     loadPolicies();
     loadTasks();
     loadSettlements();
+    loadLedger();
     loadAudit();
     loadCycles();
     loadRubrics();

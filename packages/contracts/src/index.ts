@@ -272,6 +272,15 @@ export const policyDefinitionSchema = z.object({
 });
 export type PolicyDefinitionBody = z.input<typeof policyDefinitionSchema>;
 
+export const reverseLedgerEntrySchema = z.object({
+  idempotencyKey: z.string().min(1),
+  reason: z.string().min(3),
+  approvedBy: uuidSchema,
+});
+export type ReverseLedgerEntryBody = z.infer<
+  typeof reverseLedgerEntrySchema
+>;
+
 export const createSettlementBatchSchema = z.object({
   cycleId: uuidSchema,
   currency: z.string().length(3).optional(),
@@ -289,10 +298,12 @@ export const settlementCommandSchema = z.object({
     "LOCK",
     "EXPORT",
     "ACKNOWLEDGE",
+    "REQUIRE_ADJUSTMENT",
     "CANCEL",
   ]),
   actorPersonId: uuidSchema.optional(),
   externalReference: z.string().optional(),
+  reason: z.string().optional(),
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 

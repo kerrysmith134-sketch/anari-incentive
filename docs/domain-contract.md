@@ -184,7 +184,8 @@ Additional application-level invariants:
 | `GET /policy-versions` | manager/finance | Lists policy versions, status and effective windows |
 | `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL |
 | `POST /settlement-batches` | LOCKED ledger entries not in an active batch | DRAFT batch with one line per ledger entry |
-| `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; CANCEL deactivates lines; EXPORT returns CSV |
+| `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV |
+| `POST /ledger/:id/reverse` | original LOCKED, finance | Appends a LOCKED negative REVERSAL linked to the original; idempotent by key |
 
 ---
 
@@ -341,6 +342,8 @@ A settlement batch is the bridge from locked money to finance:
 - settlement lines have RLS (`006_settlement_rls.sql`).
 
 The settlement does not change the ledger and cannot create money. A re-settlement after cancellation is a new batch over the same locked ledger entries.
+
+A post-export correction is a new locked `REVERSAL` ledger entry linked to the original, not an edit. `REQUIRE_ADJUSTMENT` marks the old batch (`EXPORTED`/`ACKNOWLEDGED` → `ADJUSTMENT_REQUIRED`); a new settlement batch then picks up unbatched reversal/positive entries. If the unbatched net total is negative the batch cannot be created because `settlement_batches.total_amount >= 0`; such a recovery needs a future cycle or an explicit negative-settlement policy.
 
 ---
 

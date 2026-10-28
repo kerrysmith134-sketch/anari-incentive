@@ -165,7 +165,7 @@ export const settlementBatchTransitions: TransitionMap<SettlementBatchStatus> = 
   APPROVED: ["LOCKED"],
   LOCKED: ["EXPORTED"],
   EXPORTED: ["ACKNOWLEDGED", "ADJUSTMENT_REQUIRED"],
-  ACKNOWLEDGED: [],
+  ACKNOWLEDGED: ["ADJUSTMENT_REQUIRED"],
   CANCELLED: [],
   ADJUSTMENT_REQUIRED: ["RECONCILING"],
 };

@@ -1531,6 +1531,11 @@ export class Store implements IncentiveStore {
         batch.externalReference = input.externalReference;
         break;
       }
+      case "REQUIRE_ADJUSTMENT": {
+        transition("ADJUSTMENT_REQUIRED");
+        batch.status = "ADJUSTMENT_REQUIRED";
+        break;
+      }
       case "CANCEL": {
         transition("CANCELLED");
         batch.status = "CANCELLED";
@@ -1609,6 +1614,33 @@ export class Store implements IncentiveStore {
 
   async verifyAuditChain(): Promise<boolean> {
     return true;
+  }
+
+  async reverseLedgerEntry(
+    id: string,
+    input: {
+      idempotencyKey: string;
+      reason: string;
+      approvedBy: string;
+    },
+  ): Promise<AmountLedgerEntry> {
+    const original = (await this.listLedger()).find((entry) => entry.id === id);
+    if (!original) notFound("LedgerEntry", id);
+    if (original.status !== "LOCKED") {
+      throw new ConflictError(
+        `LEDGER_NOT_LOCKED: ${id} is ${original.status}`,
+      );
+    }
+    const reversal = this.ledger.reverse(original.id, {
+      tenantId: original.tenantId,
+      personId: original.personId,
+      cycleId: original.cycleId,
+      calculationRunId: original.calculationRunId,
+      calculationLineId: original.calculationLineId,
+      currency: original.currency,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return this.ledger.lock(reversal.id);
   }
 
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {

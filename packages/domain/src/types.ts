@@ -442,12 +442,14 @@ export type SettlementCommand =
   | "LOCK"
   | "EXPORT"
   | "ACKNOWLEDGE"
+  | "REQUIRE_ADJUSTMENT"
   | "CANCEL";
 
 export interface SettlementCommandInput {
   command: SettlementCommand;
   actorPersonId?: UUID;
   externalReference?: string;
+  reason?: string;
 }
 
 export interface SettlementCommandResult {

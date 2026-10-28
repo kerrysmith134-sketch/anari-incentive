@@ -132,6 +132,14 @@ export interface IncentiveStore {
 
   listLedger(tenantId?: string): Promise<AmountLedgerEntry[]>;
   verifyLedger(tenantId?: string): Promise<boolean>;
+  reverseLedgerEntry(
+    id: string,
+    input: {
+      idempotencyKey: string;
+      reason: string;
+      approvedBy: string;
+    },
+  ): Promise<AmountLedgerEntry>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
   verifyAuditChain(): Promise<boolean>;
 

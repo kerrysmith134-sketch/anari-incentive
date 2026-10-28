@@ -90,6 +90,79 @@ describePg("PgStore vertical slice", () => {
     });
   }
 
+  it("appends a locked ledger reversal and keeps the chain valid", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate();
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: { id: "pg-reversal-order", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "OWNER",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "CONTRIBUTOR",
+        },
+      ],
+    });
+    await store.recordConfirmation({
+      personId: OWNER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.recordConfirmation({
+      personId: MEMBER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.approveRun(run.id);
+    await store.lockRun(run.id, "LOCK_CALCULATION");
+
+    const ownerEntry = (await store.listLedger()).find(
+      (entry) =>
+        entry.calculationRunId === run.id &&
+        entry.personId === OWNER &&
+        entry.entryType === "INCENTIVE",
+    );
+    expect(ownerEntry).toBeDefined();
+    const reversal = await store.reverseLedgerEntry(ownerEntry!.id, {
+      idempotencyKey: `pg-reversal-${run.id}`,
+      reason: "Order corrected",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(reversal.entryType).toBe("REVERSAL");
+    expect(reversal.status).toBe("LOCKED");
+    expect(Number(reversal.amount)).toBe(-3000);
+    const replay = await store.reverseLedgerEntry(ownerEntry!.id, {
+      idempotencyKey: `pg-reversal-${run.id}`,
+      reason: "Order corrected",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(replay.id).toBe(reversal.id);
+    expect(await store.verifyLedger()).toBe(true);
+    expect(
+      (await store.listAuditEvents(100)).some(
+        (event) => event.action === "LEDGER_REVERSAL",
+      ),
+    ).toBe(true);
+
+    const settlement = await store.createSettlementBatch({ cycleId: CYCLE });
+    expect(settlement.totalAmount).toBe("2000");
+    expect(settlement.lineCount).toBe(3);
+  });
+
   it("stores and lists work-package commitment snapshots", async () => {
     const workPackageId = await acceptedWorkPackage();
     const versions = await store.listWorkPackageVersions(workPackageId);
@@ -144,7 +217,9 @@ describePg("PgStore vertical slice", () => {
     const locked = await store.lockRun(run.id, "LOCK_CALCULATION");
     expect(locked.status).toBe("LOCKED");
 
-    const ledger = await store.listLedger();
+    const ledger = (await store.listLedger()).filter(
+      (entry) => entry.calculationRunId === run.id,
+    );
     expect(ledger).toHaveLength(2);
     expect(ledger.every((entry) => entry.status === "LOCKED")).toBe(true);
     expect(await store.verifyLedger()).toBe(true);
@@ -194,6 +269,13 @@ describePg("PgStore vertical slice", () => {
     });
     expect(acknowledged.batch.status).toBe("ACKNOWLEDGED");
     expect(acknowledged.batch.externalReference).toBe("pg-finance-1");
+
+    const adjusted = await store.commandSettlementBatch(batch.id, {
+      command: "REQUIRE_ADJUSTMENT",
+      actorPersonId: ADJUDICATOR,
+      reason: "Post-export correction",
+    });
+    expect(adjusted.batch.status).toBe("ADJUSTMENT_REQUIRED");
 
     const audit = await store.listAuditEvents(100);
     expect(audit.length).toBeGreaterThan(0);

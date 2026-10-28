@@ -101,6 +101,11 @@ function normalizeAmount(value: string): string {
 }
 
 /** Human/API-facing amount: drop trailing zeros, e.g. 20520.000000 -> 20520. */
+function negateAmount(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("-") ? trimmed.slice(1) : `-${trimmed}`;
+}
+
 function trimAmount(value: string): string {
   const [whole, fraction] = value.split(".");
   if (!fraction) return value;
@@ -1064,7 +1069,7 @@ export class PgStore implements IncentiveStore {
         const lastResult = await client.query(
           `SELECT entry_hash FROM amount_ledger
             WHERE tenant_id = $1
-            ORDER BY created_at DESC, id DESC
+            ORDER BY ledger_seq DESC
             LIMIT 1`,
           [this.tenantId],
         );
@@ -2199,6 +2204,10 @@ export class PgStore implements IncentiveStore {
             [input.externalReference ?? null, this.tenantId, id],
           );
           break;
+        case "REQUIRE_ADJUSTMENT":
+          transition("ADJUSTMENT_REQUIRED");
+          await this.setSettlementStatus(client, id, "ADJUSTMENT_REQUIRED");
+          break;
         case "CANCEL":
           transition("CANCELLED");
           await client.query(
@@ -2223,7 +2232,7 @@ export class PgStore implements IncentiveStore {
           totalAmount: updated.totalAmount,
           lineCount: updated.lineCount,
         }),
-        reason: input.externalReference ?? input.command,
+        reason: input.reason ?? input.externalReference ?? input.command,
       });
       return {
         batch: updated,
@@ -2459,6 +2468,105 @@ export class PgStore implements IncentiveStore {
         expectedSequence += 1;
       }
       return true;
+    });
+  }
+
+  async reverseLedgerEntry(
+    id: string,
+    input: {
+      idempotencyKey: string;
+      reason: string;
+      approvedBy: string;
+    },
+  ): Promise<AmountLedgerEntry> {
+    return this.tx(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        [this.tenantId],
+      );
+      const { rows } = await client.query(
+        `SELECT * FROM amount_ledger
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [this.tenantId, id],
+      );
+      const original = rows[0];
+      if (!original) notFound("LedgerEntry", id);
+      if (original.status !== "LOCKED") {
+        throw new ConflictError(
+          `LEDGER_NOT_LOCKED: ${id} is ${original.status}`,
+        );
+      }
+      const existing = await client.query(
+        `SELECT * FROM amount_ledger
+          WHERE tenant_id=$1 AND idempotency_key=$2`,
+        [this.tenantId, input.idempotencyKey],
+      );
+      if (existing.rows[0]) return this.mapLedger(existing.rows[0]);
+
+      const last = await client.query(
+        `SELECT entry_hash FROM amount_ledger
+          WHERE tenant_id=$1
+          ORDER BY ledger_seq DESC
+          LIMIT 1`,
+        [this.tenantId],
+      );
+      const prevHash = last.rows[0]?.entry_hash ?? "GENESIS";
+      const reversalId = randomUUID();
+      const createdAt = new Date().toISOString();
+      const amount = normalizeAmount(
+        negateAmount(String(original.amount)),
+      );
+      const currency = String(original.currency).trim();
+      const entryHash = hashLedgerEntry({
+        id: reversalId,
+        tenantId: this.tenantId,
+        personId: original.person_id,
+        cycleId: original.cycle_id,
+        calculationRunId: original.calculation_run_id,
+        calculationLineId: original.calculation_line_id ?? undefined,
+        entryType: "REVERSAL",
+        amount,
+        currency,
+        sourceEntryId: id,
+        idempotencyKey: input.idempotencyKey,
+        prevHash,
+        createdAt,
+      });
+      const inserted = await client.query(
+        `INSERT INTO amount_ledger
+          (id, tenant_id, person_id, cycle_id, calculation_run_id,
+           calculation_line_id, entry_type, amount, currency, status,
+           source_entry_id, idempotency_key, entry_hash, prev_hash,
+           created_at, locked_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'REVERSAL',$7,$8,'LOCKED',$9,$10,$11,$12,$13,$13)
+         RETURNING *`,
+        [
+          reversalId,
+          this.tenantId,
+          original.person_id,
+          original.cycle_id,
+          original.calculation_run_id,
+          original.calculation_line_id,
+          amount,
+          currency,
+          id,
+          input.idempotencyKey,
+          entryHash,
+          prevHash,
+          createdAt,
+        ],
+      );
+      await this.appendAudit(client, {
+        action: "LEDGER_REVERSAL",
+        objectType: "AMOUNT_LEDGER",
+        objectId: reversalId,
+        actorType: "USER",
+        actorId: input.approvedBy,
+        afterHash: entryHash,
+        reason: input.reason,
+      });
+      return this.mapLedger(inserted.rows[0]);
     });
   }
 

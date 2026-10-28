@@ -483,7 +483,8 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
 - 员工端：确认/异议/申诉、提交并查看本人证据、查看本人已批准评价决策；证据记录 submittedBy，员工只能看到自己提交的证据；
 - 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；DATA_QUALITY Agent 会把证据质量问题落为 issue，BLOCKING 同时升级待人工处理；
-- 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL 命令，CSV 财务导出，行与账本强校验；
+- 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL 命令，CSV 财务导出，行与账本强校验；
+- 账本冲销：`POST /ledger/:id/reverse` 追加锁定负向 REVERSAL，原条目保持 LOCKED，新条目进入同一哈希链；导出后更正通过 REQUIRE_ADJUSTMENT + 新批次处理；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储，按认证租户解析 store 与 Agent Runtime；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
 - `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；高风险命令按 `admin/manager/finance/integration` 角色授权；员工只能读取自己的工作包、claim、计算行、账本、确认与申诉，计算行/追溯/订单毛利对其脱敏，只能读取本人提交的 evidence，不能代他人提交证据/确认/申诉/申报；工作包承诺快照可按版本查询；
