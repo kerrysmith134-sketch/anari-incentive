@@ -355,6 +355,31 @@ export type CreateNotificationBody = z.infer<
   typeof createNotificationSchema
 >;
 
+export const createPlatformTenantSchema = z.object({
+  name: z.string().min(1),
+  slug: z.string().min(2),
+  defaultTimezone: z.string().optional(),
+  defaultCurrency: z.string().length(3).optional(),
+});
+export type CreatePlatformTenantBody = z.infer<
+  typeof createPlatformTenantSchema
+>;
+
+export const createPlatformUserSchema = z.object({
+  authSubject: z.string().min(1),
+  displayName: z.string().min(1),
+  email: z.string().email().optional(),
+});
+export type CreatePlatformUserBody = z.infer<
+  typeof createPlatformUserSchema
+>;
+
+export const addMembershipSchema = z.object({
+  userId: uuidSchema,
+  roleCodes: z.array(z.string().min(1)).min(1),
+});
+export type AddMembershipBody = z.infer<typeof addMembershipSchema>;
+
 export const createDataQualityIssueSchema = z.object({
   objectType: z.string().min(1),
   objectId: uuidSchema,

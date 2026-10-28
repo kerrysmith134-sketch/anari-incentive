@@ -486,6 +486,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；DATA_QUALITY Agent 会把证据质量问题落为 issue，BLOCKING 同时升级待人工处理；
 - 批量操作：`POST /work-packages:accept-batch`、`POST /attribution-decisions:batch` 与 `POST /calculation-runs:batch` 均支持 1–50 项、单事务 all-or-nothing（内存与 PostgreSQL 一致）；管理端可按订单行批量发起计算、批量验收与批量认定；
 - 管理端通知中心支持状态/audience 筛选与全部已读；
+- 平台管理：`/platform/tenants`、`/platform/users`、`/platform/tenants/:id/memberships` 支持租户开通、用户与成员关系；仅 platform_admin（或 admin）可调用；
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL 命令，CSV 财务导出（含员工工号/姓名），行与账本强校验；
 - 账本冲销：`POST /ledger/:id/reverse` 追加锁定负向 REVERSAL，原条目保持 LOCKED，新条目进入同一哈希链；导出后更正通过 REQUIRE_ADJUSTMENT + 新批次处理；
 - RECOVERY 结算：负净额批次必须显式 `kind=RECOVERY`；锁账前每个负数条目员工须以 `SETTLEMENT` 确认，反对会阻断；创建时自动通知受影响员工；

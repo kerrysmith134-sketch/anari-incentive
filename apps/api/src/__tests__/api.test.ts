@@ -475,6 +475,67 @@ describe("employee evidence", () => {
   });
 });
 
+describe("platform onboarding", () => {
+  it("creates tenants, users and memberships", async () => {
+    const slug = `tenant-${Date.now()}`;
+    const tenant = await call("POST", "/api/v1/platform/tenants", {
+      name: "Design partner",
+      slug,
+      defaultTimezone: "Asia/Shanghai",
+    });
+    expect(tenant.status).toBe(201);
+    const tenantId = tenant.body.data.id as string;
+
+    const user = await call("POST", "/api/v1/platform/users", {
+      authSubject: `subject-${Date.now()}`,
+      displayName: "Tenant Admin",
+      email: "admin@example.com",
+    });
+    expect(user.status).toBe(201);
+
+    const membership = await call(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/memberships`,
+      {
+        userId: user.body.data.id,
+        roleCodes: ["admin", "finance"],
+      },
+    );
+    expect(membership.status).toBe(201);
+    expect(membership.body.data.roleCodes).toEqual(["admin", "finance"]);
+
+    const memberships = await call(
+      "GET",
+      `/api/v1/platform/tenants/${tenantId}/memberships`,
+    );
+    expect(memberships.body.data).toHaveLength(1);
+    expect(memberships.body.data[0].userDisplayName).toBe("Tenant Admin");
+
+    const duplicate = await call("POST", "/api/v1/platform/tenants", {
+      name: "Duplicate",
+      slug,
+    });
+    expect(duplicate.status).toBe(409);
+
+    const employee: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "employee",
+          roles: ["employee"],
+          personId: OWNER,
+        };
+      },
+    };
+    const employeeApp = buildApp(new Store(), undefined, employee);
+    const forbidden = await employeeApp.inject({
+      method: "GET",
+      url: "/api/v1/platform/tenants",
+    } as never);
+    expect(forbidden.statusCode).toBe(403);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {
@@ -659,6 +720,7 @@ describe("admin view", () => {
     expect(response.body).toContain("对比政策版本");
     expect(response.body).toContain("批量计算");
     expect(response.body).toContain("批量认定");
+    expect(response.body).toContain("平台租户");
   });
 });
 

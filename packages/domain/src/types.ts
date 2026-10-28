@@ -292,6 +292,37 @@ export interface PolicyDefinition {
 }
 
 /** A policy version published through the governed policy control loop. */
+export interface PlatformTenant {
+  id: UUID;
+  name: string;
+  slug: string;
+  status: string;
+  defaultTimezone: string;
+  defaultCurrency: string;
+  createdAt: string;
+}
+
+export interface PlatformUser {
+  id: UUID;
+  email?: string;
+  displayName: string;
+  authSubject: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface PlatformMembership {
+  id: UUID;
+  tenantId: UUID;
+  userId: UUID;
+  status: string;
+  roleCodes: string[];
+  joinedAt?: string;
+  createdAt: string;
+  userDisplayName?: string;
+  userEmail?: string;
+}
+
 export interface PolicyVersionSummary {
   policyVersionId: UUID;
   code: string;

@@ -7,6 +7,7 @@ import { ZodError, type ZodType } from "zod";
 import {
   acceptWorkPackageSchema,
   acceptWorkPackagesBatchSchema,
+  addMembershipSchema,
   commitWorkPackageSchema,
   createAppealSchema,
   createAttributionDecisionSchema,
@@ -19,6 +20,8 @@ import {
   createDataQualityIssueSchema,
   createEvaluationCycleSchema,
   createNotificationSchema,
+  createPlatformTenantSchema,
+  createPlatformUserSchema,
   createEvaluationDraftSchema,
   dataQualityCommandSchema,
   createEvidenceSchema,
@@ -67,6 +70,10 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
+import {
+  MemoryPlatformStore,
+  type PlatformStore,
+} from "./platform-store.js";
 
 type IdParams = { id: string };
 
@@ -192,6 +199,7 @@ export function buildApp(
     userId: "dev-user",
     roles: ["admin"],
   }),
+  platformStore: PlatformStore = new MemoryPlatformStore(),
 ): FastifyInstance {
   const app = Fastify({
     logger: process.env.LOG_LEVEL
@@ -572,6 +580,55 @@ export function buildApp(
         },
         changes: diffPolicyDefinitions(base, target),
       },
+      request,
+    );
+  });
+
+  app.post("/api/v1/platform/tenants", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createPlatformTenantSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await platformStore.createTenant(body), request));
+  });
+
+  app.get("/api/v1/platform/tenants", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listTenants(), request);
+  });
+
+  app.post("/api/v1/platform/users", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createPlatformUserSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await platformStore.createUser(body), request));
+  });
+
+  app.get("/api/v1/platform/users", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listUsers(), request);
+  });
+
+  app.post("/api/v1/platform/tenants/:id/memberships", async (request, reply) => {
+      requireRoles(request, "platform_admin");
+      const body = parse(addMembershipSchema, request.body);
+      return reply.status(201).send(
+        data(
+          await platformStore.addMembership({
+            tenantId: idOf(request),
+            userId: body.userId,
+            roleCodes: body.roleCodes,
+          }),
+          request,
+        ),
+      );
+  });
+
+  app.get("/api/v1/platform/tenants/:id/memberships", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(
+      await platformStore.listMemberships(idOf(request)),
       request,
     );
   });

@@ -344,6 +344,70 @@ order-batch-2,80000</textarea>
     </section>
 
     <section class="card">
+      <h2>平台租户</h2>
+      <div class="grid">
+        <div>
+          <label>租户名称</label>
+          <input id="tenantName" value="Design partner" />
+        </div>
+        <div>
+          <label>Slug</label>
+          <input id="tenantSlug" value="design-partner" />
+        </div>
+        <div>
+          <label>时区</label>
+          <input id="tenantTimezone" value="Asia/Shanghai" />
+        </div>
+        <div>
+          <label>币种</label>
+          <input id="tenantCurrency" value="CNY" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createTenant">创建租户</button>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>用户 Auth Subject</label>
+          <input id="platformAuthSubject" value="oidc|demo-admin" />
+        </div>
+        <div>
+          <label>用户显示名</label>
+          <input id="platformDisplayName" value="Demo Admin" />
+        </div>
+        <div>
+          <label>邮箱</label>
+          <input id="platformEmail" value="admin@example.com" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="createPlatformUser" style="width:100%">创建用户</button>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>租户</label>
+          <select id="membershipTenant"></select>
+        </div>
+        <div>
+          <label>用户</label>
+          <select id="membershipUser"></select>
+        </div>
+        <div>
+          <label>角色（逗号分隔）</label>
+          <input id="membershipRoles" value="admin,finance" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="addMembership" style="width:100%">加入租户</button>
+        </div>
+      </div>
+      <div class="status" id="platformStatus"></div>
+      <table>
+        <thead><tr><th>租户</th><th>Slug</th><th>状态</th></tr></thead>
+        <tbody id="platformTenants"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>贡献与认定</h2>
       <div class="grid">
         <div>
@@ -765,6 +829,91 @@ order-batch-2,80000</textarea>
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[char]));
+    }
+
+    async function loadPlatformData() {
+      try {
+        const [tenants, users] = await Promise.all([
+          api("/api/v1/platform/tenants"),
+          api("/api/v1/platform/users"),
+        ]);
+        $("platformTenants").innerHTML = tenants.map((tenant) => `<tr>
+          <td>${escapeHtml(tenant.name)}</td>
+          <td class="mono">${escapeHtml(tenant.slug)}</td>
+          <td><span class="pill">${escapeHtml(tenant.status)}</span></td>
+        </tr>`).join("");
+        $("membershipTenant").innerHTML = tenants.map(
+          (tenant) =>
+            `<option value="${tenant.id}">${escapeHtml(tenant.name)}</option>`,
+        ).join("");
+        $("membershipUser").innerHTML = users.map(
+          (user) =>
+            `<option value="${user.id}">${escapeHtml(user.displayName)}</option>`,
+        ).join("");
+        setStatus(
+          "platformStatus",
+          `租户 ${tenants.length}，用户 ${users.length}`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createTenant() {
+      try {
+        await api("/api/v1/platform/tenants", {
+          method: "POST",
+          body: JSON.stringify({
+            name: $("tenantName").value.trim(),
+            slug: $("tenantSlug").value.trim(),
+            defaultTimezone: $("tenantTimezone").value.trim(),
+            defaultCurrency: $("tenantCurrency").value.trim(),
+          }),
+        });
+        setStatus("platformStatus", "租户已创建", "ok");
+        await loadPlatformData();
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createPlatformUser() {
+      try {
+        await api("/api/v1/platform/users", {
+          method: "POST",
+          body: JSON.stringify({
+            authSubject: $("platformAuthSubject").value.trim(),
+            displayName: $("platformDisplayName").value.trim(),
+            email: $("platformEmail").value.trim() || undefined,
+          }),
+        });
+        setStatus("platformStatus", "用户已创建", "ok");
+        await loadPlatformData();
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function addMembership() {
+      try {
+        const tenantId = $("membershipTenant").value;
+        const userId = $("membershipUser").value;
+        if (!tenantId || !userId) throw new Error("请选择租户和用户");
+        await api(`/api/v1/platform/tenants/${tenantId}/memberships`, {
+          method: "POST",
+          body: JSON.stringify({
+            userId,
+            roleCodes: $("membershipRoles").value
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          }),
+        });
+        setStatus("platformStatus", "成员关系已写入", "ok");
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
     }
 
     async function loadWorkPackages() {
@@ -1673,6 +1822,9 @@ order-batch-2,80000</textarea>
     $("publishPolicy").addEventListener("click", publishPolicy);
     $("runPolicyDiff").addEventListener("click", runPolicyDiff);
     $("runBatch").addEventListener("click", runBatchCalculation);
+    $("createTenant").addEventListener("click", createTenant);
+    $("createPlatformUser").addEventListener("click", createPlatformUser);
+    $("addMembership").addEventListener("click", addMembership);
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {
       await loadWorkPackages();
@@ -1737,6 +1889,7 @@ order-batch-2,80000</textarea>
       submitClaim(button.dataset.claim);
     });
 
+    loadPlatformData();
     loadPolicies();
     loadTasks();
     loadSettlements();

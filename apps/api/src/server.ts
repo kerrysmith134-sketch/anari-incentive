@@ -13,6 +13,10 @@ import { buildApp, type AgentRuntimeFactory } from "./app.js";
 import { createAgentContext } from "./agent-context.js";
 import { Store } from "./store.js";
 import { PgStore } from "./pg-store.js";
+import {
+  MemoryPlatformStore,
+  PgPlatformStore,
+} from "./platform-store.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const usePostgres =
@@ -60,7 +64,16 @@ const createRuntime: AgentRuntimeFactory | undefined = pool
       )
   : undefined;
 
-const app = buildApp(resolveStore, createRuntime, authenticator);
+const platformStore = pool
+  ? new PgPlatformStore(pool)
+  : new MemoryPlatformStore();
+
+const app = buildApp(
+  resolveStore,
+  createRuntime,
+  authenticator,
+  platformStore,
+);
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

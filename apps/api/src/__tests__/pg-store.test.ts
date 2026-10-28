@@ -7,6 +7,7 @@ import {
 } from "@anari/agent-runtime";
 import { PgAgentTaskRepository } from "@anari/agent-persistence";
 import { createAgentContext } from "../agent-context.js";
+import { PgPlatformStore } from "../platform-store.js";
 import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
 import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
@@ -1127,6 +1128,36 @@ describePg("PgStore vertical slice", () => {
     expect(await other.listWorkPackages()).toEqual([]);
     expect(await other.listClaims()).toEqual([]);
     expect(await other.listRuns()).toEqual([]);
+  });
+
+  it("onboards tenants, users and memberships", async () => {
+    const platform = new PgPlatformStore(pool);
+    const slug = `pg-tenant-${Date.now()}`;
+    const tenant = await platform.createTenant({
+      name: "PG design partner",
+      slug,
+      defaultTimezone: "Asia/Shanghai",
+    });
+    const user = await platform.createUser({
+      authSubject: `pg-subject-${Date.now()}`,
+      displayName: "PG Tenant Admin",
+      email: "pg-admin@example.com",
+    });
+    const membership = await platform.addMembership({
+      tenantId: tenant.id,
+      userId: user.id,
+      roleCodes: ["admin", "finance"],
+    });
+    expect(membership.roleCodes).toEqual(["admin", "finance"]);
+    expect(
+      (await platform.listTenants()).some((candidate) => candidate.id === tenant.id),
+    ).toBe(true);
+    const memberships = await platform.listMemberships(tenant.id);
+    expect(memberships).toHaveLength(1);
+    expect(memberships[0]!.userDisplayName).toBe("PG Tenant Admin");
+    await expect(
+      platform.createTenant({ name: "Duplicate", slug }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("records applied migrations", async () => {

@@ -145,6 +145,9 @@ Additional application-level invariants:
 
 | Command | Preconditions | Effects |
 |---|---|---|
+| `POST /platform/tenants` | platform_admin | Creates an ACTIVE tenant |
+| `POST /platform/users` | platform_admin | Creates a platform user |
+| `POST /platform/tenants/:id/memberships` | platform_admin, tenant/user exist | Upserts ACTIVE membership with role codes |
 | `POST /work-packages` | — | Creates DRAFT |
 | `POST /work-packages/:id/commit` | DRAFT, expectedVersion | Freezes snapshot, COMMITTED |
 | `GET /work-packages/:id/versions` | owner/member or manager/finance | Lists immutable commitment snapshots |
@@ -387,6 +390,7 @@ Roles are enforced per command (`admin` always passes):
 
 | Role | Can do |
 |---|---|
+| `platform_admin` | tenant/user/membership onboarding only (admin also passes) |
 | `admin` | everything, including legal gates, policy publication and publishing an agent-proposed policy |
 | `manager` | simulations, agent scans/approval (except policy publication), attribution decisions, package acceptance, appeals |
 | `finance` | calculations, approval/locking, settlement commands, settlement-related agent approvals |
