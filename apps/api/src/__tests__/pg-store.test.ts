@@ -489,6 +489,11 @@ describePg("PgStore vertical slice", () => {
         (candidate) => candidate.id === issue.id,
       ),
     ).toBe(true);
+    const audit = await store.listAuditEvents(100);
+    expect(
+      audit.some((event) => event.action === "DATA_QUALITY_WAIVE"),
+    ).toBe(true);
+    expect(await store.verifyAuditChain()).toBe(true);
   });
 
   it("stores an evidence graph with provenance and links", async () => {

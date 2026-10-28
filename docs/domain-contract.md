@@ -137,7 +137,7 @@ Additional application-level invariants:
 - The independent reference calculation must agree with the main calculation.
 - The ledger hash chain is verified after every mutation in tests.
 - PostgreSQL ledger verification orders by the monotonic `ledger_seq`, not `created_at`, because entries created in one transaction share a timestamp.
-- `policy_versions` publication, `legal_gate_records`, calculation locking and settlement commands insert `audit_events`; the `trg_audit_chain` trigger assigns the per-tenant sequence and hash so callers cannot forge the chain. `GET /audit-events` exposes the newest events to manager/finance/admin; `GET /audit-events/verify` recomputes each hash and checks sequence/prev-hash continuity.
+- `policy_versions` publication, `legal_gate_records`, calculation locking, settlement commands and data-quality issue creation/commands insert `audit_events`; the `trg_audit_chain` trigger assigns the per-tenant sequence and hash so callers cannot forge the chain. `GET /audit-events` exposes the newest events to manager/finance/admin; `GET /audit-events/verify` recomputes each hash and checks sequence/prev-hash continuity.
 
 ---
 

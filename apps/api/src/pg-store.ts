@@ -1378,7 +1378,20 @@ export class PgStore implements IncentiveStore {
           input.assignedTo ?? null,
         ],
       );
-      return this.mapDataQualityIssue(rows[0]);
+      const issue = this.mapDataQualityIssue(rows[0]);
+      await this.appendAudit(client, {
+        action: "DATA_QUALITY_ISSUE_CREATED",
+        objectType: "DATA_QUALITY_ISSUE",
+        objectId: issue.id,
+        actorType: "SYSTEM",
+        afterHash: sha256({
+          severity: issue.severity,
+          issueCode: issue.issueCode,
+          objectId: issue.objectId,
+        }),
+        reason: issue.issueCode,
+      });
+      return issue;
     });
   }
 
@@ -1473,7 +1486,21 @@ export class PgStore implements IncentiveStore {
           );
           break;
       }
-      return this.loadDataQualityIssue(client, id);
+      const updated = await this.loadDataQualityIssue(client, id);
+      await this.appendAudit(client, {
+        action: `DATA_QUALITY_${input.command}`,
+        objectType: "DATA_QUALITY_ISSUE",
+        objectId: id,
+        actorType: input.actorPersonId ? "USER" : "SYSTEM",
+        actorId: input.actorPersonId,
+        afterHash: sha256({
+          status: updated.status,
+          assignedTo: updated.assignedTo,
+          waiverReason: updated.waiverReason,
+        }),
+        reason: input.reason ?? input.command,
+      });
+      return updated;
     });
   }
 
