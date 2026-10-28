@@ -18,7 +18,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Evaluation | Evaluation cycles; versioned rubrics; evidence-bound drafts (USER/AGENT/SYSTEM) with strengths, counter-evidence and uncertainty; submit → human decision; self-review blocked; approvals are versioned and supersede the prior decision |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
-| Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
+| Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. `npm run seed:packs` imports packs into PostgreSQL for a tenant (DRAFT by default, PUBLISHED with `APPROVED_BY`). |
 | Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; evidence-bound evaluation drafts (no scores); idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
 | Durable agent state | `packages/agent-persistence` stores tasks, findings/actions/results, approvals and audit in PostgreSQL; API and worker rehydrate on first use and deduplicate on the original idempotency key |
 | Agent retry | Worker retries failed tasks that executed no action; after 3 attempts they are marked dead-lettered. Tasks with an executed action are never retried automatically |
@@ -121,6 +121,8 @@ docker compose up -d postgres
 export DATABASE_URL="postgres://anari:anari@localhost:5432/anari_incentive"
 npm run db:migrate
 npm run db:seed
+# Optional: import example policy packs (DRAFT by default)
+APPROVED_BY=00000000-0000-4000-8000-000000000003 npm run seed:packs
 STORE=postgres DATABASE_URL="$DATABASE_URL" npm run dev
 ```
 
@@ -269,6 +271,7 @@ scripts/ci.sh             Install → typecheck → tests → compose → Postgr
 scripts/reconcile.ts     CSV vs engine reconciliation
 scripts/agent-scan.ts    Cron/on-demand proactive agent scan
 scripts/import-csv.ts    CSV connector importer
+scripts/seed-policy-packs.ts  Import examples/verticals packs into PostgreSQL
 Dockerfile                API/worker image
 docker-compose.yml        postgres + migrate + api + worker
 docs/

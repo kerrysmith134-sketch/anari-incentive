@@ -491,7 +491,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
 - `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；`publish_policy` 为 T3，只有人工批准后才真正写入政策版本，并关闭前一版本的有效窗口；
 - `packages/agent-persistence`：Agent 任务、发现/动作/结果、批准与审计持久化到 PostgreSQL；API/Worker 重启后按幂等键恢复；Worker 支持静态 token 或 OIDC client credentials；失败任务退避重试，3 次后标记 dead-letter，已执行动作的任务不自动重试；
-- `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；
+- `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；`npm run seed:packs` 可按租户导入 PostgreSQL（默认 DRAFT，提供 APPROVED_BY 时 PUBLISHED）；
 - `fixtures`：核心通用 order policy + 5 个订单 fixture；reconciliation CSV；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；
 - `docs/openapi.yaml`：OpenAPI 3.1 契约；`tests/openapi.test.ts` 校验路由覆盖与 `$ref`；

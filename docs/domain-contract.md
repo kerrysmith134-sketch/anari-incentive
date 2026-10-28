@@ -308,6 +308,8 @@ The core has no industry-specific agent. A policy pack can add evidence requirem
 
 Publication is a separate governed step. `publish_policy` is a T3 agent tool: it only executes through `AgentRuntime.approve`, receives the approver id from that approval, and calls `publishPolicy`. `POST /policy-versions` is the equivalent operator command and also requires an explicit `approvedBy`. A published policy row stores the content hash, effective window, approver and timestamps. The prior open-ended version is closed at the successor's `effective_from`; published content and a closed `effective_to` are immutable (`004_policy_succession.sql`). Publication does not bypass the legal gate: a `FORMAL` calculation still needs the gate and employee confirmations.
 
+File policy packs under `examples/verticals/` can be imported into PostgreSQL with `npm run seed:packs`. Without `APPROVED_BY` they are inserted as `DRAFT`; with `APPROVED_BY` they are `PUBLISHED` and attributed to that person. Existing `(tenant, code, version)` rows are left untouched.
+
 ### 10.1 Settlement batches
 
 A settlement batch is the bridge from locked money to finance:
