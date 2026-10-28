@@ -10,6 +10,53 @@ services:
       - "5432:5432"
     volumes:
       - anari_incentive_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anari -d anari_incentive"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: anari
+    volumes:
+      - ./db:/db:ro
+    entrypoint: >
+      sh -c "psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/001_core_schema.sql &&
+             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/002_governance_schema.sql &&
+             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/003_money_path_invariants.sql &&
+             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/seed/001_demo.sql"
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
+      STORE: postgres
+      PORT: 3000
+    ports:
+      - "3000:3000"
+
+  worker:
+    build: .
+    command: ["npm", "run", "worker"]
+    depends_on:
+      api:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
+      API_BASE_URL: http://api:3000
+      TENANT_ID: 00000000-0000-4000-8000-000000000001
+      POLL_INTERVAL_MS: 5000
+      SCAN_INTERVAL_MS: 900000
 
 volumes:
   anari_incentive_pgdata:

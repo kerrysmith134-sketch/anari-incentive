@@ -246,6 +246,7 @@ EPC projects use projected gross profit, 40% cash weighting, 5% retention holdba
 - tasks are idempotent and can be re-run safely;
 - `POST /agent-tasks/scan` performs a scheduled/on-demand sweep of evidence gaps, contribution anomalies and settlement readiness;
 - `AgentScheduler` supports schedule, domain-event and threshold triggers with idempotent keys;
+- `apps/worker` polls `outbox_events`, dispatches events to the scheduler, and runs scheduled scans;
 - `PolicyProposalSkill` can simulate a proposed policy and create a T3 `publish_policy` action; it never publishes automatically.
 
 The core has no industry-specific agent. A policy pack can add evidence requirements and policy data, but it cannot bypass the approval gate or write formal money.

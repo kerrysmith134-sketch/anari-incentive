@@ -1,0 +1,14 @@
+{
+  "name": "@anari/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@anari/agent-runtime": "0.1.0",
+    "pg": "^8.13.1"
+  }
+}

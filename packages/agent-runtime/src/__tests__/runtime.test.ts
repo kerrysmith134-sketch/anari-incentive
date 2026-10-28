@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AppealCase,
   AttributionDecision,
   CalculationInput,
   CalculationRun,
@@ -26,6 +27,7 @@ class FakeContext implements AgentContext {
   decisions: AttributionDecision[] = [];
   runs: CalculationRun[] = [];
   confirmations: EmployeeConfirmation[] = [];
+  appeals: AppealCase[] = [];
   gates = new Map<string, LegalGateRecord>();
   evidence: EvidenceNode[] = [];
 
@@ -36,6 +38,7 @@ class FakeContext implements AgentContext {
   }
   async listRuns() { return this.runs; }
   async listConfirmations() { return this.confirmations; }
+  async listAppeals() { return this.appeals; }
   async getLegalGate(policyVersionId: string) { return this.gates.get(policyVersionId); }
   async listEvidence(subjectType?: string, subjectId?: string) {
     return this.evidence.filter(
@@ -291,6 +294,63 @@ describe("agent runtime", () => {
     );
   });
 
+  it("detects blocking evidence quality and escalates", async () => {
+    const context = new FakeContext();
+    context.evidence = [
+      {
+        id: "ev-1",
+        tenantId: "tenant-1",
+        evidenceType: "DELIVERY",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "wp-1",
+        sourceSystem: "CRM",
+        observedAt: new Date().toISOString(),
+        qualityStatus: "CONFLICTED",
+        normalizedPayload: {},
+        payloadHash: "hash",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const agent = runtime(context);
+    const task = agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "DATA_QUALITY",
+      triggerType: "SCHEDULE",
+      idempotencyKey: "dq-1",
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    expect(ran.findings[0]!.code).toBe("EVIDENCE_QUALITY_ISSUE");
+  });
+
+  it("detects an appeal SLA breach", async () => {
+    const context = new FakeContext();
+    context.appeals = [
+      {
+        id: "appeal-1",
+        tenantId: "tenant-1",
+        appellantPersonId: "person-1",
+        targetType: "ATTRIBUTION",
+        targetId: "decision-1",
+        reasonCode: "EVIDENCE_NOT_CONSIDERED",
+        statement: "Please review",
+        status: "OPEN",
+        createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    const agent = runtime(context);
+    const task = agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "APPEAL_SLA",
+      triggerType: "SCHEDULE",
+      input: { slaDays: 3 },
+      idempotencyKey: "appeal-sla-1",
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    expect(ran.findings[0]!.code).toBe("APPEAL_SLA_BREACH");
+  });
+
   it("is idempotent for the same task key", () => {
     const agent = runtime(new FakeContext());
     const first = agent.enqueue({
@@ -353,5 +413,50 @@ describe("agent scheduler", () => {
     expect(thresholds).toHaveLength(1);
     const replay = await scheduler.evaluateThresholds({ openAppeals: 4 });
     expect(replay[0]!.id).toBe(thresholds[0]!.id);
+  });
+});
+
+import { OutboxPoller, type OutboxEvent, type OutboxSource } from "../outbox.js";
+
+class FakeOutbox implements OutboxSource {
+  events: OutboxEvent[] = [];
+  published = new Set<string>();
+
+  async claimBatch(limit: number) {
+    return this.events
+      .filter((event) => !this.published.has(event.id))
+      .slice(0, limit);
+  }
+  async markPublished(id: string) {
+    this.published.add(id);
+  }
+}
+
+describe("outbox poller", () => {
+  it("turns unpublished events into agent work and marks them published", async () => {
+    const context = new FakeContext();
+    context.workPackages = [workPackage()];
+    const agent = runtime(context);
+    const scheduler = new AgentScheduler(agent, "tenant-1", "test");
+    scheduler.addEventRule({
+      id: "claim-submitted",
+      eventType: "ContributionClaimSubmitted",
+      agentType: "EVIDENCE_GAP",
+    });
+    const outbox = new FakeOutbox();
+    outbox.events = [
+      {
+        id: "event-1",
+        tenantId: "tenant-1",
+        eventType: "ContributionClaimSubmitted",
+        payload: { claimId: "claim-1" },
+        occurredAt: new Date().toISOString(),
+      },
+    ];
+    const poller = new OutboxPoller(outbox, scheduler);
+    const tasks = await poller.pollOnce();
+    expect(tasks).toHaveLength(1);
+    expect(outbox.published.has("event-1")).toBe(true);
+    expect(await poller.pollOnce()).toHaveLength(0);
   });
 });

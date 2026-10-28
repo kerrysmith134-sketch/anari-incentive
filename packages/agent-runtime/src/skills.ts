@@ -313,15 +313,6 @@ export class ContributionAnomalySkill implements AgentSkill {
   }
 }
 
-export function createDefaultSkills(): Record<string, AgentSkill> {
-  const skills = [
-    new EvidenceGapSkill(),
-    new SettlementReadinessSkill(),
-    new ContributionAnomalySkill(),
-    new PolicyProposalSkill(),
-  ];
-  return Object.fromEntries(skills.map((skill) => [skill.name, skill]));
-}
 
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import { simulatePolicyChange } from "@anari/policy-dsl";
@@ -445,4 +436,116 @@ export class PolicyProposalSkill implements AgentSkill {
       }),
     ];
   }
+}
+
+/**
+ * Generic data-quality skill: flags evidence that is not VALID. A CONFLICTED
+ * or INVALID evidence node is blocking and escalates; lesser issues create a
+ * low-risk follow-up.
+ */
+export class DataQualitySkill implements AgentSkill {
+  readonly name = "DATA_QUALITY";
+
+  async observe(context: AgentContext): Promise<AgentFinding[]> {
+    const evidence = await context.listEvidence();
+    return evidence
+      .filter((node) => node.qualityStatus !== "VALID")
+      .map((node) => ({
+        code: "EVIDENCE_QUALITY_ISSUE",
+        severity:
+          node.qualityStatus === "CONFLICTED" || node.qualityStatus === "INVALID"
+            ? ("BLOCKING" as const)
+            : ("WARNING" as const),
+        subjectType: "EVIDENCE",
+        subjectId: node.id,
+        message: `Evidence quality is ${node.qualityStatus}.`,
+        suggestedAction: "Assign a data-quality owner and resolve the issue.",
+      }));
+  }
+
+  plan(finding: AgentFinding): AgentAction[] {
+    if (finding.severity === "BLOCKING") {
+      return [
+        action({
+          tool: "escalate",
+          riskTier: "T2",
+          targetType: finding.subjectType,
+          targetId: finding.subjectId,
+          description: "Escalate blocking evidence-quality issue.",
+          payload: { finding: finding.code },
+          requiresApproval: true,
+        }),
+      ];
+    }
+    return [
+      action({
+        tool: "create_todo",
+        riskTier: "T1",
+        targetType: finding.subjectType,
+        targetId: finding.subjectId,
+        description: "Create a data-quality follow-up.",
+        payload: { finding: finding.code },
+      }),
+    ];
+  }
+}
+
+/**
+ * Generic appeal-SLA skill: flags open appeals older than the configured SLA.
+ * A breach escalates for human review.
+ */
+export class AppealSlaSkill implements AgentSkill {
+  readonly name = "APPEAL_SLA";
+
+  async observe(
+    context: AgentContext,
+    input: Record<string, unknown>,
+  ): Promise<AgentFinding[]> {
+    const slaDays = typeof input.slaDays === "number" ? input.slaDays : 3;
+    const now = Date.now();
+    const appeals = await context.listAppeals();
+    return appeals
+      .filter(
+        (appeal) =>
+          appeal.status !== "CLOSED" && appeal.status !== "DECIDED",
+      )
+      .filter(
+        (appeal) =>
+          now - Date.parse(appeal.createdAt) > slaDays * 24 * 60 * 60 * 1000,
+      )
+      .map((appeal) => ({
+        code: "APPEAL_SLA_BREACH",
+        severity: "WARNING" as const,
+        subjectType: "APPEAL",
+        subjectId: appeal.id,
+        message: `Appeal has been open longer than ${slaDays} days.`,
+        suggestedAction: "Escalate to the appeal reviewer.",
+      }));
+  }
+
+  plan(finding: AgentFinding): AgentAction[] {
+    return [
+      action({
+        tool: "escalate",
+        riskTier: "T2",
+        targetType: finding.subjectType,
+        targetId: finding.subjectId,
+        description: "Escalate appeal SLA breach.",
+        payload: { finding: finding.code },
+        requiresApproval: true,
+      }),
+    ];
+  }
+}
+
+export function createDefaultSkills(): Record<string, AgentSkill> {
+  const skills = [
+    new EvidenceGapSkill(),
+    new SettlementReadinessSkill(),
+    new ContributionAnomalySkill(),
+    new PolicyProposalSkill(),
+    new DataQualitySkill(),
+    new AppealSlaSkill(),
+  ];
+  return Object.fromEntries(skills.map((skill) => [skill.name, skill]));
 }

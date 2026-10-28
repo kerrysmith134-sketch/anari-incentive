@@ -19,6 +19,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
 | Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
+| Agent worker | `apps/worker`: polls the transactional outbox, dispatches domain events to agents, runs scheduled scans, and exposes graceful shutdown. |
 | Policy simulation | `simulatePolicyChange` replays representative inputs through current vs proposed policy; returns per-person/total deltas and blockers. It never publishes or writes money. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
@@ -33,7 +34,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **85 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| Tests | **88 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -69,7 +70,15 @@ docker run --rm -v "$PWD":/app -w /app node:22-alpine \
   sh -c "npm install && npm test && npm run dev"
 ```
 
-### PostgreSQL-backed API
+### Docker compose (postgres + migrate + api + worker)
+
+```bash
+docker compose up --build
+```
+
+The `worker` polls `outbox_events`, dispatches domain events to the agent runtime, and runs scheduled scans.
+
+### PostgreSQL-backed API (manual)
 
 ```bash
 docker compose up -d postgres
@@ -117,6 +126,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/work-packages/:id/accept` | SUBMITTED → ACCEPTED (reviewer ≠ owner) |
 | POST | `/api/v1/work-packages/:id/reject` | SUBMITTED → REJECTED (reviewer ≠ owner) |
 | POST | `/api/v1/contribution-claims` | Create claim (requires ACCEPTED work package) |
+| GET | `/api/v1/contribution-claims` / `/:id` | List/get claims |
 | POST | `/api/v1/contribution-claims/:id/submit` | DRAFT → SUBMITTED |
 | POST | `/api/v1/attribution-decisions` | Formal decision; claimant cannot be adjudicator |
 | GET | `/api/v1/attribution-decisions?claimId=` | List decisions |
@@ -183,6 +193,7 @@ Then a `FORMAL` run also requires confirmed attribution for every participant an
 
 ```
 apps/api/                 Fastify API, in-memory store, PostgreSQL store, public employee page
+apps/worker/              Outbox poller + scheduled proactive agent worker
 packages/domain/          Canonical states, types, invariants
 packages/contracts/       Zod request schemas
 packages/policy-dsl/      Deterministic decimal, order-contribution policy, reference
@@ -196,6 +207,8 @@ db/seed/                  Demo tenant/people/cycle/policy + RLS app role
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 scripts/reconcile.ts     CSV vs engine reconciliation
 scripts/agent-scan.ts    Cron/on-demand proactive agent scan
+Dockerfile                API/worker image
+docker-compose.yml        postgres + migrate + api + worker
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision

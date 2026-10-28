@@ -148,7 +148,7 @@ P0 必须有的 Agent 能力：
 
 **验收指标**：发现到关闭的中位时长、自动解决率、升级率、误报率、人工改判率、每闭环成本、AI 关闭时人工可完成率。不是“AI 采纳率”。
 
-**调度与提案**：`AgentScheduler` 支持 schedule/event/threshold 三类触发；`PolicyProposalSkill` 可基于模拟提出政策变更，`publish_policy` 必须 T3 人工批准。
+**调度与提案**：`AgentScheduler` 支持 schedule/event/threshold 三类触发；`apps/worker` 轮询事务性 outbox 并把领域事件分发给 Agent；`PolicyProposalSkill` 可基于模拟提出政策变更，`publish_policy` 必须 T3 人工批准。
 
 ---
 

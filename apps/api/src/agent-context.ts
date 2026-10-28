@@ -8,6 +8,7 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     listDecisions: (claimId) => store.listDecisions(claimId),
     listRuns: () => store.listRuns(),
     listConfirmations: (personId) => store.listConfirmations(personId),
+    listAppeals: () => store.listAppeals(),
     getLegalGate: (policyVersionId) => store.getLegalGate(policyVersionId),
     listEvidence: (subjectType, subjectId) =>
       store.listEvidence(subjectType, subjectId),

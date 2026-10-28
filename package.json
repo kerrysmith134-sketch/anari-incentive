@@ -20,7 +20,8 @@
     "db:seed": "psql \"$DATABASE_URL\" -f db/seed/001_demo.sql",
     "test:pg": "./scripts/test-pg.sh",
     "reconcile": "tsx scripts/reconcile.ts",
-    "agent:scan": "tsx scripts/agent-scan.ts"
+    "agent:scan": "tsx scripts/agent-scan.ts",
+    "worker": "tsx apps/worker/src/index.ts"
   },
   "engines": {
     "node": ">=20"

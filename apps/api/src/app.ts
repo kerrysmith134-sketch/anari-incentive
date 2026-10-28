@@ -343,6 +343,14 @@ export function buildApp(
     return reply.status(201).send(data(await store.createClaim(body), request));
   });
 
+  app.get("/api/v1/contribution-claims", async (request) =>
+    data(await store.listClaims(), request),
+  );
+
+  app.get("/api/v1/contribution-claims/:id", async (request) =>
+    data(await store.getClaim(idOf(request)), request),
+  );
+
   app.post("/api/v1/contribution-claims/:id/submit", async (request) =>
     data(await store.submitClaim(idOf(request)), request),
   );

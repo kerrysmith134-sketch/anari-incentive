@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CONTAINER="${CONTAINER:-anari-incentive-pg-test}"
-PORT="${PORT:-55432}"
+PORT="${PORT:-$((55000 + RANDOM % 1000))}"
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup

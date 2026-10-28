@@ -1,4 +1,5 @@
 import type {
+  AppealCase,
   AttributionDecision,
   CalculationRun,
   ContributionClaim,
@@ -78,6 +79,7 @@ export interface AgentContext {
   listDecisions(claimId?: string): Promise<AttributionDecision[]>;
   listRuns(): Promise<CalculationRun[]>;
   listConfirmations(personId?: string): Promise<EmployeeConfirmation[]>;
+  listAppeals(): Promise<AppealCase[]>;
   getLegalGate(policyVersionId: string): Promise<LegalGateRecord | undefined>;
   listEvidence(
     subjectType?: string,
