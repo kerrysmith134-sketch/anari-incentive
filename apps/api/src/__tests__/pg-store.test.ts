@@ -186,6 +186,16 @@ describePg("PgStore vertical slice", () => {
     });
     expect(acknowledged.batch.status).toBe("ACKNOWLEDGED");
     expect(acknowledged.batch.externalReference).toBe("pg-finance-1");
+
+    const audit = await store.listAuditEvents(100);
+    expect(audit.length).toBeGreaterThan(0);
+    expect(audit.some((event) => event.action === "SETTLEMENT_CREATED")).toBe(
+      true,
+    );
+    expect(
+      audit.some((event) => event.action === "SETTLEMENT_ACKNOWLEDGE"),
+    ).toBe(true);
+    expect(audit.every((event) => event.eventHash.length > 0)).toBe(true);
   });
 
   it("stores an evidence graph with provenance and links", async () => {

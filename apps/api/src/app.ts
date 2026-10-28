@@ -266,6 +266,7 @@ export function buildApp(
         meta: { correlation_id: request.id },
       });
     }
+    console.error(`[api] ${request.method} ${request.url} failed`, error);
     return reply.status(500).send({
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
@@ -713,6 +714,14 @@ export function buildApp(
       await storeFor(request).listConfirmations(person ?? query.personId),
       request,
     );
+  });
+
+  app.get("/api/v1/audit-events", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { limit?: string };
+    const parsed = Number(query.limit ?? 100);
+    const limit = Number.isFinite(parsed) ? parsed : 100;
+    return data(await storeFor(request).listAuditEvents(limit), request);
   });
 
   app.get("/api/v1/ledger", async (request) => {

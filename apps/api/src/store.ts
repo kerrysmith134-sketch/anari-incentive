@@ -12,6 +12,7 @@ import {
   workPackageTransitions,
   type AmountLedgerEntry,
   type AppealCase,
+  type AuditEvent,
   type AttributionDecision,
   type CalculationInput,
   type CalculationRun,
@@ -1119,6 +1120,10 @@ export class Store implements IncentiveStore {
         `SETTLEMENT_LINE_COUNT_MISMATCH: batch ${batch.lineCount}, lines ${active.length}`,
       );
     }
+  }
+
+  async listAuditEvents(): Promise<AuditEvent[]> {
+    return [];
   }
 
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {

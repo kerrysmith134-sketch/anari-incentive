@@ -13,6 +13,7 @@ import {
   workPackageTransitions,
   type AmountLedgerEntry,
   type AppealCase,
+  type AuditEvent,
   type AttributionDecision,
   type CalculationInput,
   type CalculationRun,
@@ -193,6 +194,15 @@ export class PgStore implements IncentiveStore {
             input.approvedBy,
           ],
         );
+        await this.appendAudit(client, {
+          action: "POLICY_PUBLISHED",
+          objectType: "POLICY_VERSION",
+          objectId: policyVersionId,
+          actorType: "USER",
+          actorId: input.approvedBy,
+          afterHash: contentHash,
+          reason: `${input.policy.code}:${input.policy.version}`,
+        });
         return {
           policyVersionId,
           policy: input.policy,
@@ -621,6 +631,19 @@ export class PgStore implements IncentiveStore {
           input.recordedBy,
         ],
       );
+      await this.appendAudit(client, {
+        action: "LEGAL_GATE_RECORDED",
+        objectType: "POLICY_VERSION",
+        objectId: input.policyVersionId,
+        actorType: "USER",
+        actorId: input.recordedBy,
+        afterHash: sha256({
+          policyVersionId: input.policyVersionId,
+          policyApproved: input.policyApproved,
+          minimumWageChecked: input.minimumWageChecked,
+        }),
+        reason: input.policyApproved ? "policy approved" : "policy not approved",
+      });
       return this.mapLegalGate(rows[0]);
     });
   }
@@ -1035,6 +1058,14 @@ export class PgStore implements IncentiveStore {
         "UPDATE amount_ledger SET status='LOCKED', locked_at=now() WHERE tenant_id=$1 AND calculation_run_id=$2",
         [this.tenantId, id],
       );
+      await this.appendAudit(client, {
+        action: "CALCULATION_LOCKED",
+        objectType: "CALCULATION_RUN",
+        objectId: id,
+        actorType: "SYSTEM",
+        afterHash: run.resultHash,
+        reason: confirmation,
+      });
       return this.loadRun(client, id);
     });
   }
@@ -1294,6 +1325,14 @@ export class PgStore implements IncentiveStore {
         }
         throw error;
       }
+      await this.appendAudit(client, {
+        action: "SETTLEMENT_CREATED",
+        objectType: "SETTLEMENT_BATCH",
+        objectId: id,
+        actorType: "SYSTEM",
+        afterHash: sha256({ batchNo, cycleId: input.cycleId, entries: entries.length }),
+        reason: batchNo,
+      });
       return this.loadSettlementBatch(client, id);
     });
   }
@@ -1416,6 +1455,19 @@ export class PgStore implements IncentiveStore {
       }
 
       const updated = await this.loadSettlementBatch(client, id);
+      await this.appendAudit(client, {
+        action: `SETTLEMENT_${input.command}`,
+        objectType: "SETTLEMENT_BATCH",
+        objectId: id,
+        actorType: input.actorPersonId ? "USER" : "SYSTEM",
+        actorId: input.actorPersonId,
+        afterHash: sha256({
+          status: updated.status,
+          totalAmount: updated.totalAmount,
+          lineCount: updated.lineCount,
+        }),
+        reason: input.externalReference ?? input.command,
+      });
       return {
         batch: updated,
         csv:
@@ -1559,6 +1611,69 @@ export class PgStore implements IncentiveStore {
       active: Boolean(row.active),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
+  }
+
+  private async appendAudit(
+    client: PoolClient,
+    entry: {
+      action: string;
+      objectType: string;
+      objectId?: string;
+      actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+      actorId?: string;
+      beforeHash?: string;
+      afterHash?: string;
+      reason?: string;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_events
+        (tenant_id, sequence, actor_type, actor_id, action, object_type,
+         object_id, before_hash, after_hash, reason, correlation_id,
+         prev_hash, event_hash)
+       VALUES ($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,'','')`,
+      [
+        this.tenantId,
+        entry.actorType,
+        entry.actorId ?? null,
+        entry.action,
+        entry.objectType,
+        entry.objectId ?? null,
+        entry.beforeHash ?? null,
+        entry.afterHash ?? null,
+        entry.reason ?? null,
+        randomUUID(),
+      ],
+    );
+  }
+
+  async listAuditEvents(limit = 100): Promise<AuditEvent[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM audit_events
+          WHERE tenant_id = $1
+          ORDER BY sequence DESC
+          LIMIT $2`,
+        [this.tenantId, Math.max(1, Math.min(limit, 500))],
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenant_id,
+        sequence: Number(row.sequence),
+        actorType: row.actor_type,
+        actorId: row.actor_id ?? undefined,
+        action: row.action,
+        objectType: row.object_type,
+        objectId: row.object_id ?? undefined,
+        beforeHash: row.before_hash ?? undefined,
+        afterHash: row.after_hash ?? undefined,
+        reason: row.reason ?? undefined,
+        correlationId: row.correlation_id,
+        occurredAt: iso(row.occurred_at) ?? new Date().toISOString(),
+        prevHash: row.prev_hash,
+        eventHash: row.event_hash,
+      }));
+    });
   }
 
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {

@@ -1,6 +1,7 @@
 import type {
   AmountLedgerEntry,
   AppealCase,
+  AuditEvent,
   AttributionDecision,
   CalculationRun,
   ConfirmationDecision,
@@ -122,6 +123,7 @@ export interface IncentiveStore {
 
   listLedger(tenantId?: string): Promise<AmountLedgerEntry[]>;
   verifyLedger(tenantId?: string): Promise<boolean>;
+  listAuditEvents(limit?: number): Promise<AuditEvent[]>;
 
   createSettlementBatch(input: {
     cycleId: string;

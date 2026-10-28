@@ -425,6 +425,24 @@ export interface SettlementCommandResult {
   csv?: string;
 }
 
+export interface AuditEvent {
+  id: UUID;
+  tenantId: UUID;
+  sequence: number;
+  actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+  actorId?: UUID;
+  action: string;
+  objectType: string;
+  objectId?: UUID;
+  beforeHash?: string;
+  afterHash?: string;
+  reason?: string;
+  correlationId: UUID;
+  occurredAt: string;
+  prevHash: string;
+  eventHash: string;
+}
+
 export interface DataQualityIssue {
   id: UUID;
   tenantId: UUID;

@@ -34,7 +34,11 @@ const authenticator =
         jwksUrl: process.env.OIDC_JWKS_URL,
       })
     : new DevHeaderAuthenticator({
-        tenantId: process.env.DEFAULT_TENANT_ID ?? "tenant-demo",
+        tenantId:
+          process.env.DEFAULT_TENANT_ID ??
+          (usePostgres
+            ? "00000000-0000-4000-8000-000000000001"
+            : "tenant-demo"),
         userId: "dev-user",
         personId:
           process.env.DEFAULT_PERSON_ID ??

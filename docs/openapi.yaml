@@ -543,6 +543,32 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/audit-events:
+    get:
+      tags: [Ledger]
+      summary: List append-only audit events
+      description: Hash-chained tenant audit events, newest first. Requires manager or finance (admin passes).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/settlement-batches:
     get:
       tags: [Ledger]
@@ -1094,6 +1120,12 @@ components:
   responses:
     Unauthorized:
       description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: The caller lacks the required role
       content:
         application/json:
           schema:

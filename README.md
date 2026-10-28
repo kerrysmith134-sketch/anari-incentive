@@ -41,6 +41,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
+| Audit trail | Policy publication, legal gates, calculation locks and settlement commands append hash-chained `audit_events`; `GET /audit-events` is role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
 | Tests | **114 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
@@ -84,6 +85,10 @@ When the API uses OIDC, give the worker either `WORKER_TOKEN` (static) or
 `OIDC_TOKEN_URL` + `OIDC_CLIENT_ID` + `OIDC_CLIENT_SECRET` (client
 credentials, optional `OIDC_SCOPE` / `OIDC_AUDIENCE`). The worker's token
 tenant claim must match `TENANT_ID`.
+
+In dev mode with `STORE=postgres`, the default tenant is the seeded UUID
+`00000000-0000-4000-8000-000000000001`; override it with
+`DEFAULT_TENANT_ID`. The in-memory store defaults to `tenant-demo`.
 
 ### CI
 
@@ -173,6 +178,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/employee-confirmations?personId=` | List confirmations |
 | GET | `/api/v1/ledger` | List ledger |
 | GET | `/api/v1/ledger/verify` | Verify hash chain |
+| GET | `/api/v1/audit-events?limit=` | Hash-chained audit events (manager/finance) |
 | POST | `/api/v1/settlement-batches` | Batch unbatched locked ledger entries for a cycle |
 | GET | `/api/v1/settlement-batches` / `/:id` | List/get batches with lines |
 | POST | `/api/v1/settlement-batches/:id/commands` | RECONCILE / SUBMIT / APPROVE / LOCK / EXPORT / ACKNOWLEDGE / CANCEL; EXPORT returns CSV |
