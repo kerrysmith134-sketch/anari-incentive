@@ -142,6 +142,49 @@
         <tbody id="tasks"></tbody>
       </table>
     </section>
+
+    <section class="card">
+      <h2>结算批次</h2>
+      <div class="grid">
+        <div>
+          <label>周期 ID</label>
+          <input id="settlementCycle" value="00000000-0000-4000-8000-000000000020" />
+        </div>
+        <div>
+          <label>币种</label>
+          <input id="settlementCurrency" value="CNY" />
+        </div>
+        <div>
+          <label>财务批准人 ID</label>
+          <input id="settlementApprover" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createSettlement" style="width:100%">生成批次</button>
+        </div>
+      </div>
+      <div class="status" id="settlementStatus"></div>
+      <table>
+        <thead>
+        <tr><th>批次</th><th>周期</th><th>状态</th><th>金额</th><th>行数</th><th>操作</th></tr>
+        </thead>
+        <tbody id="settlements"></tbody>
+      </table>
+      <pre id="exportResult" hidden></pre>
+    </section>
+
+    <section class="card">
+      <h2>审计事件</h2>
+      <div class="actions">
+        <button id="refreshAudit">刷新审计</button>
+      </div>
+      <div class="status" id="auditStatus"></div>
+      <table>
+        <thead>
+        <tr><th>#</th><th>动作</th><th>对象</th><th>执行者</th><th>时间</th></tr>
+        </thead>
+        <tbody id="auditEvents"></tbody>
+      </table>
+    </section>
   </main>
 
   <script>
@@ -279,16 +322,120 @@
       }[char]));
     }
 
+    async function loadSettlements() {
+      try {
+        const batches = await api("/api/v1/settlement-batches");
+        $("settlements").innerHTML = batches.map((batch) => {
+          const actions = settlementActions(batch.status)
+            .map(
+              (command) =>
+                `<button data-batch="${batch.id}" data-command="${command}">${command}</button>`,
+            )
+            .join(" ");
+          return `<tr>
+            <td class="mono">${escapeHtml(batch.batchNo)}</td>
+            <td class="mono">${escapeHtml(batch.cycleId.slice(0, 8))}</td>
+            <td><span class="pill">${escapeHtml(batch.status)}</span></td>
+            <td class="mono">${escapeHtml(batch.totalAmount)} ${escapeHtml(batch.currency)}</td>
+            <td>${batch.lineCount}</td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        setStatus("settlementStatus", `共 ${batches.length} 个批次`, "ok");
+      } catch (error) {
+        setStatus("settlementStatus", String(error.message), "bad");
+      }
+    }
+
+    function settlementActions(status) {
+      switch (status) {
+        case "DRAFT": return ["RECONCILE", "CANCEL"];
+        case "RECONCILING": return ["SUBMIT", "CANCEL"];
+        case "PENDING_APPROVAL": return ["APPROVE", "CANCEL"];
+        case "APPROVED": return ["LOCK"];
+        case "LOCKED": return ["EXPORT"];
+        case "EXPORTED": return ["ACKNOWLEDGE"];
+        case "ADJUSTMENT_REQUIRED": return ["RECONCILE", "CANCEL"];
+        default: return [];
+      }
+    }
+
+    async function createSettlement() {
+      setStatus("settlementStatus", "生成中…");
+      try {
+        await api("/api/v1/settlement-batches", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId: $("settlementCycle").value.trim(),
+            currency: $("settlementCurrency").value.trim(),
+          }),
+        });
+        setStatus("settlementStatus", "批次已生成", "ok");
+        await loadSettlements();
+      } catch (error) {
+        setStatus("settlementStatus", String(error.message), "bad");
+      }
+    }
+
+    async function settlementCommand(batchId, command) {
+      try {
+        const result = await api(
+          `/api/v1/settlement-batches/${batchId}/commands`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              command,
+              actorPersonId: $("settlementApprover").value.trim(),
+            }),
+          },
+        );
+        if (result.csv) {
+          $("exportResult").hidden = false;
+          $("exportResult").textContent = result.csv;
+        }
+        setStatus("settlementStatus", `${command} 完成：${result.batch.status}`, "ok");
+        await loadSettlements();
+        await loadAudit();
+      } catch (error) {
+        setStatus("settlementStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadAudit() {
+      try {
+        const events = await api("/api/v1/audit-events?limit=50");
+        $("auditEvents").innerHTML = events.map((event) => `<tr>
+          <td class="mono">${event.sequence}</td>
+          <td>${escapeHtml(event.action)}</td>
+          <td>${escapeHtml(event.objectType)} <span class="mono">${escapeHtml((event.objectId ?? "").slice(0, 8))}</span></td>
+          <td>${escapeHtml(event.actorType)}${event.actorId ? ` <span class="mono">${escapeHtml(event.actorId.slice(0, 8))}</span>` : ""}</td>
+          <td>${escapeHtml(event.occurredAt)}</td>
+        </tr>`).join("");
+        setStatus("auditStatus", `共 ${events.length} 条`, "ok");
+      } catch (error) {
+        setStatus("auditStatus", String(error.message), "bad");
+      }
+    }
+
     $("simulate").addEventListener("click", simulate);
     $("scan").addEventListener("click", scan);
     $("refresh").addEventListener("click", loadTasks);
+    $("createSettlement").addEventListener("click", createSettlement);
+    $("refreshAudit").addEventListener("click", loadAudit);
     $("tasks").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-task]");
       if (!button) return;
       approve(button.dataset.task, button.dataset.action);
     });
+    $("settlements").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-batch]");
+      if (!button) return;
+      settlementCommand(button.dataset.batch, button.dataset.command);
+    });
 
     loadTasks();
+    loadSettlements();
+    loadAudit();
   </script>
 </body>
 </html>

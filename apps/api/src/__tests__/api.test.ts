@@ -412,6 +412,8 @@ describe("admin view", () => {
     expect(response.body).toContain("N-Perform 管理端");
     expect(response.body).toContain("/api/v1/policy-simulations");
     expect(response.body).toContain("/api/v1/agent-tasks");
+    expect(response.body).toContain("结算批次");
+    expect(response.body).toContain("审计事件");
   });
 });
 
