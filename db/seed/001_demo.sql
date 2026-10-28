@@ -4,14 +4,14 @@
 BEGIN;
 
 INSERT INTO tenants (id, name, slug, default_currency)
-VALUES ('00000000-0000-4000-8000-000000000001', 'Anari Demo', 'anari-demo', 'CNY')
+VALUES ('00000000-0000-4000-8000-000000000001', 'Anari Energy Demo', 'anari-energy-demo', 'CNY')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO people (id, tenant_id, employee_code, display_name)
 VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'E001', 'Owner'),
-  ('00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'E002', 'Contributor'),
-  ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'E003', 'Adjudicator')
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'E001', 'Sales Lead'),
+  ('00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'E002', 'Product Manager'),
+  ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'E003', 'Finance Reviewer')
 ON CONFLICT (tenant_id, employee_code) DO NOTHING;
 
 INSERT INTO evaluation_cycles (
@@ -20,7 +20,7 @@ INSERT INTO evaluation_cycles (
 VALUES (
   '00000000-0000-4000-8000-000000000020',
   '00000000-0000-4000-8000-000000000001',
-  'Demo monthly cycle',
+  '2026 Q4 charging equipment sales cycle',
   'MONTHLY',
   '2026-10-01T00:00:00Z',
   '2026-10-31T23:59:59Z',
@@ -67,6 +67,28 @@ VALUES (
   '{"code":"CHARGING_PROJECT_CONTRIBUTION_V1","version":1,"currency":"CNY","poolRate":"0.04","poolCap":"150000","rounding":"HALF_UP","cashCollectionWeight":"0.4","retentionHoldbackRate":"0.05","qualityGate":{"requireAcceptance":true,"blockOnSafetyIncident":true},"minimumWage":{"monthlyMinimum":"2690","checked":false}}'::jsonb,
   '1.0',
   'demo-policy-hash-charging-v1',
+  '00000000-0000-4000-8000-000000000003',
+  '2026-10-01T00:00:00Z',
+  '2026-10-01T00:00:00Z'
+)
+ON CONFLICT (tenant_id, policy_code, version) DO NOTHING;
+
+INSERT INTO policy_versions (
+  id, tenant_id, policy_code, version, scope, status,
+  effective_from, rule_ast, rule_schema_version, content_hash,
+  approved_by, approved_at, published_at
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000102',
+  '00000000-0000-4000-8000-000000000001',
+  'CHARGING_EQUIPMENT_SALES_V1',
+  1,
+  '{"legalEntity":"anari-demo","jurisdiction":"CN","salesModels":["DIRECT","CHANNEL"]}'::jsonb,
+  'PUBLISHED',
+  '2026-10-01T00:00:00Z',
+  '{"code":"CHARGING_EQUIPMENT_SALES_V1","version":1,"currency":"CNY","poolRate":"0.035","poolCap":"120000","rounding":"HALF_UP","cashCollectionWeight":"0.5","afterSalesReserveRate":"0.03","creditGate":{"requireCreditApproval":true,"blockOnQualityHold":true},"minimumWage":{"monthlyMinimum":"2690","checked":false}}'::jsonb,
+  '1.0',
+  'demo-policy-hash-equipment-v1',
   '00000000-0000-4000-8000-000000000003',
   '2026-10-01T00:00:00Z',
   '2026-10-01T00:00:00Z'

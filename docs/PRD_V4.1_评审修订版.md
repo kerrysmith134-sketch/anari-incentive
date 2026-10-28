@@ -111,18 +111,18 @@
 
 ---
 
-## 2.6 首个 wedge 行业画像：充电桩 / 光储充
+## 2.6 首个 wedge 行业画像：充电桩设备销售
 
-首个 wedge 不是泛行业，而是 **充电桩/光储充项目（DC 快充站 EPC）**。行业画像见 `docs/wedge-ev-charging.md`，要点：
+首个 wedge 不是泛行业，也不是 EPC，而是 **充电桩设备销售（DC 快充桩直销为首期）**。行业画像见 `docs/wedge-ev-charging.md`，要点：
 
-- **订单类型**：DC 快充站 EPC（首期），后续再扩展 AC 目的地充电、光储充一体化、改造/扩容、设备销售、O&M。
-- **参与角色**：销售、方案/电气设计、采购、供应链/制造、交付/施工、并网调试、财务、运维。
-- **工作包**：商机/客户关系、选址/电网接入、方案设计、采购/成本、生产/发货、土建/安装、并网/调试、验收/移交、回款/质保金、运维交接。
-- **证据源**：CRM、ERP（成本/BOM/发货）、项目/飞书、施工/验收、并网/调试、财务回款、O&M 工单、EHS。
-- **参考政策**：`CHARGING_PROJECT_CONTRIBUTION_V1`——项目毛利 × 4%、封顶 15 万、40% 现金权重、5% 质保金留存、验收/安全硬门禁；细节见行业楔子文档。
-- **首期范围**：1 个法人、1 个区域、5–10 个 DC 快充站项目、20–50 人、1 个季度、影子结算。
+- **订单类型**：DC 快充桩直销（首期），后续再扩展 AC 目的地桩、经销商/渠道、框架/战略客户、备件/售后、项目型设备供货。**EPC/充电站工程首期不做**。
+- **参与角色**：销售、产品/售前、商务、财务/信用、订单管理、采购/供应链、制造/质量、物流、售后。
+- **工作包**：商机/客户关系、技术选型/配置、投标/报价/商务、信用/合同审批、订单/排产/交期、采购/物料/成本、生产/质检/出厂、物流/发运/签收、回款/信用/坏账、售后/质保/备件、客户成功/复购。
+- **证据源**：CRM、ERP（订单/BOM/成本/发货）、MES/QMS、物流 POD、财务回款/账龄、售后/RMA、渠道协议。
+- **参考政策**：`CHARGING_EQUIPMENT_SALES_V1`——订单毛利 × 3.5%、封顶 12 万、50% 现金权重、3% 售后准备金、信用/质量硬门禁、渠道分成单列；细节见行业楔子文档。
+- **首期范围**：1 个法人、1 个区域、5–10 个 DC 快充桩直销订单、20–50 人、1 个季度、影子结算。
 
-**明确不做**：O&M 收益分成、渠道佣金/居间费、补贴/绿证/碳收益、多法人合并。这些需要单独政策，不要混进首个 EPC 政策。
+**明确不做**：EPC/施工/并网/质保金、充电站运营收益分成、O&M 收益分成、渠道佣金/返点自动化、补贴/绿证/碳收益、出口/多币种、多法人合并。这些需要单独政策，不要混进首个设备销售政策。
 
 ---
 
@@ -216,18 +216,20 @@ V4.0 把具体制度降为“租户配置实例”，这是正确的产品方向
 - 告知/签收/申诉/确认流程；
 - 测试用例（正常/边界/异常/历史回放）。
 
-**首个租户参考政策**：`CHARGING_PROJECT_CONTRIBUTION_V1`
+**首个租户参考政策**：`CHARGING_EQUIPMENT_SALES_V1`
 
 ```
-basePool = min(项目毛利 × 4%, 150,000)
-cashFactor = min(1, 已回款 / 合同额)
-cashAdjustedPool = basePool × (60% + 40% × cashFactor)
-retention = cashAdjustedPool × 5%        # 质保金，暂不分配
-payablePool = cashAdjustedPool − retention
-个人金额 = payablePool × 经确认的贡献权重
+basePool = min(订单毛利 × 3.5%, 120,000)
+cashFactor = min(1, 已回款 / 开票额)
+cashAdjustedPool = basePool × (50% + 50% × cashFactor)
+afterSalesReserve = cashAdjustedPool × 3%       # 售后/退货准备金，暂不分配
+payablePool = cashAdjustedPool − afterSalesReserve
+channelPool = payablePool × 渠道分成比例
+internalPool = payablePool − channelPool
+个人金额 = internalPool × 经确认的贡献权重
 ```
 
-质量门禁：客户验收未完成、存在未关闭的安全事故 → 阻断。该政策是首个租户的可执行示例，不是 Anari 最终制度；数值需财务回测、法务审查、员工程序后生效。
+质量/信用门禁：信用未批准、质量冻结、渠道分成但无渠道伙伴 → 阻断。该政策是首个租户的可执行示例，不是 Anari 最终制度；数值需财务回测、法务审查、员工程序后生效。EPC 项目政策 `CHARGING_PROJECT_CONTRIBUTION_V1` 仅作为后续扩展示例，不是首个 wedge。
 
 **如果首个租户制度无法映射到现有 schema/规则引擎，应明确 descope，而不是用 JSONB 假装支持。**
 
@@ -456,7 +458,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储；`/` 提供最小员工确认页；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
-- `fixtures`：通用 order policy + 5 个订单 fixture；充电桩 `CHARGING_PROJECT_CONTRIBUTION_V1` + 5 个 DC 快充/光储充项目 fixture；reconciliation CSV；
+- `fixtures`：通用 order policy + 5 个订单 fixture；充电桩设备销售 `CHARGING_EQUIPMENT_SALES_V1` + 5 个直销/渠道/备件/框架 fixture；EPC 项目政策 + 5 个项目 fixture（后续扩展示例）；reconciliation CSV；
 - `docs/wedge-ev-charging.md`：充电桩行业 wedge 画像、工作包模板、证据地图、风险清单；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；
 - `docs/adr`：关键架构决策。

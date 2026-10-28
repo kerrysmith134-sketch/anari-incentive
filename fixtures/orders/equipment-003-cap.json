@@ -1,0 +1,38 @@
+{
+  "name": "large-order-cap",
+  "description": "Large equipment order hits the 120,000 pool cap; 50% cash collected.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
+    "mode": "SHADOW",
+    "order": {
+      "id": "equipment-order-003",
+      "grossProfit": "10000000",
+      "currency": "CNY",
+      "invoiceAmount": "20000000",
+      "cashCollected": "10000000",
+      "creditApproved": true,
+      "qualityHold": false,
+      "channelShare": "0",
+      "projectType": "DC_CHARGING_PILE_SALE",
+      "siteId": "customer-shenzhen-003"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.8", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.2", "role": "SUPPLY_CHAIN"}
+    ]
+  },
+  "expected": {
+    "pool": "120000",
+    "poolRounded": "87300",
+    "cashFactor": "0.5",
+    "afterSalesReserve": "2700",
+    "channelPool": "0",
+    "internalPool": "87300",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "69840"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "17460"}
+    ]
+  }
+}

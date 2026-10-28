@@ -1,0 +1,38 @@
+{
+  "name": "direct-dc-pile-sale",
+  "description": "Direct sale of 60 DC fast-charging piles; 80% cash collected; credit approved.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
+    "mode": "SHADOW",
+    "order": {
+      "id": "equipment-order-001",
+      "grossProfit": "600000",
+      "currency": "CNY",
+      "invoiceAmount": "3000000",
+      "cashCollected": "2400000",
+      "creditApproved": true,
+      "qualityHold": false,
+      "channelShare": "0",
+      "projectType": "DC_CHARGING_PILE_SALE",
+      "siteId": "customer-shanghai-001"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.6", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "PRODUCT_MANAGER"}
+    ]
+  },
+  "expected": {
+    "pool": "21000",
+    "poolRounded": "18333",
+    "cashFactor": "0.8",
+    "afterSalesReserve": "567",
+    "channelPool": "0",
+    "internalPool": "18333",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "10999.8"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "7333.2"}
+    ]
+  }
+}

@@ -114,6 +114,12 @@ export interface OrderFact {
   siteId?: string;
   safetyIncidents?: number;
   acceptanceStatus?: "ACCEPTED" | "PENDING" | "REJECTED";
+  /** Charging-equipment sales fields. */
+  invoiceAmount?: DecimalString;
+  creditApproved?: boolean;
+  qualityHold?: boolean;
+  channelPartnerId?: string;
+  channelShare?: DecimalString;
 }
 
 export interface ParticipantInput {
@@ -244,6 +250,13 @@ export interface PolicyDefinition {
   qualityGate?: {
     requireAcceptance: boolean;
     blockOnSafetyIncident: boolean;
+  };
+  /** Charging-equipment sales: share of the pool held for after-sales/returns. */
+  afterSalesReserveRate?: DecimalString;
+  /** Charging-equipment sales: credit/quality gates. */
+  creditGate?: {
+    requireCreditApproval: boolean;
+    blockOnQualityHold: boolean;
   };
   /** Optional display guard; payroll compliance is still a separate gate. */
   minimumWage?: {

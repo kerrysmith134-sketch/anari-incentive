@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { Store } from "../store.js";
-import { CHARGING_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
@@ -332,6 +332,84 @@ describe("vertical slice", () => {
     });
     expect(decision.status).toBe(422);
     expect(decision.body.error.code).toBe("INVARIANT_VIOLATION");
+  });
+
+  it("calculates a charging equipment sale with cash weighting and reserve", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate(EQUIPMENT_POLICY_ID);
+
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: EQUIPMENT_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "equipment-api-001",
+        grossProfit: "600000",
+        currency: "CNY",
+        invoiceAmount: "3000000",
+        cashCollected: "2400000",
+        creditApproved: true,
+        qualityHold: false,
+        channelShare: "0",
+        projectType: "DC_CHARGING_PILE_SALE",
+        siteId: "customer-api-001",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "SALES_LEAD",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "PRODUCT_MANAGER",
+        },
+      ],
+    });
+    expect(run.status).toBe(201);
+    expect(
+      run.body.data.lines.map((line: { roundedAmount: string }) => line.roundedAmount),
+    ).toEqual(["10999.8", "7333.2"]);
+    expect(run.body.data.lines[0].trace.afterSalesReserve).toBe("567");
+  });
+
+  it("blocks an equipment sale without credit approval", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate(EQUIPMENT_POLICY_ID);
+
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: EQUIPMENT_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "equipment-api-002",
+        grossProfit: "600000",
+        currency: "CNY",
+        invoiceAmount: "3000000",
+        cashCollected: "2400000",
+        creditApproved: false,
+        qualityHold: false,
+        channelShare: "0",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "1",
+          role: "SALES_LEAD",
+        },
+      ],
+    });
+    expect(run.status).toBe(422);
+    expect(run.body.error.code).toBe("CALCULATION_BLOCKED");
+    expect(run.body.error.details.blockers).toContain("CREDIT_NOT_APPROVED");
   });
 
   it("calculates a charging project with cash weighting and retention", async () => {

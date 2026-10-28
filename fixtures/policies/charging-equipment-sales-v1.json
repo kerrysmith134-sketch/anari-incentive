@@ -1,0 +1,18 @@
+{
+  "code": "CHARGING_EQUIPMENT_SALES_V1",
+  "version": 1,
+  "currency": "CNY",
+  "poolRate": "0.035",
+  "poolCap": "120000",
+  "rounding": "HALF_UP",
+  "cashCollectionWeight": "0.5",
+  "afterSalesReserveRate": "0.03",
+  "creditGate": {
+    "requireCreditApproval": true,
+    "blockOnQualityHold": true
+  },
+  "minimumWage": {
+    "monthlyMinimum": "2690",
+    "checked": false
+  }
+}

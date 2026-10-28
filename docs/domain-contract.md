@@ -211,15 +211,23 @@ The resulting `EvaluationGate` blocks numeric AI scoring when any threshold fail
 
 ---
 
-## 8. Charging project policy (`CHARGING_PROJECT_CONTRIBUTION_V1`)
+## 8. Charging equipment sales policy (`CHARGING_EQUIPMENT_SALES_V1`)
+
+This is the first wedge. The EPC policy remains in the codebase as a later extension.
 
 ```
-basePool = min(grossProfit × 4%, 150,000)
-cashFactor = min(1, cashCollected / contractAmount)
-cashAdjustedPool = basePool × (60% + 40% × cashFactor)
-retention = cashAdjustedPool × 5%
-payablePool = cashAdjustedPool − retention
-line = payablePool × confirmed attribution weight
+basePool = min(orderGrossProfit × 3.5%, 120,000)
+cashFactor = min(1, cashCollected / invoiceAmount)
+cashAdjustedPool = basePool × (50% + 50% × cashFactor)
+afterSalesReserve = cashAdjustedPool × 3%
+payablePool = cashAdjustedPool − afterSalesReserve
+channelPool = payablePool × channelShare
+internalPool = payablePool − channelPool
+line = internalPool × confirmed attribution weight
 ```
 
-Quality gates: customer acceptance must be `ACCEPTED`; no open safety incident. The policy is routed by `policy_version.rule_ast.code`; the generic `ORDER_CONTRIBUTION_V1` remains available for non-project orders. Both use the same allocation and deterministic hash helpers.
+Gates: credit approval required; quality hold blocks; a positive channel share requires a channel partner. The channel pool is recorded separately and is not allocated to internal employees. The policy is routed by `policy_version.rule_ast.code`; the generic `ORDER_CONTRIBUTION_V1` remains for non-project orders. Both use the same allocation and deterministic hash helpers.
+
+### Later extension: `CHARGING_PROJECT_CONTRIBUTION_V1`
+
+EPC projects use projected gross profit, 40% cash weighting, 5% retention holdback and acceptance/safety gates. Do not mix EPC and equipment-sales policies in the same cycle without explicit mutual-exclusion rules.

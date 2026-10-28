@@ -34,6 +34,7 @@ import type {
 import { InMemoryLedger } from "@anari/ledger";
 import {
   PolicyGateError,
+  calculateChargingEquipmentSales,
   calculateChargingProjectContribution,
   calculateOrderContribution,
   sha256,
@@ -535,9 +536,11 @@ export class Store implements IncentiveStore {
     let result;
     try {
       result =
-        policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
-          ? calculateChargingProjectContribution(policy, calculationInput)
-          : calculateOrderContribution(policy, calculationInput);
+        policy.code === "CHARGING_EQUIPMENT_SALES_V1"
+          ? calculateChargingEquipmentSales(policy, calculationInput)
+          : policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
+            ? calculateChargingProjectContribution(policy, calculationInput)
+            : calculateOrderContribution(policy, calculationInput);
     } catch (error) {
       if (error instanceof PolicyGateError) {
         throw new CalculationBlockedError(error.blockers);

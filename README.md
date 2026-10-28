@@ -4,7 +4,7 @@
 
 This repository is the implementation baseline for PRD V4.1. It does **not** try to be a generic HRIS, payroll system, project-management suite, or “AI gives everyone a score” product. It connects business facts, work packages, deliverables, acceptance, contribution claims, attribution decisions, deterministic calculation, approval, employee confirmation/appeal, and an append-only ledger — so a company can explain **who contributed to what, and why a payment is what it is**.
 
-> **First wedge**: EV charging / PV+BESS+charging project delivery — initially DC fast-charging station EPC. The industry profile, work-package template, evidence map and risk list are in [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md).
+> **First wedge**: EV charging equipment sales — initially direct sales of DC fast-charging piles. The industry profile, sales work-package template, evidence map, channel/credit/after-sales rules and risk list are in [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md). EPC is a later extension, not the first wedge.
 >
 > Status: **Sprint 0/1/2 vertical slice**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with a reference policy pack, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, an AI evaluation gate scaffold, tests, and PostgreSQL migrations. It is not production-ready.
 
@@ -17,8 +17,9 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
-| Charging policy | `CHARGING_PROJECT_CONTRIBUTION_V1`: project gross profit × 4% (cap 150k), 40% cash-collection weighting, 5% retention holdback, acceptance/safety gates |
-| Reference policy pack | generic `order-contribution-v1` + `charging-project-contribution-v1`; 5 generic + 5 charging project fixtures with expected outputs |
+| Equipment sales policy | `CHARGING_EQUIPMENT_SALES_V1`: order gross profit × 3.5% (cap 120k), 50% cash-collection weighting, 3% after-sales reserve, credit/quality gates, channel share separated from the internal pool |
+| EPC policy (later) | `CHARGING_PROJECT_CONTRIBUTION_V1`: project gross profit × 4% (cap 150k), 40% cash weighting, 5% retention holdback, acceptance/safety gates — kept as a later extension |
+| Reference policy pack | generic `order-contribution-v1`, equipment `charging-equipment-sales-v1` (primary), EPC `charging-project-contribution-v1` (later); 5 generic + 5 equipment + 5 EPC fixtures with expected outputs |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
@@ -32,7 +33,7 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **56 unit/API tests + 5 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| Tests | **70 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -141,12 +142,12 @@ curl -s http://localhost:3000/api/v1/calculation-runs \
   -H 'content-type: application/json' \
   -d '{
     "cycleId": "00000000-0000-4000-8000-000000000020",
-    "policyVersionId": "00000000-0000-4000-8000-000000000101",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
     "mode": "SHADOW",
-    "order": {"id": "charging-order-1", "grossProfit": "1000000", "currency": "CNY", "contractAmount": "2000000", "cashCollected": "1500000", "projectType": "DC_FAST_CHARGING_STATION", "siteId": "site-001", "safetyIncidents": 0, "acceptanceStatus": "ACCEPTED"},
+    "order": {"id": "equipment-order-1", "grossProfit": "600000", "currency": "CNY", "invoiceAmount": "3000000", "cashCollected": "2400000", "creditApproved": true, "qualityHold": false, "channelShare": "0", "projectType": "DC_CHARGING_PILE_SALE"},
     "participants": [
       {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.6", "role": "SALES_LEAD"},
-      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "DELIVERY_MANAGER"}
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.4", "role": "PRODUCT_MANAGER"}
     ]
   }' | jq
 ```
@@ -210,8 +211,8 @@ tests/                    Cross-package fixture/E2E tests
 
 - W1–2: pick 5–10 real cross-team orders, map work packages/evidence, baseline coverage/time/disputes.
 - W3–4: legal review, employee consultation plan, DPIA, minimum-wage/deduction check.
-- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **evidence API, employee page, confirmation/appeal done; real connector pending**.
-- W7–8: reference policy pack, independent spreadsheet/script reconciliation, shadow settlement — **reference pack, fixtures and CSV reconciliation done; shadow settlement with real data pending**.
+- W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **evidence API, employee page, confirmation/appeal done; CRM/ERP connector pending**.
+- W7–8: equipment-sales reference policy, independent spreadsheet/script reconciliation, shadow settlement — **policy, fixtures and CSV reconciliation done; shadow settlement with real orders pending**.
 - W9–10: 20–50 person cycle; measure coverage, time, disputes, trust.
 - W11–12: finance reconciliation, appeal drill, Go/No-Go.
 

@@ -1,0 +1,36 @@
+{
+  "name": "spare-parts-order",
+  "description": "Small spare-parts order with full collection; single contributor.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
+    "mode": "SHADOW",
+    "order": {
+      "id": "equipment-order-004",
+      "grossProfit": "50000",
+      "currency": "CNY",
+      "invoiceAmount": "200000",
+      "cashCollected": "200000",
+      "creditApproved": true,
+      "qualityHold": false,
+      "channelShare": "0",
+      "projectType": "SPARE_PARTS",
+      "siteId": "customer-beijing-004"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "1", "role": "AFTER_SALES"}
+    ]
+  },
+  "expected": {
+    "pool": "1750",
+    "poolRounded": "1697.5",
+    "cashFactor": "1",
+    "afterSalesReserve": "52.5",
+    "channelPool": "0",
+    "internalPool": "1697.5",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "1697.5"}
+    ]
+  }
+}

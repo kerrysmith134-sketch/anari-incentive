@@ -1,0 +1,40 @@
+{
+  "name": "framework-order",
+  "description": "Framework equipment order with 60% cash collected and three contributors.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
+    "mode": "SHADOW",
+    "order": {
+      "id": "equipment-order-005",
+      "grossProfit": "1000000",
+      "currency": "CNY",
+      "invoiceAmount": "5000000",
+      "cashCollected": "3000000",
+      "creditApproved": true,
+      "qualityHold": false,
+      "channelShare": "0",
+      "projectType": "FRAMEWORK_AGREEMENT",
+      "siteId": "customer-guangzhou-005"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.5", "role": "SALES_LEAD"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.3", "role": "PRODUCT_MANAGER"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.2", "role": "SUPPLY_CHAIN"}
+    ]
+  },
+  "expected": {
+    "pool": "35000",
+    "poolRounded": "27160",
+    "cashFactor": "0.6",
+    "afterSalesReserve": "840",
+    "channelPool": "0",
+    "internalPool": "27160",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "13580"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "8148"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "5432"}
+    ]
+  }
+}

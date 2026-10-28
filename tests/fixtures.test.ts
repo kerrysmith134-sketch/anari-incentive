@@ -16,7 +16,12 @@ const policy = JSON.parse(
 ) as PolicyDefinition;
 
 const orderFiles = readdirSync(join(root, "fixtures", "orders"))
-  .filter((file) => file.endsWith(".json") && !file.startsWith("charging-"))
+  .filter(
+    (file) =>
+      file.endsWith(".json") &&
+      !file.startsWith("charging-") &&
+      !file.startsWith("equipment-"),
+  )
   .sort();
 
 interface OrderFixture {

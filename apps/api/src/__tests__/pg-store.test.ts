@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { PgStore } from "../pg-store.js";
-import { CHARGING_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
@@ -207,6 +207,49 @@ describePg("PgStore vertical slice", () => {
       "13680",
     ]);
     expect(run.lines[0]!.trace.retentionHeld).toBe("1800");
+  });
+
+  it("calculates an equipment sale through PostgreSQL", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate(EQUIPMENT_POLICY_ID);
+
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: EQUIPMENT_POLICY_ID,
+      mode: "SHADOW",
+      order: {
+        id: "pg-equipment-001",
+        grossProfit: "600000",
+        currency: "CNY",
+        invoiceAmount: "3000000",
+        cashCollected: "2400000",
+        creditApproved: true,
+        qualityHold: false,
+        channelShare: "0",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "SALES_LEAD",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "PRODUCT_MANAGER",
+        },
+      ],
+    });
+    expect(run.status).toBe("CALCULATED");
+    expect(run.lines.map((line) => line.roundedAmount)).toEqual([
+      "10999.8",
+      "7333.2",
+    ]);
+    expect(run.lines[0]!.trace.afterSalesReserve).toBe("567");
   });
 
   it("blocks a formal run without a complete legal gate", async () => {

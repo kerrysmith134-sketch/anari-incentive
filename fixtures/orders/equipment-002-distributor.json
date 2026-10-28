@@ -1,0 +1,39 @@
+{
+  "name": "distributor-channel-sale",
+  "description": "Distributor sale of 200 AC piles; fully collected; 15% channel share.",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000102",
+    "mode": "SHADOW",
+    "order": {
+      "id": "equipment-order-002",
+      "grossProfit": "200000",
+      "currency": "CNY",
+      "invoiceAmount": "1000000",
+      "cashCollected": "1000000",
+      "creditApproved": true,
+      "qualityHold": false,
+      "channelPartnerId": "distributor-east-01",
+      "channelShare": "0.15",
+      "projectType": "AC_CHARGING_PILE_SALE",
+      "siteId": "customer-hangzhou-002"
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.7", "role": "CHANNEL_MANAGER"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.3", "role": "SALES_SUPPORT"}
+    ]
+  },
+  "expected": {
+    "pool": "7000",
+    "poolRounded": "5771.5",
+    "cashFactor": "1",
+    "afterSalesReserve": "210",
+    "channelPool": "1018.5",
+    "internalPool": "5771.5",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "4040.05"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "1731.45"}
+    ]
+  }
+}

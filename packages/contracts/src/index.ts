@@ -124,6 +124,11 @@ export const createCalculationRunSchema = z.object({
     siteId: z.string().min(1).optional(),
     safetyIncidents: z.number().int().min(0).optional(),
     acceptanceStatus: z.enum(["ACCEPTED", "PENDING", "REJECTED"]).optional(),
+    invoiceAmount: decimal.optional(),
+    creditApproved: z.boolean().optional(),
+    qualityHold: z.boolean().optional(),
+    channelPartnerId: z.string().min(1).optional(),
+    channelShare: decimal.optional(),
   }),
   participants: z
     .array(
