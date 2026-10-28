@@ -656,6 +656,7 @@ describe("admin view", () => {
     expect(response.body).toContain("账本冲销");
     expect(response.body).toContain("通知中心");
     expect(response.body).toContain("对比政策版本");
+    expect(response.body).toContain("批量计算");
   });
 });
 

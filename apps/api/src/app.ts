@@ -337,11 +337,12 @@ export function buildApp(
   });
 
   app.get("/api/v1/notifications", async (request) => {
-    const query = request.query as { status?: string };
+    const query = request.query as { status?: string; audience?: string };
     const person = personFilter(request);
     return data(
       await storeFor(request).listNotifications({
         recipientPersonId: person,
+        audience: query.audience,
         status: query.status,
       }),
       request,

@@ -1074,6 +1074,7 @@ export class Store implements IncentiveStore {
 
   async listNotifications(filter?: {
     recipientPersonId?: string;
+    audience?: string;
     status?: string;
   }): Promise<InAppNotification[]> {
     return [...this.notifications.values()]
@@ -1081,6 +1082,7 @@ export class Store implements IncentiveStore {
         (notification) =>
           (!filter?.recipientPersonId ||
             notification.recipientPersonId === filter.recipientPersonId) &&
+          (!filter?.audience || notification.audience === filter.audience) &&
           (!filter?.status || notification.status === filter.status),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

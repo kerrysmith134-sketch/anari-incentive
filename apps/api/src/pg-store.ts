@@ -1425,6 +1425,7 @@ export class PgStore implements IncentiveStore {
 
   async listNotifications(filter?: {
     recipientPersonId?: string;
+    audience?: string;
     status?: string;
   }): Promise<InAppNotification[]> {
     return this.tx(async (client) => {
@@ -1433,6 +1434,10 @@ export class PgStore implements IncentiveStore {
       if (filter?.recipientPersonId) {
         values.push(filter.recipientPersonId);
         conditions.push(`recipient_person_id=$${values.length}`);
+      }
+      if (filter?.audience) {
+        values.push(filter.audience);
+        conditions.push(`audience=$${values.length}`);
       }
       if (filter?.status) {
         values.push(filter.status);

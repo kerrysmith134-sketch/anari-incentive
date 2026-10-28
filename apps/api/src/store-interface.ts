@@ -177,6 +177,7 @@ export interface IncentiveStore {
   }): Promise<InAppNotification>;
   listNotifications(filter?: {
     recipientPersonId?: string;
+    audience?: string;
     status?: string;
   }): Promise<InAppNotification[]>;
   markNotificationRead(id: string): Promise<InAppNotification>;

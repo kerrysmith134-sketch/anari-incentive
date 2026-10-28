@@ -1025,6 +1025,11 @@ paths:
           schema:
             type: string
             enum: [UNREAD, READ]
+        - name: audience
+          in: query
+          schema:
+            type: string
+            enum: [PERSON, MANAGER, FINANCE, ADMIN]
       responses:
         "200":
           description: Notifications

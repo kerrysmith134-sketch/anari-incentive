@@ -194,6 +194,57 @@
     </section>
 
     <section class="card">
+      <h2>批量计算</h2>
+      <div class="grid">
+        <div>
+          <label>政策版本</label>
+          <select id="batchPolicy"></select>
+        </div>
+        <div>
+          <label>周期 ID</label>
+          <input id="batchCycle" value="00000000-0000-4000-8000-000000000020" />
+        </div>
+        <div>
+          <label>模式</label>
+          <select id="batchMode">
+            <option value="SHADOW">SHADOW</option>
+            <option value="FORMAL">FORMAL</option>
+          </select>
+        </div>
+        <div>
+          <label>工作包 ID</label>
+          <input id="batchWorkPackage" value="00000000-0000-4000-8000-000000000010" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>成员 A ID</label>
+          <input id="batchOwner" value="00000000-0000-4000-8000-000000000001" />
+        </div>
+        <div>
+          <label>成员 A 权重</label>
+          <input id="batchOwnerWeight" value="0.6" />
+        </div>
+        <div>
+          <label>成员 B ID</label>
+          <input id="batchMember" value="00000000-0000-4000-8000-000000000002" />
+        </div>
+        <div>
+          <label>成员 B 权重</label>
+          <input id="batchMemberWeight" value="0.4" />
+        </div>
+      </div>
+      <label for="batchOrders" style="margin-top:10px">订单（每行：订单ID,毛利）</label>
+      <textarea id="batchOrders">order-batch-1,100000
+order-batch-2,80000</textarea>
+      <div class="actions">
+        <button class="primary" id="runBatch">执行批量计算</button>
+      </div>
+      <div class="status" id="batchStatus"></div>
+      <pre id="batchResult" hidden></pre>
+    </section>
+
+    <section class="card">
       <h2>Agent 任务</h2>
       <div class="actions">
         <button class="primary" id="scan">运行主动扫描</button>
@@ -378,8 +429,31 @@
 
     <section class="card">
       <h2>通知中心</h2>
-      <div class="actions">
-        <button id="refreshNotifications">刷新通知</button>
+      <div class="grid">
+        <div>
+          <label>状态</label>
+          <select id="notificationFilterStatus">
+            <option value="">全部</option>
+            <option value="UNREAD">UNREAD</option>
+            <option value="READ">READ</option>
+          </select>
+        </div>
+        <div>
+          <label>范围</label>
+          <select id="notificationFilterAudience">
+            <option value="">全部</option>
+            <option value="PERSON">PERSON</option>
+            <option value="MANAGER">MANAGER</option>
+            <option value="FINANCE">FINANCE</option>
+            <option value="ADMIN">ADMIN</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="refreshNotifications" style="width:100%">刷新通知</button>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="markAllNotifications" style="width:100%">全部标为已读</button>
+        </div>
       </div>
       <div class="status" id="notificationStatus"></div>
       <table>
@@ -875,9 +949,18 @@
       }
     }
 
+    let currentNotifications = [];
+
     async function loadNotifications() {
       try {
-        const notifications = await api("/api/v1/notifications");
+        const params = new URLSearchParams();
+        const status = $("notificationFilterStatus").value;
+        const audience = $("notificationFilterAudience").value;
+        if (status) params.set("status", status);
+        if (audience) params.set("audience", audience);
+        const suffix = params.size > 0 ? `?${params.toString()}` : "";
+        const notifications = await api(`/api/v1/notifications${suffix}`);
+        currentNotifications = notifications;
         $("notificationRows").innerHTML = notifications.map((notification) => `<tr>
           <td class="mono">${notification.recipientPersonId ? escapeHtml(notification.recipientPersonId.slice(0, 8)) : "—"}</td>
           <td>${escapeHtml(notification.audience)}</td>
@@ -904,6 +987,27 @@
       }
     }
 
+    async function markAllNotifications() {
+      try {
+        const unread = currentNotifications.filter(
+          (notification) => notification.status === "UNREAD",
+        );
+        for (const notification of unread) {
+          await api(`/api/v1/notifications/${notification.id}/read`, {
+            method: "POST",
+          });
+        }
+        setStatus(
+          "notificationStatus",
+          `已标记 ${unread.length} 条为已读`,
+          "ok",
+        );
+        await loadNotifications();
+      } catch (error) {
+        setStatus("notificationStatus", String(error.message), "bad");
+      }
+    }
+
     async function verifyAudit() {
       try {
         const result = await api("/api/v1/audit-events/verify");
@@ -914,6 +1018,71 @@
         );
       } catch (error) {
         setStatus("auditStatus", String(error.message), "bad");
+      }
+    }
+
+    async function runBatchCalculation() {
+      try {
+        const policyVersionId = $("batchPolicy").value;
+        if (!policyVersionId) throw new Error("请选择政策版本");
+        const workPackageId = $("batchWorkPackage").value.trim();
+        const participants = [
+          {
+            personId: $("batchOwner").value.trim(),
+            workPackageId,
+            attributionWeight: $("batchOwnerWeight").value.trim(),
+            role: "OWNER",
+          },
+        ];
+        const memberId = $("batchMember").value.trim();
+        if (memberId) {
+          participants.push({
+            personId: memberId,
+            workPackageId,
+            attributionWeight: $("batchMemberWeight").value.trim(),
+            role: "CONTRIBUTOR",
+          });
+        }
+        const orders = $("batchOrders").value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line, index) => {
+            const [id, grossProfit] = line.split(",").map((value) => value.trim());
+            if (!id || !grossProfit) {
+              throw new Error(`第 ${index + 1} 行订单格式应为：ID,毛利`);
+            }
+            return { id, grossProfit };
+          });
+        if (orders.length === 0) throw new Error("请至少填写一个订单");
+        const runs = orders.map((order) => ({
+          cycleId: $("batchCycle").value.trim(),
+          policyVersionId,
+          mode: $("batchMode").value,
+          order: { ...order, currency: "CNY" },
+          participants,
+        }));
+        const result = await api("/api/v1/calculation-runs:batch", {
+          method: "POST",
+          body: JSON.stringify({ runs }),
+        });
+        $("batchResult").hidden = false;
+        $("batchResult").textContent = JSON.stringify(
+          result.runs.map((run) => ({
+            id: run.id,
+            status: run.status,
+            lines: run.lines.length,
+          })),
+          null,
+          2,
+        );
+        setStatus(
+          "batchStatus",
+          `已生成 ${result.runs.length} 个计算批次`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("batchStatus", String(error.message), "bad");
       }
     }
 
@@ -1234,6 +1403,7 @@
         ).join("");
         $("diffBase").innerHTML = options;
         $("diffTarget").innerHTML = options;
+        $("batchPolicy").innerHTML = options;
         if (versions.length > 1) $("diffTarget").selectedIndex = 1;
         setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
@@ -1419,6 +1589,7 @@
     $("verifyAudit").addEventListener("click", verifyAudit);
     $("publishPolicy").addEventListener("click", publishPolicy);
     $("runPolicyDiff").addEventListener("click", runPolicyDiff);
+    $("runBatch").addEventListener("click", runBatchCalculation);
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {
       await loadWorkPackages();
@@ -1428,6 +1599,12 @@
     $("createDecision").addEventListener("click", createDecision);
     $("refreshAppeals").addEventListener("click", loadAppeals);
     $("refreshNotifications").addEventListener("click", loadNotifications);
+    $("notificationFilterStatus").addEventListener("change", loadNotifications);
+    $("notificationFilterAudience").addEventListener(
+      "change",
+      loadNotifications,
+    );
+    $("markAllNotifications").addEventListener("click", markAllNotifications);
     $("notificationRows").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notification]");
       if (!button) return;
