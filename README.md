@@ -39,7 +39,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
 | Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal |
-| Admin view | Minimal page at `/admin`: policy impact simulation, proactive agent scan/approval, settlement batch commands with CSV export, audit event list |
+| Admin view | Minimal page at `/admin`: policy simulation, agent scan/approval, settlement commands with CSV export, audit list, evaluation rubrics/drafts/decisions, data-quality issue workflow |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |

@@ -67,6 +67,7 @@ import type {
 import { policies } from "./policy-registry.js";
 
 export const DEFAULT_TENANT_ID = "tenant-demo";
+export const DEMO_CYCLE_ID = "00000000-0000-4000-8000-000000000020";
 
 export class NotFoundError extends Error {
   readonly code = "RESOURCE_NOT_FOUND";
@@ -146,7 +147,22 @@ export class Store implements IncentiveStore {
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
 
-  constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {}
+  constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
+    const timestamp = now();
+    this.evaluationCycles.set(DEMO_CYCLE_ID, {
+      id: DEMO_CYCLE_ID,
+      tenantId: this.tenantId,
+      name: "2026 Q4 demo cycle",
+      cycleType: "MONTHLY",
+      startsAt: "2026-10-01T00:00:00.000Z",
+      endsAt: "2026-10-31T23:59:59.000Z",
+      timezone: "Asia/Shanghai",
+      status: "COLLECTING",
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  }
 
   async ping(): Promise<void> {
     return;

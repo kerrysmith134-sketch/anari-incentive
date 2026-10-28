@@ -469,6 +469,8 @@ describe("admin view", () => {
     expect(response.body).toContain("/api/v1/agent-tasks");
     expect(response.body).toContain("结算批次");
     expect(response.body).toContain("审计事件");
+    expect(response.body).toContain("评价管理");
+    expect(response.body).toContain("数据质量");
   });
 });
 

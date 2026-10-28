@@ -185,6 +185,131 @@
         <tbody id="auditEvents"></tbody>
       </table>
     </section>
+
+    <section class="card">
+      <h2>评价管理</h2>
+      <div class="grid">
+        <div>
+          <label>Rubric 编码</label>
+          <input id="rubricCode" value="PERFORMANCE_V1" />
+        </div>
+        <div>
+          <label>Rubric 名称</label>
+          <input id="rubricName" value="Performance" />
+        </div>
+        <div>
+          <label>维度（逗号分隔）</label>
+          <input id="rubricDimensions" value="QUALITY,SPEED" />
+        </div>
+        <div>
+          <label>生效日期</label>
+          <input id="rubricEffectiveFrom" value="2026-10-01" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createRubric">创建 Rubric</button>
+      </div>
+
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label>评价周期</label>
+          <select id="cycleSelect"></select>
+        </div>
+        <div>
+          <label>员工 ID</label>
+          <input id="draftPerson" value="00000000-0000-4000-8000-000000000002" />
+        </div>
+        <div>
+          <label>证据快照哈希</label>
+          <input id="draftEvidenceHash" value="evidence-snapshot-1" />
+        </div>
+        <div>
+          <label>草稿摘要</label>
+          <input id="draftSummary" value="Delivered the cycle scope" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createDraft">创建评价草稿</button>
+      </div>
+
+      <div class="grid" style="margin-top:14px">
+        <div>
+          <label>决策 Rubric</label>
+          <select id="rubricSelect"></select>
+        </div>
+        <div>
+          <label>评分 JSON</label>
+          <input id="evalScores" value='{"QUALITY":4,"SPEED":3}' />
+        </div>
+        <div>
+          <label>审核人 ID</label>
+          <input id="evalReviewer" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div>
+          <label>理由</label>
+          <input id="evalRationale" value="Reviewed the evidence snapshot" />
+        </div>
+      </div>
+      <div class="status" id="evaluationStatus"></div>
+      <table>
+        <thead>
+        <tr><th>草稿</th><th>员工</th><th>周期</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="evaluationDrafts"></tbody>
+      </table>
+      <table>
+        <thead>
+        <tr><th>决策</th><th>员工</th><th>版本</th><th>状态</th></tr>
+        </thead>
+        <tbody id="evaluationDecisions"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>数据质量</h2>
+      <div class="grid">
+        <div>
+          <label>对象类型</label>
+          <input id="dqObjectType" value="WORK_PACKAGE" />
+        </div>
+        <div>
+          <label>对象 ID</label>
+          <input id="dqObjectId" value="00000000-0000-4000-8000-000000000010" />
+        </div>
+        <div>
+          <label>问题编码</label>
+          <input id="dqIssueCode" value="EVIDENCE_MISSING" />
+        </div>
+        <div>
+          <label>严重度</label>
+          <select id="dqSeverity">
+            <option>INFO</option>
+            <option selected>WARNING</option>
+            <option>BLOCKING</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>指派给</label>
+          <input id="dqAssignee" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div>
+          <label>豁免理由</label>
+          <input id="dqWaiverReason" value="Accepted by finance" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createDqIssue" style="width:100%">创建问题</button>
+        </div>
+      </div>
+      <div class="status" id="dqStatus"></div>
+      <table>
+        <thead>
+        <tr><th>编码</th><th>对象</th><th>严重度</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="dqIssues"></tbody>
+      </table>
+    </section>
   </main>
 
   <script>
@@ -322,6 +447,222 @@
       }[char]));
     }
 
+    async function loadCycles() {
+      try {
+        const cycles = await api("/api/v1/evaluation-cycles");
+        $("cycleSelect").innerHTML = cycles.length
+          ? cycles.map((cycle) =>
+              `<option value="${cycle.id}">${escapeHtml(cycle.name)} (${escapeHtml(cycle.status)})</option>`,
+            ).join("")
+          : '<option value="">暂无周期</option>';
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadRubrics() {
+      try {
+        const rubrics = await api("/api/v1/rubrics");
+        $("rubricSelect").innerHTML = rubrics.length
+          ? rubrics.map((rubric) =>
+              `<option value="${rubric.id}">${escapeHtml(rubric.code)} v${rubric.version}</option>`,
+            ).join("")
+          : '<option value="">暂无 Rubric</option>';
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createRubric() {
+      try {
+        await api("/api/v1/rubrics", {
+          method: "POST",
+          body: JSON.stringify({
+            code: $("rubricCode").value.trim(),
+            name: $("rubricName").value.trim(),
+            dimensions: $("rubricDimensions").value
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            scoringAnchors: { 1: "below", 3: "meets", 5: "exceeds" },
+            effectiveFrom: $("rubricEffectiveFrom").value.trim(),
+          }),
+        });
+        setStatus("evaluationStatus", "Rubric 已创建", "ok");
+        await loadRubrics();
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createEvaluationDraft() {
+      try {
+        const cycleId = $("cycleSelect").value;
+        if (!cycleId) throw new Error("请先选择评价周期");
+        await api("/api/v1/evaluation-drafts", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId,
+            personId: $("draftPerson").value.trim(),
+            generatedByType: "USER",
+            evidenceSnapshotHash: $("draftEvidenceHash").value.trim(),
+            draftPayload: { summary: $("draftSummary").value.trim() },
+          }),
+        });
+        setStatus("evaluationStatus", "草稿已创建", "ok");
+        await loadEvaluation();
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadEvaluation() {
+      try {
+        const [drafts, decisions] = await Promise.all([
+          api("/api/v1/evaluation-drafts"),
+          api("/api/v1/evaluation-decisions"),
+        ]);
+        $("evaluationDrafts").innerHTML = drafts.map((draft) => {
+          let actions = "";
+          if (draft.status === "DRAFT") {
+            actions = `<button data-draft="${draft.id}" data-eval-action="SUBMIT">提交</button>`;
+          } else if (draft.status === "SUBMITTED") {
+            actions = `
+              <button data-draft="${draft.id}" data-eval-action="APPROVE">批准</button>
+              <button data-draft="${draft.id}" data-eval-action="REJECT">拒绝</button>`;
+          }
+          return `<tr>
+            <td class="mono">${escapeHtml(draft.id.slice(0, 8))}</td>
+            <td class="mono">${escapeHtml(draft.personId.slice(0, 8))}</td>
+            <td class="mono">${escapeHtml(draft.cycleId.slice(0, 8))}</td>
+            <td><span class="pill">${escapeHtml(draft.status)}</span></td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        $("evaluationDecisions").innerHTML = decisions.map((decision) => `<tr>
+          <td class="mono">${escapeHtml(decision.id.slice(0, 8))}</td>
+          <td class="mono">${escapeHtml(decision.personId.slice(0, 8))}</td>
+          <td>v${decision.decisionVersion}</td>
+          <td><span class="pill">${escapeHtml(decision.status)}</span></td>
+        </tr>`).join("");
+        setStatus(
+          "evaluationStatus",
+          `草稿 ${drafts.length}，决策 ${decisions.length}`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function evaluationAction(draftId, action) {
+      try {
+        if (action === "SUBMIT") {
+          await api(`/api/v1/evaluation-drafts/${draftId}/submit`, {
+            method: "POST",
+          });
+        } else {
+          let scores = {};
+          try {
+            scores = JSON.parse($("evalScores").value || "{}");
+          } catch {
+            throw new Error("评分必须是合法 JSON");
+          }
+          const rubricVersionId = $("rubricSelect").value;
+          if (!rubricVersionId) throw new Error("请先创建并选择 Rubric");
+          await api(`/api/v1/evaluation-drafts/${draftId}/decision`, {
+            method: "POST",
+            body: JSON.stringify({
+              reviewerPersonId: $("evalReviewer").value.trim(),
+              rubricVersionId,
+              decision: action,
+              scores,
+              rationale: $("evalRationale").value.trim(),
+            }),
+          });
+        }
+        setStatus("evaluationStatus", `${action} 完成`, "ok");
+        await loadEvaluation();
+        await loadAudit();
+      } catch (error) {
+        setStatus("evaluationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadDqIssues() {
+      try {
+        const issues = await api("/api/v1/data-quality-issues");
+        $("dqIssues").innerHTML = issues.map((issue) => {
+          const actions = dqActions(issue.status)
+            .map(
+              (command) =>
+                `<button data-dq="${issue.id}" data-dq-command="${command}">${command}</button>`,
+            )
+            .join(" ");
+          return `<tr>
+            <td>${escapeHtml(issue.issueCode)}</td>
+            <td class="mono">${escapeHtml(issue.objectType)} ${escapeHtml(issue.objectId.slice(0, 8))}</td>
+            <td>${escapeHtml(issue.severity)}</td>
+            <td><span class="pill">${escapeHtml(issue.status)}</span></td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        setStatus("dqStatus", `共 ${issues.length} 个问题`, "ok");
+      } catch (error) {
+        setStatus("dqStatus", String(error.message), "bad");
+      }
+    }
+
+    function dqActions(status) {
+      switch (status) {
+        case "OPEN": return ["ASSIGN", "RESOLVE", "WAIVE"];
+        case "ASSIGNED": return ["START", "WAIVE"];
+        case "IN_PROGRESS": return ["RESOLVE", "WAIVE"];
+        case "RESOLVED": return ["REOPEN"];
+        case "WAIVED_WITH_APPROVAL": return ["REOPEN"];
+        case "REOPENED": return ["ASSIGN", "START"];
+        default: return [];
+      }
+    }
+
+    async function createDqIssue() {
+      try {
+        await api("/api/v1/data-quality-issues", {
+          method: "POST",
+          body: JSON.stringify({
+            objectType: $("dqObjectType").value.trim(),
+            objectId: $("dqObjectId").value.trim(),
+            issueCode: $("dqIssueCode").value.trim(),
+            severity: $("dqSeverity").value,
+            details: {},
+          }),
+        });
+        setStatus("dqStatus", "问题已创建", "ok");
+        await loadDqIssues();
+      } catch (error) {
+        setStatus("dqStatus", String(error.message), "bad");
+      }
+    }
+
+    async function dqCommand(issueId, command) {
+      try {
+        await api(`/api/v1/data-quality-issues/${issueId}/commands`, {
+          method: "POST",
+          body: JSON.stringify({
+            command,
+            assignedTo: $("dqAssignee").value.trim(),
+            actorPersonId: $("evalReviewer").value.trim(),
+            reason: $("dqWaiverReason").value.trim(),
+          }),
+        });
+        setStatus("dqStatus", `${command} 完成`, "ok");
+        await loadDqIssues();
+        await loadAudit();
+      } catch (error) {
+        setStatus("dqStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadPolicies() {
       try {
         const versions = await api("/api/v1/policy-versions");
@@ -435,6 +776,9 @@
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
     $("refreshAudit").addEventListener("click", loadAudit);
+    $("createRubric").addEventListener("click", createRubric);
+    $("createDraft").addEventListener("click", createEvaluationDraft);
+    $("createDqIssue").addEventListener("click", createDqIssue);
     $("tasks").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-task]");
       if (!button) return;
@@ -445,11 +789,25 @@
       if (!button) return;
       settlementCommand(button.dataset.batch, button.dataset.command);
     });
+    $("evaluationDrafts").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-draft]");
+      if (!button) return;
+      evaluationAction(button.dataset.draft, button.dataset.evalAction);
+    });
+    $("dqIssues").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-dq]");
+      if (!button) return;
+      dqCommand(button.dataset.dq, button.dataset.dqCommand);
+    });
 
     loadPolicies();
     loadTasks();
     loadSettlements();
     loadAudit();
+    loadCycles();
+    loadRubrics();
+    loadEvaluation();
+    loadDqIssues();
   </script>
 </body>
 </html>
