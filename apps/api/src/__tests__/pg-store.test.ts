@@ -196,6 +196,7 @@ describePg("PgStore vertical slice", () => {
       audit.some((event) => event.action === "SETTLEMENT_ACKNOWLEDGE"),
     ).toBe(true);
     expect(audit.every((event) => event.eventHash.length > 0)).toBe(true);
+    expect(await store.verifyAuditChain()).toBe(true);
   });
 
   it("blocks a formal run on an unresolved blocking data-quality issue", async () => {

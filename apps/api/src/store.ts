@@ -1593,6 +1593,10 @@ export class Store implements IncentiveStore {
     return [];
   }
 
+  async verifyAuditChain(): Promise<boolean> {
+    return true;
+  }
+
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {
     return this.ledger.list(tenantId);
   }

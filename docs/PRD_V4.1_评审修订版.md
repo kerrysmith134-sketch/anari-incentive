@@ -498,7 +498,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `docs/openapi.yaml`：OpenAPI 3.1 契约；`tests/openapi.test.ts` 校验路由覆盖与 `$ref`；
 - `scripts/ci.sh`：安装→类型检查→测试→compose 校验→PostgreSQL 集成测试；
 - `/ready` 依赖检查、`/metrics` Prometheus 指标（按注册路由模式，低基数）；
-- 政策发布、法律门禁、计算锁定、结算命令写入哈希链 `audit_events`；`GET /audit-events` 仅 manager/finance/admin 可读；
+- 政策发布、法律门禁、计算锁定、结算命令写入哈希链 `audit_events`；`GET /audit-events` 仅 manager/finance/admin 可读，`/audit-events/verify` 重算并校验序列/前序哈希/事件哈希；
 - `docs/adr`：关键架构决策。
 
 该切片**不是**完整 P0；它是 P0 的第一个可运行骨架，用于验证领域契约、金额路径和测试方式。

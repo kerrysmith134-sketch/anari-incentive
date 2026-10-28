@@ -227,6 +227,7 @@
       <h2>审计事件</h2>
       <div class="actions">
         <button id="refreshAudit">刷新审计</button>
+        <button id="verifyAudit">验证审计链</button>
       </div>
       <div class="status" id="auditStatus"></div>
       <table>
@@ -806,6 +807,19 @@
       }
     }
 
+    async function verifyAudit() {
+      try {
+        const result = await api("/api/v1/audit-events/verify");
+        setStatus(
+          "auditStatus",
+          result.valid ? "审计链验证通过" : "审计链验证失败",
+          result.valid ? "ok" : "bad",
+        );
+      } catch (error) {
+        setStatus("auditStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAppeals() {
       try {
         const appeals = await api("/api/v1/appeals");
@@ -1232,6 +1246,7 @@
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
     $("refreshAudit").addEventListener("click", loadAudit);
+    $("verifyAudit").addEventListener("click", verifyAudit);
     $("publishPolicy").addEventListener("click", publishPolicy);
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {

@@ -945,6 +945,12 @@ describe("vertical slice", () => {
     ).toBe(true);
   });
 
+  it("verifies the audit chain endpoint", async () => {
+    const result = await call("GET", "/api/v1/audit-events/verify");
+    expect(result.status).toBe(200);
+    expect(result.body.data.valid).toBe(true);
+  });
+
   it("creates and lists evaluation cycles", async () => {
     const created = await call("POST", "/api/v1/evaluation-cycles", {
       name: "2027 Q1 cycle",

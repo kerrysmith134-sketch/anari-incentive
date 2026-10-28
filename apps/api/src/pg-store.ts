@@ -2387,6 +2387,35 @@ export class PgStore implements IncentiveStore {
     });
   }
 
+  async verifyAuditChain(): Promise<boolean> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT *,
+                encode(digest(
+                  prev_hash || '|' || tenant_id::text || '|' || action || '|' ||
+                  COALESCE(object_type, '') || '|' || COALESCE(object_id::text, '') || '|' ||
+                  COALESCE(before_hash, '') || '|' || COALESCE(after_hash, '') || '|' ||
+                  COALESCE(correlation_id::text, '') || '|' || occurred_at::text,
+                  'sha256'
+                ), 'hex') AS recomputed
+           FROM audit_events
+          WHERE tenant_id = $1
+          ORDER BY sequence`,
+        [this.tenantId],
+      );
+      let prevHash = "GENESIS";
+      let expectedSequence = 1;
+      for (const row of rows) {
+        if (Number(row.sequence) !== expectedSequence) return false;
+        if (row.prev_hash !== prevHash) return false;
+        if (row.event_hash !== row.recomputed) return false;
+        prevHash = row.event_hash;
+        expectedSequence += 1;
+      }
+      return true;
+    });
+  }
+
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {
     return this.tx(async (client) => {
       const { rows } = await client.query(

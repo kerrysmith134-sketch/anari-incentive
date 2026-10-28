@@ -914,6 +914,14 @@ export function buildApp(
     return data(await storeFor(request).listAuditEvents(limit), request);
   });
 
+  app.get("/api/v1/audit-events/verify", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      { valid: await storeFor(request).verifyAuditChain() },
+      request,
+    );
+  });
+
   app.get("/api/v1/ledger", async (request) => {
     const entries = await storeFor(request).listLedger();
     const person = personFilter(request);
