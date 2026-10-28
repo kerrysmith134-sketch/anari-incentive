@@ -156,6 +156,7 @@ Additional application-level invariants:
 | `POST /contribution-claims` | WorkPackage ACCEPTED + snapshot | DRAFT claim |
 | `POST /contribution-claims/:id/submit` | DRAFT | SUBMITTED |
 | `POST /attribution-decisions` | Claim SUBMITTED/UNDER_REVIEW, adjudicator ≠ claimant | Decision + claim status |
+| `POST /attribution-decisions:batch` | 1–50 claims, same per-item rules | All-or-nothing decisions and claim status updates |
 | `POST /evaluation-cycles` | admin, end > start | Creates a DRAFT cycle |
 | `POST /rubrics` | admin | Creates a versioned rubric |
 | `POST /evaluation-drafts` | cycle/person exist; manager | Evidence-bound DRAFT |

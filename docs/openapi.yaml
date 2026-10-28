@@ -356,6 +356,38 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/attribution-decisions:batch:
+    post:
+      tags: [Attribution]
+      summary: Record up to 50 attribution decisions atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    $ref: "#/components/schemas/CreateAttributionDecision"
+      responses:
+        "201":
+          description: Created decisions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvariantViolation"
+
   /api/v1/attribution-decisions:
     get:
       tags: [Attribution]

@@ -429,6 +429,11 @@ order-batch-2,80000</textarea>
       <div class="actions">
         <button class="primary" id="createDecision">提交认定</button>
       </div>
+      <label for="batchDecisionClaims" style="margin-top:10px">批量认定（每行：申报ID,状态）</label>
+      <textarea id="batchDecisionClaims" placeholder="CLAIM_ID,CONFIRMED"></textarea>
+      <div class="actions">
+        <button id="batchDecision">批量认定</button>
+      </div>
       <div class="status" id="claimStatus"></div>
     </section>
 
@@ -1138,6 +1143,53 @@ order-batch-2,80000</textarea>
       }
     }
 
+    async function batchDecisions() {
+      try {
+        const lines = $("batchDecisionClaims").value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (lines.length === 0) throw new Error("请至少填写一行申报");
+        const adjudicatorPersonId = $("decisionAdjudicator").value.trim();
+        const rationale = $("decisionRationale").value.trim();
+        const items = lines.map((line, index) => {
+          const [claimId, status] = line
+            .split(",")
+            .map((value) => value.trim());
+          if (
+            !claimId ||
+            !["CONFIRMED", "PARTIALLY_CONFIRMED", "REJECTED"].includes(status)
+          ) {
+            throw new Error(
+              `第 ${index + 1} 行格式应为：申报ID,CONFIRMED|PARTIALLY_CONFIRMED|REJECTED`,
+            );
+          }
+          return {
+            claimId,
+            adjudicatorPersonId,
+            status,
+            acceptedFacts: [],
+            rejectedFacts: [],
+            contributionDimensions:
+              status === "REJECTED" ? {} : { QUALITY: 1 },
+            rationale,
+          };
+        });
+        const result = await api("/api/v1/attribution-decisions:batch", {
+          method: "POST",
+          body: JSON.stringify({ items }),
+        });
+        setStatus(
+          "claimStatus",
+          `已认定 ${result.decisions.length} 条申报`,
+          "ok",
+        );
+        await loadClaims();
+      } catch (error) {
+        setStatus("claimStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAppeals() {
       try {
         const appeals = await api("/api/v1/appeals");
@@ -1628,6 +1680,7 @@ order-batch-2,80000</textarea>
     });
     $("createClaim").addEventListener("click", createClaim);
     $("batchAccept").addEventListener("click", batchAcceptWorkPackages);
+    $("batchDecision").addEventListener("click", batchDecisions);
     $("createDecision").addEventListener("click", createDecision);
     $("refreshAppeals").addEventListener("click", loadAppeals);
     $("refreshNotifications").addEventListener("click", loadNotifications);

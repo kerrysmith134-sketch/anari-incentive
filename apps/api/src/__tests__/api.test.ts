@@ -658,6 +658,7 @@ describe("admin view", () => {
     expect(response.body).toContain("通知中心");
     expect(response.body).toContain("对比政策版本");
     expect(response.body).toContain("批量计算");
+    expect(response.body).toContain("批量认定");
   });
 });
 
@@ -1598,6 +1599,68 @@ describe("vertical slice", () => {
     expect(locked.body.error.details.blockers).toContain(
       `EMPLOYEE_OBJECTION:${MEMBER}`,
     );
+  });
+
+  it("records attribution decisions atomically in a batch", async () => {
+    async function submittedClaim(workPackageId: string, personId: string) {
+      const claim = await call("POST", "/api/v1/contribution-claims", {
+        workPackageId,
+        claimantPersonId: personId,
+        claimType: "DELIVERABLE_CONTRIBUTION",
+        claimedContribution: { dimensions: ["QUALITY"], summary: "Done" },
+        evidenceRefs: [],
+        rationale: "Done",
+      });
+      await call(
+        "POST",
+        `/api/v1/contribution-claims/${claim.body.data.id}/submit`,
+      );
+      return claim.body.data.id as string;
+    }
+    const decision = (claimId: string, adjudicatorPersonId: string) => ({
+      claimId,
+      adjudicatorPersonId,
+      status: "CONFIRMED",
+      acceptedFacts: ["Done"],
+      rejectedFacts: [],
+      contributionDimensions: { QUALITY: 1 },
+      rationale: "Evidence supports the claim",
+    });
+
+    const workPackageId = await createAcceptedWorkPackage();
+    const ownerClaim = await submittedClaim(workPackageId, OWNER);
+    const memberClaim = await submittedClaim(workPackageId, MEMBER);
+    const batch = await call("POST", "/api/v1/attribution-decisions:batch", {
+      items: [
+        decision(ownerClaim, ADJUDICATOR),
+        decision(memberClaim, ADJUDICATOR),
+      ],
+    });
+    expect(batch.status).toBe(201);
+    expect(batch.body.data.decisions).toHaveLength(2);
+    expect(
+      (await call("GET", `/api/v1/contribution-claims/${ownerClaim}`)).body
+        .data.status,
+    ).toBe("ACCEPTED");
+
+    const secondPackage = await createAcceptedWorkPackage();
+    const first = await submittedClaim(secondPackage, OWNER);
+    const selfReviewed = await submittedClaim(secondPackage, MEMBER);
+    const failed = await call(
+      "POST",
+      "/api/v1/attribution-decisions:batch",
+      {
+        items: [
+          decision(first, ADJUDICATOR),
+          decision(selfReviewed, MEMBER),
+        ],
+      },
+    );
+    expect(failed.status).toBe(422);
+    expect(
+      (await call("GET", `/api/v1/contribution-claims/${first}`)).body.data
+        .status,
+    ).toBe("SUBMITTED");
   });
 
   it("rejects illegal state transitions", async () => {

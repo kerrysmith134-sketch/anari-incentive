@@ -10,6 +10,7 @@ import {
   commitWorkPackageSchema,
   createAppealSchema,
   createAttributionDecisionSchema,
+  createAttributionDecisionsBatchSchema,
   createCalculationBatchSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
@@ -960,6 +961,15 @@ export function buildApp(
     return reply
       .status(201)
       .send(data(await storeFor(request).createAttributionDecision(body), request));
+  });
+
+  app.post("/api/v1/attribution-decisions:batch", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createAttributionDecisionsBatchSchema, request.body);
+    const decisions = await storeFor(request).createAttributionDecisionsBatch(
+      body.items,
+    );
+    return reply.status(201).send(data({ decisions }, request));
   });
 
   app.get("/api/v1/attribution-decisions", async (request) => {

@@ -31,7 +31,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector + CLI importer (`npm run import:csv`); generic paginated HTTP/JSON connector for CRM/ERP REST APIs |
 | Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; employees only see their own work packages, claims, runs, ledger entries, confirmations and appeals; the worker supports a static token or OAuth client-credentials token |
 | Ledger | Append-only, idempotent, lock, linked reversal (`POST /ledger/:id/reverse`), per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
-| Batch operations | Work-package acceptance and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
+| Batch operations | Work-package acceptance, attribution decisions and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
 | Batch calculation | `POST /calculation-runs:batch` validates and creates up to 50 runs in one transaction; any blocked item rolls back all runs and ledger entries |
 | Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL commands; verified line-to-ledger match; CSV export with employee code/name; RECOVERY batches may be negative and require every affected person's SETTLEMENT confirmation before locking |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
@@ -41,14 +41,14 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
 | Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, create/submit own contribution claims, submit/list own evidence, view/read own notifications, confirm/object to RECOVERY batches, view own approved evaluation decisions |
-| Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list/diff, batch calculation, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center with filters/bulk read, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
+| Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list/diff, batch calculation/acceptance/attribution, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center with filters/bulk read, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **137 unit/API tests + 20 PostgreSQL integration tests** covering state transitions, commitment snapshots, atomic calculation/acceptance batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **138 unit/API tests + 21 PostgreSQL integration tests** covering state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -180,6 +180,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/contribution-claims` / `/:id` | List/get claims |
 | POST | `/api/v1/contribution-claims/:id/submit` | DRAFT → SUBMITTED |
 | POST | `/api/v1/attribution-decisions` | Formal decision; claimant cannot be adjudicator |
+| POST | `/api/v1/attribution-decisions:batch` | Up to 50 attribution decisions atomically |
 | GET | `/api/v1/attribution-decisions?claimId=` | List decisions |
 | POST/GET | `/api/v1/evaluation-cycles` | Create/list evaluation cycles |
 | GET | `/api/v1/evaluation-cycles/:id` | Get a cycle |

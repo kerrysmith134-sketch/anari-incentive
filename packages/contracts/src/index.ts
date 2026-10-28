@@ -85,6 +85,13 @@ export type CreateAttributionDecisionInput = z.input<
   typeof createAttributionDecisionSchema
 >;
 
+export const createAttributionDecisionsBatchSchema = z.object({
+  items: z.array(createAttributionDecisionSchema).min(1).max(50),
+});
+export type CreateAttributionDecisionsBatchInput = z.infer<
+  typeof createAttributionDecisionsBatchSchema
+>;
+
 export const legalGateSchema = z.object({
   democraticProcedureRef: z.string().min(1).optional(),
   employeeNoticeRef: z.string().min(1).optional(),

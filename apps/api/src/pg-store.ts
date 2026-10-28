@@ -572,7 +572,29 @@ export class PgStore implements IncentiveStore {
   async createAttributionDecision(
     input: CreateAttributionDecisionInput,
   ): Promise<AttributionDecision> {
+    return this.tx((client) =>
+      this.createAttributionDecisionInTx(client, input),
+    );
+  }
+
+  async createAttributionDecisionsBatch(
+    inputs: CreateAttributionDecisionInput[],
+  ): Promise<AttributionDecision[]> {
     return this.tx(async (client) => {
+      const decisions: AttributionDecision[] = [];
+      for (const input of inputs) {
+        decisions.push(
+          await this.createAttributionDecisionInTx(client, input),
+        );
+      }
+      return decisions;
+    });
+  }
+
+  private async createAttributionDecisionInTx(
+    client: PoolClient,
+    input: CreateAttributionDecisionInput,
+  ): Promise<AttributionDecision> {
       const claim = await this.loadClaim(client, input.claimId);
       if (claim.status === "SUBMITTED") {
         assertTransition(
@@ -664,7 +686,6 @@ export class PgStore implements IncentiveStore {
         [this.tenantId, input.claimId, nextClaimStatus],
       );
       return this.loadDecision(client, id);
-    });
   }
 
   async listDecisions(claimId?: string): Promise<AttributionDecision[]> {

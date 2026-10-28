@@ -559,6 +559,35 @@ export class Store implements IncentiveStore {
     return decision;
   }
 
+  async createAttributionDecisionsBatch(
+    inputs: CreateAttributionDecisionInput[],
+  ): Promise<AttributionDecision[]> {
+    const claimSnapshot = new Map(
+      [...this.claims].map(([id, claim]) => [id, structuredClone(claim)]),
+    );
+    const decisionSnapshot = new Map(
+      [...this.decisions].map(([id, decision]) => [
+        id,
+        structuredClone(decision),
+      ]),
+    );
+    try {
+      const decisions: AttributionDecision[] = [];
+      for (const input of inputs) {
+        decisions.push(await this.createAttributionDecision(input));
+      }
+      return decisions;
+    } catch (error) {
+      this.claims.clear();
+      for (const [id, claim] of claimSnapshot) this.claims.set(id, claim);
+      this.decisions.clear();
+      for (const [id, decision] of decisionSnapshot) {
+        this.decisions.set(id, decision);
+      }
+      throw error;
+    }
+  }
+
   async listDecisions(claimId?: string): Promise<AttributionDecision[]> {
     return [...this.decisions.values()].filter(
       (decision) => !claimId || decision.claimId === claimId,

@@ -94,6 +94,9 @@ export interface IncentiveStore {
   createAttributionDecision(
     input: CreateAttributionDecisionInput,
   ): Promise<AttributionDecision>;
+  createAttributionDecisionsBatch(
+    inputs: CreateAttributionDecisionInput[],
+  ): Promise<AttributionDecision[]>;
   listDecisions(claimId?: string): Promise<AttributionDecision[]>;
 
   recordLegalGate(input: RecordLegalGateInput): Promise<LegalGateRecord>;

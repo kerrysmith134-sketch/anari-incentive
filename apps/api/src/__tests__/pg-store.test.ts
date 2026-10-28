@@ -543,6 +543,51 @@ describePg("PgStore vertical slice", () => {
     expect(locked.batch.status).toBe("LOCKED");
   });
 
+  it("records PostgreSQL attribution decisions atomically in a batch", async () => {
+    async function submittedClaim(workPackageId: string, personId: string) {
+      const claim = await store.createClaim({
+        workPackageId,
+        claimantPersonId: personId,
+        claimType: "DELIVERABLE_CONTRIBUTION",
+        claimedContribution: { dimensions: ["QUALITY"], summary: "Done" },
+        evidenceRefs: [],
+        rationale: "Done",
+      });
+      await store.submitClaim(claim.id);
+      return claim.id;
+    }
+    const decision = (claimId: string, adjudicatorPersonId: string) => ({
+      claimId,
+      adjudicatorPersonId,
+      status: "CONFIRMED" as const,
+      acceptedFacts: ["Done"],
+      rejectedFacts: [],
+      contributionDimensions: { QUALITY: 1 },
+      rationale: "Evidence supports the claim",
+    });
+
+    const workPackageId = await acceptedWorkPackage();
+    const ownerClaim = await submittedClaim(workPackageId, OWNER);
+    const memberClaim = await submittedClaim(workPackageId, MEMBER);
+    const decisions = await store.createAttributionDecisionsBatch([
+      decision(ownerClaim, ADJUDICATOR),
+      decision(memberClaim, ADJUDICATOR),
+    ]);
+    expect(decisions).toHaveLength(2);
+    expect((await store.getClaim(ownerClaim)).status).toBe("ACCEPTED");
+
+    const secondPackage = await acceptedWorkPackage();
+    const first = await submittedClaim(secondPackage, OWNER);
+    const selfReviewed = await submittedClaim(secondPackage, MEMBER);
+    await expect(
+      store.createAttributionDecisionsBatch([
+        decision(first, ADJUDICATOR),
+        decision(selfReviewed, MEMBER),
+      ]),
+    ).rejects.toMatchObject({ code: "INVARIANT_VIOLATION" });
+    expect((await store.getClaim(first)).status).toBe("SUBMITTED");
+  });
+
   it("applies approved evaluation decisions to a formal calculation", async () => {
     const published = await store.publishPolicy({
       policy: {
