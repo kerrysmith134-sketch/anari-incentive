@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { AuthError, type Authenticator } from "@anari/auth";
 import { buildApp } from "../app.js";
 import { Store } from "../store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
@@ -147,12 +148,57 @@ beforeEach(() => {
   app = buildApp(new Store());
 });
 
+describe("authentication", () => {
+  it("rejects API requests when authentication fails", async () => {
+    const rejecting: Authenticator = {
+      async authenticate() {
+        throw new AuthError("UNAUTHENTICATED", "no token");
+      },
+    };
+    const protectedApp = buildApp(new Store(), undefined, rejecting);
+    const response = await protectedApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+    } as never);
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("allows API requests when authentication succeeds", async () => {
+    const allowing: Authenticator = {
+      async authenticate() {
+        return { tenantId: "tenant-demo", userId: "user-1", roles: ["employee"] };
+      },
+    };
+    const protectedApp = buildApp(new Store(), undefined, allowing);
+    const response = await protectedApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+    } as never);
+    expect(response.statusCode).toBe(200);
+  });
+});
+
 describe("employee view", () => {
   it("serves the minimal employee confirmation page", async () => {
     const response = await app.inject({ method: "GET", url: "/" } as never);
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("N-Perform 员工确认");
+  });
+});
+
+describe("admin view", () => {
+  it("serves the admin simulation and agent approval page", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin",
+    } as never);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("N-Perform 管理端");
+    expect(response.body).toContain("/api/v1/policy-simulations");
+    expect(response.body).toContain("/api/v1/agent-tasks");
   });
 });
 
@@ -615,6 +661,40 @@ describe("vertical slice", () => {
           task.status === "WAITING_APPROVAL",
       ),
     ).toBe(true);
+  });
+
+  it("ingests external events idempotently", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const batch = {
+      sourceSystem: "crm",
+      events: [
+        {
+          sourceRecordId: "crm-order-1",
+          sourceEventVersion: "1",
+          eventType: "order.updated",
+          subjectType: "WORK_PACKAGE",
+          subjectId: workPackageId,
+          evidenceType: "ORDER",
+          payload: { orderId: "crm-order-1", stage: "won" },
+          qualityStatus: "VALID",
+        },
+      ],
+    };
+    const first = await call("POST", "/api/v1/ingestion/events:batch", batch);
+    expect(first.status).toBe(200);
+    expect(first.body.data.accepted).toBe(1);
+    expect(first.body.data.duplicates).toBe(0);
+
+    const replay = await call("POST", "/api/v1/ingestion/events:batch", batch);
+    expect(replay.status).toBe(200);
+    expect(replay.body.data.accepted).toBe(0);
+    expect(replay.body.data.duplicates).toBe(1);
+
+    const evidence = await call(
+      "GET",
+      `/api/v1/evidence?subjectType=WORK_PACKAGE&subjectId=${workPackageId}`,
+    );
+    expect(evidence.body.data).toHaveLength(1);
   });
 
   it("creates an evidence graph and links supporting/counter evidence", async () => {

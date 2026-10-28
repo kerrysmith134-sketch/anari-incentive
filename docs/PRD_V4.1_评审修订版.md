@@ -481,13 +481,17 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `packages/policy-dsl`：确定性 decimal、订单贡献池计算、独立参照、哈希；
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
-- `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储；`/` 提供最小员工确认页；
+- `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
+- `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；
+- `packages/connectors`：通用 Connector 接口 + CSV 连接器；`POST /api/v1/ingestion/events:batch` 幂等入库并投影为 evidence；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
 - `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；
 - `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；
 - `fixtures`：核心通用 order policy + 5 个订单 fixture；reconciliation CSV；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；
+- `docs/openapi.yaml`：OpenAPI 3.1 契约；`tests/openapi.test.ts` 校验路由覆盖与 `$ref`；
+- `scripts/ci.sh`：安装→类型检查→测试→compose 校验→PostgreSQL 集成测试；
 - `docs/adr`：关键架构决策。
 
 该切片**不是**完整 P0；它是 P0 的第一个可运行骨架，用于验证领域契约、金额路径和测试方式。

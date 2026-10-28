@@ -274,3 +274,25 @@ export const policySimulationSchema = z.object({
     .min(1),
 });
 export type PolicySimulationBody = z.input<typeof policySimulationSchema>;
+
+export const ingestionEventSchema = z.object({
+  sourceRecordId: z.string().min(1),
+  sourceEventVersion: z.string().min(1).optional(),
+  eventType: z.string().min(1),
+  occurredAt: z.string().datetime().optional(),
+  subjectType: z.string().min(1),
+  subjectId: uuidSchema,
+  evidenceType: z.string().min(1),
+  payload: z.record(z.unknown()),
+  qualityStatus: z
+    .enum(["VALID", "MISSING", "STALE", "CONFLICTED", "UNVERIFIED", "INVALID"])
+    .optional(),
+  sourceUri: z.string().optional(),
+});
+export type IngestionEventBody = z.input<typeof ingestionEventSchema>;
+
+export const ingestionBatchSchema = z.object({
+  sourceSystem: z.string().min(1),
+  events: z.array(ingestionEventSchema).min(1),
+});
+export type IngestionBatchBody = z.input<typeof ingestionBatchSchema>;

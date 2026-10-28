@@ -9,6 +9,8 @@ import type {
   EmployeeConfirmation,
   EvidenceLink,
   EvidenceNode,
+  IngestionBatch,
+  IngestionResult,
   LegalGateRecord,
   PolicyDefinition,
   WorkPackage,
@@ -81,6 +83,7 @@ export interface IncentiveStore {
     input: CreateEvidenceLinkInput,
   ): Promise<EvidenceLink>;
   listEvidenceLinks(evidenceId: string): Promise<EvidenceLink[]>;
+  ingestEvents(batch: IngestionBatch): Promise<IngestionResult>;
 
   createCalculationRun(
     input: CreateCalculationRunInput,

@@ -16,6 +16,7 @@ import {
   createEvidenceSchema,
   createWorkPackageSchema,
   enqueueAgentTaskSchema,
+  ingestionBatchSchema,
   policySimulationSchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
@@ -31,6 +32,11 @@ import {
   InvariantViolationError,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
+import {
+  AuthError,
+  DevHeaderAuthenticator,
+  type Authenticator,
+} from "@anari/auth";
 import { simulatePolicyChange } from "@anari/policy-dsl";
 import { LedgerError } from "@anari/ledger";
 import {
@@ -65,11 +71,40 @@ const employeeUi = readFileSync(
   "utf8",
 );
 
+const adminUi = readFileSync(
+  new URL("../public/admin.html", import.meta.url),
+  "utf8",
+);
+
 export function buildApp(
   store: IncentiveStore = new Store(),
   agentRuntime: AgentRuntime = createAgentRuntime(store),
+  authenticator: Authenticator = new DevHeaderAuthenticator({
+    tenantId: "tenant-demo",
+    userId: "dev-user",
+    roles: ["admin"],
+  }),
 ): FastifyInstance {
   const app = Fastify({ logger: false });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (!request.url.startsWith("/api/v1")) return;
+    try {
+      request.authContext = await authenticator.authenticate({
+        authorization: request.headers.authorization,
+        tenantId: request.headers["x-tenant-id"] as string | undefined,
+        userId: request.headers["x-user-id"] as string | undefined,
+      });
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return reply.status(401).send({
+          ...errorBody(error.code, error.message),
+          meta: { correlation_id: request.id },
+        });
+      }
+      throw error;
+    }
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -144,7 +179,9 @@ export function buildApp(
     const body = parse(policySimulationSchema, request.body);
     const currentPolicy = await store.getPolicy(body.currentPolicyVersionId);
     const tenantId =
-      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+      request.authContext?.tenantId ??
+      (request.headers["x-tenant-id"] as string | undefined) ??
+      "tenant-demo";
     const samples = body.samples.map((sample) => ({
       personId: sample.personId,
       input: { ...sample.input, tenantId },
@@ -158,7 +195,9 @@ export function buildApp(
   app.post("/api/v1/agent-tasks/scan", async (request) => {
     const body = parse(scanAgentTasksSchema, request.body ?? {});
     const tenantId =
-      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+      request.authContext?.tenantId ??
+      (request.headers["x-tenant-id"] as string | undefined) ??
+      "tenant-demo";
     const batchKey = body.idempotencyKey ?? `scan-${Date.now()}`;
     const runs = await store.listRuns();
     const tasks = [];
@@ -202,7 +241,9 @@ export function buildApp(
   app.post("/api/v1/agent-tasks", async (request, reply) => {
     const body = parse(enqueueAgentTaskSchema, request.body);
     const tenantId =
-      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+      request.authContext?.tenantId ??
+      (request.headers["x-tenant-id"] as string | undefined) ??
+      "tenant-demo";
     return reply.status(201).send(
       data(
         agentRuntime.enqueue({
@@ -260,7 +301,16 @@ export function buildApp(
     reply.type("text/html; charset=utf-8").send(employeeUi),
   );
 
+  app.get("/admin", async (_request, reply) =>
+    reply.type("text/html; charset=utf-8").send(adminUi),
+  );
+
   app.get("/health", async (request) => data({ status: "ok" }, request));
+
+  app.post("/api/v1/ingestion/events:batch", async (request) => {
+    const body = parse(ingestionBatchSchema, request.body);
+    return data(await store.ingestEvents(body), request);
+  });
 
   app.post("/api/v1/evidence", async (request, reply) => {
     const body = parse(createEvidenceSchema, request.body);

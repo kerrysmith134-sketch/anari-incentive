@@ -304,6 +304,30 @@ export interface EvidenceNode {
   createdAt: string;
 }
 
+export interface IngestionEvent {
+  sourceRecordId: string;
+  sourceEventVersion?: string;
+  eventType: string;
+  occurredAt?: string;
+  subjectType: string;
+  subjectId: string;
+  evidenceType: string;
+  payload: Record<string, unknown>;
+  qualityStatus?: EvidenceQualityStatus;
+  sourceUri?: string;
+}
+
+export interface IngestionBatch {
+  sourceSystem: string;
+  events: IngestionEvent[];
+}
+
+export interface IngestionResult {
+  accepted: number;
+  duplicates: number;
+  evidenceIds: string[];
+}
+
 export interface EvidenceLink {
   id: UUID;
   tenantId: UUID;

@@ -1,0 +1,11 @@
+{
+  "sourceSystem": "crm",
+  "pageSize": 100,
+  "columns": {
+    "sourceRecordId": "order_id",
+    "eventType": "event",
+    "subjectType": "subject_type",
+    "subjectId": "subject_id",
+    "evidenceType": "evidence_type"
+  }
+}

@@ -19,6 +19,8 @@ import {
   type EmployeeConfirmation,
   type EvidenceLink,
   type EvidenceNode,
+  type IngestionBatch,
+  type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
   type WorkPackage,
@@ -91,6 +93,7 @@ export class Store implements IncentiveStore {
   private readonly confirmations = new Map<string, EmployeeConfirmation>();
   private readonly evidence = new Map<string, EvidenceNode>();
   private readonly evidenceLinks = new Map<string, EvidenceLink>();
+  private readonly ingestedKeys = new Set<string>();
 
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy = policies.get(policyVersionId);
@@ -448,6 +451,34 @@ export class Store implements IncentiveStore {
     };
     this.evidence.set(node.id, node);
     return node;
+  }
+
+  async ingestEvents(batch: IngestionBatch): Promise<IngestionResult> {
+    let accepted = 0;
+    let duplicates = 0;
+    const evidenceIds: string[] = [];
+    for (const event of batch.events) {
+      const version = event.sourceEventVersion ?? "1";
+      const key = `${batch.sourceSystem}:${event.sourceRecordId}:${version}`;
+      if (this.ingestedKeys.has(key)) {
+        duplicates += 1;
+        continue;
+      }
+      this.ingestedKeys.add(key);
+      const node = await this.createEvidence({
+        evidenceType: event.evidenceType,
+        subjectType: event.subjectType,
+        subjectId: event.subjectId,
+        sourceSystem: batch.sourceSystem,
+        sourceUri: event.sourceUri,
+        observedAt: event.occurredAt,
+        qualityStatus: event.qualityStatus,
+        normalizedPayload: event.payload,
+      });
+      accepted += 1;
+      evidenceIds.push(node.id);
+    }
+    return { accepted, duplicates, evidenceIds };
   }
 
   async listEvidence(

@@ -1,0 +1,1452 @@
+openapi: 3.1.0
+info:
+  title: N-Perform Incentive API
+  version: 0.1.0
+  description: |
+    Institution-agnostic contribution attribution and incentive settlement
+    assurance layer. The API core contains no industry policy: policy
+    definitions are loaded from policy packs and selected by `calculator`.
+
+    All `/api/v1` requests require authentication. In `AUTH_MODE=oidc` send a
+    bearer JWT; in development the `X-Tenant-Id` / `X-User-Id` headers are
+    accepted by `DevHeaderAuthenticator`.
+  license:
+    name: Proprietary
+servers:
+  - url: http://localhost:3000
+    description: Local development
+security:
+  - bearerAuth: []
+  - devTenantHeader: []
+    devUserHeader: []
+tags:
+  - name: System
+  - name: Work packages
+  - name: Contribution claims
+  - name: Attribution
+  - name: Policy
+  - name: Calculation
+  - name: Confirmations
+  - name: Ledger
+  - name: Appeals
+  - name: Evidence
+  - name: Ingestion
+  - name: Agent
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+
+  /api/v1/work-packages:
+    get:
+      tags: [Work packages]
+      summary: List work packages
+      responses:
+        "200":
+          description: Work packages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Work packages]
+      summary: Create a draft work package
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkPackage"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/work-packages/{id}:
+    get:
+      tags: [Work packages]
+      summary: Get a work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Work package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/work-packages/{id}/commit:
+    post:
+      tags: [Work packages]
+      summary: Commit a draft work package using optimistic version check
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Committed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/work-packages/{id}/start:
+    post:
+      tags: [Work packages]
+      summary: Start an active work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/work-packages/{id}/submit:
+    post:
+      tags: [Work packages]
+      summary: Submit a work package for acceptance
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/work-packages/{id}/accept:
+    post:
+      tags: [Work packages]
+      summary: Accept a delivered work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewerPersonId]
+              properties:
+                reviewerPersonId:
+                  $ref: "#/components/schemas/Uuid"
+                comments:
+                  type: string
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvariantViolation"
+
+  /api/v1/work-packages/{id}/reject:
+    post:
+      tags: [Work packages]
+      summary: Reject a delivered work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewerPersonId, reason]
+              properties:
+                reviewerPersonId:
+                  $ref: "#/components/schemas/Uuid"
+                reason:
+                  type: string
+                  minLength: 3
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/contribution-claims:
+    get:
+      tags: [Contribution claims]
+      summary: List contribution claims
+      responses:
+        "200":
+          description: Claims
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Contribution claims]
+      summary: Create a contribution claim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContributionClaim"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/contribution-claims/{id}:
+    get:
+      tags: [Contribution claims]
+      summary: Get a contribution claim
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Claim
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/contribution-claims/{id}/submit:
+    post:
+      tags: [Contribution claims]
+      summary: Submit a draft claim
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/attribution-decisions:
+    get:
+      tags: [Attribution]
+      summary: List attribution decisions
+      parameters:
+        - name: claimId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Decisions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Attribution]
+      summary: Record an attribution decision
+      description: The adjudicator must not be the claimant; an independent reviewer is enforced by domain invariants.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAttributionDecision"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvariantViolation"
+
+  /api/v1/policy-versions/{id}/legal-gate:
+    get:
+      tags: [Policy]
+      summary: Read the legal gate for a policy version
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Legal gate status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Policy]
+      summary: Record legal gate evidence
+      description: A formal calculation is blocked until the legal gate is recorded and approved.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordLegalGate"
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/calculation-runs:
+    get:
+      tags: [Calculation]
+      summary: List calculation runs
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Calculation]
+      summary: Create a deterministic calculation run
+      description: |
+        Amounts are computed by the policy engine using decimal arithmetic and
+        largest-remainder allocation. SHADOW runs are used for rehearsal; a
+        FORMAL run requires the legal gate and confirmations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalculationRun"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Blocked"
+
+  /api/v1/calculation-runs/{id}:
+    get:
+      tags: [Calculation]
+      summary: Get a calculation run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/calculation-runs/{id}/approve:
+    post:
+      tags: [Calculation]
+      summary: Approve a draft calculation run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/calculation-runs/{id}/lock:
+    post:
+      tags: [Calculation]
+      summary: Lock an approved calculation and post it to the ledger
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  const: LOCK_CALCULATION
+      responses:
+        "200":
+          description: Locked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Blocked"
+
+  /api/v1/employee-confirmations:
+    get:
+      tags: [Confirmations]
+      summary: List employee confirmations
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Confirmations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Confirmations]
+      summary: Record an employee confirmation or objection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordConfirmation"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/ledger:
+    get:
+      tags: [Ledger]
+      summary: List append-only ledger entries with hash chain
+      responses:
+        "200":
+          description: Ledger entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/ledger/verify:
+    get:
+      tags: [Ledger]
+      summary: Verify the tenant hash chain
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/appeals:
+    get:
+      tags: [Appeals]
+      summary: List appeal cases
+      responses:
+        "200":
+          description: Appeals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Appeals]
+      summary: File an appeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppeal"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/appeals/{id}:
+    get:
+      tags: [Appeals]
+      summary: Get an appeal
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Appeal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/appeals/{id}/triage:
+    post:
+      tags: [Appeals]
+      summary: Triage an appeal
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewerPersonId]
+              properties:
+                reviewerPersonId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Triaged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/appeals/{id}/review:
+    post:
+      tags: [Appeals]
+      summary: Start reviewing a triaged appeal
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: In review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/appeals/{id}/resolve:
+    post:
+      tags: [Appeals]
+      summary: Resolve an appeal
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewerPersonId, resolution, rationale]
+              properties:
+                reviewerPersonId:
+                  $ref: "#/components/schemas/Uuid"
+                resolution:
+                  type: string
+                  enum: [UPHOLD, CHANGE, REJECT]
+                rationale:
+                  type: string
+                  minLength: 3
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/evidence:
+    get:
+      tags: [Evidence]
+      summary: List evidence nodes
+      parameters:
+        - name: subjectType
+          in: query
+          schema:
+            type: string
+        - name: subjectId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Evidence nodes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Evidence]
+      summary: Create an evidence node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEvidence"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/evidence/{id}/links:
+    get:
+      tags: [Evidence]
+      summary: List links from an evidence node
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Evidence links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Evidence]
+      summary: Link evidence nodes
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toEvidenceId, relationType]
+              properties:
+                toEvidenceId:
+                  $ref: "#/components/schemas/Uuid"
+                relationType:
+                  type: string
+                  enum: [SUPPORTS, CONTRADICTS, DEPENDS_ON, CORRECTS, CONTEXT]
+                rationale:
+                  type: string
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/ingestion/events:batch:
+    post:
+      tags: [Ingestion]
+      summary: Ingest raw events from a connector
+      description: Events are deduplicated by `(sourceSystem, sourceRecordId, sourceEventVersion)` and projected into evidence nodes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionBatch"
+      responses:
+        "200":
+          description: Ingestion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/policy-simulations:
+    post:
+      tags: [Policy]
+      summary: Simulate a policy change
+      description: Recalculates sample inputs under the current and proposed policy and returns per-person deltas plus blockers. No ledger entries are written.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicySimulation"
+      responses:
+        "200":
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent-tasks:
+    get:
+      tags: [Agent]
+      summary: List agent tasks
+      responses:
+        "200":
+          description: Agent tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Agent]
+      summary: Enqueue an agent task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueAgentTask"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent-tasks/scan:
+    post:
+      tags: [Agent]
+      summary: Run the proactive scan
+      description: Enqueues and runs the default skills (evidence gap, contribution anomaly, settlement readiness) for the tenant.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                idempotencyKey:
+                  type: string
+      responses:
+        "200":
+          description: Tasks produced by the scan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent-tasks/{id}:
+    get:
+      tags: [Agent]
+      summary: Get an agent task
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Agent task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent-tasks/{id}/run:
+    post:
+      tags: [Agent]
+      summary: Run a queued agent task
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Task after execution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent-tasks/{id}/approve:
+    post:
+      tags: [Agent]
+      summary: Approve a pending high-risk agent action
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actionId, approverPersonId]
+              properties:
+                actionId:
+                  $ref: "#/components/schemas/Uuid"
+                approverPersonId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Approved and executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvariantViolation"
+
+  /api/v1/agent-tasks/{id}/reject:
+    post:
+      tags: [Agent]
+      summary: Reject a pending high-risk agent action
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actionId, approverPersonId, reason]
+              properties:
+                actionId:
+                  $ref: "#/components/schemas/Uuid"
+                approverPersonId:
+                  $ref: "#/components/schemas/Uuid"
+                reason:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    devTenantHeader:
+      type: apiKey
+      in: header
+      name: X-Tenant-Id
+    devUserHeader:
+      type: apiKey
+      in: header
+      name: X-User-Id
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Object not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    StateConflict:
+      description: Invalid state transition
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Blocked:
+      description: Money-path precondition failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InvariantViolation:
+      description: Domain invariant violated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      example: "00000000-0000-4000-8000-000000000001"
+
+    Decimal:
+      type: string
+      pattern: "^-?\\d+(\\.\\d+)?$"
+      example: "100000.00"
+
+    DataEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          description: Endpoint-specific payload
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    Meta:
+      type: object
+      properties:
+        correlation_id:
+          type: string
+
+    CreateWorkPackage:
+      type: object
+      required:
+        [title, objective, ownerPersonId, members, acceptanceCriteria]
+      properties:
+        title:
+          type: string
+          minLength: 2
+          maxLength: 200
+        objective:
+          type: string
+          minLength: 3
+        ownerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        members:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [personId, responsibilityCode, expectedOutput]
+            properties:
+              personId:
+                $ref: "#/components/schemas/Uuid"
+              responsibilityCode:
+                type: string
+              expectedOutput:
+                type: string
+        acceptanceCriteria:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        dueAt:
+          type: string
+          format: date-time
+
+    CreateContributionClaim:
+      type: object
+      required:
+        [workPackageId, claimantPersonId, claimType, claimedContribution, rationale]
+      properties:
+        workPackageId:
+          $ref: "#/components/schemas/Uuid"
+        claimantPersonId:
+          $ref: "#/components/schemas/Uuid"
+        claimType:
+          type: string
+        claimedContribution:
+          type: object
+          required: [dimensions, summary]
+          properties:
+            dimensions:
+              type: array
+              minItems: 1
+              items:
+                type: string
+            summary:
+              type: string
+        evidenceRefs:
+          type: array
+          items:
+            type: string
+        rationale:
+          type: string
+          minLength: 3
+
+    CreateAttributionDecision:
+      type: object
+      required:
+        [claimId, adjudicatorPersonId, status, contributionDimensions, rationale]
+      properties:
+        claimId:
+          $ref: "#/components/schemas/Uuid"
+        adjudicatorPersonId:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          type: string
+          enum: [CONFIRMED, PARTIALLY_CONFIRMED, REJECTED]
+        acceptedFacts:
+          type: array
+          items:
+            type: string
+        rejectedFacts:
+          type: array
+          items:
+            type: string
+        contributionDimensions:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+        rationale:
+          type: string
+          minLength: 3
+        confidenceBand:
+          type: string
+
+    RecordLegalGate:
+      type: object
+      required: [minimumWageChecked, policyApproved, recordedBy]
+      properties:
+        democraticProcedureRef:
+          type: string
+        employeeNoticeRef:
+          type: string
+        dataProtectionAssessmentRef:
+          type: string
+        minimumWageChecked:
+          type: boolean
+        policyApproved:
+          type: boolean
+        recordedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CalculationOrder:
+      type: object
+      required: [id, grossProfit, currency]
+      properties:
+        id:
+          type: string
+        grossProfit:
+          $ref: "#/components/schemas/Decimal"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        contractAmount:
+          $ref: "#/components/schemas/Decimal"
+        cashCollected:
+          $ref: "#/components/schemas/Decimal"
+        retentionAmount:
+          $ref: "#/components/schemas/Decimal"
+        projectType:
+          type: string
+        siteId:
+          type: string
+        safetyIncidents:
+          type: integer
+          minimum: 0
+        acceptanceStatus:
+          type: string
+          enum: [ACCEPTED, PENDING, REJECTED]
+        invoiceAmount:
+          $ref: "#/components/schemas/Decimal"
+        creditApproved:
+          type: boolean
+        qualityHold:
+          type: boolean
+        channelPartnerId:
+          type: string
+        channelShare:
+          $ref: "#/components/schemas/Decimal"
+
+    Participant:
+      type: object
+      required: [personId, workPackageId, attributionWeight, role]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        workPackageId:
+          $ref: "#/components/schemas/Uuid"
+        attributionWeight:
+          $ref: "#/components/schemas/Decimal"
+        role:
+          type: string
+
+    CreateCalculationRun:
+      type: object
+      required: [cycleId, policyVersionId, mode, order, participants]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        policyVersionId:
+          type: string
+        mode:
+          type: string
+          enum: [SHADOW, FORMAL]
+        order:
+          $ref: "#/components/schemas/CalculationOrder"
+        participants:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Participant"
+
+    RecordConfirmation:
+      type: object
+      required: [personId, targetType, targetId, decision]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        targetType:
+          type: string
+          enum: [EVALUATION, ATTRIBUTION, CALCULATION, LEDGER]
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        decision:
+          type: string
+          enum: [VIEWED, CONFIRMED, OBJECTED]
+        reason:
+          type: string
+
+    CreateAppeal:
+      type: object
+      required: [appellantPersonId, targetType, targetId, reasonCode, statement]
+      properties:
+        appellantPersonId:
+          $ref: "#/components/schemas/Uuid"
+        targetType:
+          type: string
+          enum: [ATTRIBUTION, EVALUATION, LEDGER, CALCULATION]
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        reasonCode:
+          type: string
+        statement:
+          type: string
+          minLength: 5
+
+    CreateEvidence:
+      type: object
+      required:
+        [evidenceType, subjectType, subjectId, sourceSystem, normalizedPayload]
+      properties:
+        evidenceType:
+          type: string
+        subjectType:
+          type: string
+        subjectId:
+          $ref: "#/components/schemas/Uuid"
+        sourceSystem:
+          type: string
+        sourceUri:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        qualityStatus:
+          type: string
+          enum: [VALID, MISSING, STALE, CONFLICTED, UNVERIFIED, INVALID]
+        normalizedPayload:
+          type: object
+          additionalProperties: true
+        supersedesId:
+          $ref: "#/components/schemas/Uuid"
+
+    IngestionEvent:
+      type: object
+      required:
+        [sourceRecordId, eventType, subjectType, subjectId, evidenceType, payload]
+      properties:
+        sourceRecordId:
+          type: string
+        sourceEventVersion:
+          type: string
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        subjectType:
+          type: string
+        subjectId:
+          $ref: "#/components/schemas/Uuid"
+        evidenceType:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        qualityStatus:
+          type: string
+          enum: [VALID, MISSING, STALE, CONFLICTED, UNVERIFIED, INVALID]
+        sourceUri:
+          type: string
+
+    IngestionBatch:
+      type: object
+      required: [sourceSystem, events]
+      properties:
+        sourceSystem:
+          type: string
+        events:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/IngestionEvent"
+
+    PolicyDefinition:
+      type: object
+      required: [code, version, currency, poolRate, poolCap, rounding]
+      properties:
+        code:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        poolRate:
+          $ref: "#/components/schemas/Decimal"
+        poolCap:
+          $ref: "#/components/schemas/Decimal"
+        rounding:
+          type: string
+          enum: [HALF_UP, HALF_EVEN, DOWN]
+        cashCollectionWeight:
+          $ref: "#/components/schemas/Decimal"
+        retentionHoldbackRate:
+          $ref: "#/components/schemas/Decimal"
+        afterSalesReserveRate:
+          $ref: "#/components/schemas/Decimal"
+        qualityGate:
+          type: object
+          properties:
+            requireAcceptance:
+              type: boolean
+            blockOnSafetyIncident:
+              type: boolean
+        creditGate:
+          type: object
+          properties:
+            requireCreditApproval:
+              type: boolean
+            blockOnQualityHold:
+              type: boolean
+        calculator:
+          type: string
+          enum:
+            - SIMPLE_POOL
+            - CASH_WEIGHTED_POOL
+            - CASH_WEIGHTED_RETENTION_POOL
+            - CASH_WEIGHTED_RESERVE_CHANNEL_POOL
+        incentiveType:
+          type: string
+        minimumWage:
+          type: object
+          properties:
+            monthlyMinimum:
+              $ref: "#/components/schemas/Decimal"
+            checked:
+              type: boolean
+
+    PolicySimulation:
+      type: object
+      required: [currentPolicyVersionId, proposedPolicy, samples]
+      properties:
+        currentPolicyVersionId:
+          type: string
+        proposedPolicy:
+          $ref: "#/components/schemas/PolicyDefinition"
+        samples:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [personId, input]
+            properties:
+              personId:
+                $ref: "#/components/schemas/Uuid"
+              input:
+                $ref: "#/components/schemas/CreateCalculationRun"
+
+    EnqueueAgentTask:
+      type: object
+      required: [agentType, triggerType, idempotencyKey]
+      properties:
+        agentType:
+          type: string
+          enum:
+            - EVIDENCE_GAP
+            - SETTLEMENT_READINESS
+            - CONTRIBUTION_ANOMALY
+            - POLICY_PROPOSAL
+            - DATA_QUALITY
+            - APPEAL_SLA
+        triggerType:
+          type: string
+          enum: [EVENT, SCHEDULE, MANUAL, THRESHOLD]
+        triggerRef:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        idempotencyKey:
+          type: string
+        riskTier:
+          type: string
+          enum: [T0, T1, T2, T3]

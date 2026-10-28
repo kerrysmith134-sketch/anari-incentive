@@ -166,6 +166,35 @@ describePg("PgStore vertical slice", () => {
     expect(links).toHaveLength(1);
   });
 
+  it("ingests external events idempotently through PostgreSQL", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const batch = {
+      sourceSystem: "crm",
+      events: [
+        {
+          sourceRecordId: "pg-crm-order-1",
+          sourceEventVersion: "1",
+          eventType: "order.updated",
+          subjectType: "WORK_PACKAGE",
+          subjectId: workPackageId,
+          evidenceType: "ORDER",
+          payload: { amount: 1000 },
+          qualityStatus: "VALID" as const,
+        },
+      ],
+    };
+    const first = await store.ingestEvents(batch);
+    expect(first.accepted).toBe(1);
+    expect(first.duplicates).toBe(0);
+
+    const replay = await store.ingestEvents(batch);
+    expect(replay.accepted).toBe(0);
+    expect(replay.duplicates).toBe(1);
+
+    const evidence = await store.listEvidence("WORK_PACKAGE", workPackageId);
+    expect(evidence).toHaveLength(1);
+  });
+
   it("calculates a charging project through PostgreSQL", async () => {
     const workPackageId = await acceptedWorkPackage();
     await confirmedClaim(workPackageId, OWNER);

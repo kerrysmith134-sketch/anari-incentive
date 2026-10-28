@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>N-Perform 管理端</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --ink: #16181d;
+      --muted: #5f6672;
+      --line: #e3e7ee;
+      --accent: #1d5cff;
+      --accent-ink: #ffffff;
+      --good: #0b7a53;
+      --warn: #a15c00;
+      --bad: #b42318;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --card: #171a21;
+        --ink: #f2f4f7;
+        --muted: #a7aebb;
+        --line: #2a2f3a;
+        --accent: #6d95ff;
+        --accent-ink: #0b1020;
+        --good: #6fd3a8;
+        --warn: #ffc46b;
+        --bad: #ff8a80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      padding: 32px 18px 64px;
+    }
+    main { max-width: 1080px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 0 0 14px; }
+    p.lede { color: var(--muted); margin: 0 0 24px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } body { padding: 20px 14px 48px; } }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, button { font: inherit; }
+    input {
+      width: 100%;
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 10px;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 9px;
+      padding: 8px 13px;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    button.danger { color: var(--bad); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 10px; white-space: pre-wrap; }
+    .status[data-kind="ok"] { color: var(--good); }
+    .status[data-kind="warn"] { color: var(--warn); }
+    .status[data-kind="bad"] { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+    pre {
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 340px;
+    }
+    .mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>N-Perform 管理端</h1>
+    <p class="lede">政策模拟、Agent 主动扫描与审批。此页面是开发用最小管理端，生产环境需 OIDC 认证与权限控制。</p>
+
+    <section class="card">
+      <h2>政策影响模拟</h2>
+      <div class="grid">
+        <div>
+          <label>当前政策版本 ID</label>
+          <input id="currentPolicy" value="00000000-0000-4000-8000-000000000100" />
+        </div>
+        <div>
+          <label>拟议提取率</label>
+          <input id="proposedRate" value="0.06" />
+        </div>
+        <div>
+          <label>拟议封顶</label>
+          <input id="proposedCap" value="100000" />
+        </div>
+        <div>
+          <label>样本毛利</label>
+          <input id="grossProfit" value="100000" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="simulate">运行模拟</button>
+      </div>
+      <div class="status" id="simStatus"></div>
+      <pre id="simResult" hidden></pre>
+    </section>
+
+    <section class="card">
+      <h2>Agent 任务</h2>
+      <div class="actions">
+        <button class="primary" id="scan">运行主动扫描</button>
+        <button id="refresh">刷新任务</button>
+      </div>
+      <div class="status" id="agentStatus"></div>
+      <table>
+        <thead>
+        <tr><th>任务</th><th>类型</th><th>状态</th><th>发现</th><th>待审批动作</th></tr>
+        </thead>
+        <tbody id="tasks"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const owner = "00000000-0000-4000-8000-000000000003";
+
+    function setStatus(id, text, kind = "") {
+      const el = $(id);
+      el.textContent = text;
+      el.dataset.kind = kind;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "content-type": "application/json" },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error?.message || `HTTP ${response.status}`);
+      }
+      return body.data;
+    }
+
+    async function simulate() {
+      setStatus("simStatus", "模拟中…");
+      try {
+        const result = await api("/api/v1/policy-simulations", {
+          method: "POST",
+          body: JSON.stringify({
+            currentPolicyVersionId: $("currentPolicy").value.trim(),
+            proposedPolicy: {
+              code: "GENERIC_CONTRIBUTION_V1",
+              version: 2,
+              currency: "CNY",
+              poolRate: $("proposedRate").value.trim(),
+              poolCap: $("proposedCap").value.trim(),
+              rounding: "HALF_UP",
+              calculator: "SIMPLE_POOL",
+            },
+            samples: [
+              {
+                personId: "00000000-0000-4000-8000-000000000001",
+                input: {
+                  cycleId: "00000000-0000-4000-8000-000000000020",
+                  policyVersionId: $("currentPolicy").value.trim(),
+                  mode: "SHADOW",
+                  order: {
+                    id: "admin-sim-order",
+                    grossProfit: $("grossProfit").value.trim(),
+                    currency: "CNY",
+                  },
+                  participants: [
+                    {
+                      personId: "00000000-0000-4000-8000-000000000001",
+                      workPackageId: "00000000-0000-4000-8000-000000000010",
+                      attributionWeight: "1",
+                      role: "OWNER",
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        });
+        const el = $("simResult");
+        el.hidden = false;
+        el.textContent = JSON.stringify(result, null, 2);
+        setStatus(
+          "simStatus",
+          `当前 ${result.currentTotal} → 拟议 ${result.proposedTotal}，差额 ${result.deltaTotal}，影响 ${result.affectedPeople} 人`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("simStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadTasks() {
+      try {
+        const tasks = await api("/api/v1/agent-tasks");
+        $("tasks").innerHTML = tasks.map((task) => {
+          const pending = task.results.filter((r) => r.status === "PENDING_APPROVAL");
+          const actions = pending.map((result) => {
+            const action = task.actions.find((a) => a.id === result.actionId);
+            return `<button data-task="${task.id}" data-action="${result.actionId}">批准 ${escapeHtml(action?.tool ?? "action")}</button>`;
+          }).join(" ");
+          return `<tr>
+            <td class="mono">${escapeHtml(task.id.slice(0, 8))}</td>
+            <td>${escapeHtml(task.agentType)}</td>
+            <td><span class="pill">${escapeHtml(task.status)}</span></td>
+            <td>${task.findings.length}</td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        setStatus("agentStatus", `共 ${tasks.length} 个任务`, "ok");
+      } catch (error) {
+        setStatus("agentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function scan() {
+      setStatus("agentStatus", "扫描中…");
+      try {
+        const tasks = await api("/api/v1/agent-tasks/scan", {
+          method: "POST",
+          body: JSON.stringify({ idempotencyKey: `admin-scan-${Date.now()}` }),
+        });
+        setStatus("agentStatus", `扫描完成：${tasks.length} 个任务`, "ok");
+        await loadTasks();
+      } catch (error) {
+        setStatus("agentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function approve(taskId, actionId) {
+      try {
+        await api(`/api/v1/agent-tasks/${taskId}/approve`, {
+          method: "POST",
+          body: JSON.stringify({
+            actionId,
+            approverPersonId: owner,
+          }),
+        });
+        setStatus("agentStatus", "已批准并执行", "ok");
+        await loadTasks();
+      } catch (error) {
+        setStatus("agentStatus", String(error.message), "bad");
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[char]));
+    }
+
+    $("simulate").addEventListener("click", simulate);
+    $("scan").addEventListener("click", scan);
+    $("refresh").addEventListener("click", loadTasks);
+    $("tasks").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-task]");
+      if (!button) return;
+      approve(button.dataset.task, button.dataset.action);
+    });
+
+    loadTasks();
+  </script>
+</body>
+</html>

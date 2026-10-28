@@ -20,6 +20,8 @@ import {
   type EmployeeConfirmation,
   type EvidenceLink,
   type EvidenceNode,
+  type IngestionBatch,
+  type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
   type WorkPackage,
@@ -562,6 +564,67 @@ export class PgStore implements IncentiveStore {
         ],
       );
       return this.mapEvidence(rows[0]);
+    });
+  }
+
+  async ingestEvents(batch: IngestionBatch): Promise<IngestionResult> {
+    return this.tx(async (client) => {
+      let accepted = 0;
+      let duplicates = 0;
+      const evidenceIds: string[] = [];
+      for (const event of batch.events) {
+        const version = event.sourceEventVersion ?? "1";
+        const rawId = randomUUID();
+        const inserted = await client.query(
+          `INSERT INTO raw_events
+            (id, tenant_id, source_system, source_record_id, source_event_version,
+             event_type, occurred_at, payload, payload_hash)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (tenant_id, source_system, source_record_id, source_event_version)
+           DO NOTHING
+           RETURNING id`,
+          [
+            rawId,
+            this.tenantId,
+            batch.sourceSystem,
+            event.sourceRecordId,
+            version,
+            event.eventType,
+            event.occurredAt ?? null,
+            JSON.stringify(event.payload),
+            sha256(event.payload),
+          ],
+        );
+        if (inserted.rowCount === 0) {
+          duplicates += 1;
+          continue;
+        }
+        const evidenceId = randomUUID();
+        await client.query(
+          `INSERT INTO evidence_nodes
+            (id, tenant_id, raw_event_id, evidence_type, subject_type, subject_id,
+             source_system, source_uri, observed_at, quality_status,
+             normalized_payload, payload_hash)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, now()),$10,$11,$12)`,
+          [
+            evidenceId,
+            this.tenantId,
+            rawId,
+            event.evidenceType,
+            event.subjectType,
+            event.subjectId,
+            batch.sourceSystem,
+            event.sourceUri ?? null,
+            event.occurredAt ?? null,
+            event.qualityStatus ?? "UNVERIFIED",
+            JSON.stringify(event.payload),
+            sha256(event.payload),
+          ],
+        );
+        accepted += 1;
+        evidenceIds.push(evidenceId);
+      }
+      return { accepted, duplicates, evidenceIds };
     });
   }
 

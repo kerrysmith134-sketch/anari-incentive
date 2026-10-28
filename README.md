@@ -23,6 +23,8 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Policy simulation | `simulatePolicyChange` replays representative inputs through current vs proposed policy; returns per-person/total deltas and blockers. It never publishes or writes money. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
+| Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector and CLI importer (`npm run import:csv`) |
+| Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
@@ -31,21 +33,25 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
 | Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal |
+| Admin view | Minimal page at `/admin`: policy impact simulation, proactive agent scan, pending-action approval |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
-| API | Fastify + Zod, typed error envelope, explicit commands |
+| API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **88 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
+| Tests | **101 unit/API tests + 7 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
 - AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
-- Production CRM/ERP/Feishu connectors;
+- Production CRM/ERP/Feishu connectors (a generic CSV connector and ingestion API exist; provider-specific OAuth/field mapping is pending);
+- Per-request tenant-scoped store factory (authentication establishes identity, but the store is currently bound to one tenant per process);
+- Worker OIDC bearer support (the worker currently calls the API with dev headers);
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;
 - Full project management, HRIS, payroll;
-- Full employee-facing UI (a minimal page exists at `/`); real Feishu/CRM connector.
+- Full employee/admin UI (minimal pages exist at `/` and `/admin`).
 
 These are deliberately deferred per `docs/PRD_V4.1_评审修订版.md`.
 
@@ -61,6 +67,19 @@ npm test
 npm run typecheck
 npm run dev
 # API at http://localhost:3000
+# Employee page: http://localhost:3000/
+# Admin page:    http://localhost:3000/admin
+```
+
+`AUTH_MODE` defaults to `dev`, which accepts `X-Tenant-Id` / `X-User-Id`
+headers. Set `AUTH_MODE=oidc` plus `OIDC_ISSUER` / `OIDC_AUDIENCE` /
+`OIDC_JWKS_URI` to require a bearer JWT.
+
+### CI
+
+```bash
+./scripts/ci.sh            # full: typecheck, tests, compose config, PostgreSQL
+CI_SKIP_PG=1 ./scripts/ci.sh
 ```
 
 ### Option B: Docker-only
@@ -112,7 +131,9 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Minimal employee confirmation page |
+| GET | `/admin` | Minimal admin page: policy simulation + agent approvals |
 | GET | `/health` | Liveness |
+| POST | `/api/v1/ingestion/events:batch` | Ingest connector events; dedup + evidence projection |
 | POST | `/api/v1/evidence` | Create evidence node |
 | GET | `/api/v1/evidence?subjectType=&subjectId=` | List evidence for a subject |
 | POST | `/api/v1/evidence/:id/links` | Link supporting/counter/dependency evidence |
@@ -192,7 +213,7 @@ Then a `FORMAL` run also requires confirmed attribution for every participant an
 ## Repository layout
 
 ```
-apps/api/                 Fastify API, in-memory store, PostgreSQL store, public employee page
+apps/api/                 Fastify API, in-memory store, PostgreSQL store, public employee/admin pages
 apps/worker/              Outbox poller + scheduled proactive agent worker
 packages/domain/          Canonical states, types, invariants
 packages/contracts/       Zod request schemas
@@ -200,22 +221,27 @@ packages/policy-dsl/      Deterministic decimal, order-contribution policy, refe
 packages/ledger/          Append-only ledger, idempotency, hash chain
 packages/ai-gate/         Evaluation gate + non-scoring evidence assistant
 packages/agent-runtime/   Proactive agent runtime, skills, tools, approval gates
-examples/verticals/       Tenant policy packs (charging equipment sales, EPC)
-fixtures/                 Generic reference policy, order fixtures, reconciliation CSV
+packages/auth/            OIDC/JWT and dev-header authenticators
+packages/connectors/      Connector interface + CSV connector
+examples/verticals/       Tenant policy packs (charging equipment sales, professional services, EPC)
+fixtures/                 Generic reference policy, order fixtures, reconciliation CSV, connector fixtures
 db/migrations/            PostgreSQL schema and money-path invariants
 db/seed/                  Demo tenant/people/cycle/policy + RLS app role
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
+scripts/ci.sh             Install → typecheck → tests → compose → PostgreSQL
 scripts/reconcile.ts     CSV vs engine reconciliation
 scripts/agent-scan.ts    Cron/on-demand proactive agent scan
+scripts/import-csv.ts    CSV connector importer
 Dockerfile                API/worker image
 docker-compose.yml        postgres + migrate + api + worker
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision
   domain-contract.md      State machines, money-path invariants, commands
+  openapi.yaml            OpenAPI 3.1 contract (route coverage is tested)
   adr/                    Architecture decision records
   source/                 V4.0 baseline documents (reference only)
-tests/                    Cross-package fixture/E2E tests
+tests/                    Cross-package fixture/E2E/contract tests
 ```
 
 ## Design decisions that must not be weakened

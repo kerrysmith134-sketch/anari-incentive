@@ -144,6 +144,7 @@ Additional application-level invariants:
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
+| `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
 | `POST /evidence/:id/links` | both evidence nodes exist | SUPPORTS / CONTRADICTS / DEPENDS_ON / CORRECTS / CONTEXT |
@@ -152,6 +153,12 @@ Additional application-level invariants:
 | `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |
 | `POST /appeals/:id/review` | TRIAGED | UNDER_REVIEW |
 | `POST /appeals/:id/resolve` | UNDER_REVIEW, reviewer ≠ appellant | CLOSED or RECALCULATION_REQUIRED |
+| `POST /agent-tasks` | idempotency key | Queues an agent task |
+| `POST /agent-tasks/:id/run` | task QUEUED | Observe → plan → low-risk actions; T2/T3 wait for approval |
+| `POST /agent-tasks/:id/approve` | action PENDING_APPROVAL, different approver | Executes the action, writes audit |
+| `POST /agent-tasks/:id/reject` | action PENDING_APPROVAL | Marks rejected, writes audit |
+| `POST /agent-tasks/scan` | — | Enqueues and runs evidence-gap, anomaly and settlement-readiness sweeps |
+| `POST /policy-simulations` | current policy exists | Recomputes samples; returns deltas and blockers; writes no money |
 
 ---
 
@@ -226,7 +233,7 @@ internalPool = payablePool − channelPool
 line = internalPool × confirmed attribution weight
 ```
 
-Gates: credit approval required; quality hold blocks; a positive channel share requires a channel partner. The channel pool is recorded separately and is not allocated to internal employees. The policy is routed by `policy_version.rule_ast.code`; the generic `ORDER_CONTRIBUTION_V1` remains for non-project orders. Both use the same allocation and deterministic hash helpers.
+Gates: credit approval required; quality hold blocks; a positive channel share requires a channel partner. The channel pool is recorded separately and is not allocated to internal employees. The policy is routed by `PolicyDefinition.calculator` (`CASH_WEIGHTED_RESERVE_CHANNEL_POOL`), not by an industry code; the generic `SIMPLE_POOL` remains for non-project orders. Both use the same allocation and deterministic hash helpers.
 
 ### Later extension: `CHARGING_PROJECT_CONTRIBUTION_V1`
 
@@ -255,3 +262,36 @@ The core has no industry-specific agent. A policy pack can add evidence requirem
 ## 10. Policy simulation
 
 `simulatePolicyChange(currentPolicy, proposedPolicy, samples)` returns per-person current/proposed/delta amounts, totals, affected people and blockers. It is a decision-support function: it does not publish a policy, write a ledger or approve a payment. `POST /policy-simulations` exposes it for an admin UI; the proposed policy is data, not a code deployment.
+
+---
+
+## 11. Ingestion and connectors
+
+Connectors are adapters, not a second domain model. A connector emits `IngestionEvent`s; the core stores them in `raw_events` with a uniqueness constraint on `(tenant_id, source_system, source_record_id, source_event_version)`, then projects an `evidence_nodes` row. Re-ingesting the same record is idempotent.
+
+- `packages/connectors/src/csv.ts` implements a generic CSV connector with explicit field mapping.
+- `scripts/import-csv.ts` posts a CSV file to `POST /api/v1/ingestion/events:batch`.
+- `fixtures/connectors/crm-orders.csv` + `crm-orders.mapping.json` are the reference fixtures.
+- Connector payloads are untrusted input: they may create evidence but never write money, approve attribution or bypass the legal gate.
+
+Real CRM/ERP/Feishu connectors must implement the same `Connector` interface and must not add provider-specific concepts to the core.
+
+---
+
+## 12. Authentication and tenant context
+
+All `/api/v1` routes pass through a Fastify `preHandler`:
+
+- `AUTH_MODE=oidc`: `OidcJwtAuthenticator` verifies a bearer JWT against the configured issuer/audience/JWKS and derives `tenantId`, `userId` and roles from claims.
+- `AUTH_MODE=dev`: `DevHeaderAuthenticator` accepts `X-Tenant-Id` / `X-User-Id` and is only for local development.
+- Missing or invalid credentials return `401 UNAUTHENTICATED`.
+
+Current limitation: stores are constructed per process with a fixed tenant. A production deployment must create a tenant-scoped store per request (or enforce tenant in every query) before serving multiple tenants from one process. RLS is enabled in PostgreSQL as defense in depth.
+
+---
+
+## 13. Contract and CI
+
+- `docs/openapi.yaml` is the OpenAPI 3.1 contract. `tests/openapi.test.ts` parses it, checks every route in `apps/api/src/app.ts` is documented, rejects stale documented routes, and verifies local `$ref`s resolve.
+- `scripts/ci.sh` is the verification entry point: install → typecheck → unit/API tests → `docker compose config` → PostgreSQL integration tests. `CI_SKIP_PG=1` skips the Docker-backed tests.
+- Admin UI at `/admin` is a minimal development surface for policy simulation and agent approvals; it is not a production IAM-controlled console.

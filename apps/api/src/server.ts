@@ -1,4 +1,8 @@
 import { Pool } from "pg";
+import {
+  DevHeaderAuthenticator,
+  OidcJwtAuthenticator,
+} from "@anari/auth";
 import { buildApp } from "./app.js";
 import { Store } from "./store.js";
 import { PgStore } from "./pg-store.js";
@@ -12,7 +16,20 @@ const store = usePostgres
   ? new PgStore(new Pool({ connectionString: process.env.DATABASE_URL }))
   : new Store();
 
-const app = buildApp(store);
+const authenticator =
+  process.env.AUTH_MODE === "oidc"
+    ? new OidcJwtAuthenticator({
+        issuer: process.env.OIDC_ISSUER ?? "",
+        audience: process.env.OIDC_AUDIENCE ?? "",
+        jwksUrl: process.env.OIDC_JWKS_URL,
+      })
+    : new DevHeaderAuthenticator({
+        tenantId: process.env.DEFAULT_TENANT_ID ?? "tenant-demo",
+        userId: "dev-user",
+        roles: ["admin"],
+      });
+
+const app = buildApp(store, undefined, authenticator);
 
 app
   .listen({ port, host: "0.0.0.0" })

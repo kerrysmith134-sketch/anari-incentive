@@ -1,0 +1,3 @@
+order_id,event,subject_type,subject_id,evidence_type,amount,stage
+crm-order-1,order.updated,WORK_PACKAGE,00000000-0000-4000-8000-000000000010,ORDER,1000,won
+crm-order-2,order.updated,WORK_PACKAGE,00000000-0000-4000-8000-000000000011,ORDER,2000,pending
