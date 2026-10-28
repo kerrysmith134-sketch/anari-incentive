@@ -29,6 +29,37 @@ export function createDefaultTools(): AgentTool[] {
       },
     },
     {
+      name: "record_data_quality_issue",
+      riskTier: "T1",
+      description: "Persist a data-quality issue for follow-up.",
+      async execute(input, context) {
+        const objectType = input.objectType;
+        const objectId = input.objectId;
+        const issueCode = input.issueCode;
+        const severity = input.severity;
+        if (
+          typeof objectType !== "string" ||
+          typeof objectId !== "string" ||
+          typeof issueCode !== "string" ||
+          (severity !== "INFO" &&
+            severity !== "WARNING" &&
+            severity !== "BLOCKING")
+        ) {
+          throw new Error("DATA_QUALITY_ISSUE_FIELDS_REQUIRED");
+        }
+        return context.createDataQualityIssue({
+          objectType,
+          objectId,
+          issueCode,
+          severity,
+          details:
+            input.details && typeof input.details === "object"
+              ? (input.details as Record<string, unknown>)
+              : {},
+        });
+      },
+    },
+    {
       name: "notify_owner",
       riskTier: "T1",
       description: "Notify the work-package owner or manager.",

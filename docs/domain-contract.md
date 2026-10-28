@@ -294,6 +294,8 @@ EPC projects use projected gross profit, 40% cash weighting, 5% retention holdba
 - `AgentScheduler` supports schedule, domain-event and threshold triggers with idempotent keys;
 - `apps/worker` polls `outbox_events`, dispatches events to the scheduler, and runs scheduled scans;
 - `PolicyProposalSkill` can simulate a proposed policy and create a T3 `publish_policy` action; it never publishes automatically;
+- `DataQualitySkill` persists its findings through the T1 `record_data_quality_issue` tool, so agent findings become trackable issues; a blocking finding also creates a T2 escalation that waits for a human;
+- agent tools that write domain objects require a caller role allowed to call the corresponding API; the worker's service token must carry `manager` (or `admin`);
 - the worker calls `retryFailed` with backoff: only failed tasks that executed no action are retried; after 3 attempts the task is marked `deadLettered` and left `FAILED` for human review. A partially executed task is never retried automatically.
 
 The core has no industry-specific agent. A policy pack can add evidence requirements and policy data, but it cannot bypass the approval gate or write formal money.

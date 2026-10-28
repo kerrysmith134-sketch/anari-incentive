@@ -3,6 +3,7 @@ import type {
   AttributionDecision,
   CalculationRun,
   ContributionClaim,
+  DataQualityIssue,
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
@@ -149,6 +150,21 @@ export class HttpAgentContext implements AgentContext {
     return postData(
       this.baseUrl,
       "/api/v1/policy-versions",
+      await this.headers(),
+      input,
+    );
+  }
+
+  async createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+  }): Promise<DataQualityIssue> {
+    return postData(
+      this.baseUrl,
+      "/api/v1/data-quality-issues",
       await this.headers(),
       input,
     );

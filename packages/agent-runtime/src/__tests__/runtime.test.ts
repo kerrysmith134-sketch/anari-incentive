@@ -5,6 +5,7 @@ import type {
   CalculationInput,
   CalculationRun,
   ContributionClaim,
+  DataQualityIssue,
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
@@ -36,6 +37,7 @@ class FakeContext implements AgentContext {
   gates = new Map<string, LegalGateRecord>();
   evidence: EvidenceNode[] = [];
   published: PublishedPolicy[] = [];
+  dataQualityIssues: DataQualityIssue[] = [];
 
   async listWorkPackages() { return this.workPackages; }
   async listClaims() { return this.claims; }
@@ -64,6 +66,30 @@ class FakeContext implements AgentContext {
     };
     this.published.push(published);
     return published;
+  }
+
+  async createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+  }): Promise<DataQualityIssue> {
+    const timestamp = new Date().toISOString();
+    const issue: DataQualityIssue = {
+      id: `dq-${this.dataQualityIssues.length + 1}`,
+      tenantId: "tenant-1",
+      objectType: input.objectType,
+      objectId: input.objectId,
+      issueCode: input.issueCode,
+      severity: input.severity,
+      status: "OPEN",
+      details: input.details ?? {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.dataQualityIssues.push(issue);
+    return issue;
   }
 }
 
@@ -408,6 +434,41 @@ describe("agent runtime", () => {
       idempotencyKey: "same-key",
     });
     expect(second.id).toBe(first.id);
+  });
+
+  it("persists a data-quality issue and escalates a blocking finding", async () => {
+    const context = new FakeContext();
+    const timestamp = new Date().toISOString();
+    context.evidence = [
+      {
+        id: "ev-1",
+        tenantId: "tenant-1",
+        evidenceType: "ORDER",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "wp-1",
+        sourceSystem: "CRM",
+        observedAt: timestamp,
+        qualityStatus: "CONFLICTED",
+        normalizedPayload: {},
+        payloadHash: "hash",
+        createdAt: timestamp,
+      },
+    ];
+    const agent = runtime(context);
+    const task = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "DATA_QUALITY",
+      triggerType: "MANUAL",
+      idempotencyKey: "data-quality-1",
+    });
+    const ran = await agent.run(task.id);
+    expect(context.dataQualityIssues).toHaveLength(1);
+    expect(context.dataQualityIssues[0]!.severity).toBe("BLOCKING");
+    expect(context.dataQualityIssues[0]!.objectId).toBe("ev-1");
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    expect(
+      ran.results.some((result) => result.status === "EXECUTED"),
+    ).toBe(true);
   });
 
   it("rehydrates tasks, idempotency and audit from a repository", async () => {

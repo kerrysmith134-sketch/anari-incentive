@@ -3,6 +3,7 @@ import type {
   AttributionDecision,
   CalculationRun,
   ContributionClaim,
+  DataQualityIssue,
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
@@ -89,6 +90,13 @@ export interface AgentContext {
   ): Promise<EvidenceNode[]>;
   /** Publishes an approved policy version; T3 and never called without a human. */
   publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
+  createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+  }): Promise<DataQualityIssue>;
 }
 
 export interface AgentToolExecutionContext {

@@ -13,5 +13,6 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     listEvidence: (subjectType, subjectId) =>
       store.listEvidence(subjectType, subjectId),
     publishPolicy: (input) => store.publishPolicy(input),
+    createDataQualityIssue: (input) => store.createDataQualityIssue(input),
   };
 }

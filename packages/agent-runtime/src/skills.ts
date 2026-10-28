@@ -489,8 +489,26 @@ export class DataQualitySkill implements AgentSkill {
   }
 
   plan(finding: AgentFinding): AgentAction[] {
+    const issue = action({
+      tool: "record_data_quality_issue",
+      riskTier: "T1",
+      targetType: finding.subjectType,
+      targetId: finding.subjectId,
+      description: "Persist a data-quality issue for follow-up.",
+      payload: {
+        objectType: finding.subjectType,
+        objectId: finding.subjectId,
+        issueCode: finding.code,
+        severity: finding.severity,
+        details: {
+          message: finding.message,
+          suggestedAction: finding.suggestedAction,
+        },
+      },
+    });
     if (finding.severity === "BLOCKING") {
       return [
+        issue,
         action({
           tool: "escalate",
           riskTier: "T2",
@@ -502,16 +520,7 @@ export class DataQualitySkill implements AgentSkill {
         }),
       ];
     }
-    return [
-      action({
-        tool: "create_todo",
-        riskTier: "T1",
-        targetType: finding.subjectType,
-        targetId: finding.subjectId,
-        description: "Create a data-quality follow-up.",
-        payload: { finding: finding.code },
-      }),
-    ];
+    return [issue];
   }
 }
 

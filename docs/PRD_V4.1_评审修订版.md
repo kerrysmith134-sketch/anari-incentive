@@ -481,7 +481,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 评价纵向切片：评价周期、版本化 Rubric、证据绑定草稿（USER/AGENT/SYSTEM，含 strengths/counter-evidence/uncertainty）、提交后人工决策、禁止自评、决策版本化并 supersede 上一版；
 - `packages/policy-dsl`：确定性 decimal、订单贡献池计算、独立参照、哈希；
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
-- 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；
+- 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；DATA_QUALITY Agent 会把证据质量问题落为 issue，BLOCKING 同时升级待人工处理；
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL 命令，CSV 财务导出，行与账本强校验；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储，按认证租户解析 store 与 Agent Runtime；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
