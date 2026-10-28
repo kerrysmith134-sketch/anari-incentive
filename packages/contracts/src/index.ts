@@ -197,6 +197,7 @@ export const enqueueAgentTaskSchema = z.object({
     "POLICY_PROPOSAL",
     "DATA_QUALITY",
     "APPEAL_SLA",
+    "EVALUATION_DRAFT",
   ]),
   triggerType: z.enum(["EVENT", "SCHEDULE", "MANUAL", "THRESHOLD"]),
   triggerRef: z.string().optional(),

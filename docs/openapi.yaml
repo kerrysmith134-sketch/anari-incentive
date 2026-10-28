@@ -2125,6 +2125,7 @@ components:
             - POLICY_PROPOSAL
             - DATA_QUALITY
             - APPEAL_SLA
+            - EVALUATION_DRAFT
         triggerType:
           type: string
           enum: [EVENT, SCHEDULE, MANUAL, THRESHOLD]

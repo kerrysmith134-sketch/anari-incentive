@@ -60,6 +60,54 @@ export function createDefaultTools(): AgentTool[] {
       },
     },
     {
+      name: "create_evaluation_draft",
+      riskTier: "T1",
+      description:
+        "Create an evidence-bound evaluation draft for human review; never a decision.",
+      async execute(input, context, execution) {
+        const cycleId = input.cycleId;
+        const personId = input.personId;
+        const evidenceSnapshotHash = input.evidenceSnapshotHash;
+        if (
+          typeof cycleId !== "string" ||
+          typeof personId !== "string" ||
+          typeof evidenceSnapshotHash !== "string"
+        ) {
+          throw new Error("EVALUATION_DRAFT_FIELDS_REQUIRED");
+        }
+        return context.createEvaluationDraft({
+          cycleId,
+          personId,
+          generatedByType: "AGENT",
+          agentTaskId: execution?.taskId,
+          evidenceSnapshotHash,
+          draftPayload:
+            input.draftPayload && typeof input.draftPayload === "object"
+              ? (input.draftPayload as Record<string, unknown>)
+              : {},
+          strengths: Array.isArray(input.strengths)
+            ? input.strengths.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [],
+          counterEvidence: Array.isArray(input.counterEvidence)
+            ? input.counterEvidence.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [],
+          missingInformation: Array.isArray(input.missingInformation)
+            ? input.missingInformation.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [],
+          uncertainty:
+            input.uncertainty && typeof input.uncertainty === "object"
+              ? (input.uncertainty as Record<string, unknown>)
+              : {},
+        });
+      },
+    },
+    {
       name: "notify_owner",
       riskTier: "T1",
       description: "Notify the work-package owner or manager.",

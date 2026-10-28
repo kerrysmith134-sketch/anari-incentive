@@ -7,6 +7,7 @@ import type {
   ContributionClaim,
   DataQualityIssue,
   EmployeeConfirmation,
+  EvaluationDraft,
   EvidenceNode,
   LegalGateRecord,
   PolicyDefinition,
@@ -38,6 +39,7 @@ class FakeContext implements AgentContext {
   evidence: EvidenceNode[] = [];
   published: PublishedPolicy[] = [];
   dataQualityIssues: DataQualityIssue[] = [];
+  evaluationDrafts: EvaluationDraft[] = [];
 
   async listWorkPackages() { return this.workPackages; }
   async listClaims() { return this.claims; }
@@ -90,6 +92,49 @@ class FakeContext implements AgentContext {
     };
     this.dataQualityIssues.push(issue);
     return issue;
+  }
+
+  async createEvaluationDraft(input: {
+    cycleId: string;
+    personId: string;
+    generatedByType: "AGENT" | "USER" | "SYSTEM";
+    generatedById?: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion?: string;
+    agentTaskId?: string;
+    evidenceSnapshotHash: string;
+    draftPayload: Record<string, unknown>;
+    strengths?: string[];
+    counterEvidence?: string[];
+    missingInformation?: string[];
+    uncertainty?: Record<string, unknown>;
+  }): Promise<EvaluationDraft> {
+    const timestamp = new Date().toISOString();
+    const draft: EvaluationDraft = {
+      id: `draft-${this.evaluationDrafts.length + 1}`,
+      tenantId: "tenant-1",
+      cycleId: input.cycleId,
+      personId: input.personId,
+      generatedByType: input.generatedByType,
+      generatedById: input.generatedById,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      agentTaskId: input.agentTaskId,
+      evidenceSnapshotHash: input.evidenceSnapshotHash,
+      draftPayload: input.draftPayload,
+      strengths: input.strengths ?? [],
+      counterEvidence: input.counterEvidence ?? [],
+      missingInformation: input.missingInformation ?? [],
+      uncertainty: input.uncertainty ?? {},
+      status: "DRAFT",
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.evaluationDrafts.push(draft);
+    return draft;
   }
 }
 
@@ -469,6 +514,76 @@ describe("agent runtime", () => {
     expect(
       ran.results.some((result) => result.status === "EXECUTED"),
     ).toBe(true);
+  });
+
+  it("creates an evidence-bound evaluation draft without scoring", async () => {
+    const context = new FakeContext();
+    const timestamp = new Date().toISOString();
+    context.claims = [
+      {
+        id: "claim-1",
+        tenantId: "tenant-1",
+        workPackageId: "wp-1",
+        claimantPersonId: "person-1",
+        claimType: "DELIVERABLE_CONTRIBUTION",
+        claimedContribution: { dimensions: ["QUALITY"], summary: "Done" },
+        evidenceRefs: ["ev-1"],
+        rationale: "Done",
+        status: "UNDER_REVIEW",
+        version: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ];
+    context.decisions = [
+      {
+        id: "decision-1",
+        tenantId: "tenant-1",
+        claimId: "claim-1",
+        decisionVersion: 1,
+        status: "CONFIRMED",
+        adjudicatorPersonId: "person-2",
+        acceptedFacts: ["Delivered"],
+        rejectedFacts: [],
+        contributionDimensions: { QUALITY: 1 },
+        rationale: "Evidence supports delivery",
+        effectiveAt: timestamp,
+        createdAt: timestamp,
+      },
+    ];
+    context.evidence = [
+      {
+        id: "ev-1",
+        tenantId: "tenant-1",
+        evidenceType: "DELIVERY_RECORD",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "wp-1",
+        sourceSystem: "CRM",
+        observedAt: timestamp,
+        qualityStatus: "VALID",
+        normalizedPayload: { accepted: true },
+        payloadHash: "payload-hash-1",
+        createdAt: timestamp,
+      },
+    ];
+
+    const agent = runtime(context);
+    const task = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "EVALUATION_DRAFT",
+      triggerType: "MANUAL",
+      idempotencyKey: "evaluation-draft-1",
+      input: { cycleId: "cycle-1", personId: "person-1" },
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("SUCCEEDED");
+    expect(context.evaluationDrafts).toHaveLength(1);
+    const draft = context.evaluationDrafts[0]!;
+    expect(draft.generatedByType).toBe("AGENT");
+    expect(draft.agentTaskId).toBe(task.id);
+    expect(draft.missingInformation).toEqual([]);
+    expect(draft.strengths.length).toBeGreaterThan(0);
+    expect(draft.draftPayload).not.toHaveProperty("scores");
   });
 
   it("rehydrates tasks, idempotency and audit from a repository", async () => {

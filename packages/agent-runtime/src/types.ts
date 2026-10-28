@@ -5,6 +5,7 @@ import type {
   ContributionClaim,
   DataQualityIssue,
   EmployeeConfirmation,
+  EvaluationDraft,
   EvidenceNode,
   LegalGateRecord,
   PublishPolicyInput,
@@ -34,6 +35,8 @@ export interface AgentFinding {
   message: string;
   evidenceRefs?: string[];
   suggestedAction?: string;
+  /** Structured observation data passed to `plan`. */
+  data?: Record<string, unknown>;
 }
 
 export interface AgentAction {
@@ -97,6 +100,22 @@ export interface AgentContext {
     severity: "INFO" | "WARNING" | "BLOCKING";
     details?: Record<string, unknown>;
   }): Promise<DataQualityIssue>;
+  createEvaluationDraft(input: {
+    cycleId: string;
+    personId: string;
+    generatedByType: "AGENT" | "USER" | "SYSTEM";
+    generatedById?: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion?: string;
+    agentTaskId?: string;
+    evidenceSnapshotHash: string;
+    draftPayload: Record<string, unknown>;
+    strengths?: string[];
+    counterEvidence?: string[];
+    missingInformation?: string[];
+    uncertainty?: Record<string, unknown>;
+  }): Promise<EvaluationDraft>;
 }
 
 export interface AgentToolExecutionContext {

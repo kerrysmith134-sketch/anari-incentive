@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sha256 } from "@anari/policy-dsl";
 import type {
   AgentAction,
   AgentContext,
@@ -572,6 +573,167 @@ export class AppealSlaSkill implements AgentSkill {
   }
 }
 
+interface EvaluationDraftInput {
+  cycleId?: string;
+  personId?: string;
+}
+
+/**
+ * Deterministic evaluation-draft skill. It assembles claims, decisions and
+ * evidence into a draft for human review. It deliberately emits no scores:
+ * numeric scoring remains gated by the AI evaluation harness and a human
+ * decision.
+ */
+export class EvaluationDraftSkill implements AgentSkill {
+  readonly name = "EVALUATION_DRAFT";
+
+  async observe(
+    context: AgentContext,
+    input: Record<string, unknown>,
+  ): Promise<AgentFinding[]> {
+    const proposal = input as EvaluationDraftInput;
+    if (!proposal.cycleId || !proposal.personId) {
+      return [
+        {
+          code: "EVALUATION_DRAFT_INPUT_REQUIRED",
+          severity: "WARNING",
+          subjectType: "PERSON",
+          subjectId: proposal.personId ?? "unknown",
+          message: "Evaluation draft needs cycleId and personId.",
+          suggestedAction: "Provide the cycle and employee before drafting.",
+        },
+      ];
+    }
+
+    const [claims, decisions, evidence] = await Promise.all([
+      context.listClaims(),
+      context.listDecisions(),
+      context.listEvidence(),
+    ]);
+    const ownClaims = claims.filter(
+      (claim) => claim.claimantPersonId === proposal.personId,
+    );
+    const claimIds = new Set(ownClaims.map((claim) => claim.id));
+    const ownDecisions = decisions.filter((decision) =>
+      claimIds.has(decision.claimId),
+    );
+    const confirmed = ownDecisions.filter(
+      (decision) =>
+        decision.status === "CONFIRMED" ||
+        decision.status === "PARTIALLY_CONFIRMED",
+    );
+    const rejected = ownDecisions.filter(
+      (decision) => decision.status === "REJECTED",
+    );
+    const workPackageIds = new Set(
+      ownClaims.map((claim) => claim.workPackageId),
+    );
+    const relevantEvidence = evidence.filter(
+      (node) =>
+        node.subjectId === proposal.personId ||
+        (node.subjectType === "WORK_PACKAGE" &&
+          workPackageIds.has(node.subjectId)),
+    );
+
+    const missingInformation: string[] = [];
+    if (ownClaims.length === 0) {
+      missingInformation.push("No contribution claims for this person.");
+    }
+    if (relevantEvidence.length === 0) {
+      missingInformation.push(
+        "No evidence is linked to this person's work packages.",
+      );
+    }
+    if (confirmed.length === 0) {
+      missingInformation.push("No confirmed attribution decision.");
+    }
+
+    const evidenceSnapshotHash = sha256({
+      personId: proposal.personId,
+      evidence: relevantEvidence
+        .map((node) => node.payloadHash || node.id)
+        .sort(),
+      claims: [...claimIds].sort(),
+    });
+    const summary = `Evidence ${relevantEvidence.length}, claims ${ownClaims.length}, confirmed decisions ${confirmed.length}, rejected decisions ${rejected.length}.`;
+    const strengths = [
+      ...confirmed.map(
+        (decision) => `Confirmed contribution on claim ${decision.claimId}.`,
+      ),
+      ...relevantEvidence
+        .filter((node) => node.qualityStatus === "VALID")
+        .map((node) => `Valid evidence: ${node.evidenceType}.`),
+    ];
+    const counterEvidence = rejected.map(
+      (decision) => `Rejected contribution claim ${decision.claimId}.`,
+    );
+
+    return [
+      {
+        code:
+          missingInformation.length > 0
+            ? "EVALUATION_DRAFT_NEEDS_INFO"
+            : "EVALUATION_DRAFT_READY",
+        severity: missingInformation.length > 0 ? "WARNING" : "INFO",
+        subjectType: "PERSON",
+        subjectId: proposal.personId,
+        message: summary,
+        suggestedAction:
+          "Review the evidence-bound draft; scoring and approval require a human decision.",
+        evidenceRefs: relevantEvidence.map((node) => node.id),
+        data: {
+          cycleId: proposal.cycleId,
+          personId: proposal.personId,
+          evidenceSnapshotHash,
+          draftPayload: {
+            summary,
+            evidenceCount: relevantEvidence.length,
+            claimCount: ownClaims.length,
+            confirmedDecisionCount: confirmed.length,
+          },
+          strengths,
+          counterEvidence,
+          missingInformation,
+          uncertainty: {
+            evidenceCoverage:
+              relevantEvidence.length === 0 ? "NONE" : "PARTIAL",
+            humanReviewRequired: true,
+          },
+        },
+      },
+    ];
+  }
+
+  plan(finding: AgentFinding): AgentAction[] {
+    if (finding.code === "EVALUATION_DRAFT_INPUT_REQUIRED") {
+      return [
+        action({
+          tool: "record_finding",
+          riskTier: "T0",
+          targetType: finding.subjectType,
+          targetId: finding.subjectId,
+          description: "Record missing evaluation-draft input.",
+          payload: { finding: finding.code },
+        }),
+      ];
+    }
+    if (!finding.data) {
+      return [];
+    }
+    return [
+      action({
+        tool: "create_evaluation_draft",
+        riskTier: "T1",
+        targetType: "PERSON",
+        targetId: finding.subjectId,
+        description:
+          "Create an evidence-bound evaluation draft for human review.",
+        payload: finding.data,
+      }),
+    ];
+  }
+}
+
 export function createDefaultSkills(): Record<string, AgentSkill> {
   const skills = [
     new EvidenceGapSkill(),
@@ -579,6 +741,7 @@ export function createDefaultSkills(): Record<string, AgentSkill> {
     new ContributionAnomalySkill(),
     new PolicyProposalSkill(),
     new DataQualitySkill(),
+    new EvaluationDraftSkill(),
     new AppealSlaSkill(),
   ];
   return Object.fromEntries(skills.map((skill) => [skill.name, skill]));

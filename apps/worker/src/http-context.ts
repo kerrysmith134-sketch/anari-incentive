@@ -5,6 +5,7 @@ import type {
   ContributionClaim,
   DataQualityIssue,
   EmployeeConfirmation,
+  EvaluationDraft,
   EvidenceNode,
   LegalGateRecord,
   PublishPolicyInput,
@@ -165,6 +166,30 @@ export class HttpAgentContext implements AgentContext {
     return postData(
       this.baseUrl,
       "/api/v1/data-quality-issues",
+      await this.headers(),
+      input,
+    );
+  }
+
+  async createEvaluationDraft(input: {
+    cycleId: string;
+    personId: string;
+    generatedByType: "AGENT" | "USER" | "SYSTEM";
+    generatedById?: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion?: string;
+    agentTaskId?: string;
+    evidenceSnapshotHash: string;
+    draftPayload: Record<string, unknown>;
+    strengths?: string[];
+    counterEvidence?: string[];
+    missingInformation?: string[];
+    uncertainty?: Record<string, unknown>;
+  }): Promise<EvaluationDraft> {
+    return postData(
+      this.baseUrl,
+      "/api/v1/evaluation-drafts",
       await this.headers(),
       input,
     );
