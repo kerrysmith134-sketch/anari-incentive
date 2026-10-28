@@ -8,6 +8,7 @@ import {
   confirmationBlockers,
   contributionClaimTransitions,
   legalGateBlockers,
+  settlementBatchTransitions,
   workPackageTransitions,
   type AmountLedgerEntry,
   type AppealCase,
@@ -25,6 +26,10 @@ import {
   type PolicyDefinition,
   type PublishPolicyInput,
   type PublishedPolicy,
+  type SettlementBatch,
+  type SettlementCommandInput,
+  type SettlementCommandResult,
+  type SettlementLine,
   type WorkPackage,
 } from "@anari/domain";
 import type {
@@ -39,7 +44,10 @@ import { InMemoryLedger } from "@anari/ledger";
 import {
   PolicyGateError,
   calculateByPolicy,
+  formatDecimal,
+  parseDecimal,
   sha256,
+  sum,
 } from "@anari/policy-dsl";
 import type {
   IncentiveStore,
@@ -80,6 +88,25 @@ function notFound(kind: string, id: string): never {
   throw new NotFoundError(`${kind} ${id} not found`);
 }
 
+export function settlementCsv(
+  batch: SettlementBatch,
+  lines: SettlementLine[],
+): string {
+  const header = "batch_no,person_id,ledger_id,amount,currency";
+  const rows = lines
+    .filter((line) => line.active)
+    .map((line) =>
+      [
+        batch.batchNo,
+        line.personId,
+        line.ledgerId,
+        line.amount,
+        line.currency,
+      ].join(","),
+    );
+  return [header, ...rows].join("\n") + "\n";
+}
+
 /**
  * In-memory implementation used by the API tests and local demos. The
  * PostgreSQL implementation (`PgStore`) must expose the same behaviour.
@@ -98,6 +125,8 @@ export class Store implements IncentiveStore {
   private readonly ingestedKeys = new Set<string>();
   private readonly publishedPolicies = new Map<string, PolicyDefinition>();
   private readonly publishedPolicyKeys = new Set<string>();
+  private readonly settlementBatches = new Map<string, SettlementBatch>();
+  private readonly settlementLines = new Map<string, SettlementLine[]>();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {}
 
@@ -851,6 +880,241 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createSettlementBatch(input: {
+    cycleId: string;
+    currency?: string;
+    batchNo?: string;
+  }): Promise<SettlementBatch> {
+    const ledger = await this.listLedger();
+    const alreadyBatched = new Set(
+      [...this.settlementLines.values()]
+        .flat()
+        .filter((line) => line.active)
+        .map((line) => line.ledgerId),
+    );
+    const eligible = ledger.filter(
+      (entry) =>
+        entry.cycleId === input.cycleId &&
+        entry.status === "LOCKED" &&
+        !alreadyBatched.has(entry.id),
+    );
+    if (eligible.length === 0) {
+      throw new ConflictError(
+        "NO_SETTLEMENT_ELIGIBLE_LEDGER: no unbatched locked ledger entries for this cycle",
+      );
+    }
+    const currencies = new Set(eligible.map((entry) => entry.currency));
+    if (currencies.size > 1) {
+      throw new ConflictError(
+        `MIXED_CURRENCIES: ${[...currencies].join(", ")}`,
+      );
+    }
+    const currency = input.currency ?? [...currencies][0]!;
+    if ([...currencies][0] !== currency) {
+      throw new ConflictError(
+        `CURRENCY_MISMATCH: ledger is ${[...currencies][0]}, batch is ${currency}`,
+      );
+    }
+
+    const timestamp = now();
+    const id = randomUUID();
+    const batchNo = input.batchNo ?? `SB-${Date.now()}-${id.slice(0, 8)}`;
+    if ([...this.settlementBatches.values()].some((b) => b.batchNo === batchNo)) {
+      throw new ConflictError(`Settlement batch ${batchNo} already exists`);
+    }
+    const lines: SettlementLine[] = eligible.map((entry) => ({
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      batchId: id,
+      ledgerId: entry.id,
+      personId: entry.personId,
+      amount: formatDecimal(parseDecimal(entry.amount)),
+      currency: entry.currency,
+      status: "PENDING",
+      active: true,
+      createdAt: timestamp,
+    }));
+    const batch: SettlementBatch = {
+      id,
+      tenantId: this.tenantId,
+      cycleId: input.cycleId,
+      batchNo,
+      status: "DRAFT",
+      currency,
+      totalAmount: formatDecimal(
+        sum(lines.map((line) => parseDecimal(line.amount))),
+      ),
+      lineCount: lines.length,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lines,
+    };
+    this.settlementBatches.set(id, batch);
+    this.settlementLines.set(id, lines);
+    return { ...batch, lines: lines.map((line) => ({ ...line })) };
+  }
+
+  async getSettlementBatch(id: string): Promise<SettlementBatch> {
+    const batch = this.settlementBatches.get(id);
+    if (!batch) notFound("SettlementBatch", id);
+    const lines = this.settlementLines.get(id) ?? [];
+    return { ...batch, lines: lines.map((line) => ({ ...line })) };
+  }
+
+  async listSettlementBatches(): Promise<SettlementBatch[]> {
+    return [...this.settlementBatches.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((batch) => ({
+        ...batch,
+        lines: (this.settlementLines.get(batch.id) ?? []).map((line) => ({
+          ...line,
+        })),
+      }));
+  }
+
+  async listSettlementLines(batchId: string): Promise<SettlementLine[]> {
+    if (!this.settlementBatches.has(batchId)) {
+      notFound("SettlementBatch", batchId);
+    }
+    return (this.settlementLines.get(batchId) ?? []).map((line) => ({
+      ...line,
+    }));
+  }
+
+  async commandSettlementBatch(
+    id: string,
+    input: SettlementCommandInput,
+  ): Promise<SettlementCommandResult> {
+    const batch = await this.getSettlementBatch(id);
+    const lines = this.settlementLines.get(id) ?? [];
+    const transition = (to: SettlementBatch["status"]) =>
+      assertTransition(
+        settlementBatchTransitions,
+        "SettlementBatch",
+        batch.status,
+        to,
+      );
+
+    switch (input.command) {
+      case "RECONCILE": {
+        transition("RECONCILING");
+        await this.validateSettlementLines(batch, lines);
+        batch.status = "RECONCILING";
+        break;
+      }
+      case "SUBMIT": {
+        transition("PENDING_APPROVAL");
+        if (parseDecimal(batch.totalAmount) <= 0n) {
+          throw new ConflictError(
+            "EMPTY_SETTLEMENT: batch total must be positive",
+          );
+        }
+        batch.status = "PENDING_APPROVAL";
+        break;
+      }
+      case "APPROVE": {
+        transition("APPROVED");
+        if (!input.actorPersonId) {
+          throw new ConflictError(
+            "APPROVER_REQUIRED: settlement approval requires a person",
+          );
+        }
+        batch.status = "APPROVED";
+        batch.approvedBy = input.actorPersonId;
+        batch.approvedAt = now();
+        break;
+      }
+      case "LOCK": {
+        transition("LOCKED");
+        batch.status = "LOCKED";
+        batch.lockedAt = now();
+        break;
+      }
+      case "EXPORT": {
+        transition("EXPORTED");
+        batch.status = "EXPORTED";
+        batch.exportedAt = now();
+        break;
+      }
+      case "ACKNOWLEDGE": {
+        transition("ACKNOWLEDGED");
+        batch.status = "ACKNOWLEDGED";
+        batch.acknowledgedAt = now();
+        batch.externalReference = input.externalReference;
+        break;
+      }
+      case "CANCEL": {
+        transition("CANCELLED");
+        batch.status = "CANCELLED";
+        for (const line of lines) {
+          line.active = false;
+          line.status = "CANCELLED";
+        }
+        batch.totalAmount = "0";
+        batch.lineCount = 0;
+        break;
+      }
+    }
+    batch.updatedAt = now();
+    this.settlementBatches.set(id, batch);
+    const csv =
+      input.command === "EXPORT" ? settlementCsv(batch, lines) : undefined;
+    return {
+      batch: { ...batch, lines: lines.map((line) => ({ ...line })) },
+      csv,
+    };
+  }
+
+  private async validateSettlementLines(
+    batch: SettlementBatch,
+    lines: SettlementLine[],
+  ): Promise<void> {
+    const ledger = new Map(
+      (await this.listLedger()).map((entry) => [entry.id, entry]),
+    );
+    const seen = new Set<string>();
+    for (const line of lines.filter((candidate) => candidate.active)) {
+      if (seen.has(line.ledgerId)) {
+        throw new ConflictError(
+          `DUPLICATE_LEDGER_LINE: ${line.ledgerId}`,
+        );
+      }
+      seen.add(line.ledgerId);
+      const entry = ledger.get(line.ledgerId);
+      if (!entry) {
+        throw new ConflictError(`LEDGER_NOT_FOUND: ${line.ledgerId}`);
+      }
+      if (entry.status !== "LOCKED") {
+        throw new ConflictError(
+          `LEDGER_NOT_LOCKED: ${line.ledgerId} is ${entry.status}`,
+        );
+      }
+      if (
+        entry.personId !== line.personId ||
+        entry.currency !== line.currency ||
+        parseDecimal(entry.amount) !== parseDecimal(line.amount)
+      ) {
+        throw new ConflictError(
+          `LEDGER_MISMATCH: settlement line ${line.id} does not match ledger ${entry.id}`,
+        );
+      }
+    }
+    const active = lines.filter((line) => line.active);
+    const total = formatDecimal(
+      sum(active.map((line) => parseDecimal(line.amount))),
+    );
+    if (formatDecimal(parseDecimal(batch.totalAmount)) !== total) {
+      throw new ConflictError(
+        `SETTLEMENT_TOTAL_MISMATCH: batch ${batch.totalAmount}, lines ${total}`,
+      );
+    }
+    if (batch.lineCount !== active.length) {
+      throw new ConflictError(
+        `SETTLEMENT_LINE_COUNT_MISMATCH: batch ${batch.lineCount}, lines ${active.length}`,
+      );
+    }
   }
 
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {

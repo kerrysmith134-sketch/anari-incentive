@@ -372,10 +372,24 @@ export interface AppealCase {
   resolvedAt?: string;
 }
 
+export interface SettlementLine {
+  id: UUID;
+  tenantId: UUID;
+  batchId: UUID;
+  ledgerId: UUID;
+  personId: UUID;
+  amount: DecimalString;
+  currency: string;
+  status: string;
+  active: boolean;
+  createdAt: string;
+}
+
 export interface SettlementBatch {
   id: UUID;
   tenantId: UUID;
   cycleId: UUID;
+  batchNo: string;
   status: SettlementBatchStatus;
   currency: string;
   totalAmount: DecimalString;
@@ -385,7 +399,30 @@ export interface SettlementBatch {
   lockedAt?: string;
   exportedAt?: string;
   acknowledgedAt?: string;
+  externalReference?: string;
   createdAt: string;
+  updatedAt: string;
+  lines?: SettlementLine[];
+}
+
+export type SettlementCommand =
+  | "RECONCILE"
+  | "SUBMIT"
+  | "APPROVE"
+  | "LOCK"
+  | "EXPORT"
+  | "ACKNOWLEDGE"
+  | "CANCEL";
+
+export interface SettlementCommandInput {
+  command: SettlementCommand;
+  actorPersonId?: UUID;
+  externalReference?: string;
+}
+
+export interface SettlementCommandResult {
+  batch: SettlementBatch;
+  csv?: string;
 }
 
 export interface DataQualityIssue {

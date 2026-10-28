@@ -383,6 +383,101 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger/verify")).body.data.valid).toBe(true);
   });
 
+  it("reconciles, approves, locks and exports a settlement batch", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const formal = await formalRun(workPackageId);
+    const runId = formal.body.data.id as string;
+    await confirmCalculation(runId, OWNER);
+    await confirmCalculation(runId, MEMBER);
+    await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
+      confirmation: "LOCK_CALCULATION",
+    });
+
+    const created = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    expect(created.body.data.lineCount).toBe(2);
+    expect(created.body.data.totalAmount).toBe("5000");
+    const batchId = created.body.data.id as string;
+
+    const duplicate = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: CYCLE,
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe("CONFLICT");
+
+    const reconciled = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "RECONCILE" },
+    );
+    expect(reconciled.status).toBe(200);
+    expect(reconciled.body.data.batch.status).toBe("RECONCILING");
+
+    const submitted = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "SUBMIT" },
+    );
+    expect(submitted.body.data.batch.status).toBe("PENDING_APPROVAL");
+
+    const missingApprover = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "APPROVE" },
+    );
+    expect(missingApprover.status).toBe(409);
+    expect(missingApprover.body.error.message).toContain("APPROVER_REQUIRED");
+
+    const approved = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "APPROVE", actorPersonId: ADJUDICATOR },
+    );
+    expect(approved.body.data.batch.status).toBe("APPROVED");
+    expect(approved.body.data.batch.approvedBy).toBe(ADJUDICATOR);
+
+    const locked = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "LOCK" },
+    );
+    expect(locked.body.data.batch.status).toBe("LOCKED");
+
+    const exported = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "EXPORT" },
+    );
+    expect(exported.body.data.batch.status).toBe("EXPORTED");
+    expect(exported.body.data.csv).toContain(
+      "batch_no,person_id,ledger_id,amount,currency",
+    );
+    expect(exported.body.data.csv.trim().split("\n")).toHaveLength(3);
+
+    const acknowledged = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      { command: "ACKNOWLEDGE", externalReference: "finance-batch-1" },
+    );
+    expect(acknowledged.body.data.batch.status).toBe("ACKNOWLEDGED");
+    expect(acknowledged.body.data.batch.externalReference).toBe(
+      "finance-batch-1",
+    );
+
+    const fetched = await call(
+      "GET",
+      `/api/v1/settlement-batches/${batchId}`,
+    );
+    expect(fetched.body.data.lines).toHaveLength(2);
+  });
+
   it("blocks locking when an employee objects", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);

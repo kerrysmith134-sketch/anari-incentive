@@ -543,6 +543,91 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/settlement-batches:
+    get:
+      tags: [Ledger]
+      summary: List settlement batches
+      responses:
+        "200":
+          description: Settlement batches with lines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Ledger]
+      summary: Create a settlement batch from locked ledger entries
+      description: |
+        Collects LOCKED ledger entries for the cycle that are not already in an
+        active settlement batch. The batch starts in DRAFT with one line per
+        ledger entry; totals reconcile from those lines.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSettlementBatch"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/settlement-batches/{id}:
+    get:
+      tags: [Ledger]
+      summary: Get a settlement batch with lines
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Settlement batch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/settlement-batches/{id}/commands:
+    post:
+      tags: [Ledger]
+      summary: Run an explicit settlement command
+      description: |
+        Commands advance the canonical settlement state machine:
+        RECONCILE, SUBMIT, APPROVE, LOCK, EXPORT, ACKNOWLEDGE, CANCEL.
+        EXPORT returns the batch plus a CSV string; CANCEL deactivates lines so
+        the ledger entries can be batched again.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettlementCommand"
+      responses:
+        "200":
+          description: Command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/appeals:
     get:
       tags: [Appeals]
@@ -1430,6 +1515,39 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+
+    CreateSettlementBatch:
+      type: object
+      required: [cycleId]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        batchNo:
+          type: string
+          minLength: 1
+
+    SettlementCommand:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          enum:
+            - RECONCILE
+            - SUBMIT
+            - APPROVE
+            - LOCK
+            - EXPORT
+            - ACKNOWLEDGE
+            - CANCEL
+        actorPersonId:
+          $ref: "#/components/schemas/Uuid"
+        externalReference:
+          type: string
 
     PublishPolicy:
       type: object

@@ -27,6 +27,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector and CLI importer (`npm run import:csv`) |
 | Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
+| Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL commands; verified line-to-ledger match; CSV export for finance |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
 | Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
@@ -39,7 +40,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **104 unit/API tests + 9 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, policy publication/succession, tenant isolation, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
+| Tests | **105 unit/API tests + 9 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, tenant isolation, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -162,6 +163,9 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/employee-confirmations?personId=` | List confirmations |
 | GET | `/api/v1/ledger` | List ledger |
 | GET | `/api/v1/ledger/verify` | Verify hash chain |
+| POST | `/api/v1/settlement-batches` | Batch unbatched locked ledger entries for a cycle |
+| GET | `/api/v1/settlement-batches` / `/:id` | List/get batches with lines |
+| POST | `/api/v1/settlement-batches/:id/commands` | RECONCILE / SUBMIT / APPROVE / LOCK / EXPORT / ACKNOWLEDGE / CANCEL; EXPORT returns CSV |
 | POST | `/api/v1/appeals` | Open appeal |
 | GET | `/api/v1/appeals` / `/:id` | List/get |
 | POST | `/api/v1/appeals/:id/triage` | OPEN → TRIAGED; assign reviewer |

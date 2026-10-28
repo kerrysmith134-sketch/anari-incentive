@@ -15,6 +15,10 @@ import type {
   PolicyDefinition,
   PublishPolicyInput,
   PublishedPolicy,
+  SettlementBatch,
+  SettlementCommandInput,
+  SettlementCommandResult,
+  SettlementLine,
   WorkPackage,
 } from "@anari/domain";
 import type {
@@ -116,4 +120,17 @@ export interface IncentiveStore {
 
   listLedger(tenantId?: string): Promise<AmountLedgerEntry[]>;
   verifyLedger(tenantId?: string): Promise<boolean>;
+
+  createSettlementBatch(input: {
+    cycleId: string;
+    currency?: string;
+    batchNo?: string;
+  }): Promise<SettlementBatch>;
+  getSettlementBatch(id: string): Promise<SettlementBatch>;
+  listSettlementBatches(): Promise<SettlementBatch[]>;
+  listSettlementLines(batchId: string): Promise<SettlementLine[]>;
+  commandSettlementBatch(
+    id: string,
+    input: SettlementCommandInput,
+  ): Promise<SettlementCommandResult>;
 }

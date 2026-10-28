@@ -133,6 +133,52 @@ describePg("PgStore vertical slice", () => {
     expect(ledger).toHaveLength(2);
     expect(ledger.every((entry) => entry.status === "LOCKED")).toBe(true);
     expect(await store.verifyLedger()).toBe(true);
+
+    const batch = await store.createSettlementBatch({ cycleId: CYCLE });
+    expect(batch.status).toBe("DRAFT");
+    expect(batch.lineCount).toBe(2);
+    expect(batch.totalAmount).toBe("5000");
+
+    expect(
+      (
+        await store.commandSettlementBatch(batch.id, {
+          command: "RECONCILE",
+        })
+      ).batch.status,
+    ).toBe("RECONCILING");
+    expect(
+      (
+        await store.commandSettlementBatch(batch.id, {
+          command: "SUBMIT",
+        })
+      ).batch.status,
+    ).toBe("PENDING_APPROVAL");
+    expect(
+      (
+        await store.commandSettlementBatch(batch.id, {
+          command: "APPROVE",
+          actorPersonId: ADJUDICATOR,
+        })
+      ).batch.status,
+    ).toBe("APPROVED");
+    expect(
+      (
+        await store.commandSettlementBatch(batch.id, {
+          command: "LOCK",
+        })
+      ).batch.status,
+    ).toBe("LOCKED");
+    const exported = await store.commandSettlementBatch(batch.id, {
+      command: "EXPORT",
+    });
+    expect(exported.batch.status).toBe("EXPORTED");
+    expect(exported.csv?.trim().split("\n")).toHaveLength(3);
+    const acknowledged = await store.commandSettlementBatch(batch.id, {
+      command: "ACKNOWLEDGE",
+      externalReference: "pg-finance-1",
+    });
+    expect(acknowledged.batch.status).toBe("ACKNOWLEDGED");
+    expect(acknowledged.batch.externalReference).toBe("pg-finance-1");
   });
 
   it("stores an evidence graph with provenance and links", async () => {

@@ -261,6 +261,30 @@ export const policyDefinitionSchema = z.object({
 });
 export type PolicyDefinitionBody = z.input<typeof policyDefinitionSchema>;
 
+export const createSettlementBatchSchema = z.object({
+  cycleId: uuidSchema,
+  currency: z.string().length(3).optional(),
+  batchNo: z.string().min(1).optional(),
+});
+export type CreateSettlementBatchBody = z.infer<
+  typeof createSettlementBatchSchema
+>;
+
+export const settlementCommandSchema = z.object({
+  command: z.enum([
+    "RECONCILE",
+    "SUBMIT",
+    "APPROVE",
+    "LOCK",
+    "EXPORT",
+    "ACKNOWLEDGE",
+    "CANCEL",
+  ]),
+  actorPersonId: uuidSchema.optional(),
+  externalReference: z.string().optional(),
+});
+export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
+
 export const publishPolicySchema = z.object({
   policy: policyDefinitionSchema,
   policyVersionId: uuidSchema.optional(),

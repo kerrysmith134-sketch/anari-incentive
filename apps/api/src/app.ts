@@ -14,6 +14,7 @@ import {
   approveAgentActionSchema,
   createEvidenceLinkSchema,
   createEvidenceSchema,
+  createSettlementBatchSchema,
   createWorkPackageSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
@@ -26,6 +27,7 @@ import {
   recordLegalGateSchema,
   rejectWorkPackageSchema,
   resolveAppealSchema,
+  settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
 import {
@@ -522,6 +524,29 @@ export function buildApp(
   app.get("/api/v1/ledger/verify", async (request) =>
     data({ valid: await storeFor(request).verifyLedger() }, request),
   );
+
+  app.post("/api/v1/settlement-batches", async (request, reply) => {
+    const body = parse(createSettlementBatchSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createSettlementBatch(body), request));
+  });
+
+  app.get("/api/v1/settlement-batches", async (request) =>
+    data(await storeFor(request).listSettlementBatches(), request),
+  );
+
+  app.get("/api/v1/settlement-batches/:id", async (request) =>
+    data(await storeFor(request).getSettlementBatch(idOf(request)), request),
+  );
+
+  app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
+    const body = parse(settlementCommandSchema, request.body);
+    return data(
+      await storeFor(request).commandSettlementBatch(idOf(request), body),
+      request,
+    );
+  });
 
   app.post("/api/v1/appeals", async (request, reply) => {
     const body = parse(createAppealSchema, request.body);
