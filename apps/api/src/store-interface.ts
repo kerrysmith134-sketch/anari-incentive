@@ -7,6 +7,7 @@ import type {
   ConfirmationDecision,
   ConfirmationTargetType,
   ContributionClaim,
+  DataQualityIssue,
   EmployeeConfirmation,
   EvidenceLink,
   EvaluationCycle,
@@ -188,6 +189,28 @@ export interface IncentiveStore {
     personId?: string;
   }): Promise<EvaluationDecision[]>;
   getEvaluationDecision(id: string): Promise<EvaluationDecision>;
+
+  createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+    assignedTo?: string;
+  }): Promise<DataQualityIssue>;
+  getDataQualityIssue(id: string): Promise<DataQualityIssue>;
+  listDataQualityIssues(filter?: {
+    status?: string;
+  }): Promise<DataQualityIssue[]>;
+  commandDataQualityIssue(
+    id: string,
+    input: {
+      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      assignedTo?: string;
+      actorPersonId?: string;
+      reason?: string;
+    },
+  ): Promise<DataQualityIssue>;
 
   createSettlementBatch(input: {
     cycleId: string;

@@ -536,6 +536,9 @@ export interface DataQualityIssue {
   status: DataQualityIssueStatus;
   assignedTo?: UUID;
   details: Record<string, unknown>;
+  waiverReason?: string;
+  waivedBy?: UUID;
   createdAt: string;
+  updatedAt: string;
   resolvedAt?: string;
 }

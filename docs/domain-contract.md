@@ -167,6 +167,8 @@ Additional application-level invariants:
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
 | `POST /evidence/:id/links` | both evidence nodes exist | SUPPORTS / CONTRADICTS / DEPENDS_ON / CORRECTS / CONTEXT |
+| `POST /data-quality-issues` | manager | Creates OPEN/ASSIGNED issue |
+| `POST /data-quality-issues/:id/commands` | canonical issue state | ASSIGN (assignee), START, RESOLVE, WAIVE (approver + reason), REOPEN |
 | `POST /employee-confirmations` | target exists | VIEWED / CONFIRMED / OBJECTED |
 | `POST /appeals` | — | OPEN |
 | `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |

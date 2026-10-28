@@ -198,6 +198,61 @@ describePg("PgStore vertical slice", () => {
     expect(audit.every((event) => event.eventHash.length > 0)).toBe(true);
   });
 
+  it("blocks a formal run on an unresolved blocking data-quality issue", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate();
+    const issue = await store.createDataQualityIssue({
+      objectType: "WORK_PACKAGE",
+      objectId: workPackageId,
+      issueCode: "MISSING_DELIVERY_RECORD",
+      severity: "BLOCKING",
+    });
+
+    await expect(
+      store.createCalculationRun({
+        cycleId: CYCLE,
+        policyVersionId: REFERENCE_POLICY_ID,
+        mode: "FORMAL",
+        order: { id: "pg-dq-order", grossProfit: "10000", currency: "CNY" },
+        participants: [
+          {
+            personId: OWNER,
+            workPackageId,
+            attributionWeight: "1",
+            role: "OWNER",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      blockers: expect.arrayContaining([
+        `BLOCKING_DATA_QUALITY_ISSUE:${issue.id}`,
+      ]),
+    });
+
+    await store.commandDataQualityIssue(issue.id, {
+      command: "WAIVE",
+      actorPersonId: ADJUDICATOR,
+      reason: "Accepted by finance",
+    });
+    const allowed = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: { id: "pg-dq-order", grossProfit: "10000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    });
+    expect(allowed.status).toBe("CALCULATED");
+  });
+
   it("records human-reviewed evaluation decisions with versioning", async () => {
     const cycle = await store.createEvaluationCycle({
       name: "Postgres 2027 Q1",
@@ -285,6 +340,55 @@ describePg("PgStore vertical slice", () => {
         rationale: "Self",
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("tracks data-quality issue lifecycle", async () => {
+    const issue = await store.createDataQualityIssue({
+      objectType: "WORK_PACKAGE",
+      objectId: "00000000-0000-4000-8000-000000000010",
+      issueCode: "EVIDENCE_MISSING",
+      severity: "WARNING",
+      details: { missing: ["DELIVERY_RECORD"] },
+    });
+    expect(issue.status).toBe("OPEN");
+
+    expect(
+      (
+        await store.commandDataQualityIssue(issue.id, {
+          command: "ASSIGN",
+          assignedTo: ADJUDICATOR,
+        })
+      ).status,
+    ).toBe("ASSIGNED");
+    expect(
+      (
+        await store.commandDataQualityIssue(issue.id, {
+          command: "START",
+        })
+      ).status,
+    ).toBe("IN_PROGRESS");
+    await expect(
+      store.commandDataQualityIssue(issue.id, { command: "WAIVE" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const waived = await store.commandDataQualityIssue(issue.id, {
+      command: "WAIVE",
+      actorPersonId: ADJUDICATOR,
+      reason: "Accepted risk",
+    });
+    expect(waived.status).toBe("WAIVED_WITH_APPROVAL");
+    expect(waived.waiverReason).toBe("Accepted risk");
+    expect(
+      (
+        await store.commandDataQualityIssue(issue.id, {
+          command: "REOPEN",
+        })
+      ).status,
+    ).toBe("REOPENED");
+    expect(
+      (await store.listDataQualityIssues({ status: "REOPENED" })).some(
+        (candidate) => candidate.id === issue.id,
+      ),
+    ).toBe(true);
   });
 
   it("stores an evidence graph with provenance and links", async () => {

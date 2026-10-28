@@ -13,8 +13,10 @@ import {
   createContributionClaimSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
+  createDataQualityIssueSchema,
   createEvaluationCycleSchema,
   createEvaluationDraftSchema,
+  dataQualityCommandSchema,
   createEvidenceSchema,
   createRubricSchema,
   createSettlementBatchSchema,
@@ -300,6 +302,40 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/data-quality-issues", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createDataQualityIssueSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createDataQualityIssue(body), request));
+  });
+
+  app.get("/api/v1/data-quality-issues", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { status?: string };
+    return data(
+      await storeFor(request).listDataQualityIssues({ status: query.status }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/data-quality-issues/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).getDataQualityIssue(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/data-quality-issues/:id/commands", async (request) => {
+    requireRoles(request, "manager");
+    const body = parse(dataQualityCommandSchema, request.body);
+    return data(
+      await storeFor(request).commandDataQualityIssue(idOf(request), body),
+      request,
+    );
   });
 
   app.post("/api/v1/evaluation-cycles", async (request, reply) => {

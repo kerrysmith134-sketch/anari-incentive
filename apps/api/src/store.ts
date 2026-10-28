@@ -7,6 +7,7 @@ import {
   calculationRunTransitions,
   confirmationBlockers,
   contributionClaimTransitions,
+  dataQualityIssueTransitions,
   evaluationDraftTransitions,
   legalGateBlockers,
   settlementBatchTransitions,
@@ -19,6 +20,7 @@ import {
   type CalculationRun,
   type CommitmentSnapshot,
   type ContributionClaim,
+  type DataQualityIssue,
   type EmployeeConfirmation,
   type EvaluationCycle,
   type EvaluationDecision,
@@ -140,6 +142,7 @@ export class Store implements IncentiveStore {
   private readonly settlementLines = new Map<string, SettlementLine[]>();
   private readonly rubrics = new Map<string, Rubric>();
   private readonly evaluationCycles = new Map<string, EvaluationCycle>();
+  private readonly dataQualityIssues = new Map<string, DataQualityIssue>();
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
 
@@ -660,6 +663,21 @@ export class Store implements IncentiveStore {
           );
         }
       }
+      const workPackageIds = new Set(
+        input.participants.map((participant) => participant.workPackageId),
+      );
+      for (const issue of this.dataQualityIssues.values()) {
+        if (
+          issue.severity === "BLOCKING" &&
+          issue.objectType === "WORK_PACKAGE" &&
+          workPackageIds.has(issue.objectId) &&
+          ["OPEN", "ASSIGNED", "IN_PROGRESS", "REOPENED"].includes(
+            issue.status,
+          )
+        ) {
+          blockers.push(`BLOCKING_DATA_QUALITY_ISSUE:${issue.id}`);
+        }
+      }
     }
 
     if (blockers.length > 0) {
@@ -926,6 +944,102 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+    assignedTo?: string;
+  }): Promise<DataQualityIssue> {
+    const timestamp = now();
+    const issue: DataQualityIssue = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      objectType: input.objectType,
+      objectId: input.objectId,
+      issueCode: input.issueCode,
+      severity: input.severity,
+      status: input.assignedTo ? "ASSIGNED" : "OPEN",
+      assignedTo: input.assignedTo,
+      details: input.details ?? {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.dataQualityIssues.set(issue.id, issue);
+    return issue;
+  }
+
+  async getDataQualityIssue(id: string): Promise<DataQualityIssue> {
+    const issue = this.dataQualityIssues.get(id);
+    if (!issue) notFound("DataQualityIssue", id);
+    return issue;
+  }
+
+  async listDataQualityIssues(filter?: {
+    status?: string;
+  }): Promise<DataQualityIssue[]> {
+    return [...this.dataQualityIssues.values()]
+      .filter((issue) => !filter?.status || issue.status === filter.status)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async commandDataQualityIssue(
+    id: string,
+    input: {
+      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      assignedTo?: string;
+      actorPersonId?: string;
+      reason?: string;
+    },
+  ): Promise<DataQualityIssue> {
+    const issue = await this.getDataQualityIssue(id);
+    const target = {
+      ASSIGN: "ASSIGNED",
+      START: "IN_PROGRESS",
+      RESOLVE: "RESOLVED",
+      WAIVE: "WAIVED_WITH_APPROVAL",
+      REOPEN: "REOPENED",
+    } as const;
+    assertTransition(
+      dataQualityIssueTransitions,
+      "DataQualityIssue",
+      issue.status,
+      target[input.command],
+    );
+    const timestamp = now();
+    switch (input.command) {
+      case "ASSIGN":
+        if (!input.assignedTo) {
+          throw new ConflictError("DQ_ASSIGNEE_REQUIRED");
+        }
+        issue.assignedTo = input.assignedTo;
+        issue.status = "ASSIGNED";
+        break;
+      case "START":
+        issue.status = "IN_PROGRESS";
+        break;
+      case "RESOLVE":
+        issue.status = "RESOLVED";
+        issue.resolvedAt = timestamp;
+        break;
+      case "WAIVE":
+        if (!input.actorPersonId || !input.reason) {
+          throw new ConflictError("DQ_WAIVER_REQUIRES_APPROVER_AND_REASON");
+        }
+        issue.status = "WAIVED_WITH_APPROVAL";
+        issue.waivedBy = input.actorPersonId;
+        issue.waiverReason = input.reason;
+        break;
+      case "REOPEN":
+        issue.status = "REOPENED";
+        issue.resolvedAt = undefined;
+        break;
+    }
+    issue.updatedAt = timestamp;
+    return issue;
   }
 
   async createEvaluationCycle(input: {

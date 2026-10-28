@@ -671,6 +671,70 @@ describe("vertical slice", () => {
     expect(fetched.body.data.lines).toHaveLength(2);
   });
 
+  it("tracks and waives data-quality issues", async () => {
+    const created = await call("POST", "/api/v1/data-quality-issues", {
+      objectType: "WORK_PACKAGE",
+      objectId: "00000000-0000-4000-8000-000000000010",
+      issueCode: "EVIDENCE_MISSING",
+      severity: "WARNING",
+      details: { missing: ["DELIVERY_RECORD"] },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("OPEN");
+    const issueId = created.body.data.id as string;
+
+    const assigned = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "ASSIGN", assignedTo: ADJUDICATOR },
+    );
+    expect(assigned.body.data.status).toBe("ASSIGNED");
+    expect(assigned.body.data.assignedTo).toBe(ADJUDICATOR);
+
+    const started = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "START" },
+    );
+    expect(started.body.data.status).toBe("IN_PROGRESS");
+
+    const invalidWaiver = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "WAIVE" },
+    );
+    expect(invalidWaiver.status).toBe(409);
+
+    const waived = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      {
+        command: "WAIVE",
+        actorPersonId: ADJUDICATOR,
+        reason: "Evidence will arrive next cycle",
+      },
+    );
+    expect(waived.body.data.status).toBe("WAIVED_WITH_APPROVAL");
+    expect(waived.body.data.waiverReason).toBe(
+      "Evidence will arrive next cycle",
+    );
+
+    const reopened = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "REOPEN" },
+    );
+    expect(reopened.body.data.status).toBe("REOPENED");
+
+    const list = await call(
+      "GET",
+      "/api/v1/data-quality-issues?status=REOPENED",
+    );
+    expect(
+      list.body.data.some((issue: { id: string }) => issue.id === issueId),
+    ).toBe(true);
+  });
+
   it("creates and lists evaluation cycles", async () => {
     const created = await call("POST", "/api/v1/evaluation-cycles", {
       name: "2027 Q1 cycle",
@@ -803,6 +867,39 @@ describe("vertical slice", () => {
     );
     expect(decision.status).toBe(409);
     expect(decision.body.error.message).toContain("SELF_REVIEW_FORBIDDEN");
+  });
+
+  it("blocks a formal run on an unresolved blocking data-quality issue", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+
+    const issue = await call("POST", "/api/v1/data-quality-issues", {
+      objectType: "WORK_PACKAGE",
+      objectId: workPackageId,
+      issueCode: "MISSING_DELIVERY_RECORD",
+      severity: "BLOCKING",
+    });
+    const issueId = issue.body.data.id as string;
+
+    const blocked = await formalRun(workPackageId);
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.error.details.blockers).toContain(
+      `BLOCKING_DATA_QUALITY_ISSUE:${issueId}`,
+    );
+
+    await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      {
+        command: "WAIVE",
+        actorPersonId: ADJUDICATOR,
+        reason: "Finance accepted the missing record",
+      },
+    );
+    const allowed = await formalRun(workPackageId);
+    expect(allowed.status).toBe(201);
   });
 
   it("blocks locking when an employee objects", async () => {

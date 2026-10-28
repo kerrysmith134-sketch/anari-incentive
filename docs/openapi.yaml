@@ -892,6 +892,94 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/data-quality-issues:
+    get:
+      tags: [Evaluation]
+      summary: List data-quality issues
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Issues
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Evaluation]
+      summary: Create a data-quality issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDataQualityIssue"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/data-quality-issues/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Get a data-quality issue
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/data-quality-issues/{id}/commands:
+    post:
+      tags: [Evaluation]
+      summary: Run a data-quality issue command
+      description: "ASSIGN, START, RESOLVE, WAIVE (approver + reason required) or REOPEN."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataQualityCommand"
+      responses:
+        "200":
+          description: Updated issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/evaluation-cycles:
     get:
       tags: [Evaluation]
@@ -1812,6 +1900,39 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+
+    CreateDataQualityIssue:
+      type: object
+      required: [objectType, objectId, issueCode, severity]
+      properties:
+        objectType:
+          type: string
+        objectId:
+          $ref: "#/components/schemas/Uuid"
+        issueCode:
+          type: string
+        severity:
+          type: string
+          enum: [INFO, WARNING, BLOCKING]
+        details:
+          type: object
+          additionalProperties: true
+        assignedTo:
+          $ref: "#/components/schemas/Uuid"
+
+    DataQualityCommand:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          enum: [ASSIGN, START, RESOLVE, WAIVE, REOPEN]
+        assignedTo:
+          $ref: "#/components/schemas/Uuid"
+        actorPersonId:
+          $ref: "#/components/schemas/Uuid"
+        reason:
+          type: string
 
     CreateEvaluationCycle:
       type: object

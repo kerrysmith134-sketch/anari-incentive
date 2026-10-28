@@ -27,6 +27,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Policy publication | `POST /policy-versions` writes a `PUBLISHED`, content-hashed, approver-attributed version; a successor closes the prior effective window and published content stays immutable. Formal calculations still require the separate legal gate. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
+| Data quality | Persistent issues with OPEN → ASSIGNED → IN_PROGRESS → RESOLVED/WAIVED_WITH_APPROVAL → REOPENED; waiver requires approver and reason; unresolved BLOCKING issues on a participant's work package block FORMAL calculations |
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector + CLI importer (`npm run import:csv`); generic paginated HTTP/JSON connector for CRM/ERP REST APIs |
 | Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; employees only see their own work packages, claims, runs, ledger entries, confirmations and appeals; the worker supports a static token or OAuth client-credentials token |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
@@ -45,7 +46,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks and settlement commands append hash-chained `audit_events`; `GET /audit-events` is role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **118 unit/API tests + 11 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, evaluation decisions/versioning, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **120 unit/API tests + 13 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, evaluation decisions/versioning, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -156,6 +157,9 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/evidence?subjectType=&subjectId=` | List evidence for a subject |
 | POST | `/api/v1/evidence/:id/links` | Link supporting/counter/dependency evidence |
 | GET | `/api/v1/evidence/:id/links` | List evidence links |
+| POST/GET | `/api/v1/data-quality-issues` | Create/list data-quality issues |
+| GET | `/api/v1/data-quality-issues/:id` | Get an issue |
+| POST | `/api/v1/data-quality-issues/:id/commands` | ASSIGN / START / RESOLVE / WAIVE / REOPEN |
 | POST | `/api/v1/work-packages` | Create work package (DRAFT) |
 | GET | `/api/v1/work-packages` | List |
 | GET | `/api/v1/work-packages/:id` | Get |

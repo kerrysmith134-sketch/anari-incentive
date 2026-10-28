@@ -285,6 +285,28 @@ export const settlementCommandSchema = z.object({
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 
+export const createDataQualityIssueSchema = z.object({
+  objectType: z.string().min(1),
+  objectId: uuidSchema,
+  issueCode: z.string().min(1),
+  severity: z.enum(["INFO", "WARNING", "BLOCKING"]),
+  details: z.record(z.unknown()).optional(),
+  assignedTo: uuidSchema.optional(),
+});
+export type CreateDataQualityIssueBody = z.infer<
+  typeof createDataQualityIssueSchema
+>;
+
+export const dataQualityCommandSchema = z.object({
+  command: z.enum(["ASSIGN", "START", "RESOLVE", "WAIVE", "REOPEN"]),
+  assignedTo: uuidSchema.optional(),
+  actorPersonId: uuidSchema.optional(),
+  reason: z.string().optional(),
+});
+export type DataQualityCommandBody = z.infer<
+  typeof dataQualityCommandSchema
+>;
+
 export const createEvaluationCycleSchema = z.object({
   name: z.string().min(1),
   cycleType: z.string().min(1),

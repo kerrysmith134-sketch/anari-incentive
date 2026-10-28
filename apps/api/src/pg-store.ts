@@ -8,6 +8,7 @@ import {
   calculationRunTransitions,
   confirmationBlockers,
   contributionClaimTransitions,
+  dataQualityIssueTransitions,
   evaluationDraftTransitions,
   legalGateBlockers,
   settlementBatchTransitions,
@@ -20,6 +21,7 @@ import {
   type CalculationRun,
   type CommitmentSnapshot,
   type ContributionClaim,
+  type DataQualityIssue,
   type EmployeeConfirmation,
   type EvaluationCycle,
   type EvaluationDecision,
@@ -883,6 +885,21 @@ export class PgStore implements IncentiveStore {
             );
           }
         }
+        const workPackageIds = input.participants.map(
+          (participant) => participant.workPackageId,
+        );
+        const { rows: blockingIssues } = await client.query(
+          `SELECT id FROM data_quality_issues
+            WHERE tenant_id = $1
+              AND object_type = 'WORK_PACKAGE'
+              AND object_id = ANY($2::uuid[])
+              AND severity = 'BLOCKING'
+              AND status IN ('OPEN','ASSIGNED','IN_PROGRESS','REOPENED')`,
+          [this.tenantId, workPackageIds],
+        );
+        for (const issue of blockingIssues) {
+          blockers.push(`BLOCKING_DATA_QUALITY_ISSUE:${issue.id}`);
+        }
       }
 
       if (blockers.length > 0) {
@@ -1276,6 +1293,163 @@ export class PgStore implements IncentiveStore {
       );
       return this.loadAppeal(client, id);
     });
+  }
+
+  async createDataQualityIssue(input: {
+    objectType: string;
+    objectId: string;
+    issueCode: string;
+    severity: "INFO" | "WARNING" | "BLOCKING";
+    details?: Record<string, unknown>;
+    assignedTo?: string;
+  }): Promise<DataQualityIssue> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO data_quality_issues
+          (id, tenant_id, object_type, object_id, issue_code, severity,
+           status, details, assigned_to)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          randomUUID(),
+          this.tenantId,
+          input.objectType,
+          input.objectId,
+          input.issueCode,
+          input.severity,
+          input.assignedTo ? "ASSIGNED" : "OPEN",
+          JSON.stringify(input.details ?? {}),
+          input.assignedTo ?? null,
+        ],
+      );
+      return this.mapDataQualityIssue(rows[0]);
+    });
+  }
+
+  async getDataQualityIssue(id: string): Promise<DataQualityIssue> {
+    return this.tx((client) => this.loadDataQualityIssue(client, id));
+  }
+
+  async listDataQualityIssues(filter?: {
+    status?: string;
+  }): Promise<DataQualityIssue[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM data_quality_issues
+          WHERE tenant_id=$1 AND ($2::text IS NULL OR status::text=$2)
+          ORDER BY created_at DESC`,
+        [this.tenantId, filter?.status ?? null],
+      );
+      return rows.map((row) => this.mapDataQualityIssue(row));
+    });
+  }
+
+  async commandDataQualityIssue(
+    id: string,
+    input: {
+      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      assignedTo?: string;
+      actorPersonId?: string;
+      reason?: string;
+    },
+  ): Promise<DataQualityIssue> {
+    return this.tx(async (client) => {
+      const issue = await this.loadDataQualityIssue(client, id);
+      const target = {
+        ASSIGN: "ASSIGNED",
+        START: "IN_PROGRESS",
+        RESOLVE: "RESOLVED",
+        WAIVE: "WAIVED_WITH_APPROVAL",
+        REOPEN: "REOPENED",
+      } as const;
+      assertTransition(
+        dataQualityIssueTransitions,
+        "DataQualityIssue",
+        issue.status,
+        target[input.command],
+      );
+      switch (input.command) {
+        case "ASSIGN":
+          if (!input.assignedTo) {
+            throw new ConflictError("DQ_ASSIGNEE_REQUIRED");
+          }
+          await client.query(
+            `UPDATE data_quality_issues
+                SET status='ASSIGNED', assigned_to=$1, updated_at=now()
+              WHERE tenant_id=$2 AND id=$3`,
+            [input.assignedTo, this.tenantId, id],
+          );
+          break;
+        case "START":
+          await client.query(
+            `UPDATE data_quality_issues
+                SET status='IN_PROGRESS', updated_at=now()
+              WHERE tenant_id=$1 AND id=$2`,
+            [this.tenantId, id],
+          );
+          break;
+        case "RESOLVE":
+          await client.query(
+            `UPDATE data_quality_issues
+                SET status='RESOLVED', resolved_at=now(), updated_at=now()
+              WHERE tenant_id=$1 AND id=$2`,
+            [this.tenantId, id],
+          );
+          break;
+        case "WAIVE":
+          if (!input.actorPersonId || !input.reason) {
+            throw new ConflictError("DQ_WAIVER_REQUIRES_APPROVER_AND_REASON");
+          }
+          await client.query(
+            `UPDATE data_quality_issues
+                SET status='WAIVED_WITH_APPROVAL', waived_by=$1,
+                    waiver_reason=$2, updated_at=now()
+              WHERE tenant_id=$3 AND id=$4`,
+            [input.actorPersonId, input.reason, this.tenantId, id],
+          );
+          break;
+        case "REOPEN":
+          await client.query(
+            `UPDATE data_quality_issues
+                SET status='REOPENED', resolved_at=NULL, updated_at=now()
+              WHERE tenant_id=$1 AND id=$2`,
+            [this.tenantId, id],
+          );
+          break;
+      }
+      return this.loadDataQualityIssue(client, id);
+    });
+  }
+
+  private async loadDataQualityIssue(
+    client: PoolClient,
+    id: string,
+  ): Promise<DataQualityIssue> {
+    const { rows } = await client.query(
+      `SELECT * FROM data_quality_issues WHERE tenant_id=$1 AND id=$2`,
+      [this.tenantId, id],
+    );
+    if (!rows[0]) notFound("DataQualityIssue", id);
+    return this.mapDataQualityIssue(rows[0]);
+  }
+
+  private mapDataQualityIssue(row: QueryResultRow): DataQualityIssue {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      issueCode: row.issue_code,
+      severity: row.severity,
+      status: row.status,
+      assignedTo: row.assigned_to ?? undefined,
+      details: asJson<Record<string, unknown>>(row.details, {}),
+      waiverReason: row.waiver_reason ?? undefined,
+      waivedBy: row.waived_by ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      resolvedAt: iso(row.resolved_at),
+    };
   }
 
   async createEvaluationCycle(input: {
