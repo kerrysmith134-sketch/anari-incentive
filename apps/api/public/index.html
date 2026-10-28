@@ -128,6 +128,21 @@
     </section>
 
     <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>我的评价决策</strong>
+        <button id="loadEvaluations">加载评价</button>
+      </div>
+      <div class="status" id="evaluationStatus"></div>
+      <table>
+        <thead>
+        <tr><th>版本</th><th>状态</th><th>评分</th><th>批准时间</th></tr>
+        </thead>
+        <tbody id="evaluationRows"></tbody>
+      </table>
+      <div class="note">只有已批准的评价决策会显示在这里；评价草稿和评分理由由管理者/HR 审核。</div>
+    </section>
+
+    <section class="card">
       <label for="reason">异议/申诉理由</label>
       <textarea id="reason" placeholder="请说明你认为哪些证据/贡献/金额需要复核。"></textarea>
       <div class="note">提出异议会阻止正式锁账；申诉会进入独立复核流程。请勿填写与本次计算无关的敏感信息。</div>
@@ -227,6 +242,30 @@
       }
     }
 
+    async function loadEvaluations() {
+      const personId = $("personId").value.trim();
+      if (!personId) {
+        $("evaluationStatus").textContent = "请先填写员工 ID";
+        return;
+      }
+      $("evaluationStatus").textContent = "加载中…";
+      try {
+        const decisions = await api(
+          `/api/v1/evaluation-decisions?personId=${encodeURIComponent(personId)}`,
+        );
+        $("evaluationRows").innerHTML = decisions.map((decision) => `
+          <tr>
+            <td>v${decision.decisionVersion}</td>
+            <td><span class="pill">${escapeHtml(decision.status)}</span></td>
+            <td>${escapeHtml(JSON.stringify(decision.scores))}</td>
+            <td>${escapeHtml(decision.approvedAt || "—")}</td>
+          </tr>`).join("");
+        $("evaluationStatus").textContent = `共 ${decisions.length} 条评价决策`;
+      } catch (error) {
+        $("evaluationStatus").textContent = String(error.message);
+      }
+    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -237,6 +276,7 @@
     $("confirm").addEventListener("click", () => recordConfirmation("CONFIRMED"));
     $("object").addEventListener("click", () => recordConfirmation("OBJECTED"));
     $("appeal").addEventListener("click", createAppeal);
+    $("loadEvaluations").addEventListener("click", loadEvaluations);
   </script>
 </body>
 </html>

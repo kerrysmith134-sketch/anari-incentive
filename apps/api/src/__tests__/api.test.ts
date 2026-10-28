@@ -432,6 +432,7 @@ describe("employee view", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("N-Perform 员工确认");
+    expect(response.body).toContain("我的评价决策");
   });
 });
 
