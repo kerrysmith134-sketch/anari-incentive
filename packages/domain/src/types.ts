@@ -128,6 +128,10 @@ export interface ParticipantInput {
   workPackageId: UUID;
   /** Human-confirmed attribution weight, 0..1. Weights are normalised. */
   attributionWeight: DecimalString;
+  /** Approved evaluation decision used to derive the multiplier, if any. */
+  evaluationDecisionId?: UUID;
+  /** Optional multiplier derived from an approved evaluation decision. */
+  evaluationMultiplier?: DecimalString;
   role: string;
 }
 
@@ -271,6 +275,18 @@ export interface PolicyDefinition {
   minimumWage?: {
     monthlyMinimum: DecimalString;
     checked: boolean;
+  };
+  /**
+   * Optional evaluation weighting. When present, every participant needs an
+   * approved EvaluationDecision for the cycle; its scores are converted to a
+   * multiplier applied to the attribution weight.
+   */
+  evaluation?: {
+    dimensionWeights: Record<string, DecimalString>;
+    floor: DecimalString;
+    ceiling: DecimalString;
+    /** Score scale maximum. Defaults to 5. */
+    maxScore?: DecimalString;
   };
 }
 

@@ -8,3 +8,4 @@ export * from "./cash-weighted-retention.js";
 export * from "./cash-weighted-reserve-channel.js";
 export * from "./calculate.js";
 export * from "./simulate.js";
+export * from "./evaluation.js";

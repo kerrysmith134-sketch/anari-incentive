@@ -46,4 +46,21 @@ describe("simulatePolicyChange", () => {
     expect(result.lines[1]!.delta).toBe("2000");
     expect(result.blockers).toEqual([]);
   });
+
+  it("flags evaluation-weighted policies as not decision-grade in simulation", () => {
+    const evaluated: PolicyDefinition = {
+      ...current,
+      evaluation: {
+        dimensionWeights: { QUALITY: "1" },
+        floor: "0.5",
+        ceiling: "1.5",
+      },
+    };
+    const result = simulatePolicyChange(evaluated, proposed, [
+      { personId: "person-1", input: input("100000") },
+    ]);
+    expect(result.blockers).toContain(
+      "EVALUATION_WEIGHTS_NOT_RESOLVED_IN_SIMULATION",
+    );
+  });
 });

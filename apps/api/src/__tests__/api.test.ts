@@ -581,6 +581,140 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger/verify")).body.data.valid).toBe(true);
   });
 
+  it("requires approved evaluation decisions and applies their multipliers", async () => {
+    const published = await call("POST", "/api/v1/policy-versions", {
+      policy: {
+        code: "EVALUATED_CONTRIBUTION_V1",
+        version: 1,
+        currency: "CNY",
+        poolRate: "0.05",
+        poolCap: "100000",
+        rounding: "HALF_UP",
+        calculator: "SIMPLE_POOL",
+        evaluation: {
+          dimensionWeights: { QUALITY: "1" },
+          floor: "0.5",
+          ceiling: "1.5",
+        },
+      },
+      effectiveFrom: "2026-12-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    const policyVersionId = published.body.data.policyVersionId as string;
+    await call(
+      "POST",
+      `/api/v1/policy-versions/${policyVersionId}/legal-gate`,
+      {
+        policyApproved: true,
+        minimumWageChecked: true,
+        democraticProcedureRef: "dp-eval",
+        employeeNoticeRef: "notice-eval",
+        dataProtectionAssessmentRef: "dpia-eval",
+        recordedBy: ADJUDICATOR,
+      },
+    );
+
+    const rubric = await call("POST", "/api/v1/rubrics", {
+      code: "EVALUATED_POLICY_RUBRIC",
+      name: "Evaluated policy rubric",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const rubricVersionId = rubric.body.data.id as string;
+
+    async function approvedDecision(personId: string, score: number) {
+      const draft = await call("POST", "/api/v1/evaluation-drafts", {
+        cycleId: CYCLE,
+        personId,
+        generatedByType: "USER",
+        evidenceSnapshotHash: `evidence-${personId}`,
+        draftPayload: { summary: "Evaluation evidence" },
+      });
+      const draftId = draft.body.data.id as string;
+      await call("POST", `/api/v1/evaluation-drafts/${draftId}/submit`);
+      const decision = await call(
+        "POST",
+        `/api/v1/evaluation-drafts/${draftId}/decision`,
+        {
+          reviewerPersonId: ADJUDICATOR,
+          rubricVersionId,
+          decision: "APPROVE",
+          scores: { QUALITY: score },
+          rationale: "Reviewed evidence",
+        },
+      );
+      expect(decision.status).toBe(200);
+      return decision.body.data.decision.id as string;
+    }
+
+    const ownerDecision = await approvedDecision(OWNER, 5);
+    const memberDecision = await approvedDecision(MEMBER, 0);
+
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    const participants = [
+      {
+        personId: OWNER,
+        workPackageId,
+        attributionWeight: "0.6",
+        role: "OWNER",
+      },
+      {
+        personId: MEMBER,
+        workPackageId,
+        attributionWeight: "0.4",
+        role: "CONTRIBUTOR",
+      },
+    ];
+    const runInput = {
+      cycleId: CYCLE,
+      policyVersionId,
+      mode: "FORMAL",
+      order: { id: "evaluated-order", grossProfit: "100000", currency: "CNY" },
+    };
+
+    const missing = await call("POST", "/api/v1/calculation-runs", {
+      ...runInput,
+      participants,
+    });
+    expect(missing.status).toBe(422);
+    expect(missing.body.error.details.blockers).toEqual(
+      expect.arrayContaining([
+        `EVALUATION_DECISION_MISSING:${OWNER}`,
+        `EVALUATION_DECISION_MISSING:${MEMBER}`,
+      ]),
+    );
+
+    const run = await call("POST", "/api/v1/calculation-runs", {
+      ...runInput,
+      participants: [
+        { ...participants[0]!, evaluationDecisionId: ownerDecision },
+        { ...participants[1]!, evaluationDecisionId: memberDecision },
+      ],
+    });
+    expect(run.status).toBe(201);
+    const ownerLine = run.body.data.lines.find(
+      (line: { personId: string }) => line.personId === OWNER,
+    );
+    const memberLine = run.body.data.lines.find(
+      (line: { personId: string }) => line.personId === MEMBER,
+    );
+    expect(Number(ownerLine.roundedAmount)).toBeGreaterThan(
+      Number(memberLine.roundedAmount),
+    );
+    expect(
+      Number(ownerLine.roundedAmount) + Number(memberLine.roundedAmount),
+    ).toBeCloseTo(5000, 6);
+    expect(
+      run.body.data.inputSnapshot.participants.map(
+        (participant: { evaluationMultiplier: string }) =>
+          participant.evaluationMultiplier,
+      ),
+    ).toEqual(["1.5", "0.5"]);
+  });
+
   it("reconciles, approves, locks and exports a settlement batch", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);

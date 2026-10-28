@@ -136,6 +136,7 @@ export const createCalculationRunSchema = z.object({
         personId: uuidSchema,
         workPackageId: uuidSchema,
         attributionWeight: decimal,
+        evaluationDecisionId: uuidSchema.optional(),
         role: z.string().min(1),
       }),
     )
@@ -258,6 +259,14 @@ export const policyDefinitionSchema = z.object({
   incentiveType: z.string().optional(),
   minimumWage: z
     .object({ monthlyMinimum: decimal, checked: z.boolean() })
+    .optional(),
+  evaluation: z
+    .object({
+      dimensionWeights: z.record(decimal),
+      floor: decimal,
+      ceiling: decimal,
+      maxScore: decimal.optional(),
+    })
     .optional(),
 });
 export type PolicyDefinitionBody = z.input<typeof policyDefinitionSchema>;

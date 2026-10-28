@@ -53,6 +53,7 @@ import { InMemoryLedger } from "@anari/ledger";
 import {
   PolicyGateError,
   calculateByPolicy,
+  deriveEvaluationMultiplier,
   formatDecimal,
   parseDecimal,
   sha256,
@@ -665,6 +666,53 @@ export class Store implements IncentiveStore {
     const policy = await this.getPolicy(input.policyVersionId);
     const gate = await this.getLegalGate(input.policyVersionId);
     const blockers = legalGateBlockers(input.mode, gate);
+    const effectiveParticipants: CalculationInput["participants"] =
+      input.participants.map((participant) => ({ ...participant }));
+
+    if (policy.evaluation) {
+      for (const participant of effectiveParticipants) {
+        const decisionId = participant.evaluationDecisionId;
+        if (!decisionId) {
+          blockers.push(`EVALUATION_DECISION_MISSING:${participant.personId}`);
+          continue;
+        }
+        const decision = this.evaluationDecisions.get(decisionId);
+        if (!decision) {
+          blockers.push(
+            `EVALUATION_DECISION_NOT_FOUND:${participant.personId}`,
+          );
+          continue;
+        }
+        if (decision.status !== "APPROVED") {
+          blockers.push(
+            `EVALUATION_DECISION_NOT_APPROVED:${participant.personId}`,
+          );
+          continue;
+        }
+        if (decision.personId !== participant.personId) {
+          blockers.push(
+            `EVALUATION_DECISION_PERSON_MISMATCH:${participant.personId}`,
+          );
+          continue;
+        }
+        if (decision.cycleId !== input.cycleId) {
+          blockers.push(
+            `EVALUATION_DECISION_CYCLE_MISMATCH:${participant.personId}`,
+          );
+          continue;
+        }
+        const derived = deriveEvaluationMultiplier(
+          policy.evaluation,
+          decision.scores,
+          participant.personId,
+        );
+        if (derived.blockers.length > 0 || !derived.multiplier) {
+          blockers.push(...derived.blockers);
+          continue;
+        }
+        participant.evaluationMultiplier = derived.multiplier;
+      }
+    }
 
     if (input.mode === "FORMAL") {
       for (const participant of input.participants) {
@@ -706,7 +754,7 @@ export class Store implements IncentiveStore {
       policyVersionId: input.policyVersionId,
       mode: input.mode,
       order: input.order,
-      participants: input.participants,
+      participants: effectiveParticipants,
       legalGate: gate,
     };
 

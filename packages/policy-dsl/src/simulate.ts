@@ -42,6 +42,11 @@ export function simulatePolicyChange(
     { current: bigint; proposed: bigint }
   >();
   const blockers: string[] = [];
+  if (currentPolicy.evaluation || proposedPolicy.evaluation) {
+    // Simulation cannot resolve per-policy evaluation decisions yet; do not
+    // present its numbers as decision-grade for an evaluation-weighted policy.
+    blockers.push("EVALUATION_WEIGHTS_NOT_RESOLVED_IN_SIMULATION");
+  }
 
   for (const sample of samples) {
     try {

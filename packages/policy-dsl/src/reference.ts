@@ -24,8 +24,10 @@ export function referenceOrderContribution(
     Number(policy.poolCap),
   );
   const poolCents = Math.round(pool * 100);
-  const weights = input.participants.map((participant) =>
-    Number(participant.attributionWeight),
+  const weights = input.participants.map(
+    (participant) =>
+      Number(participant.attributionWeight) *
+      Number(participant.evaluationMultiplier ?? 1),
   );
   const total = weights.reduce((acc, weight) => acc + weight, 0);
   if (!(total > 0)) throw new Error("Reference: total weight must be positive");

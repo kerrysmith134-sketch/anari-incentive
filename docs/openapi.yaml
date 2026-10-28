@@ -1720,6 +1720,8 @@ components:
           $ref: "#/components/schemas/Uuid"
         attributionWeight:
           $ref: "#/components/schemas/Decimal"
+        evaluationDecisionId:
+          $ref: "#/components/schemas/Uuid"
         role:
           type: string
 
@@ -1900,6 +1902,21 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+        evaluation:
+          type: object
+          description: Optional evaluation weighting; requires approved decision ids per participant.
+          required: [dimensionWeights, floor, ceiling]
+          properties:
+            dimensionWeights:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/Decimal"
+            floor:
+              $ref: "#/components/schemas/Decimal"
+            ceiling:
+              $ref: "#/components/schemas/Decimal"
+            maxScore:
+              $ref: "#/components/schemas/Decimal"
 
     CreateDataQualityIssue:
       type: object

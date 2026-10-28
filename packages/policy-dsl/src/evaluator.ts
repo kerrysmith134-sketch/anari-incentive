@@ -43,13 +43,17 @@ function normalizeWeights(
   participants: CalculationInput["participants"],
 ): { total: bigint; parsed: Array<{ weight: bigint; source: (typeof participants)[number] }> } {
   const parsed = participants.map((participant) => {
-    const weight = parseDecimal(participant.attributionWeight);
-    if (weight < 0n) {
+    const attribution = parseDecimal(participant.attributionWeight);
+    const multiplier = parseDecimal(participant.evaluationMultiplier ?? "1");
+    if (attribution < 0n || multiplier < 0n) {
       throw new Error(
-        `Attribution weight cannot be negative for ${participant.personId}`,
+        `Attribution/evaluation weight cannot be negative for ${participant.personId}`,
       );
     }
-    return { weight, source: participant };
+    return {
+      weight: mul(attribution, multiplier),
+      source: participant,
+    };
   });
   const total = sum(parsed.map((item) => item.weight));
   if (total <= 0n) {

@@ -54,6 +54,7 @@ import { hashLedgerEntry } from "@anari/ledger";
 import {
   PolicyGateError,
   calculateByPolicy,
+  deriveEvaluationMultiplier,
   parseDecimal,
   sha256,
 } from "@anari/policy-dsl";
@@ -860,6 +861,60 @@ export class PgStore implements IncentiveStore {
         ? this.mapLegalGate(gateResult.rows[0])
         : undefined;
       const blockers = legalGateBlockers(input.mode, gate);
+      const effectiveParticipants: CalculationInput["participants"] =
+        input.participants.map((participant) => ({ ...participant }));
+
+      if (policy.evaluation) {
+        for (const participant of effectiveParticipants) {
+          const decisionId = participant.evaluationDecisionId;
+          if (!decisionId) {
+            blockers.push(
+              `EVALUATION_DECISION_MISSING:${participant.personId}`,
+            );
+            continue;
+          }
+          const { rows } = await client.query(
+            `SELECT * FROM evaluation_decisions
+              WHERE tenant_id=$1 AND id=$2`,
+            [this.tenantId, decisionId],
+          );
+          const decision = rows[0];
+          if (!decision) {
+            blockers.push(
+              `EVALUATION_DECISION_NOT_FOUND:${participant.personId}`,
+            );
+            continue;
+          }
+          if (decision.status !== "APPROVED") {
+            blockers.push(
+              `EVALUATION_DECISION_NOT_APPROVED:${participant.personId}`,
+            );
+            continue;
+          }
+          if (decision.person_id !== participant.personId) {
+            blockers.push(
+              `EVALUATION_DECISION_PERSON_MISMATCH:${participant.personId}`,
+            );
+            continue;
+          }
+          if (decision.cycle_id !== input.cycleId) {
+            blockers.push(
+              `EVALUATION_DECISION_CYCLE_MISMATCH:${participant.personId}`,
+            );
+            continue;
+          }
+          const derived = deriveEvaluationMultiplier(
+            policy.evaluation,
+            asJson<Record<string, number>>(decision.scores, {}),
+            participant.personId,
+          );
+          if (derived.blockers.length > 0 || !derived.multiplier) {
+            blockers.push(...derived.blockers);
+            continue;
+          }
+          participant.evaluationMultiplier = derived.multiplier;
+        }
+      }
 
       if (input.mode === "FORMAL") {
         for (const participant of input.participants) {
@@ -912,7 +967,7 @@ export class PgStore implements IncentiveStore {
         policyVersionId: input.policyVersionId,
         mode: input.mode,
         order: input.order,
-        participants: input.participants,
+        participants: effectiveParticipants,
         legalGate: gate,
       };
       let result;

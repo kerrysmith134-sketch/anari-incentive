@@ -159,7 +159,7 @@ Additional application-level invariants:
 | `POST /evaluation-drafts` | cycle/person exist; manager | Evidence-bound DRAFT |
 | `POST /evaluation-drafts/:id/submit` | DRAFT | SUBMITTED |
 | `POST /evaluation-drafts/:id/decision` | SUBMITTED, reviewer ≠ person, rubric scores complete | APPROVED + versioned decision, or REJECTED |
-| `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution | CALCULATED; FORMAL writes ledger |
+| `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution; a policy with `evaluation` requires approved, matching decisions | CALCULATED; FORMAL writes ledger |
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
@@ -252,7 +252,20 @@ Evaluation drafts are versioned evidence-bound inputs. A draft can be generated 
 - a rubric version exists and every rubric dimension has a score in `[0,5]`;
 - a rationale.
 
-`APPROVE` creates an `EvaluationDecision` with `decisionVersion = prior + 1`, marks the prior approved decision `SUPERSEDED`, and appends an `EVALUATION_DECISION_RECORDED` audit event. `REJECT` closes the draft without creating a decision. Evaluation decisions are inputs to future policy calculators; the current generic calculators do not read them yet.
+`APPROVE` creates an `EvaluationDecision` with `decisionVersion = prior + 1`, marks the prior approved decision `SUPERSEDED`, and appends an `EVALUATION_DECISION_RECORDED` audit event. `REJECT` closes the draft without creating a decision.
+
+A Policy Pack can opt into evaluation weighting with:
+
+```
+evaluation: {
+  dimensionWeights: { QUALITY: "0.6", SPEED: "0.4" },
+  floor: "0.8",
+  ceiling: "1.2",
+  maxScore?: "5"
+}
+```
+
+When present, every calculation participant must supply `evaluationDecisionId`. The store verifies the decision is `APPROVED`, belongs to the participant and the calculation cycle, then computes a weighted score and a multiplier in `[floor, ceiling]`. The multiplier scales the attribution weight before pool allocation; the pool itself is unchanged. Missing decisions/scores or out-of-range scores block the calculation. Callers cannot supply a multiplier directly.
 
 ---
 
@@ -305,6 +318,8 @@ The core has no industry-specific agent. A policy pack can add evidence requirem
 ## 10. Policy simulation
 
 `simulatePolicyChange(currentPolicy, proposedPolicy, samples)` returns per-person current/proposed/delta amounts, totals, affected people and blockers. It is a decision-support function: it does not publish a policy, write a ledger or approve a payment. `POST /policy-simulations` exposes it for an admin UI; the proposed policy is data, not a code deployment.
+
+Simulation does not resolve per-policy evaluation decisions. If either policy has an `evaluation` block, the result includes `EVALUATION_WEIGHTS_NOT_RESOLVED_IN_SIMULATION` and must not be treated as decision-grade for those amounts.
 
 Publication is a separate governed step. `publish_policy` is a T3 agent tool: it only executes through `AgentRuntime.approve`, receives the approver id from that approval, and calls `publishPolicy`. `POST /policy-versions` is the equivalent operator command and also requires an explicit `approvedBy`. A published policy row stores the content hash, effective window, approver and timestamps. The prior open-ended version is closed at the successor's `effective_from`; published content and a closed `effective_to` are immutable (`004_policy_succession.sql`). Publication does not bypass the legal gate: a `FORMAL` calculation still needs the gate and employee confirmations.
 
