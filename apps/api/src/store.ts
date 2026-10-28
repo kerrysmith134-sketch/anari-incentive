@@ -379,6 +379,32 @@ export class Store implements IncentiveStore {
     return workPackage;
   }
 
+  async acceptWorkPackagesBatch(
+    items: Array<{ id: string; reviewerPersonId: string }>,
+  ): Promise<WorkPackage[]> {
+    const snapshot = new Map(
+      [...this.workPackages].map(([id, workPackage]) => [
+        id,
+        structuredClone(workPackage),
+      ]),
+    );
+    try {
+      const accepted: WorkPackage[] = [];
+      for (const item of items) {
+        accepted.push(
+          await this.acceptWorkPackage(item.id, item.reviewerPersonId),
+        );
+      }
+      return accepted;
+    } catch (error) {
+      this.workPackages.clear();
+      for (const [id, workPackage] of snapshot) {
+        this.workPackages.set(id, workPackage);
+      }
+      throw error;
+    }
+  }
+
   async rejectWorkPackage(
     id: string,
     reviewerPersonId: string,

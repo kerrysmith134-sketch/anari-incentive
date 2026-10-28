@@ -151,6 +151,7 @@ Additional application-level invariants:
 | `POST /work-packages/:id/start` | COMMITTED | IN_PROGRESS |
 | `POST /work-packages/:id/submit` | IN_PROGRESS | SUBMITTED |
 | `POST /work-packages/:id/accept` | SUBMITTED, reviewer ≠ owner | ACCEPTED |
+| `POST /work-packages:accept-batch` | 1–50 submitted packages, each reviewer ≠ owner | All-or-nothing ACCEPTED |
 | `POST /work-packages/:id/reject` | SUBMITTED, reviewer ≠ owner | REJECTED |
 | `POST /contribution-claims` | WorkPackage ACCEPTED + snapshot | DRAFT claim |
 | `POST /contribution-claims/:id/submit` | DRAFT | SUBMITTED |

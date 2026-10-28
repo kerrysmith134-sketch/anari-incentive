@@ -694,6 +694,79 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger")).body.data).toHaveLength(0);
   });
 
+  it("accepts work packages atomically in a batch", async () => {
+    async function submittedPackage(title: string) {
+      const created = await call("POST", "/api/v1/work-packages", {
+        title,
+        objective: "Submit for batch acceptance",
+        ownerPersonId: OWNER,
+        members: [
+          {
+            personId: OWNER,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+          {
+            personId: MEMBER,
+            responsibilityCode: "CONTRIBUTOR",
+            expectedOutput: "Support",
+          },
+        ],
+        acceptanceCriteria: ["Accepted"],
+      });
+      const id = created.body.data.id as string;
+      await call("POST", `/api/v1/work-packages/${id}/commit`, {
+        expectedVersion: 1,
+      });
+      await call("POST", `/api/v1/work-packages/${id}/start`);
+      await call("POST", `/api/v1/work-packages/${id}/submit`);
+      return id;
+    }
+
+    const first = await submittedPackage("Batch accept 1");
+    const second = await submittedPackage("Batch accept 2");
+    const accepted = await call(
+      "POST",
+      "/api/v1/work-packages:accept-batch",
+      {
+        items: [
+          { id: first, reviewerPersonId: MEMBER },
+          { id: second, reviewerPersonId: MEMBER },
+        ],
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.data.workPackages).toHaveLength(2);
+    expect((await call("GET", `/api/v1/work-packages/${first}`)).body.data.status).toBe(
+      "ACCEPTED",
+    );
+
+    const third = await submittedPackage("Batch accept 3");
+    const draft = await call("POST", "/api/v1/work-packages", {
+      title: "Still draft",
+      objective: "Not submitted",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Draft",
+        },
+      ],
+      acceptanceCriteria: ["Draft"],
+    });
+    const failed = await call("POST", "/api/v1/work-packages:accept-batch", {
+      items: [
+        { id: third, reviewerPersonId: MEMBER },
+        { id: draft.body.data.id, reviewerPersonId: MEMBER },
+      ],
+    });
+    expect(failed.status).toBe(409);
+    expect(
+      (await call("GET", `/api/v1/work-packages/${third}`)).body.data.status,
+    ).toBe("SUBMITTED");
+  });
+
   it("exposes the commitment snapshot history", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     const versions = await call(

@@ -411,27 +411,53 @@ export class PgStore implements IncentiveStore {
     id: string,
     reviewerPersonId: string,
   ): Promise<WorkPackage> {
+    return this.tx((client) =>
+      this.acceptWorkPackageInTx(client, id, reviewerPersonId),
+    );
+  }
+
+  async acceptWorkPackagesBatch(
+    items: Array<{ id: string; reviewerPersonId: string }>,
+  ): Promise<WorkPackage[]> {
     return this.tx(async (client) => {
-      const current = await this.loadWorkPackage(client, id);
-      if (reviewerPersonId === current.ownerPersonId) {
-        throw new ConflictError(
-          "the work-package owner cannot accept their own delivery",
+      const accepted: WorkPackage[] = [];
+      for (const item of items) {
+        accepted.push(
+          await this.acceptWorkPackageInTx(
+            client,
+            item.id,
+            item.reviewerPersonId,
+          ),
         );
       }
-      assertTransition(
-        workPackageTransitions,
-        "WorkPackage",
-        current.status,
-        "ACCEPTED",
-      );
-      await client.query(
-        `UPDATE work_packages
-            SET status = 'ACCEPTED', version = version + 1
-          WHERE tenant_id = $1 AND id = $2`,
-        [this.tenantId, id],
-      );
-      return this.loadWorkPackage(client, id);
+      return accepted;
     });
+  }
+
+  private async acceptWorkPackageInTx(
+    client: PoolClient,
+    id: string,
+    reviewerPersonId: string,
+  ): Promise<WorkPackage> {
+    const current = await this.loadWorkPackage(client, id);
+    if (reviewerPersonId === current.ownerPersonId) {
+      throw new ConflictError(
+        "the work-package owner cannot accept their own delivery",
+      );
+    }
+    assertTransition(
+      workPackageTransitions,
+      "WorkPackage",
+      current.status,
+      "ACCEPTED",
+    );
+    await client.query(
+      `UPDATE work_packages
+          SET status = 'ACCEPTED', version = version + 1
+        WHERE tenant_id = $1 AND id = $2`,
+      [this.tenantId, id],
+    );
+    return this.loadWorkPackage(client, id);
   }
 
   async rejectWorkPackage(

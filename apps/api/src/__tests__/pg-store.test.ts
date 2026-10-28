@@ -163,6 +163,63 @@ describePg("PgStore vertical slice", () => {
     expect(settlement.lineCount).toBe(3);
   });
 
+  it("accepts work packages atomically in a PostgreSQL batch", async () => {
+    async function submitted(title: string) {
+      const wp = await store.createWorkPackage({
+        title,
+        objective: "Batch acceptance",
+        ownerPersonId: OWNER,
+        members: [
+          {
+            personId: OWNER,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+          {
+            personId: MEMBER,
+            responsibilityCode: "CONTRIBUTOR",
+            expectedOutput: "Support",
+          },
+        ],
+        acceptanceCriteria: ["Accepted"],
+      });
+      await store.commitWorkPackage(wp.id, 1);
+      await store.startWorkPackage(wp.id);
+      await store.submitWorkPackage(wp.id);
+      return wp.id;
+    }
+    const first = await submitted("PG batch accept 1");
+    const second = await submitted("PG batch accept 2");
+    const accepted = await store.acceptWorkPackagesBatch([
+      { id: first, reviewerPersonId: MEMBER },
+      { id: second, reviewerPersonId: MEMBER },
+    ]);
+    expect(accepted).toHaveLength(2);
+    expect(accepted.every((wp) => wp.status === "ACCEPTED")).toBe(true);
+
+    const third = await submitted("PG batch accept 3");
+    const draft = await store.createWorkPackage({
+      title: "PG draft",
+      objective: "Not submitted",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Draft",
+        },
+      ],
+      acceptanceCriteria: ["Draft"],
+    });
+    await expect(
+      store.acceptWorkPackagesBatch([
+        { id: third, reviewerPersonId: MEMBER },
+        { id: draft.id, reviewerPersonId: MEMBER },
+      ]),
+    ).rejects.toMatchObject({ code: "INVALID_STATE_TRANSITION" });
+    expect((await store.getWorkPackage(third)).status).toBe("SUBMITTED");
+  });
+
   it("stores and lists work-package commitment snapshots", async () => {
     const workPackageId = await acceptedWorkPackage();
     const versions = await store.listWorkPackageVersions(workPackageId);

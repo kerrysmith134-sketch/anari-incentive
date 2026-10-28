@@ -35,6 +35,21 @@ export const acceptWorkPackageSchema = z.object({
 });
 export type AcceptWorkPackageInput = z.infer<typeof acceptWorkPackageSchema>;
 
+export const acceptWorkPackagesBatchSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: uuidSchema,
+        reviewerPersonId: uuidSchema,
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+export type AcceptWorkPackagesBatchInput = z.infer<
+  typeof acceptWorkPackagesBatchSchema
+>;
+
 export const rejectWorkPackageSchema = z.object({
   reviewerPersonId: uuidSchema,
   reason: z.string().min(3),

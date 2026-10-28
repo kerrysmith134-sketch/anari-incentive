@@ -6,6 +6,7 @@ import Fastify, {
 import { ZodError, type ZodType } from "zod";
 import {
   acceptWorkPackageSchema,
+  acceptWorkPackagesBatchSchema,
   commitWorkPackageSchema,
   createAppealSchema,
   createAttributionDecisionSchema,
@@ -888,6 +889,23 @@ export function buildApp(
       await storeFor(request).acceptWorkPackage(idOf(request), body.reviewerPersonId),
       request,
     );
+  });
+
+  app.post("/api/v1/work-packages:accept-batch", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(acceptWorkPackagesBatchSchema, request.body);
+    return reply
+      .status(200)
+      .send(
+        data(
+          {
+            workPackages: await storeFor(request).acceptWorkPackagesBatch(
+              body.items,
+            ),
+          },
+          request,
+        ),
+      );
   });
 
   app.post("/api/v1/work-packages/:id/reject", async (request) => {

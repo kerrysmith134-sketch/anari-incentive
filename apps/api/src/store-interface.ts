@@ -78,6 +78,9 @@ export interface IncentiveStore {
   startWorkPackage(id: string): Promise<WorkPackage>;
   submitWorkPackage(id: string): Promise<WorkPackage>;
   acceptWorkPackage(id: string, reviewerPersonId: string): Promise<WorkPackage>;
+  acceptWorkPackagesBatch(
+    items: Array<{ id: string; reviewerPersonId: string }>,
+  ): Promise<WorkPackage[]>;
   rejectWorkPackage(
     id: string,
     reviewerPersonId: string,

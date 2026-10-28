@@ -82,6 +82,44 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/work-packages:accept-batch:
+    post:
+      tags: [Work packages]
+      summary: Accept up to 50 submitted work packages atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [id, reviewerPersonId]
+                    properties:
+                      id:
+                        $ref: "#/components/schemas/Uuid"
+                      reviewerPersonId:
+                        $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Accepted work packages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/work-packages/{id}:
     get:
       tags: [Work packages]
