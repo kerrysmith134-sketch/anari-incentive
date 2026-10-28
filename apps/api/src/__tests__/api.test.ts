@@ -475,6 +475,79 @@ describe("employee evidence", () => {
   });
 });
 
+describe("in-app notifications", () => {
+  it("delivers to the recipient and enforces read access", async () => {
+    const notification = await call("POST", "/api/v1/notifications", {
+      recipientPersonId: OWNER,
+      audience: "PERSON",
+      title: "Evidence needed",
+      body: "Please upload the delivery record.",
+      sourceType: "WORK_PACKAGE",
+      sourceId: "00000000-0000-4000-8000-000000000010",
+    });
+    expect(notification.status).toBe(201);
+
+    const ownerAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "owner",
+          roles: ["employee"],
+          personId: OWNER,
+        };
+      },
+    };
+    const memberAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "member",
+          roles: ["employee"],
+          personId: MEMBER,
+        };
+      },
+    };
+    const ownerApp = buildApp(appStore, undefined, ownerAuth);
+    const memberApp = buildApp(appStore, undefined, memberAuth);
+
+    const ownerList = await ownerApp.inject({
+      method: "GET",
+      url: "/api/v1/notifications",
+    } as never);
+    expect(ownerList.json().data).toHaveLength(1);
+    const memberList = await memberApp.inject({
+      method: "GET",
+      url: "/api/v1/notifications",
+    } as never);
+    expect(memberList.json().data).toHaveLength(0);
+
+    const forbiddenRead = await memberApp.inject({
+      method: "POST",
+      url: `/api/v1/notifications/${notification.body.data.id}/read`,
+    } as never);
+    expect(forbiddenRead.statusCode).toBe(403);
+
+    const read = await ownerApp.inject({
+      method: "POST",
+      url: `/api/v1/notifications/${notification.body.data.id}/read`,
+    } as never);
+    expect(read.statusCode).toBe(200);
+    expect(read.json().data.status).toBe("READ");
+
+    const forbiddenCreate = await ownerApp.inject({
+      method: "POST",
+      url: "/api/v1/notifications",
+      payload: {
+        recipientPersonId: OWNER,
+        audience: "PERSON",
+        title: "Self",
+        body: "Self",
+      },
+    } as never);
+    expect(forbiddenCreate.statusCode).toBe(403);
+  });
+});
+
 describe("employee data redaction", () => {
   it("returns only the employee's line and hides order economics", async () => {
     const workPackageId = await createAcceptedWorkPackage();
@@ -536,6 +609,7 @@ describe("employee view", () => {
     expect(response.body).toContain("N-Perform 员工确认");
     expect(response.body).toContain("我的评价决策");
     expect(response.body).toContain("我的证据");
+    expect(response.body).toContain("我的通知");
   });
 });
 

@@ -25,6 +25,7 @@ tags:
   - name: Contribution claims
   - name: Attribution
   - name: Evaluation
+  - name: Notifications
   - name: Policy
   - name: Calculation
   - name: Confirmations
@@ -954,6 +955,69 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/notifications:
+    get:
+      tags: [Evaluation]
+      summary: List in-app notifications
+      description: Employees see only their own recipient notifications; manager/finance see the tenant.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [UNREAD, READ]
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Evaluation]
+      summary: Create an in-app notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNotification"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/notifications/{id}/read:
+    post:
+      tags: [Evaluation]
+      summary: Mark a notification as read
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/data-quality-issues:
     get:
@@ -1983,6 +2047,24 @@ components:
               $ref: "#/components/schemas/Decimal"
             maxScore:
               $ref: "#/components/schemas/Decimal"
+
+    CreateNotification:
+      type: object
+      required: [audience, title, body]
+      properties:
+        recipientPersonId:
+          $ref: "#/components/schemas/Uuid"
+        audience:
+          type: string
+          enum: [PERSON, MANAGER, FINANCE, ADMIN]
+        title:
+          type: string
+        body:
+          type: string
+        sourceType:
+          type: string
+        sourceId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateDataQualityIssue:
       type: object

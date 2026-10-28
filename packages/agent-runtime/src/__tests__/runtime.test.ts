@@ -9,6 +9,7 @@ import type {
   EmployeeConfirmation,
   EvaluationDraft,
   EvidenceNode,
+  InAppNotification,
   LegalGateRecord,
   PolicyDefinition,
   PublishPolicyInput,
@@ -40,6 +41,7 @@ class FakeContext implements AgentContext {
   published: PublishedPolicy[] = [];
   dataQualityIssues: DataQualityIssue[] = [];
   evaluationDrafts: EvaluationDraft[] = [];
+  notifications: InAppNotification[] = [];
 
   async listWorkPackages() { return this.workPackages; }
   async listClaims() { return this.claims; }
@@ -135,6 +137,30 @@ class FakeContext implements AgentContext {
     };
     this.evaluationDrafts.push(draft);
     return draft;
+  }
+
+  async createNotification(input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<InAppNotification> {
+    const notification: InAppNotification = {
+      id: `notification-${this.notifications.length + 1}`,
+      tenantId: "tenant-1",
+      recipientPersonId: input.recipientPersonId,
+      audience: input.audience,
+      title: input.title,
+      body: input.body,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      status: "UNREAD",
+      createdAt: new Date().toISOString(),
+    };
+    this.notifications.push(notification);
+    return notification;
   }
 }
 
@@ -240,6 +266,11 @@ describe("agent runtime", () => {
     expect(ran.findings.map((finding) => finding.code)).toEqual(
       expect.arrayContaining(["WORK_PACKAGE_NOT_COMMITTED", "NO_EVIDENCE"]),
     );
+    expect(
+      context.notifications.some(
+        (notification) => notification.recipientPersonId === "person-1",
+      ),
+    ).toBe(true);
 
     const escalation = ran.actions.find((action) => action.tool === "escalate")!;
     const approved = await agent.approve(ran.id, escalation.id, "manager-1");
@@ -247,6 +278,11 @@ describe("agent runtime", () => {
     expect(approved.approvedBy).toBe("manager-1");
     expect(
       (await agent.auditLog()).some((entry) => entry.tool === "escalate"),
+    ).toBe(true);
+    expect(
+      context.notifications.some(
+        (notification) => notification.audience === "MANAGER",
+      ),
     ).toBe(true);
   });
 

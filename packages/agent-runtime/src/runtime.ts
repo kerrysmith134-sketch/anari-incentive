@@ -376,11 +376,20 @@ export class AgentRuntime {
       };
     }
     try {
-      const output = await tool.execute(action.payload, this.context, {
-        taskId: task.id,
-        actor: approvedBy ?? task.approvedBy ?? this.options.actor ?? "system",
-        approvedBy,
-      });
+      const output = await tool.execute(
+        {
+          ...action.payload,
+          targetType: action.targetType,
+          targetId: action.targetId,
+        },
+        this.context,
+        {
+          taskId: task.id,
+          actor:
+            approvedBy ?? task.approvedBy ?? this.options.actor ?? "system",
+          approvedBy,
+        },
+      );
       this.audit.push({
         taskId: task.id,
         actionId: action.id,

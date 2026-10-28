@@ -7,6 +7,7 @@ import type {
   EmployeeConfirmation,
   EvaluationDraft,
   EvidenceNode,
+  InAppNotification,
   LegalGateRecord,
   PublishPolicyInput,
   PublishedPolicy,
@@ -100,6 +101,14 @@ export interface AgentContext {
     severity: "INFO" | "WARNING" | "BLOCKING";
     details?: Record<string, unknown>;
   }): Promise<DataQualityIssue>;
+  createNotification(input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<InAppNotification>;
   createEvaluationDraft(input: {
     cycleId: string;
     personId: string;

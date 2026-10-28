@@ -19,7 +19,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Evaluation | Evaluation cycles; versioned rubrics; evidence-bound drafts (USER/AGENT/SYSTEM) with strengths, counter-evidence and uncertainty; submit → human decision; self-review blocked; approvals are versioned and supersede the prior decision; a policy can require approved decisions and derive participant weight multipliers from declared dimension weights and floor/ceiling |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash; optional evaluation weighting from approved decisions |
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. `npm run seed:packs` imports packs into PostgreSQL for a tenant (DRAFT by default, PUBLISHED with `APPROVED_BY`). |
-| Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; evidence-bound evaluation drafts (no scores); idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
+| Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; evidence-bound evaluation drafts (no scores); persisted in-app notifications for evidence requests/owner/finance/escalations; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
 | Durable agent state | `packages/agent-persistence` stores tasks, findings/actions/results, approvals and audit in PostgreSQL; API and worker rehydrate on first use and deduplicate on the original idempotency key |
 | Agent retry | Worker retries failed tasks that executed no action; after 3 attempts they are marked dead-lettered. Tasks with an executed action are never retried automatically |
 | Agent worker | `apps/worker`: polls the transactional outbox, dispatches domain events to agents, runs scheduled scans, and exposes graceful shutdown. |
@@ -38,7 +38,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS; the API resolves a store and agent runtime per authenticated tenant |
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
-| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, submit/list own evidence, view own approved evaluation decisions |
+| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, submit/list own evidence, view/read own notifications, view own approved evaluation decisions |
 | Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list, agent scan/approval, settlement commands with CSV export, audit list, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
@@ -46,7 +46,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **131 unit/API tests + 16 PostgreSQL integration tests** covering state transitions, commitment snapshots, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment, employee evidence scoping, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **132 unit/API tests + 17 PostgreSQL integration tests** covering state transitions, commitment snapshots, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -194,6 +194,8 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/calculation-runs/:id/lock` | APPROVED → LOCKED; locks ledger entries; formal runs require confirmations |
 | POST | `/api/v1/employee-confirmations` | VIEWED / CONFIRMED / OBJECTED |
 | GET | `/api/v1/employee-confirmations?personId=` | List confirmations |
+| GET/POST | `/api/v1/notifications` | List own notifications; create (manager/integration) |
+| POST | `/api/v1/notifications/:id/read` | Mark a notification read |
 | GET | `/api/v1/ledger` | List ledger |
 | GET | `/api/v1/ledger/verify` | Verify hash chain |
 | POST | `/api/v1/ledger/:id/reverse` | Append a locked linked reversal (finance) |

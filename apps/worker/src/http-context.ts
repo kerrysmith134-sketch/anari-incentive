@@ -6,6 +6,7 @@ import type {
   DataQualityIssue,
   EmployeeConfirmation,
   EvaluationDraft,
+  InAppNotification,
   EvidenceNode,
   LegalGateRecord,
   PublishPolicyInput,
@@ -166,6 +167,22 @@ export class HttpAgentContext implements AgentContext {
     return postData(
       this.baseUrl,
       "/api/v1/data-quality-issues",
+      await this.headers(),
+      input,
+    );
+  }
+
+  async createNotification(input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<InAppNotification> {
+    return postData(
+      this.baseUrl,
+      "/api/v1/notifications",
       await this.headers(),
       input,
     );

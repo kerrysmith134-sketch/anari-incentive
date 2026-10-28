@@ -586,6 +586,29 @@ describePg("PgStore vertical slice", () => {
     expect(await store.verifyAuditChain()).toBe(true);
   });
 
+  it("stores and reads in-app notifications per recipient", async () => {
+    const notification = await store.createNotification({
+      recipientPersonId: OWNER,
+      audience: "PERSON",
+      title: "Evidence needed",
+      body: "Please upload the delivery record.",
+      sourceType: "WORK_PACKAGE",
+      sourceId: "00000000-0000-4000-8000-000000000010",
+    });
+    expect(notification.status).toBe("UNREAD");
+    expect(
+      (await store.listNotifications({ recipientPersonId: OWNER })).some(
+        (candidate) => candidate.id === notification.id,
+      ),
+    ).toBe(true);
+    expect(
+      await store.listNotifications({ recipientPersonId: MEMBER }),
+    ).toHaveLength(0);
+    const read = await store.markNotificationRead(notification.id);
+    expect(read.status).toBe("READ");
+    expect(read.readAt).toBeDefined();
+  });
+
   it("stores an evidence graph with provenance and links", async () => {
     const workPackageId = await acceptedWorkPackage();
     const first = await store.createEvidence({

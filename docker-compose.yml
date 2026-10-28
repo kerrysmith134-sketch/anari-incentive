@@ -36,6 +36,7 @@ services:
              psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/008_evaluation_rls.sql &&
              psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/009_data_quality_rls.sql &&
              psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/010_evidence_submitter_rls.sql &&
+             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/011_notifications.sql &&
              psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/seed/001_demo.sql"
 
   api:

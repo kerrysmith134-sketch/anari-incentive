@@ -528,6 +528,26 @@ export interface EvaluationDecision {
   createdAt: string;
 }
 
+export type NotificationAudience =
+  | "PERSON"
+  | "MANAGER"
+  | "FINANCE"
+  | "ADMIN";
+
+export interface InAppNotification {
+  id: UUID;
+  tenantId: UUID;
+  recipientPersonId?: UUID;
+  audience: NotificationAudience;
+  title: string;
+  body: string;
+  sourceType?: string;
+  sourceId?: UUID;
+  status: "UNREAD" | "READ";
+  createdAt: string;
+  readAt?: string;
+}
+
 export interface AuditEvent {
   id: UUID;
   tenantId: UUID;

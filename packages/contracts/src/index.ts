@@ -307,6 +307,18 @@ export const settlementCommandSchema = z.object({
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 
+export const createNotificationSchema = z.object({
+  recipientPersonId: uuidSchema.optional(),
+  audience: z.enum(["PERSON", "MANAGER", "FINANCE", "ADMIN"]),
+  title: z.string().min(1),
+  body: z.string().min(1),
+  sourceType: z.string().optional(),
+  sourceId: uuidSchema.optional(),
+});
+export type CreateNotificationBody = z.infer<
+  typeof createNotificationSchema
+>;
+
 export const createDataQualityIssueSchema = z.object({
   objectType: z.string().min(1),
   objectId: uuidSchema,

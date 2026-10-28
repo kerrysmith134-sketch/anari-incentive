@@ -129,6 +129,20 @@
 
     <section class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>我的通知</strong>
+        <button id="refreshNotifications">刷新通知</button>
+      </div>
+      <div class="status" id="notificationStatus"></div>
+      <table>
+        <thead>
+        <tr><th>通知</th><th>内容</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="notificationRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong>我的证据</strong>
         <button id="refreshEvidence">刷新证据</button>
       </div>
@@ -279,6 +293,37 @@
       }
     }
 
+    async function loadNotifications() {
+      $("notificationStatus").textContent = "加载中…";
+      try {
+        const notifications = await api("/api/v1/notifications");
+        $("notificationRows").innerHTML = notifications.map((notification) => `
+          <tr>
+            <td>${escapeHtml(notification.title)}</td>
+            <td>${escapeHtml(notification.body)}</td>
+            <td><span class="pill">${escapeHtml(notification.status)}</span></td>
+            <td>${
+              notification.status === "UNREAD"
+                ? `<button data-notification="${notification.id}">标记已读</button>`
+                : "—"
+            }</td>
+          </tr>`).join("");
+        $("notificationStatus").textContent =
+          `共 ${notifications.length} 条通知`;
+      } catch (error) {
+        $("notificationStatus").textContent = String(error.message);
+      }
+    }
+
+    async function markNotificationRead(id) {
+      try {
+        await api(`/api/v1/notifications/${id}/read`, { method: "POST" });
+        await loadNotifications();
+      } catch (error) {
+        $("notificationStatus").textContent = String(error.message);
+      }
+    }
+
     async function loadEvidence() {
       $("evidenceStatus").textContent = "加载中…";
       try {
@@ -359,8 +404,15 @@
     $("loadEvaluations").addEventListener("click", loadEvaluations);
     $("refreshEvidence").addEventListener("click", loadEvidence);
     $("createEvidence").addEventListener("click", createEvidence);
+    $("refreshNotifications").addEventListener("click", loadNotifications);
+    $("notificationRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-notification]");
+      if (!button) return;
+      markNotificationRead(button.dataset.notification);
+    });
 
     loadEvidence();
+    loadNotifications();
   </script>
 </body>
 </html>

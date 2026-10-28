@@ -15,6 +15,7 @@ import type {
   EvaluationDecision,
   EvaluationDraft,
   EvidenceNode,
+  InAppNotification,
   IngestionBatch,
   IngestionResult,
   LegalGateRecord,
@@ -163,6 +164,20 @@ export interface IncentiveStore {
     effectiveFrom: string;
   }): Promise<Rubric>;
   listRubrics(): Promise<Rubric[]>;
+  createNotification(input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<InAppNotification>;
+  listNotifications(filter?: {
+    recipientPersonId?: string;
+    status?: string;
+  }): Promise<InAppNotification[]>;
+  markNotificationRead(id: string): Promise<InAppNotification>;
+
   createEvaluationDraft(input: {
     cycleId: string;
     personId: string;

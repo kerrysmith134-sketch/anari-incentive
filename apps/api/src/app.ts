@@ -15,6 +15,7 @@ import {
   createEvidenceLinkSchema,
   createDataQualityIssueSchema,
   createEvaluationCycleSchema,
+  createNotificationSchema,
   createEvaluationDraftSchema,
   dataQualityCommandSchema,
   createEvidenceSchema,
@@ -303,6 +304,46 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/notifications", async (request, reply) => {
+    requireRoles(request, "manager", "integration");
+    const body = parse(createNotificationSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createNotification(body), request));
+  });
+
+  app.get("/api/v1/notifications", async (request) => {
+    const query = request.query as { status?: string };
+    const person = personFilter(request);
+    return data(
+      await storeFor(request).listNotifications({
+        recipientPersonId: person,
+        status: query.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/notifications/:id/read", async (request) => {
+    const person = personFilter(request);
+    if (person) {
+      const own = (
+        await storeFor(request).listNotifications({
+          recipientPersonId: person,
+        })
+      ).find((notification) => notification.id === idOf(request));
+      if (!own) {
+        throw new ForbiddenError(
+          "notification is not visible to this person",
+        );
+      }
+    }
+    return data(
+      await storeFor(request).markNotificationRead(idOf(request)),
+      request,
+    );
   });
 
   app.post("/api/v1/data-quality-issues", async (request, reply) => {

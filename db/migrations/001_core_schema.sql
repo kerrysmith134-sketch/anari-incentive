@@ -6,8 +6,8 @@
 -- 002_governance_schema.sql, 003_money_path_invariants.sql,
 -- 004_policy_succession.sql, 005_ledger_sequence.sql,
 -- 006_settlement_rls.sql, 007_agent_task_state.sql,
--- 008_evaluation_rls.sql, 009_data_quality_rls.sql and
--- 010_evidence_submitter_rls.sql.
+-- 008_evaluation_rls.sql, 009_data_quality_rls.sql,
+-- 010_evidence_submitter_rls.sql and 011_notifications.sql.
 
 BEGIN;
 

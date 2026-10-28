@@ -1,6 +1,55 @@
 import { randomUUID } from "node:crypto";
 import type { PolicyDefinition } from "@anari/domain";
-import type { AgentTool } from "./types.js";
+import type { AgentContext, AgentTool } from "./types.js";
+
+async function notify(
+  context: AgentContext,
+  input: Record<string, unknown>,
+  kind: "EVIDENCE" | "OWNER" | "FINANCE" | "MANAGER",
+) {
+  const targetId =
+    typeof input.targetId === "string" ? input.targetId : undefined;
+  const targetType =
+    typeof input.targetType === "string" ? input.targetType : undefined;
+  let recipientPersonId: string | undefined;
+  if (kind === "OWNER" || kind === "EVIDENCE") {
+    if (targetType === "PERSON" && targetId) {
+      recipientPersonId = targetId;
+    } else if (targetId) {
+      const workPackage = (await context.listWorkPackages()).find(
+        (candidate) => candidate.id === targetId,
+      );
+      recipientPersonId = workPackage?.ownerPersonId;
+    }
+  }
+  const audience =
+    kind === "FINANCE"
+      ? "FINANCE"
+      : kind === "MANAGER" || !recipientPersonId
+        ? "MANAGER"
+        : "PERSON";
+  const title =
+    kind === "FINANCE"
+      ? "Finance action required"
+      : kind === "MANAGER"
+        ? "Agent escalation"
+        : kind === "EVIDENCE"
+          ? "Evidence requested"
+          : "Action required";
+  const finding =
+    typeof input.finding === "string" ? input.finding : "agent follow-up";
+  return context.createNotification({
+    recipientPersonId,
+    audience,
+    title,
+    body:
+      typeof input.message === "string"
+        ? input.message
+        : `Agent follow-up: ${finding}`,
+    sourceType: targetType,
+    sourceId: targetId,
+  });
+}
 
 export function createDefaultTools(): AgentTool[] {
   return [
@@ -24,8 +73,8 @@ export function createDefaultTools(): AgentTool[] {
       name: "request_evidence",
       riskTier: "T1",
       description: "Ask the responsible person to supply missing evidence.",
-      async execute(input) {
-        return { requestId: randomUUID(), targetId: input.targetId ?? null };
+      async execute(input, context) {
+        return notify(context, input, "EVIDENCE");
       },
     },
     {
@@ -111,24 +160,24 @@ export function createDefaultTools(): AgentTool[] {
       name: "notify_owner",
       riskTier: "T1",
       description: "Notify the work-package owner or manager.",
-      async execute(input) {
-        return { notificationId: randomUUID(), targetId: input.targetId ?? null };
+      async execute(input, context) {
+        return notify(context, input, "OWNER");
       },
     },
     {
       name: "notify_finance",
       riskTier: "T1",
       description: "Notify finance/settlement owner.",
-      async execute(input) {
-        return { notificationId: randomUUID(), targetId: input.targetId ?? null };
+      async execute(input, context) {
+        return notify(context, input, "FINANCE");
       },
     },
     {
       name: "escalate",
       riskTier: "T2",
       description: "Escalate a blocking issue to a manager or review queue.",
-      async execute(input) {
-        return { escalationId: randomUUID(), targetId: input.targetId ?? null };
+      async execute(input, context) {
+        return notify(context, input, "MANAGER");
       },
     },
     {

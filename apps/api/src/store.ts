@@ -27,6 +27,7 @@ import {
   type EvaluationDraft,
   type EvidenceLink,
   type EvidenceNode,
+  type InAppNotification,
   type IngestionBatch,
   type IngestionResult,
   type LegalGateRecord,
@@ -149,6 +150,7 @@ export class Store implements IncentiveStore {
   private readonly rubrics = new Map<string, Rubric>();
   private readonly evaluationCycles = new Map<string, EvaluationCycle>();
   private readonly dataQualityIssues = new Map<string, DataQualityIssue>();
+  private readonly notifications = new Map<string, InAppNotification>();
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
 
@@ -1023,6 +1025,54 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createNotification(input: {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+  }): Promise<InAppNotification> {
+    const notification: InAppNotification = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      recipientPersonId: input.recipientPersonId,
+      audience: input.audience,
+      title: input.title,
+      body: input.body,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      status: "UNREAD",
+      createdAt: now(),
+    };
+    this.notifications.set(notification.id, notification);
+    return notification;
+  }
+
+  async listNotifications(filter?: {
+    recipientPersonId?: string;
+    status?: string;
+  }): Promise<InAppNotification[]> {
+    return [...this.notifications.values()]
+      .filter(
+        (notification) =>
+          (!filter?.recipientPersonId ||
+            notification.recipientPersonId === filter.recipientPersonId) &&
+          (!filter?.status || notification.status === filter.status),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async markNotificationRead(id: string): Promise<InAppNotification> {
+    const notification = this.notifications.get(id);
+    if (!notification) notFound("Notification", id);
+    if (notification.status !== "READ") {
+      notification.status = "READ";
+      notification.readAt = now();
+    }
+    return notification;
   }
 
   async createDataQualityIssue(input: {
