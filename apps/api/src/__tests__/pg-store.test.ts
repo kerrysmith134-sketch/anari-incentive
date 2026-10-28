@@ -90,6 +90,14 @@ describePg("PgStore vertical slice", () => {
     });
   }
 
+  it("stores and lists work-package commitment snapshots", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const versions = await store.listWorkPackageVersions(workPackageId);
+    expect(versions).toHaveLength(1);
+    expect(versions[0]!.workPackageId).toBe(workPackageId);
+    expect(versions[0]!.contentHash).toContain("sha256:");
+  });
+
   it("runs a formal calculation through Postgres with ledger locking", async () => {
     const workPackageId = await acceptedWorkPackage();
     await confirmedClaim(workPackageId, OWNER);

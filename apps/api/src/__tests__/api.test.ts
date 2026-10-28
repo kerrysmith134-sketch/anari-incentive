@@ -581,6 +581,18 @@ describe("vertical slice", () => {
     expect((await call("GET", "/api/v1/ledger")).body.data).toHaveLength(0);
   });
 
+  it("exposes the commitment snapshot history", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const versions = await call(
+      "GET",
+      `/api/v1/work-packages/${workPackageId}/versions`,
+    );
+    expect(versions.status).toBe(200);
+    expect(versions.body.data).toHaveLength(1);
+    expect(versions.body.data[0].workPackageId).toBe(workPackageId);
+    expect(versions.body.data[0].contentHash).toContain("sha256:");
+  });
+
   it("blocks formal calculation without a server-side legal gate", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);

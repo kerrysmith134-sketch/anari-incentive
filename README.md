@@ -15,7 +15,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Area | Implementation |
 |---|---|
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
-| Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
+| Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim; commitment snapshots are versioned and queryable |
 | Evaluation | Evaluation cycles; versioned rubrics; evidence-bound drafts (USER/AGENT/SYSTEM) with strengths, counter-evidence and uncertainty; submit → human decision; self-review blocked; approvals are versioned and supersede the prior decision; a policy can require approved decisions and derive participant weight multipliers from declared dimension weights and floor/ceiling |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash; optional evaluation weighting from approved decisions |
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. `npm run seed:packs` imports packs into PostgreSQL for a tenant (DRAFT by default, PUBLISHED with `APPROVED_BY`). |
@@ -46,7 +46,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **129 unit/API tests + 14 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, employee evidence scoping, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **130 unit/API tests + 15 PostgreSQL integration tests** covering state transitions, commitment snapshots, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, employee evidence scoping, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -167,6 +167,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/work-packages` | Create work package (DRAFT) |
 | GET | `/api/v1/work-packages` | List |
 | GET | `/api/v1/work-packages/:id` | Get |
+| GET | `/api/v1/work-packages/:id/versions` | List commitment snapshots |
 | POST | `/api/v1/work-packages/:id/commit` | Freeze commitment snapshot (expectedVersion) |
 | POST | `/api/v1/work-packages/:id/start` | COMMITTED → IN_PROGRESS |
 | POST | `/api/v1/work-packages/:id/submit` | IN_PROGRESS → SUBMITTED |

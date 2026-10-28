@@ -125,6 +125,10 @@ export function settlementCsv(
 export class Store implements IncentiveStore {
   readonly ledger = new InMemoryLedger();
   private readonly workPackages = new Map<string, WorkPackage>();
+  private readonly workPackageSnapshots = new Map<
+    string,
+    CommitmentSnapshot[]
+  >();
   private readonly claims = new Map<string, ContributionClaim>();
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
@@ -300,7 +304,17 @@ export class Store implements IncentiveStore {
     workPackage.status = "COMMITTED";
     workPackage.version += 1;
     workPackage.updatedAt = now();
+    const snapshots = this.workPackageSnapshots.get(id) ?? [];
+    snapshots.push(structuredClone(snapshot));
+    this.workPackageSnapshots.set(id, snapshots);
     return workPackage;
+  }
+
+  async listWorkPackageVersions(id: string): Promise<CommitmentSnapshot[]> {
+    await this.getWorkPackage(id);
+    return (this.workPackageSnapshots.get(id) ?? []).map((snapshot) =>
+      structuredClone(snapshot),
+    );
   }
 
   async startWorkPackage(id: string): Promise<WorkPackage> {

@@ -147,6 +147,7 @@ Additional application-level invariants:
 |---|---|---|
 | `POST /work-packages` | — | Creates DRAFT |
 | `POST /work-packages/:id/commit` | DRAFT, expectedVersion | Freezes snapshot, COMMITTED |
+| `GET /work-packages/:id/versions` | owner/member or manager/finance | Lists immutable commitment snapshots |
 | `POST /work-packages/:id/start` | COMMITTED | IN_PROGRESS |
 | `POST /work-packages/:id/submit` | IN_PROGRESS | SUBMITTED |
 | `POST /work-packages/:id/accept` | SUBMITTED, reviewer ≠ owner | ACCEPTED |

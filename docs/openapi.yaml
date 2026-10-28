@@ -99,6 +99,26 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/work-packages/{id}/versions:
+    get:
+      tags: [Work packages]
+      summary: List commitment snapshots for a work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Version snapshots
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/work-packages/{id}/commit:
     post:
       tags: [Work packages]

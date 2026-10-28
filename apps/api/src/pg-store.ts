@@ -312,6 +312,25 @@ export class PgStore implements IncentiveStore {
     });
   }
 
+  async listWorkPackageVersions(
+    id: string,
+  ): Promise<CommitmentSnapshot[]> {
+    return this.tx(async (client) => {
+      const { rows: exists } = await client.query(
+        `SELECT 1 FROM work_packages WHERE tenant_id=$1 AND id=$2`,
+        [this.tenantId, id],
+      );
+      if (!exists[0]) notFound("WorkPackage", id);
+      const { rows } = await client.query(
+        `SELECT snapshot FROM work_package_versions
+          WHERE tenant_id=$1 AND work_package_id=$2
+          ORDER BY version`,
+        [this.tenantId, id],
+      );
+      return rows.map((row) => row.snapshot as CommitmentSnapshot);
+    });
+  }
+
   async commitWorkPackage(
     id: string,
     expectedVersion: number,

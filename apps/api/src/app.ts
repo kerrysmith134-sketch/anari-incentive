@@ -710,6 +710,22 @@ export function buildApp(
     return data(wp, request);
   });
 
+  app.get("/api/v1/work-packages/:id/versions", async (request) => {
+    const wp = await storeFor(request).getWorkPackage(idOf(request));
+    const person = personFilter(request);
+    if (
+      person &&
+      wp.ownerPersonId !== person &&
+      !wp.members.some((member) => member.personId === person)
+    ) {
+      throw new ForbiddenError("work package is not visible to this person");
+    }
+    return data(
+      await storeFor(request).listWorkPackageVersions(idOf(request)),
+      request,
+    );
+  });
+
   app.post("/api/v1/work-packages/:id/commit", async (request) => {
     const body = parse(commitWorkPackageSchema, request.body);
     return data(
