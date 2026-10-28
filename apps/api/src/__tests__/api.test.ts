@@ -1202,7 +1202,7 @@ describe("vertical slice", () => {
     );
     expect(exported.body.data.batch.status).toBe("EXPORTED");
     expect(exported.body.data.csv).toContain(
-      "batch_no,person_id,ledger_id,amount,currency",
+      "batch_no,person_id,employee_code,person_name,ledger_id,amount,currency",
     );
     expect(exported.body.data.csv.trim().split("\n")).toHaveLength(3);
 

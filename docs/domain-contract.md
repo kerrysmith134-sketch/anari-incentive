@@ -343,7 +343,7 @@ A settlement batch is the bridge from locked money to finance:
 - every line is a copy of `(ledger_id, person_id, amount, currency)` and PostgreSQL rejects a line that does not match a locked ledger entry (`trg_settlement_line_ledger`);
 - `RECONCILE` revalidates each active line against the ledger, uniqueness, line count and total;
 - `APPROVE` requires an `actorPersonId`; the batch records `approved_by` and `approved_at`;
-- `EXPORT` transitions to `EXPORTED` and returns a CSV of active lines;
+- `EXPORT` transitions to `EXPORTED` and returns a CSV of active lines, including employee code/name when available;
 - `CANCEL` marks lines inactive so the ledger entries can be batched again; the unique active-line index prevents double settlement;
 - settlement lines have RLS (`006_settlement_rls.sql`).
 

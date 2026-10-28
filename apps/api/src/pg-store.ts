@@ -2487,9 +2487,13 @@ export class PgStore implements IncentiveStore {
     batchId: string,
   ): Promise<SettlementLine[]> {
     const { rows } = await client.query(
-      `SELECT * FROM settlement_lines
-        WHERE tenant_id=$1 AND batch_id=$2
-        ORDER BY created_at, id`,
+      `SELECT sl.*, p.employee_code AS person_code,
+              p.display_name AS person_name
+         FROM settlement_lines sl
+         LEFT JOIN people p
+           ON p.tenant_id = sl.tenant_id AND p.id = sl.person_id
+        WHERE sl.tenant_id=$1 AND sl.batch_id=$2
+        ORDER BY sl.created_at, sl.id`,
       [this.tenantId, batchId],
     );
     return rows.map((row) => this.mapSettlementLine(row));
@@ -2524,6 +2528,8 @@ export class PgStore implements IncentiveStore {
       batchId: row.batch_id,
       ledgerId: row.ledger_id,
       personId: row.person_id,
+      personCode: row.person_code ?? undefined,
+      personName: row.person_name ?? undefined,
       amount: trimAmount(normalizeAmount(String(row.amount))),
       currency: String(row.currency).trim(),
       status: row.status,

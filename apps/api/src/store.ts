@@ -100,21 +100,31 @@ function notFound(kind: string, id: string): never {
   throw new NotFoundError(`${kind} ${id} not found`);
 }
 
+function csvField(value: unknown): string {
+  const text = value === undefined || value === null ? "" : String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 export function settlementCsv(
   batch: SettlementBatch,
   lines: SettlementLine[],
 ): string {
-  const header = "batch_no,person_id,ledger_id,amount,currency";
+  const header =
+    "batch_no,person_id,employee_code,person_name,ledger_id,amount,currency";
   const rows = lines
     .filter((line) => line.active)
     .map((line) =>
       [
         batch.batchNo,
         line.personId,
+        line.personCode,
+        line.personName,
         line.ledgerId,
         line.amount,
         line.currency,
-      ].join(","),
+      ]
+        .map(csvField)
+        .join(","),
     );
   return [header, ...rows].join("\n") + "\n";
 }

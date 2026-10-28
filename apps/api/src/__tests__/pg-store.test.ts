@@ -263,6 +263,8 @@ describePg("PgStore vertical slice", () => {
     });
     expect(exported.batch.status).toBe("EXPORTED");
     expect(exported.csv?.trim().split("\n")).toHaveLength(3);
+    expect(exported.csv).toContain("E001");
+    expect(exported.csv).toContain("Sales Lead");
     const acknowledged = await store.commandSettlementBatch(batch.id, {
       command: "ACKNOWLEDGE",
       externalReference: "pg-finance-1",

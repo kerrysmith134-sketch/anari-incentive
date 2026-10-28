@@ -409,6 +409,8 @@ export interface SettlementLine {
   batchId: UUID;
   ledgerId: UUID;
   personId: UUID;
+  personCode?: string;
+  personName?: string;
   amount: DecimalString;
   currency: string;
   status: string;
