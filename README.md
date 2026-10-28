@@ -39,7 +39,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS; the API resolves a store and agent runtime per authenticated tenant |
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
-| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, submit/list own evidence, view/read own notifications, confirm/object to RECOVERY batches, view own approved evaluation decisions |
+| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, create/submit own contribution claims, submit/list own evidence, view/read own notifications, confirm/object to RECOVERY batches, view own approved evaluation decisions |
 | Admin view | Minimal page at `/admin`: work-package lifecycle, claims/attribution, policy simulation/publication/version list/diff, batch calculation, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center with filters/bulk read, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |

@@ -481,7 +481,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 评价纵向切片：评价周期、版本化 Rubric、证据绑定草稿（USER/AGENT/SYSTEM，含 strengths/counter-evidence/uncertainty）、提交后人工决策、禁止自评、决策版本化并 supersede 上一版；`EvaluationDraftSkill` 可由 Agent 依据 claim/decision/evidence 生成草稿，但不输出分数；Policy Pack 可选择启用评价权重（dimensionWeights/floor/ceiling），计算时必须引用已批准且同周期同人的 decision，由系统换算 multiplier，调用方不能直接传分数；
 - `packages/policy-dsl`：确定性 decimal、订单贡献池计算、独立参照、哈希；
 - `packages/ledger`：追加式账本、幂等、锁定、冲销、哈希链；
-- 员工端：确认/异议/申诉、提交并查看本人证据、查看/标记本人通知、查看本人已批准评价决策；
+- 员工端：确认/异议/申诉、创建并提交本人贡献申报、提交并查看本人证据、查看/标记本人通知、查看本人已批准评价决策；
 - 站内通知：Agent 的补证、通知 owner/finance、升级动作落库为 in-app notification；DQ 指派、员工异议、申诉状态、评价提交/决策、结算调整也会通知相应人员；员工端可读/标记已读，管理端有通知中心；邮件/IM 投递仍作为外部适配器；证据记录 submittedBy，员工只能看到自己提交的证据；
 - 数据质量 issue：OPEN→ASSIGNED→IN_PROGRESS→RESOLVED/WAIVED→REOPENED；waiver 需批准人与理由；未解决的 BLOCKING issue 阻断该工作包的 FORMAL 计算；DATA_QUALITY Agent 会把证据质量问题落为 issue，BLOCKING 同时升级待人工处理；
 - 批量计算：`POST /calculation-runs:batch` 单事务处理 1–50 个计算，任一条阻断则全部回滚（内存与 PostgreSQL 一致）；管理端可按订单行批量发起；

@@ -611,6 +611,7 @@ describe("employee view", () => {
     expect(response.body).toContain("我的证据");
     expect(response.body).toContain("我的通知");
     expect(response.body).toContain("扣回/回收确认");
+    expect(response.body).toContain("我的贡献申报");
   });
 });
 

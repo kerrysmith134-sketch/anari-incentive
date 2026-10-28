@@ -129,6 +129,33 @@
 
     <section class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>我的贡献申报</strong>
+        <button id="refreshClaims">刷新申报</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="claimWorkPackage">已验收工作包</label>
+          <select id="claimWorkPackage"></select>
+        </div>
+        <div>
+          <label for="claimSummary">贡献摘要</label>
+          <input id="claimSummary" value="Delivered the agreed scope" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createClaim">创建申报</button>
+      </div>
+      <div class="status" id="claimStatus"></div>
+      <table>
+        <thead>
+        <tr><th>申报</th><th>工作包</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="claimRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
         <strong>扣回/回收确认</strong>
       </div>
       <div class="grid">
@@ -311,6 +338,77 @@
       }
     }
 
+    async function loadClaimPackages() {
+      try {
+        const packages = await api("/api/v1/work-packages");
+        const accepted = packages.filter((wp) => wp.status === "ACCEPTED");
+        $("claimWorkPackage").innerHTML = accepted.length
+          ? accepted.map((wp) =>
+              `<option value="${wp.id}">${escapeHtml(wp.title)}</option>`,
+            ).join("")
+          : '<option value="">暂无已验收工作包</option>';
+      } catch (error) {
+        $("claimStatus").textContent = String(error.message);
+      }
+    }
+
+    async function loadMyClaims() {
+      try {
+        const claims = await api("/api/v1/contribution-claims");
+        $("claimRows").innerHTML = claims.map((claim) => `<tr>
+          <td class="mono">${escapeHtml(claim.id.slice(0, 8))}</td>
+          <td class="mono">${escapeHtml(claim.workPackageId.slice(0, 8))}</td>
+          <td><span class="pill">${escapeHtml(claim.status)}</span></td>
+          <td>${
+            claim.status === "DRAFT"
+              ? `<button data-claim="${claim.id}">提交</button>`
+              : "—"
+          }</td>
+        </tr>`).join("");
+        $("claimStatus").textContent = `共 ${claims.length} 条申报`;
+      } catch (error) {
+        $("claimStatus").textContent = String(error.message);
+      }
+    }
+
+    async function createMyClaim() {
+      try {
+        const personId = $("personId").value.trim();
+        const workPackageId = $("claimWorkPackage").value;
+        const summary = $("claimSummary").value.trim();
+        if (!personId || !workPackageId) {
+          throw new Error("请填写员工 ID 并选择已验收工作包");
+        }
+        await api("/api/v1/contribution-claims", {
+          method: "POST",
+          body: JSON.stringify({
+            workPackageId,
+            claimantPersonId: personId,
+            claimType: "DELIVERABLE_CONTRIBUTION",
+            claimedContribution: { dimensions: ["QUALITY"], summary },
+            evidenceRefs: [],
+            rationale: summary,
+          }),
+        });
+        $("claimStatus").textContent = "申报已创建";
+        await loadMyClaims();
+      } catch (error) {
+        $("claimStatus").textContent = String(error.message);
+      }
+    }
+
+    async function submitMyClaim(claimId) {
+      try {
+        await api(`/api/v1/contribution-claims/${claimId}/submit`, {
+          method: "POST",
+        });
+        $("claimStatus").textContent = "申报已提交";
+        await loadMyClaims();
+      } catch (error) {
+        $("claimStatus").textContent = String(error.message);
+      }
+    }
+
     async function recordRecovery(decision) {
       const personId = $("personId").value.trim();
       const batchId = $("settlementBatchId").value.trim();
@@ -450,6 +548,16 @@
     $("refreshEvidence").addEventListener("click", loadEvidence);
     $("createEvidence").addEventListener("click", createEvidence);
     $("refreshNotifications").addEventListener("click", loadNotifications);
+    $("createClaim").addEventListener("click", createMyClaim);
+    $("refreshClaims").addEventListener("click", async () => {
+      await loadClaimPackages();
+      await loadMyClaims();
+    });
+    $("claimRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-claim]");
+      if (!button) return;
+      submitMyClaim(button.dataset.claim);
+    });
     $("confirmRecovery").addEventListener("click", () =>
       recordRecovery("CONFIRMED"),
     );
@@ -462,6 +570,8 @@
       markNotificationRead(button.dataset.notification);
     });
 
+    loadClaimPackages();
+    loadMyClaims();
     loadEvidence();
     loadNotifications();
   </script>
