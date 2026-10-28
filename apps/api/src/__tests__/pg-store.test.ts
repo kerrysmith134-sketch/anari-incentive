@@ -1129,6 +1129,13 @@ describePg("PgStore vertical slice", () => {
     expect(await other.listRuns()).toEqual([]);
   });
 
+  it("records applied migrations", async () => {
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS count FROM schema_migrations",
+    );
+    expect(rows[0]?.count).toBeGreaterThanOrEqual(12);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

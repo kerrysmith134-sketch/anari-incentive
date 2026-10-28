@@ -48,7 +48,16 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **138 unit/API tests + 21 PostgreSQL integration tests** covering state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **138 unit/API tests + 22 PostgreSQL integration tests** covering state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+
+## Operations
+
+- **Migrations**: `npm run db:migrate` tracks each file in `schema_migrations` with a SHA-256 checksum. Applied files are skipped; a modified applied file fails. A database created before the runner existed needs a one-time manual baseline stamp; do not point the runner at an unstamped non-empty schema.
+- **Seed**: `npm run db:seed` is idempotent and runs the SQL files under `db/seed/`.
+- **Shutdown**: API and worker handle `SIGINT`/`SIGTERM`, close HTTP/DB resources and exit.
+- **Health**: API `/health` + `/ready` on `3000`; worker `/health` + `/ready` on `3100`.
+- **Logging**: set `LOG_LEVEL` (for example `info`) to enable Fastify request logs; unset keeps tests quiet.
+- **Auth**: `AUTH_MODE=dev` trusts headers and is for local use only; set `AUTH_MODE=oidc` before exposing the API.
 
 ## What is intentionally not implemented yet
 
@@ -113,10 +122,11 @@ docker run --rm -v "$PWD":/app -w /app node:22-alpine \
 ### Docker compose (postgres + migrate + api + worker)
 
 ```bash
+cp .env.example .env   # optional; development defaults work
 docker compose up --build
 ```
 
-The `worker` polls `outbox_events`, dispatches domain events to the agent runtime, and runs scheduled scans.
+The `migrate` service applies checksum-tracked migrations and the demo seed, then exits. The `api` and `worker` services wait for it; both have `/health` and `/ready` checks. The `worker` polls `outbox_events`, dispatches domain events to the agent runtime, and runs scheduled scans.
 
 ### PostgreSQL-backed API (manual)
 
@@ -279,6 +289,8 @@ examples/verticals/       Tenant policy packs (charging equipment sales, profess
 fixtures/                 Generic reference policy, order fixtures, reconciliation CSV, connector fixtures
 db/migrations/            PostgreSQL schema and money-path invariants
 db/seed/                  Demo tenant/people/cycle/policy + RLS app role
+scripts/migrate.ts        Checksum-tracked SQL migration runner
+scripts/seed.ts           Idempotent SQL seed runner
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 scripts/ci.sh             Install → typecheck → tests → compose → PostgreSQL
 scripts/reconcile.ts     CSV vs engine reconciliation
@@ -287,7 +299,8 @@ scripts/import-csv.ts    CSV connector importer
 scripts/seed-policy-packs.ts  Import examples/verticals packs into PostgreSQL
 scripts/demo-cycle.ts    End-to-end API demo: package → claim → run → settlement → evaluation → DQ → appeal
 Dockerfile                API/worker image
-docker-compose.yml        postgres + migrate + api + worker
+docker-compose.yml        postgres + migrate + api + worker with healthchecks
+.env.example              Compose/auth/worker environment template
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision

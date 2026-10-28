@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { Pool } from "pg";
 import {
   AgentRuntime,
@@ -105,6 +106,28 @@ const poller = new OutboxPoller(
   scheduler,
 );
 
+const healthPort = Number(process.env.WORKER_PORT ?? 3100);
+const health = createServer(async (request, response) => {
+  response.setHeader("content-type", "application/json");
+  if (request.url === "/health") {
+    response.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+  if (request.url === "/ready") {
+    try {
+      await pool.query("SELECT 1");
+      response.end(JSON.stringify({ status: "ready" }));
+    } catch {
+      response.statusCode = 503;
+      response.end(JSON.stringify({ status: "not_ready" }));
+    }
+    return;
+  }
+  response.statusCode = 404;
+  response.end(JSON.stringify({ error: "not_found" }));
+});
+health.listen(healthPort, "0.0.0.0");
+
 let running = true;
 process.on("SIGINT", () => {
   running = false;
@@ -138,5 +161,6 @@ while (running) {
   await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 }
 
+health.close();
 await pool.end();
 console.log("agent worker stopped");

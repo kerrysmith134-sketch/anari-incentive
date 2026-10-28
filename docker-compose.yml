@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: anari-incentive-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: anari
       POSTGRES_PASSWORD: anari
@@ -17,31 +18,20 @@ services:
       retries: 12
 
   migrate:
-    image: postgres:16-alpine
+    build: .
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      PGPASSWORD: anari
-    volumes:
-      - ./db:/db:ro
-    entrypoint: >
-      sh -c "psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/001_core_schema.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/002_governance_schema.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/003_money_path_invariants.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/004_policy_succession.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/005_ledger_sequence.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/006_settlement_rls.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/007_agent_task_state.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/008_evaluation_rls.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/009_data_quality_rls.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/010_evidence_submitter_rls.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/011_notifications.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/migrations/012_recovery_settlement.sql &&
-             psql -h postgres -U anari -d anari_incentive -v ON_ERROR_STOP=1 -f /db/seed/001_demo.sql"
+      DATABASE_URL: postgres://anari:anari@postgres:5432/anari_incentive
+    command:
+      ["sh", "-c", "npm run db:migrate && npm run db:seed"]
 
   api:
     build: .
+    init: true
+    restart: unless-stopped
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -49,23 +39,63 @@ services:
       DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
       STORE: postgres
       PORT: 3000
+      AUTH_MODE: ${AUTH_MODE:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-00000000-0000-4000-8000-000000000001}
+      DEFAULT_PERSON_ID: ${DEFAULT_PERSON_ID:-00000000-0000-4000-8000-000000000001}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
     ports:
       - "3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   worker:
     build: .
+    init: true
+    restart: unless-stopped
     command: ["npm", "run", "worker"]
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
       API_BASE_URL: http://api:3000
-      TENANT_ID: 00000000-0000-4000-8000-000000000001
-      POLL_INTERVAL_MS: 5000
-      SCAN_INTERVAL_MS: 900000
+      TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}
+      WORKER_PORT: 3100
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-5000}
+      SCAN_INTERVAL_MS: ${SCAN_INTERVAL_MS:-900000}
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
+      OIDC_TOKEN_URL: ${OIDC_TOKEN_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPE: ${OIDC_SCOPE:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3100/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
 volumes:
   anari_incentive_pgdata:

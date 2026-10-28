@@ -62,6 +62,18 @@ const createRuntime: AgentRuntimeFactory | undefined = pool
 
 const app = buildApp(resolveStore, createRuntime, authenticator);
 
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`received ${signal}, shutting down`);
+  await app.close();
+  if (pool) await pool.end();
+  process.exit(0);
+}
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
 app
   .listen({ port, host: "0.0.0.0" })
   .then((address) => {

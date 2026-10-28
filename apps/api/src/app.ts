@@ -193,7 +193,11 @@ export function buildApp(
     roles: ["admin"],
   }),
 ): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: process.env.LOG_LEVEL
+      ? { level: process.env.LOG_LEVEL }
+      : false,
+  });
   const metrics = new ApiMetrics();
   const scopedStores = new Map<string, IncentiveStore>();
   const scopedRuntimes = new Map<string, AgentRuntime>();

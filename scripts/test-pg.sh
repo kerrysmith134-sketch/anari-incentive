@@ -16,9 +16,8 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker exec "$CONTAINER" psql -U anari -d anari_incentive -c 'select 1' >/dev/null
-for file in db/migrations/001_core_schema.sql db/migrations/002_governance_schema.sql db/migrations/003_money_path_invariants.sql db/migrations/004_policy_succession.sql db/migrations/005_ledger_sequence.sql db/migrations/006_settlement_rls.sql db/migrations/007_agent_task_state.sql db/migrations/008_evaluation_rls.sql db/migrations/009_data_quality_rls.sql db/migrations/010_evidence_submitter_rls.sql db/migrations/011_notifications.sql db/migrations/012_recovery_settlement.sql db/seed/001_demo.sql; do
-  echo "applying $file"
-  docker exec -i "$CONTAINER" psql -U anari -d anari_incentive -v ON_ERROR_STOP=1 < "$file" >/dev/null
-done
+MIGRATION_URL="postgres://anari:anari@localhost:${PORT}/anari_incentive"
+DATABASE_URL="$MIGRATION_URL" npm run db:migrate
+DATABASE_URL="$MIGRATION_URL" npm run db:seed
 DATABASE_URL="postgres://anari_app:anari_app@localhost:${PORT}/anari_incentive" \
   npx vitest run apps/api/src/__tests__/pg-store.test.ts
