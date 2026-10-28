@@ -261,6 +261,15 @@ export const policyDefinitionSchema = z.object({
 });
 export type PolicyDefinitionBody = z.input<typeof policyDefinitionSchema>;
 
+export const publishPolicySchema = z.object({
+  policy: policyDefinitionSchema,
+  policyVersionId: uuidSchema.optional(),
+  effectiveFrom: z.string().datetime(),
+  approvedBy: uuidSchema,
+  scope: z.record(z.unknown()).optional(),
+});
+export type PublishPolicyBody = z.infer<typeof publishPolicySchema>;
+
 export const policySimulationSchema = z.object({
   currentPolicyVersionId: z.string().min(1),
   proposedPolicy: policyDefinitionSchema,

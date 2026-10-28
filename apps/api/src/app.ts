@@ -18,6 +18,7 @@ import {
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
   policySimulationSchema,
+  publishPolicySchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
@@ -173,6 +174,13 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/policy-versions", async (request, reply) => {
+    const body = parse(publishPolicySchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await store.publishPolicy(body), request));
   });
 
   app.post("/api/v1/policy-simulations", async (request) => {

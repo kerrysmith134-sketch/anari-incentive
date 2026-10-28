@@ -6,6 +6,8 @@ import type {
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
+  PublishPolicyInput,
+  PublishedPolicy,
   WorkPackage,
 } from "@anari/domain";
 
@@ -85,6 +87,15 @@ export interface AgentContext {
     subjectType?: string,
     subjectId?: string,
   ): Promise<EvidenceNode[]>;
+  /** Publishes an approved policy version; T3 and never called without a human. */
+  publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
+}
+
+export interface AgentToolExecutionContext {
+  taskId: string;
+  actor: string;
+  /** Present only when a human approved this specific action. */
+  approvedBy?: string;
 }
 
 export interface AgentTool {
@@ -94,6 +105,7 @@ export interface AgentTool {
   execute(
     input: Record<string, unknown>,
     context: AgentContext,
+    execution?: AgentToolExecutionContext,
   ): Promise<unknown>;
 }
 
@@ -103,7 +115,7 @@ export interface AgentSkill {
     context: AgentContext,
     input: Record<string, unknown>,
   ): Promise<AgentFinding[]>;
-  plan(finding: AgentFinding): AgentAction[];
+  plan(finding: AgentFinding, input?: Record<string, unknown>): AgentAction[];
 }
 
 export interface AgentAuditEntry {

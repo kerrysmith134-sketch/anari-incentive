@@ -780,6 +780,33 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/policy-versions:
+    post:
+      tags: [Policy]
+      summary: Publish an approved policy version
+      description: |
+        Creates a PUBLISHED policy version with its content hash, approver and
+        effective date. Publication is a governed decision; formal calculations
+        remain blocked until the separate legal gate and confirmations exist.
+        Agent-driven publication goes through a T3 action approved by a human.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishPolicy"
+      responses:
+        "201":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/policy-simulations:
     post:
       tags: [Policy]
@@ -1403,6 +1430,23 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+
+    PublishPolicy:
+      type: object
+      required: [policy, effectiveFrom, approvedBy]
+      properties:
+        policy:
+          $ref: "#/components/schemas/PolicyDefinition"
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        effectiveFrom:
+          type: string
+          format: date-time
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+        scope:
+          type: object
+          additionalProperties: true
 
     PolicySimulation:
       type: object

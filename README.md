@@ -21,6 +21,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
 | Agent worker | `apps/worker`: polls the transactional outbox, dispatches domain events to agents, runs scheduled scans, and exposes graceful shutdown. |
 | Policy simulation | `simulatePolicyChange` replays representative inputs through current vs proposed policy; returns per-person/total deltas and blockers. It never publishes or writes money. |
+| Policy publication | `POST /policy-versions` writes a `PUBLISHED`, content-hashed, approver-attributed version; a successor closes the prior effective window and published content stays immutable. Formal calculations still require the separate legal gate. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector and CLI importer (`npm run import:csv`) |
@@ -38,7 +39,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **101 unit/API tests + 7 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
+| Tests | **103 unit/API tests + 8 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, policy publication/succession, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -168,6 +169,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/appeals/:id/resolve` | UNDER_REVIEW → DECIDED → CLOSED/RECALCULATION_REQUIRED |
 | POST | `/api/v1/agent-tasks` | Enqueue a proactive agent task |
 | POST | `/api/v1/agent-tasks/scan` | Run a proactive scan: evidence gaps, anomalies, settlement readiness |
+| POST | `/api/v1/policy-versions` | Publish an approved policy version; closes the prior effective window |
 | POST | `/api/v1/policy-simulations` | Replay samples through current vs proposed policy; no publication |
 | GET | `/api/v1/agent-tasks` / `/:id` | List/get agent tasks |
 | POST | `/api/v1/agent-tasks/:id/run` | Observe → plan → execute low-risk actions |

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PolicyDefinition } from "@anari/domain";
 import type { AgentTool } from "./types.js";
 
 export function createDefaultTools(): AgentTool[] {
@@ -54,12 +55,35 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "publish_policy",
       riskTier: "T3",
-      description: "Publish a policy version. Must be approved by an authorized human.",
-      async execute(input) {
-        return {
-          published: true,
-          policyVersionId: input.policyVersionId ?? null,
-        };
+      description:
+        "Publish a policy version. Must be approved by an authorized human.",
+      async execute(input, context, execution) {
+        if (!execution?.approvedBy) {
+          throw new Error(
+            "POLICY_PUBLISH_REQUIRES_HUMAN_APPROVAL: publish_policy can only run through an approved T3 action",
+          );
+        }
+        const policy = input.policy as PolicyDefinition | undefined;
+        if (!policy || typeof policy !== "object" || !policy.code) {
+          throw new Error("POLICY_DEFINITION_REQUIRED");
+        }
+        const policyVersionId =
+          typeof input.policyVersionId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            input.policyVersionId,
+          )
+            ? input.policyVersionId
+            : undefined;
+        const effectiveFrom =
+          typeof input.effectiveFrom === "string"
+            ? input.effectiveFrom
+            : new Date().toISOString();
+        return context.publishPolicy({
+          policy,
+          policyVersionId,
+          effectiveFrom,
+          approvedBy: execution.approvedBy,
+        });
       },
     },
   ];

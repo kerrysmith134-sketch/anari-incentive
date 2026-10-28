@@ -132,7 +132,9 @@ export class AgentRuntime {
     task.updatedAt = now();
     try {
       const findings = await skill.observe(this.context, task.input);
-      const actions = findings.flatMap((finding) => skill.plan(finding));
+      const actions = findings.flatMap((finding) =>
+        skill.plan(finding, task.input),
+      );
       task.findings = findings;
       task.actions = actions;
       task.riskTier = actions.reduce(
@@ -202,7 +204,7 @@ export class AgentRuntime {
         `action ${actionId} is not pending approval`,
       );
     }
-    const executed = await this.execute(task, action);
+    const executed = await this.execute(task, action, approverPersonId);
     Object.assign(result, executed);
     task.approvedBy = approverPersonId;
     task.approvedAt = now();
@@ -280,6 +282,7 @@ export class AgentRuntime {
   private async execute(
     task: AgentTask,
     action: AgentAction,
+    approvedBy?: string,
   ): Promise<AgentActionResult> {
     const tool = this.tools.find((candidate) => candidate.name === action.tool);
     if (!tool) {
@@ -290,7 +293,11 @@ export class AgentRuntime {
       };
     }
     try {
-      const output = await tool.execute(action.payload, this.context);
+      const output = await tool.execute(action.payload, this.context, {
+        taskId: task.id,
+        actor: approvedBy ?? task.approvedBy ?? this.options.actor ?? "system",
+        approvedBy,
+      });
       this.audit.push({
         taskId: task.id,
         actionId: action.id,

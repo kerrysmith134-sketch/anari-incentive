@@ -24,6 +24,8 @@ import {
   type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
+  type PublishPolicyInput,
+  type PublishedPolicy,
   type WorkPackage,
 } from "@anari/domain";
 import type {
@@ -121,6 +123,76 @@ export class PgStore implements IncentiveStore {
       );
       if (!rows[0]) notFound("Policy", policyVersionId);
       return rows[0].rule_ast as PolicyDefinition;
+    });
+  }
+
+  async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    return this.tx(async (client) => {
+      const policyVersionId = input.policyVersionId ?? randomUUID();
+      const contentHash = sha256(input.policy);
+      try {
+        const { rows: open } = await client.query(
+          `SELECT id, effective_from
+             FROM policy_versions
+            WHERE tenant_id = $1 AND policy_code = $2
+              AND effective_to IS NULL AND id <> $3
+            ORDER BY effective_from DESC
+            LIMIT 1
+            FOR UPDATE`,
+          [this.tenantId, input.policy.code, policyVersionId],
+        );
+        if (open[0]) {
+          if (
+            new Date(input.effectiveFrom).getTime() <=
+            new Date(open[0].effective_from).getTime()
+          ) {
+            throw new ConflictError(
+              `effectiveFrom must be after the open version (${iso(open[0].effective_from)})`,
+            );
+          }
+          await client.query(
+            `UPDATE policy_versions
+                SET effective_to = $1
+              WHERE tenant_id = $2 AND id = $3`,
+            [input.effectiveFrom, this.tenantId, open[0].id],
+          );
+        }
+
+        const { rows } = await client.query(
+          `INSERT INTO policy_versions
+            (id, tenant_id, policy_code, version, scope, status,
+             effective_from, rule_ast, rule_schema_version, content_hash,
+             approved_by, approved_at, published_at)
+           VALUES ($1,$2,$3,$4,$5,'PUBLISHED',$6,$7,'policy-definition/v1',$8,$9,now(),now())
+           RETURNING published_at`,
+          [
+            policyVersionId,
+            this.tenantId,
+            input.policy.code,
+            input.policy.version,
+            JSON.stringify(input.scope ?? {}),
+            input.effectiveFrom,
+            JSON.stringify(input.policy),
+            contentHash,
+            input.approvedBy,
+          ],
+        );
+        return {
+          policyVersionId,
+          policy: input.policy,
+          contentHash,
+          effectiveFrom: input.effectiveFrom,
+          publishedAt: iso(rows[0]?.published_at) ?? new Date().toISOString(),
+          approvedBy: input.approvedBy,
+        };
+      } catch (error) {
+        if ((error as { code?: string }).code === "23505") {
+          throw new ConflictError(
+            `Policy ${input.policy.code}:${input.policy.version} already exists`,
+          );
+        }
+        throw error;
+      }
     });
   }
 

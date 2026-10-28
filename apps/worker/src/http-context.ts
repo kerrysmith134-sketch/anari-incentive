@@ -6,6 +6,8 @@ import type {
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
+  PublishPolicyInput,
+  PublishedPolicy,
   WorkPackage,
 } from "@anari/domain";
 import type { AgentContext } from "@anari/agent-runtime";
@@ -28,6 +30,32 @@ async function readData<T>(
     );
   }
   return body.data as T;
+}
+
+async function postData<T>(
+  baseUrl: string,
+  path: string,
+  tenantId: string,
+  body: unknown,
+): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-tenant-id": tenantId,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json()) as {
+    data?: T;
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(
+      `API ${path} failed: ${result.error?.message ?? response.status}`,
+    );
+  }
+  return result.data as T;
 }
 
 export class HttpAgentContext implements AgentContext {
@@ -93,5 +121,14 @@ export class HttpAgentContext implements AgentContext {
     if (subjectId) params.set("subjectId", subjectId);
     const suffix = params.size > 0 ? `?${params.toString()}` : "";
     return readData(this.baseUrl, `/api/v1/evidence${suffix}`, this.tenantId);
+  }
+
+  publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    return postData(
+      this.baseUrl,
+      "/api/v1/policy-versions",
+      this.tenantId,
+      input,
+    );
   }
 }

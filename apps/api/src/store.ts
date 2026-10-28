@@ -23,6 +23,8 @@ import {
   type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
+  type PublishPolicyInput,
+  type PublishedPolicy,
   type WorkPackage,
 } from "@anari/domain";
 import type {
@@ -94,11 +96,42 @@ export class Store implements IncentiveStore {
   private readonly evidence = new Map<string, EvidenceNode>();
   private readonly evidenceLinks = new Map<string, EvidenceLink>();
   private readonly ingestedKeys = new Set<string>();
+  private readonly publishedPolicies = new Map<string, PolicyDefinition>();
+  private readonly publishedPolicyKeys = new Set<string>();
 
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
-    const policy = policies.get(policyVersionId);
+    const policy =
+      this.publishedPolicies.get(policyVersionId) ??
+      policies.get(policyVersionId);
     if (!policy) notFound("Policy", policyVersionId);
     return policy;
+  }
+
+  async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    const policyVersionId = input.policyVersionId ?? randomUUID();
+    if (
+      this.publishedPolicies.has(policyVersionId) ||
+      policies.has(policyVersionId)
+    ) {
+      throw new ConflictError(`Policy ${policyVersionId} already exists`);
+    }
+    const policyKey = `${input.policy.code}:${input.policy.version}`;
+    if (this.publishedPolicyKeys.has(policyKey)) {
+      throw new ConflictError(`Policy ${policyKey} already exists`);
+    }
+
+    const publishedAt = now();
+    const contentHash = sha256(input.policy);
+    this.publishedPolicies.set(policyVersionId, input.policy);
+    this.publishedPolicyKeys.add(policyKey);
+    return {
+      policyVersionId,
+      policy: input.policy,
+      contentHash,
+      effectiveFrom: input.effectiveFrom,
+      publishedAt,
+      approvedBy: input.approvedBy,
+    };
   }
 
   async createWorkPackage(

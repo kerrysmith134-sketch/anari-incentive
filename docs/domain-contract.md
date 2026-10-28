@@ -159,6 +159,7 @@ Additional application-level invariants:
 | `POST /agent-tasks/:id/reject` | action PENDING_APPROVAL | Marks rejected, writes audit |
 | `POST /agent-tasks/scan` | — | Enqueues and runs evidence-gap, anomaly and settlement-readiness sweeps |
 | `POST /policy-simulations` | current policy exists | Recomputes samples; returns deltas and blockers; writes no money |
+| `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL |
 
 ---
 
@@ -262,6 +263,8 @@ The core has no industry-specific agent. A policy pack can add evidence requirem
 ## 10. Policy simulation
 
 `simulatePolicyChange(currentPolicy, proposedPolicy, samples)` returns per-person current/proposed/delta amounts, totals, affected people and blockers. It is a decision-support function: it does not publish a policy, write a ledger or approve a payment. `POST /policy-simulations` exposes it for an admin UI; the proposed policy is data, not a code deployment.
+
+Publication is a separate governed step. `publish_policy` is a T3 agent tool: it only executes through `AgentRuntime.approve`, receives the approver id from that approval, and calls `publishPolicy`. `POST /policy-versions` is the equivalent operator command and also requires an explicit `approvedBy`. A published policy row stores the content hash, effective window, approver and timestamps. The prior open-ended version is closed at the successor's `effective_from`; published content and a closed `effective_to` are immutable (`004_policy_succession.sql`). Publication does not bypass the legal gate: a `FORMAL` calculation still needs the gate and employee confirmations.
 
 ---
 

@@ -322,6 +322,8 @@ interface PolicyProposalInput {
   proposedPolicy?: PolicyDefinition;
   samples?: Array<{ personId: string; input: CalculationInput }>;
   rationale?: string;
+  policyVersionId?: string;
+  effectiveFrom?: string;
 }
 
 /**
@@ -398,8 +400,26 @@ export class PolicyProposalSkill implements AgentSkill {
     return findings;
   }
 
-  plan(finding: AgentFinding): AgentAction[] {
+  plan(
+    finding: AgentFinding,
+    input: Record<string, unknown> = {},
+  ): AgentAction[] {
     if (finding.code === "POLICY_PROPOSAL_READY") {
+      const proposal = input as PolicyProposalInput;
+      if (!proposal.proposedPolicy) {
+        return [
+          action({
+            tool: "escalate",
+            riskTier: "T2",
+            targetType: finding.subjectType,
+            targetId: finding.subjectId,
+            description:
+              "Escalate: policy proposal is missing the proposed policy definition.",
+            payload: { finding: finding.code },
+            requiresApproval: true,
+          }),
+        ];
+      }
       return [
         action({
           tool: "publish_policy",
@@ -407,7 +427,12 @@ export class PolicyProposalSkill implements AgentSkill {
           targetType: "POLICY",
           targetId: finding.subjectId,
           description: "Publish the simulated policy after human approval.",
-          payload: { policyVersionId: finding.subjectId },
+          payload: {
+            policy: proposal.proposedPolicy,
+            policyVersionId: proposal.policyVersionId,
+            effectiveFrom:
+              proposal.effectiveFrom ?? new Date().toISOString(),
+          },
           requiresApproval: true,
         }),
       ];

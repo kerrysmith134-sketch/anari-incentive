@@ -3,7 +3,8 @@
 -- This migration is the first vertical-slice baseline. It implements the
 -- canonical state names from packages/domain/src/states.ts and the core
 -- objects required by PRD V4.1. Governance and money-path hardening live in
--- 002_governance_schema.sql and 003_money_path_invariants.sql.
+-- 002_governance_schema.sql, 003_money_path_invariants.sql and
+-- 004_policy_succession.sql.
 
 BEGIN;
 

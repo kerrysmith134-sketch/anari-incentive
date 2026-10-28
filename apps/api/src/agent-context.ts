@@ -12,5 +12,6 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     getLegalGate: (policyVersionId) => store.getLegalGate(policyVersionId),
     listEvidence: (subjectType, subjectId) =>
       store.listEvidence(subjectType, subjectId),
+    publishPolicy: (input) => store.publishPolicy(input),
   };
 }

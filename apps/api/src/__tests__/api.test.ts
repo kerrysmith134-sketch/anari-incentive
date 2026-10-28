@@ -634,6 +634,66 @@ describe("vertical slice", () => {
     expect(simulation.body.data.deltaTotal).toBe("1000");
   });
 
+  it("publishes a policy version and rejects duplicates", async () => {
+    const policy = {
+      code: "GENERIC_CONTRIBUTION_V1",
+      version: 7,
+      currency: "CNY",
+      poolRate: "0.07",
+      poolCap: "100000",
+      rounding: "HALF_UP",
+      calculator: "SIMPLE_POOL",
+    };
+    const published = await call("POST", "/api/v1/policy-versions", {
+      policy,
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(published.status).toBe(201);
+    expect(published.body.data.policyVersionId).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    expect(published.body.data.approvedBy).toBe(ADJUDICATOR);
+    expect(published.body.data.contentHash).toContain("sha256:");
+
+    const simulation = await call("POST", "/api/v1/policy-simulations", {
+      currentPolicyVersionId: published.body.data.policyVersionId,
+      proposedPolicy: { ...policy, version: 8, poolRate: "0.08" },
+      samples: [
+        {
+          personId: OWNER,
+          input: {
+            cycleId: CYCLE,
+            policyVersionId: published.body.data.policyVersionId,
+            mode: "SHADOW",
+            order: {
+              id: "published-policy-order",
+              grossProfit: "100000",
+              currency: "CNY",
+            },
+            participants: [
+              {
+                personId: OWNER,
+                workPackageId: "00000000-0000-4000-8000-000000000010",
+                attributionWeight: "1",
+                role: "OWNER",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(simulation.body.data.currentTotal).toBe("7000");
+
+    const duplicate = await call("POST", "/api/v1/policy-versions", {
+      policy,
+      effectiveFrom: "2026-12-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe("CONFLICT");
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

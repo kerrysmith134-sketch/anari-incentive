@@ -318,6 +318,37 @@ describePg("PgStore vertical slice", () => {
     });
   });
 
+  it("publishes a policy version and reads it back", async () => {
+    const policy = {
+      code: "GENERIC_CONTRIBUTION_V1",
+      version: 42,
+      currency: "CNY",
+      poolRate: "0.07",
+      poolCap: "100000",
+      rounding: "HALF_UP" as const,
+      calculator: "SIMPLE_POOL" as const,
+    };
+    const published = await store.publishPolicy({
+      policy,
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(published.contentHash).toContain("sha256:");
+    expect(published.approvedBy).toBe(ADJUDICATOR);
+
+    const loaded = await store.getPolicy(published.policyVersionId);
+    expect(loaded.code).toBe("GENERIC_CONTRIBUTION_V1");
+    expect(loaded.version).toBe(42);
+
+    await expect(
+      store.publishPolicy({
+        policy,
+        effectiveFrom: "2026-12-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

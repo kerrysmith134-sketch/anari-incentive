@@ -9,6 +9,8 @@ import type {
   EvidenceNode,
   LegalGateRecord,
   PolicyDefinition,
+  PublishPolicyInput,
+  PublishedPolicy,
   WorkPackage,
 } from "@anari/domain";
 import {
@@ -30,6 +32,7 @@ class FakeContext implements AgentContext {
   appeals: AppealCase[] = [];
   gates = new Map<string, LegalGateRecord>();
   evidence: EvidenceNode[] = [];
+  published: PublishedPolicy[] = [];
 
   async listWorkPackages() { return this.workPackages; }
   async listClaims() { return this.claims; }
@@ -46,6 +49,18 @@ class FakeContext implements AgentContext {
         (!subjectType || node.subjectType === subjectType) &&
         (!subjectId || node.subjectId === subjectId),
     );
+  }
+  async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    const published: PublishedPolicy = {
+      policyVersionId: input.policyVersionId ?? "policy-published-1",
+      policy: input.policy,
+      contentHash: "hash",
+      effectiveFrom: input.effectiveFrom,
+      publishedAt: new Date().toISOString(),
+      approvedBy: input.approvedBy,
+    };
+    this.published.push(published);
+    return published;
   }
 }
 
@@ -413,6 +428,71 @@ describe("agent scheduler", () => {
     expect(thresholds).toHaveLength(1);
     const replay = await scheduler.evaluateThresholds({ openAppeals: 4 });
     expect(replay[0]!.id).toBe(thresholds[0]!.id);
+  });
+});
+
+describe("policy proposal loop", () => {
+  it("publishes a policy only after a human approves the T3 action", async () => {
+    const context = new FakeContext();
+    const agent = runtime(context);
+    const current: PolicyDefinition = {
+      code: "GENERIC_CONTRIBUTION_V1",
+      version: 1,
+      currency: "CNY",
+      poolRate: "0.05",
+      poolCap: "100000",
+      rounding: "HALF_UP",
+      calculator: "SIMPLE_POOL",
+    };
+    const proposed: PolicyDefinition = {
+      ...current,
+      version: 2,
+      poolRate: "0.06",
+    };
+    const sample: CalculationInput = {
+      tenantId: "tenant-1",
+      cycleId: "cycle-1",
+      policyVersionId: "policy-1",
+      mode: "SHADOW",
+      order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: "person-1",
+          workPackageId: "wp-1",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+
+    const task = agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "POLICY_PROPOSAL",
+      triggerType: "MANUAL",
+      idempotencyKey: "policy-proposal-1",
+      input: {
+        currentPolicy: current,
+        proposedPolicy: proposed,
+        samples: [{ personId: "person-1", input: sample }],
+        effectiveFrom: "2026-11-01T00:00:00.000Z",
+      },
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    expect(context.published).toHaveLength(0);
+
+    const action = ran.actions.find(
+      (candidate) => candidate.tool === "publish_policy",
+    );
+    expect(action).toBeDefined();
+    const approved = await agent.approve(task.id, action!.id, "person-2");
+    expect(approved.status).toBe("SUCCEEDED");
+    expect(context.published).toHaveLength(1);
+    expect(context.published[0]!.approvedBy).toBe("person-2");
+    expect(context.published[0]!.effectiveFrom).toBe(
+      "2026-11-01T00:00:00.000Z",
+    );
+    expect(context.published[0]!.policy.version).toBe(2);
   });
 });
 

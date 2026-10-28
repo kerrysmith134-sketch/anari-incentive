@@ -13,6 +13,8 @@ import type {
   IngestionResult,
   LegalGateRecord,
   PolicyDefinition,
+  PublishPolicyInput,
+  PublishedPolicy,
   WorkPackage,
 } from "@anari/domain";
 import type {
@@ -50,6 +52,7 @@ export interface ResolveAppealInput {
 
 export interface IncentiveStore {
   getPolicy(policyVersionId: string): Promise<PolicyDefinition>;
+  publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
 
   createWorkPackage(input: CreateWorkPackageInput): Promise<WorkPackage>;
   getWorkPackage(id: string): Promise<WorkPackage>;

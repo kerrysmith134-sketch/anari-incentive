@@ -273,6 +273,25 @@ export interface PolicyDefinition {
   };
 }
 
+/** A policy version published through the governed policy control loop. */
+export interface PublishedPolicy {
+  policyVersionId: UUID;
+  policy: PolicyDefinition;
+  contentHash: string;
+  effectiveFrom: string;
+  publishedAt: string;
+  approvedBy: UUID;
+}
+
+export interface PublishPolicyInput {
+  policy: PolicyDefinition;
+  /** Optional caller-supplied id; otherwise the store generates one. */
+  policyVersionId?: UUID;
+  effectiveFrom: string;
+  approvedBy: UUID;
+  scope?: Record<string, unknown>;
+}
+
 export type EvidenceQualityStatus =
   | "VALID"
   | "MISSING"
