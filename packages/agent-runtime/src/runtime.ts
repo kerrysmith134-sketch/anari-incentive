@@ -58,6 +58,12 @@ export interface AgentRuntimeOptions {
   repository?: AgentTaskRepository;
 }
 
+export interface RetryFailedOptions {
+  maxAttempts?: number;
+  /** Do not retry a task updated more recently than this. */
+  minAgeMs?: number;
+}
+
 /**
  * Proactive agent runtime.
  *
@@ -160,6 +166,10 @@ export class AgentRuntime {
     if (task.status === "SUCCEEDED" || task.status === "WAITING_APPROVAL") {
       return task;
     }
+    task.status = "RUNNING";
+    task.attempts += 1;
+    task.updatedAt = now();
+
     const skill = this.skills[task.agentType];
     if (!skill) {
       task.status = "FAILED";
@@ -168,10 +178,6 @@ export class AgentRuntime {
       await this.persist(task);
       return task;
     }
-
-    task.status = "RUNNING";
-    task.attempts += 1;
-    task.updatedAt = now();
     try {
       const findings = await skill.observe(this.context, task.input);
       const actions = findings.flatMap((finding) =>
@@ -225,6 +231,35 @@ export class AgentRuntime {
     task.updatedAt = now();
     await this.persist(task);
     return task;
+  }
+
+  /**
+   * Retries failed tasks that did not execute any action. A task with an
+   * EXECUTED action is never retried automatically: a partial side effect
+   * needs a human decision. After `maxAttempts`, the task is marked as
+   * dead-lettered and left FAILED for the admin queue.
+   */
+  async retryFailed(options: RetryFailedOptions = {}): Promise<AgentTask[]> {
+    await this.ensureLoaded();
+    const maxAttempts = options.maxAttempts ?? 3;
+    const threshold = Date.now() - (options.minAgeMs ?? 60_000);
+    const retried: AgentTask[] = [];
+
+    for (const task of [...this.tasks.values()]) {
+      if (task.status !== "FAILED") continue;
+      if (task.results.some((result) => result.status === "EXECUTED")) continue;
+      if (task.attempts >= maxAttempts) {
+        if (!task.output?.deadLettered) {
+          task.output = { ...(task.output ?? {}), deadLettered: true };
+          task.updatedAt = now();
+          await this.persist(task);
+        }
+        continue;
+      }
+      if (new Date(task.updatedAt).getTime() > threshold) continue;
+      retried.push(await this.run(task.id));
+    }
+    return retried;
   }
 
   async approve(

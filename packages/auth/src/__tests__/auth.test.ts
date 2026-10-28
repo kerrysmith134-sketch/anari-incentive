@@ -37,7 +37,12 @@ describe("OIDC authenticator", () => {
     });
     const token = await signTestToken(
       privateKey,
-      { sub: "user-1", tenant_id: "tenant-1", roles: ["manager"] },
+      {
+        sub: "user-1",
+        tenant_id: "tenant-1",
+        person_id: "person-1",
+        roles: ["manager"],
+      },
       { issuer: "https://issuer.example", audience: "anari-incentive" },
     );
     await expect(
@@ -46,6 +51,7 @@ describe("OIDC authenticator", () => {
       tenantId: "tenant-1",
       userId: "user-1",
       roles: ["manager"],
+      personId: "person-1",
     });
   });
 

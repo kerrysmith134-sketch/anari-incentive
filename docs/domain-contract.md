@@ -259,7 +259,8 @@ EPC projects use projected gross profit, 40% cash weighting, 5% retention holdba
 - `POST /agent-tasks/scan` performs a scheduled/on-demand sweep of evidence gaps, contribution anomalies and settlement readiness;
 - `AgentScheduler` supports schedule, domain-event and threshold triggers with idempotent keys;
 - `apps/worker` polls `outbox_events`, dispatches events to the scheduler, and runs scheduled scans;
-- `PolicyProposalSkill` can simulate a proposed policy and create a T3 `publish_policy` action; it never publishes automatically.
+- `PolicyProposalSkill` can simulate a proposed policy and create a T3 `publish_policy` action; it never publishes automatically;
+- the worker calls `retryFailed` with backoff: only failed tasks that executed no action are retried; after 3 attempts the task is marked `deadLettered` and left `FAILED` for human review. A partially executed task is never retried automatically.
 
 The core has no industry-specific agent. A policy pack can add evidence requirements and policy data, but it cannot bypass the approval gate or write formal money.
 
@@ -322,7 +323,18 @@ Roles are enforced per command (`admin` always passes):
 | `integration` | event ingestion |
 | `employee` | own confirmations, claims, appeals; no money/rule commands |
 
-The employee/admin web pages are served without authentication, but every data-changing call they make goes through the authenticated API. Object-level filtering (an employee seeing only their own rows) is not yet implemented; do not expose the employee page to a role that must not see tenant-wide GET responses.
+The employee/admin web pages are served without authentication, but every data-changing call they make goes through the authenticated API.
+
+`AuthContext.personId` comes from the `person_id` JWT claim (`personClaim`) or `X-Person-Id` in dev. For roles outside `admin/manager/finance`:
+
+- `GET /work-packages` is limited to packages owned by or containing that person;
+- claims, decisions, calculation runs, ledger entries, confirmations and appeals are filtered to that person;
+- calculation-run lines are redacted to the person's own lines;
+- confirmations, claims and appeals cannot be created for another person;
+- settlement and agent-task read endpoints are role-gated;
+- `GET /ledger/verify` and `GET /policy-versions/:id/legal-gate` are role-gated.
+
+Remaining limitation: evidence payloads and calculation input snapshots are not field-redacted. Do not expose those endpoints to roles that must not see tenant-wide business context until field-level authorization is added.
 
 ---
 

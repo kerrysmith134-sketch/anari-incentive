@@ -10,6 +10,7 @@ export class DevHeaderAuthenticator implements Authenticator {
     private readonly defaults: {
       tenantId: string;
       userId: string;
+      personId?: string;
       roles?: string[];
     },
   ) {}
@@ -19,6 +20,7 @@ export class DevHeaderAuthenticator implements Authenticator {
       tenantId: input.tenantId ?? this.defaults.tenantId,
       userId: input.userId ?? this.defaults.userId,
       roles: this.defaults.roles ?? ["employee"],
+      personId: input.personId ?? this.defaults.personId,
     };
   }
 }

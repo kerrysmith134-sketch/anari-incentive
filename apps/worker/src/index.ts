@@ -123,9 +123,13 @@ while (running) {
   try {
     const scheduled = await scheduler.tick();
     const events = await poller.pollOnce();
-    if (scheduled.length + events.length > 0) {
+    const retried = await runtime.retryFailed({
+      maxAttempts: 3,
+      minAgeMs: 60_000,
+    });
+    if (scheduled.length + events.length + retried.length > 0) {
       console.log(
-        `agent worker: scheduled=${scheduled.length} events=${events.length}`,
+        `agent worker: scheduled=${scheduled.length} events=${events.length} retried=${retried.length}`,
       );
     }
   } catch (error) {

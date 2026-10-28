@@ -437,6 +437,39 @@ describe("agent runtime", () => {
     });
     expect(replay.id).toBe(task.id);
   });
+
+  it("retries action-free failures and dead-letters at the attempt limit", async () => {
+    const repository = new FakeRepository();
+    const agent = runtime(new FakeContext(), repository);
+    const task = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "UNKNOWN_SKILL",
+      triggerType: "MANUAL",
+      idempotencyKey: "retry-1",
+    });
+    expect((await agent.run(task.id)).status).toBe("FAILED");
+
+    const first = await agent.retryFailed({
+      minAgeMs: -1000,
+      maxAttempts: 3,
+    });
+    expect(first).toHaveLength(1);
+    expect(first[0]!.attempts).toBe(2);
+
+    await agent.retryFailed({ minAgeMs: -1000, maxAttempts: 3 });
+    const dead = await agent.retryFailed({
+      minAgeMs: -1000,
+      maxAttempts: 3,
+    });
+    expect(dead).toHaveLength(0);
+
+    const loaded = await agent.get(task.id);
+    expect(loaded.status).toBe("FAILED");
+    expect(loaded.output?.deadLettered).toBe(true);
+
+    const reloaded = runtime(new FakeContext(), repository);
+    expect((await reloaded.get(task.id)).output?.deadLettered).toBe(true);
+  });
 });
 
 import { AgentScheduler } from "../scheduler.js";

@@ -171,6 +171,7 @@ describe("authentication", () => {
           tenantId: "tenant-demo",
           userId: "employee-1",
           roles: ["employee"],
+          personId: OWNER,
         };
       },
     };
@@ -215,12 +216,73 @@ describe("authentication", () => {
     // The target does not exist in this fresh store (404), but the employee
     // role is not blocked by authorization.
     expect(confirmation.statusCode).not.toBe(403);
+
+    const impersonation = await employeeApp.inject({
+      method: "POST",
+      url: "/api/v1/employee-confirmations",
+      payload: {
+        personId: MEMBER,
+        targetType: "CALCULATION",
+        targetId: CYCLE,
+        decision: "VIEWED",
+      },
+    } as never);
+    expect(impersonation.statusCode).toBe(403);
+
+    const foreignPackage = await employeeApp.inject({
+      method: "POST",
+      url: "/api/v1/work-packages",
+      payload: {
+        title: "Someone else's package",
+        objective: "Should fail",
+        ownerPersonId: MEMBER,
+        members: [
+          {
+            personId: MEMBER,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+        ],
+        acceptanceCriteria: ["Done"],
+      },
+    } as never);
+    expect(foreignPackage.statusCode).toBe(403);
+
+    const packages = await employeeApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+    } as never);
+    expect(packages.statusCode).toBe(200);
+    expect(packages.json().data).toEqual([]);
+  });
+
+  it("requires a person identity for employee-scoped reads", async () => {
+    const noPerson: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "employee-2",
+          roles: ["employee"],
+        };
+      },
+    };
+    const employeeApp = buildApp(new Store(), undefined, noPerson);
+    const response = await employeeApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+    } as never);
+    expect(response.statusCode).toBe(403);
   });
 
   it("allows API requests when authentication succeeds", async () => {
     const allowing: Authenticator = {
       async authenticate() {
-        return { tenantId: "tenant-demo", userId: "user-1", roles: ["employee"] };
+        return {
+          tenantId: "tenant-demo",
+          userId: "user-1",
+          roles: ["employee"],
+          personId: OWNER,
+        };
       },
     };
     const protectedApp = buildApp(new Store(), undefined, allowing);

@@ -483,12 +483,12 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL 命令，CSV 财务导出，行与账本强校验；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储，按认证租户解析 store 与 Agent Runtime；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
-- `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；高风险命令按 `admin/manager/finance/integration` 角色授权；
+- `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；高风险命令按 `admin/manager/finance/integration` 角色授权；员工只能读取自己的工作包、claim、计算行、账本、确认与申诉，不能代他人确认/申诉/申报；
 - `packages/connectors`：通用 Connector 接口 + CSV 连接器 + 分页 HTTP/JSON 连接器（字段映射、cursor、headers 可配）；`POST /api/v1/ingestion/events:batch` 幂等入库并投影为 evidence；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
 - `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；`publish_policy` 为 T3，只有人工批准后才真正写入政策版本，并关闭前一版本的有效窗口；
-- `packages/agent-persistence`：Agent 任务、发现/动作/结果、批准与审计持久化到 PostgreSQL；API/Worker 重启后按幂等键恢复；Worker 支持静态 token 或 OIDC client credentials；
+- `packages/agent-persistence`：Agent 任务、发现/动作/结果、批准与审计持久化到 PostgreSQL；API/Worker 重启后按幂等键恢复；Worker 支持静态 token 或 OIDC client credentials；失败任务退避重试，3 次后标记 dead-letter，已执行动作的任务不自动重试；
 - `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；
 - `fixtures`：核心通用 order policy + 5 个订单 fixture；reconciliation CSV；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；

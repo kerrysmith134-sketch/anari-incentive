@@ -2,12 +2,15 @@ export interface AuthContext {
   tenantId: string;
   userId: string;
   roles: string[];
+  /** Employee identity used for object-level filtering. */
+  personId?: string;
 }
 
 export interface AuthInput {
   authorization?: string;
   tenantId?: string;
   userId?: string;
+  personId?: string;
 }
 
 export interface Authenticator {

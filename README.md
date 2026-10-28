@@ -20,13 +20,14 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
 | Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
 | Durable agent state | `packages/agent-persistence` stores tasks, findings/actions/results, approvals and audit in PostgreSQL; API and worker rehydrate on first use and deduplicate on the original idempotency key |
+| Agent retry | Worker retries failed tasks that executed no action; after 3 attempts they are marked dead-lettered. Tasks with an executed action are never retried automatically |
 | Agent worker | `apps/worker`: polls the transactional outbox, dispatches domain events to agents, runs scheduled scans, and exposes graceful shutdown. |
 | Policy simulation | `simulatePolicyChange` replays representative inputs through current vs proposed policy; returns per-person/total deltas and blockers. It never publishes or writes money. |
 | Policy publication | `POST /policy-versions` writes a `PUBLISHED`, content-hashed, approver-attributed version; a successor closes the prior effective window and published content stays immutable. Formal calculations still require the separate legal gate. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector + CLI importer (`npm run import:csv`); generic paginated HTTP/JSON connector for CRM/ERP REST APIs |
-| Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; the worker supports a static token or OAuth client-credentials token |
+| Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; employees only see their own work packages, claims, runs, ledger entries, confirmations and appeals; the worker supports a static token or OAuth client-credentials token |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL commands; verified line-to-ledger match; CSV export for finance |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
@@ -42,15 +43,15 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **112 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **114 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
 - AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
-- Production CRM/ERP/Feishu connectors (a generic CSV connector and ingestion API exist; provider-specific OAuth/field mapping is pending);
-- Dead-letter/retry policy for failed durable agent tasks (tasks persist with `FAILED` but are not automatically retried);
+- Production CRM/ERP/Feishu connectors (generic CSV/HTTP connectors and an ingestion API exist; provider-specific OAuth and webhook signatures are pending);
 - Metrics/tracing export to an external observability backend;
+- Field-level redaction beyond calculation lines (run input snapshots and evidence payloads can still contain sensitive context);
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;

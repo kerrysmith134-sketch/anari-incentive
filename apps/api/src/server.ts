@@ -36,6 +36,9 @@ const authenticator =
     : new DevHeaderAuthenticator({
         tenantId: process.env.DEFAULT_TENANT_ID ?? "tenant-demo",
         userId: "dev-user",
+        personId:
+          process.env.DEFAULT_PERSON_ID ??
+          "00000000-0000-4000-8000-000000000001",
         roles: ["admin"],
       });
 

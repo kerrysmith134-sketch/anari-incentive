@@ -14,6 +14,7 @@ export interface OidcOptions {
   /** Injectable for tests or local JWKS. */
   keyResolver?: JWTVerifyGetKey;
   tenantClaim?: string;
+  personClaim?: string;
 }
 
 /**
@@ -52,10 +53,14 @@ export class OidcJwtAuthenticator implements Authenticator {
         : typeof rawRoles === "string"
           ? [rawRoles]
           : [];
+      const personId = payload[this.options.personClaim ?? "person_id"];
       return {
         tenantId,
         userId: String(payload.sub ?? ""),
         roles,
+        ...(typeof personId === "string" && personId.length > 0
+          ? { personId }
+          : {}),
       };
     } catch (error) {
       if (error instanceof AuthError) throw error;

@@ -101,6 +101,32 @@ function requireRoles(request: FastifyRequest, ...allowed: string[]): void {
   );
 }
 
+function isPrivileged(request: FastifyRequest): boolean {
+  const roles = request.authContext?.roles ?? [];
+  return roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+}
+
+function ownPersonId(request: FastifyRequest): string | undefined {
+  return request.authContext?.personId;
+}
+
+/**
+ * Employees may only see their own rows and must carry a person identity.
+ * Privileged roles see the tenant and get no filter.
+ */
+function personFilter(request: FastifyRequest): string | undefined {
+  if (isPrivileged(request)) return undefined;
+  const person = ownPersonId(request);
+  if (!person) {
+    throw new ForbiddenError(
+      "employee identity is required (person_id claim or X-Person-Id)",
+    );
+  }
+  return person;
+}
+
 export function buildApp(
   storeOrResolver: IncentiveStore | StoreResolver = new Store(),
   agentRuntimeOrFactory?: AgentRuntime | AgentRuntimeFactory,
@@ -149,6 +175,7 @@ export function buildApp(
         authorization: request.headers.authorization,
         tenantId: request.headers["x-tenant-id"] as string | undefined,
         userId: request.headers["x-user-id"] as string | undefined,
+        personId: request.headers["x-person-id"] as string | undefined,
       });
     } catch (error) {
       if (error instanceof AuthError) {
@@ -330,13 +357,15 @@ export function buildApp(
     );
   });
 
-  app.get("/api/v1/agent-tasks", async (request) =>
-    data(await runtimeFor(request).list(), request),
-  );
+  app.get("/api/v1/agent-tasks", async (request) => {
+    requireRoles(request, "manager");
+    return data(await runtimeFor(request).list(), request);
+  });
 
-  app.get("/api/v1/agent-tasks/:id", async (request) =>
-    data(await runtimeFor(request).get(idOf(request)), request),
-  );
+  app.get("/api/v1/agent-tasks/:id", async (request) => {
+    requireRoles(request, "manager");
+    return data(await runtimeFor(request).get(idOf(request)), request);
+  });
 
   app.post("/api/v1/agent-tasks/:id/run", async (request) => {
     requireRoles(request, "manager");
@@ -446,16 +475,40 @@ export function buildApp(
 
   app.post("/api/v1/work-packages", async (request, reply) => {
     const body = parse(createWorkPackageSchema, request.body);
+    const person = personFilter(request);
+    if (person && body.ownerPersonId !== person) {
+      throw new ForbiddenError("cannot create a package owned by another person");
+    }
     return reply.status(201).send(data(await storeFor(request).createWorkPackage(body), request));
   });
 
-  app.get("/api/v1/work-packages", async (request) =>
-    data(await storeFor(request).listWorkPackages(), request),
-  );
+  app.get("/api/v1/work-packages", async (request) => {
+    const packages = await storeFor(request).listWorkPackages();
+    const person = personFilter(request);
+    return data(
+      person
+        ? packages.filter(
+            (wp) =>
+              wp.ownerPersonId === person ||
+              wp.members.some((member) => member.personId === person),
+          )
+        : packages,
+      request,
+    );
+  });
 
-  app.get("/api/v1/work-packages/:id", async (request) =>
-    data(await storeFor(request).getWorkPackage(idOf(request)), request),
-  );
+  app.get("/api/v1/work-packages/:id", async (request) => {
+    const wp = await storeFor(request).getWorkPackage(idOf(request));
+    const person = personFilter(request);
+    if (
+      person &&
+      wp.ownerPersonId !== person &&
+      !wp.members.some((member) => member.personId === person)
+    ) {
+      throw new ForbiddenError("work package is not visible to this person");
+    }
+    return data(wp, request);
+  });
 
   app.post("/api/v1/work-packages/:id/commit", async (request) => {
     const body = parse(commitWorkPackageSchema, request.body);
@@ -497,16 +550,32 @@ export function buildApp(
 
   app.post("/api/v1/contribution-claims", async (request, reply) => {
     const body = parse(createContributionClaimSchema, request.body);
+    const person = personFilter(request);
+    if (person && body.claimantPersonId !== person) {
+      throw new ForbiddenError("cannot file a claim for another person");
+    }
     return reply.status(201).send(data(await storeFor(request).createClaim(body), request));
   });
 
-  app.get("/api/v1/contribution-claims", async (request) =>
-    data(await storeFor(request).listClaims(), request),
-  );
+  app.get("/api/v1/contribution-claims", async (request) => {
+    const claims = await storeFor(request).listClaims();
+    const person = personFilter(request);
+    return data(
+      person
+        ? claims.filter((claim) => claim.claimantPersonId === person)
+        : claims,
+      request,
+    );
+  });
 
-  app.get("/api/v1/contribution-claims/:id", async (request) =>
-    data(await storeFor(request).getClaim(idOf(request)), request),
-  );
+  app.get("/api/v1/contribution-claims/:id", async (request) => {
+    const claim = await storeFor(request).getClaim(idOf(request));
+    const person = personFilter(request);
+    if (person && claim.claimantPersonId !== person) {
+      throw new ForbiddenError("contribution claim is not visible to this person");
+    }
+    return data(claim, request);
+  });
 
   app.post("/api/v1/contribution-claims/:id/submit", async (request) =>
     data(await storeFor(request).submitClaim(idOf(request)), request),
@@ -522,6 +591,24 @@ export function buildApp(
 
   app.get("/api/v1/attribution-decisions", async (request) => {
     const query = request.query as { claimId?: string };
+    const person = personFilter(request);
+    if (person) {
+      const claims = await storeFor(request).listClaims();
+      const own = new Set(
+        claims
+          .filter((claim) => claim.claimantPersonId === person)
+          .map((claim) => claim.id),
+      );
+      if (query.claimId && !own.has(query.claimId)) {
+        throw new ForbiddenError("claim is not visible to this person");
+      }
+      return data(
+        (await storeFor(request).listDecisions(query.claimId)).filter(
+          (decision) => own.has(decision.claimId),
+        ),
+        request,
+      );
+    }
     return data(await storeFor(request).listDecisions(query.claimId), request);
   });
 
@@ -538,6 +625,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/policy-versions/:id/legal-gate", async (request) => {
+    requireRoles(request, "manager", "finance");
     const gate = await storeFor(request).getLegalGate(idOf(request));
     if (!gate) {
       return data({ status: "MISSING", policyVersionId: idOf(request) }, request);
@@ -556,13 +644,36 @@ export function buildApp(
       .send(data(await storeFor(request).createCalculationRun(body), request));
   });
 
-  app.get("/api/v1/calculation-runs", async (request) =>
-    data(await storeFor(request).listRuns(), request),
-  );
+  app.get("/api/v1/calculation-runs", async (request) => {
+    const runs = await storeFor(request).listRuns();
+    const person = personFilter(request);
+    if (!person) return data(runs, request);
+    return data(
+      runs
+        .filter((run) => run.lines.some((line) => line.personId === person))
+        .map((run) => ({
+          ...run,
+          lines: run.lines.filter((line) => line.personId === person),
+        })),
+      request,
+    );
+  });
 
-  app.get("/api/v1/calculation-runs/:id", async (request) =>
-    data(await storeFor(request).getRun(idOf(request)), request),
-  );
+  app.get("/api/v1/calculation-runs/:id", async (request) => {
+    const run = await storeFor(request).getRun(idOf(request));
+    const person = personFilter(request);
+    if (!person) return data(run, request);
+    if (!run.lines.some((line) => line.personId === person)) {
+      throw new ForbiddenError("calculation run is not visible to this person");
+    }
+    return data(
+      {
+        ...run,
+        lines: run.lines.filter((line) => line.personId === person),
+      },
+      request,
+    );
+  });
 
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
     requireRoles(request, "finance");
@@ -577,6 +688,13 @@ export function buildApp(
 
   app.post("/api/v1/employee-confirmations", async (request, reply) => {
     const body = parse(recordConfirmationSchema, request.body);
+    const person = personFilter(request);
+    if (person && body.personId !== person) {
+      throw new ForbiddenError("cannot record a confirmation for another person");
+    }
+    if (!isPrivileged(request) && !ownPersonId(request)) {
+      throw new ForbiddenError("employee identity is required");
+    }
     return reply
       .status(201)
       .send(data(await storeFor(request).recordConfirmation(body), request));
@@ -584,16 +702,34 @@ export function buildApp(
 
   app.get("/api/v1/employee-confirmations", async (request) => {
     const query = request.query as { personId?: string };
-    return data(await storeFor(request).listConfirmations(query.personId), request);
+    const person = personFilter(request);
+    if (!isPrivileged(request) && !ownPersonId(request)) {
+      throw new ForbiddenError("employee identity is required");
+    }
+    if (person && query.personId && query.personId !== person) {
+      throw new ForbiddenError("cannot read another person's confirmations");
+    }
+    return data(
+      await storeFor(request).listConfirmations(person ?? query.personId),
+      request,
+    );
   });
 
-  app.get("/api/v1/ledger", async (request) =>
-    data(await storeFor(request).listLedger(), request),
-  );
+  app.get("/api/v1/ledger", async (request) => {
+    const entries = await storeFor(request).listLedger();
+    const person = personFilter(request);
+    return data(
+      person
+        ? entries.filter((entry) => entry.personId === person)
+        : entries,
+      request,
+    );
+  });
 
-  app.get("/api/v1/ledger/verify", async (request) =>
-    data({ valid: await storeFor(request).verifyLedger() }, request),
-  );
+  app.get("/api/v1/ledger/verify", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data({ valid: await storeFor(request).verifyLedger() }, request);
+  });
 
   app.post("/api/v1/settlement-batches", async (request, reply) => {
     requireRoles(request, "finance");
@@ -603,13 +739,15 @@ export function buildApp(
       .send(data(await storeFor(request).createSettlementBatch(body), request));
   });
 
-  app.get("/api/v1/settlement-batches", async (request) =>
-    data(await storeFor(request).listSettlementBatches(), request),
-  );
+  app.get("/api/v1/settlement-batches", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).listSettlementBatches(), request);
+  });
 
-  app.get("/api/v1/settlement-batches/:id", async (request) =>
-    data(await storeFor(request).getSettlementBatch(idOf(request)), request),
-  );
+  app.get("/api/v1/settlement-batches/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).getSettlementBatch(idOf(request)), request);
+  });
 
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
     requireRoles(request, "finance");
@@ -622,16 +760,37 @@ export function buildApp(
 
   app.post("/api/v1/appeals", async (request, reply) => {
     const body = parse(createAppealSchema, request.body);
-    return reply.status(201).send(data(await storeFor(request).createAppeal(body), request));
+    const person = personFilter(request);
+    if (person && body.appellantPersonId !== person) {
+      throw new ForbiddenError("cannot file an appeal for another person");
+    }
+    if (!isPrivileged(request) && !ownPersonId(request)) {
+      throw new ForbiddenError("employee identity is required");
+    }
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createAppeal(body), request));
   });
 
-  app.get("/api/v1/appeals", async (request) =>
-    data(await storeFor(request).listAppeals(), request),
-  );
+  app.get("/api/v1/appeals", async (request) => {
+    const appeals = await storeFor(request).listAppeals();
+    const person = personFilter(request);
+    return data(
+      person
+        ? appeals.filter((appeal) => appeal.appellantPersonId === person)
+        : appeals,
+      request,
+    );
+  });
 
-  app.get("/api/v1/appeals/:id", async (request) =>
-    data(await storeFor(request).getAppeal(idOf(request)), request),
-  );
+  app.get("/api/v1/appeals/:id", async (request) => {
+    const appeal = await storeFor(request).getAppeal(idOf(request));
+    const person = personFilter(request);
+    if (person && appeal.appellantPersonId !== person) {
+      throw new ForbiddenError("appeal is not visible to this person");
+    }
+    return data(appeal, request);
+  });
 
   app.post("/api/v1/appeals/:id/triage", async (request) => {
     requireRoles(request, "manager");
