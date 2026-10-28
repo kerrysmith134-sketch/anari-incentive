@@ -187,6 +187,38 @@
     </section>
 
     <section class="card">
+      <h2>申诉处理</h2>
+      <div class="grid">
+        <div>
+          <label>复核人 ID</label>
+          <input id="appealReviewer" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div>
+          <label>处理结果</label>
+          <select id="appealResolution">
+            <option value="UPHOLD">UPHOLD</option>
+            <option value="CHANGE">CHANGE</option>
+            <option value="REJECT">REJECT</option>
+          </select>
+        </div>
+        <div>
+          <label>理由</label>
+          <input id="appealRationale" value="Reviewed the evidence and calculation" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="refreshAppeals" style="width:100%">刷新申诉</button>
+        </div>
+      </div>
+      <div class="status" id="appealStatus"></div>
+      <table>
+        <thead>
+        <tr><th>申诉</th><th>员工</th><th>对象</th><th>状态</th><th>操作</th></tr>
+        </thead>
+        <tbody id="appeals"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>评价管理</h2>
       <div class="grid">
         <div>
@@ -445,6 +477,65 @@
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[char]));
+    }
+
+    async function loadAppeals() {
+      try {
+        const appeals = await api("/api/v1/appeals");
+        $("appeals").innerHTML = appeals.map((appeal) => {
+          const actions = appealActions(appeal.status)
+            .map(
+              (command) =>
+                `<button data-appeal="${appeal.id}" data-appeal-action="${command}">${command}</button>`,
+            )
+            .join(" ");
+          return `<tr>
+            <td class="mono">${escapeHtml(appeal.id.slice(0, 8))}</td>
+            <td class="mono">${escapeHtml(appeal.appellantPersonId.slice(0, 8))}</td>
+            <td>${escapeHtml(appeal.targetType)}</td>
+            <td><span class="pill">${escapeHtml(appeal.status)}</span></td>
+            <td>${actions || "—"}</td>
+          </tr>`;
+        }).join("");
+        setStatus("appealStatus", `共 ${appeals.length} 个申诉`, "ok");
+      } catch (error) {
+        setStatus("appealStatus", String(error.message), "bad");
+      }
+    }
+
+    function appealActions(status) {
+      switch (status) {
+        case "OPEN": return ["TRIAGE"];
+        case "TRIAGED": return ["REVIEW"];
+        case "UNDER_REVIEW": return ["RESOLVE"];
+        default: return [];
+      }
+    }
+
+    async function appealAction(appealId, action) {
+      try {
+        const reviewerPersonId = $("appealReviewer").value.trim();
+        const path = `/api/v1/appeals/${appealId}/${action.toLowerCase()}`;
+        const body =
+          action === "REVIEW"
+            ? undefined
+            : action === "RESOLVE"
+              ? {
+                  reviewerPersonId,
+                  resolution: $("appealResolution").value,
+                  rationale: $("appealRationale").value.trim(),
+                }
+              : { reviewerPersonId };
+        await api(path, {
+          method: "POST",
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        setStatus("appealStatus", `${action} 完成`, "ok");
+        await loadAppeals();
+        await loadAudit();
+      } catch (error) {
+        setStatus("appealStatus", String(error.message), "bad");
+      }
     }
 
     async function loadCycles() {
@@ -776,6 +867,7 @@
     $("refresh").addEventListener("click", loadTasks);
     $("createSettlement").addEventListener("click", createSettlement);
     $("refreshAudit").addEventListener("click", loadAudit);
+    $("refreshAppeals").addEventListener("click", loadAppeals);
     $("createRubric").addEventListener("click", createRubric);
     $("createDraft").addEventListener("click", createEvaluationDraft);
     $("createDqIssue").addEventListener("click", createDqIssue);
@@ -799,6 +891,14 @@
       if (!button) return;
       dqCommand(button.dataset.dq, button.dataset.dqCommand);
     });
+    $("appeals").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-appeal]");
+      if (!button) return;
+      appealAction(
+        button.dataset.appeal,
+        button.dataset.appealAction,
+      );
+    });
 
     loadPolicies();
     loadTasks();
@@ -808,6 +908,7 @@
     loadRubrics();
     loadEvaluation();
     loadDqIssues();
+    loadAppeals();
   </script>
 </body>
 </html>

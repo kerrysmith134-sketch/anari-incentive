@@ -472,6 +472,7 @@ describe("admin view", () => {
     expect(response.body).toContain("审计事件");
     expect(response.body).toContain("评价管理");
     expect(response.body).toContain("数据质量");
+    expect(response.body).toContain("申诉处理");
   });
 });
 
