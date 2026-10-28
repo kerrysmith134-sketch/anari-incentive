@@ -21,6 +21,7 @@ import {
   type CommitmentSnapshot,
   type ContributionClaim,
   type EmployeeConfirmation,
+  type EvaluationCycle,
   type EvaluationDecision,
   type EvaluationDraft,
   type EvidenceLink,
@@ -1275,6 +1276,85 @@ export class PgStore implements IncentiveStore {
       );
       return this.loadAppeal(client, id);
     });
+  }
+
+  async createEvaluationCycle(input: {
+    name: string;
+    cycleType: string;
+    startsAt: string;
+    endsAt: string;
+    timezone: string;
+    policyVersionId?: string;
+    rubricVersionId?: string;
+  }): Promise<EvaluationCycle> {
+    return this.tx(async (client) => {
+      if (
+        new Date(input.endsAt).getTime() <= new Date(input.startsAt).getTime()
+      ) {
+        throw new ConflictError("CYCLE_DATES_INVALID");
+      }
+      const id = randomUUID();
+      const { rows } = await client.query(
+        `INSERT INTO evaluation_cycles
+          (id, tenant_id, name, cycle_type, starts_at, ends_at, timezone,
+           status, policy_version_id, rubric_version_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'DRAFT',$8,$9)
+         RETURNING *`,
+        [
+          id,
+          this.tenantId,
+          input.name,
+          input.cycleType,
+          input.startsAt,
+          input.endsAt,
+          input.timezone,
+          input.policyVersionId ?? null,
+          input.rubricVersionId ?? null,
+        ],
+      );
+      return this.mapEvaluationCycle(rows[0]);
+    });
+  }
+
+  async getEvaluationCycle(id: string): Promise<EvaluationCycle> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM evaluation_cycles WHERE tenant_id=$1 AND id=$2`,
+        [this.tenantId, id],
+      );
+      if (!rows[0]) notFound("EvaluationCycle", id);
+      return this.mapEvaluationCycle(rows[0]);
+    });
+  }
+
+  async listEvaluationCycles(): Promise<EvaluationCycle[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM evaluation_cycles
+          WHERE tenant_id=$1
+          ORDER BY starts_at DESC`,
+        [this.tenantId],
+      );
+      return rows.map((row) => this.mapEvaluationCycle(row));
+    });
+  }
+
+  private mapEvaluationCycle(row: QueryResultRow): EvaluationCycle {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      name: row.name,
+      cycleType: row.cycle_type,
+      startsAt: iso(row.starts_at) ?? new Date().toISOString(),
+      endsAt: iso(row.ends_at) ?? new Date().toISOString(),
+      timezone: row.timezone,
+      status: row.status,
+      policyVersionId: row.policy_version_id ?? undefined,
+      rubricVersionId: row.rubric_version_id ?? undefined,
+      version: asNumber(row.version),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
   }
 
   async createRubric(input: {

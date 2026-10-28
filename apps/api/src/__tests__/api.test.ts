@@ -671,6 +671,26 @@ describe("vertical slice", () => {
     expect(fetched.body.data.lines).toHaveLength(2);
   });
 
+  it("creates and lists evaluation cycles", async () => {
+    const created = await call("POST", "/api/v1/evaluation-cycles", {
+      name: "2027 Q1 cycle",
+      cycleType: "MONTHLY",
+      startsAt: "2027-01-01T00:00:00Z",
+      endsAt: "2027-01-31T23:59:59Z",
+      timezone: "Asia/Shanghai",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+
+    const list = await call("GET", "/api/v1/evaluation-cycles");
+    expect(list.status).toBe(200);
+    expect(
+      list.body.data.some(
+        (cycle: { id: string }) => cycle.id === created.body.data.id,
+      ),
+    ).toBe(true);
+  });
+
   it("runs a human-reviewed evaluation with versioned decisions", async () => {
     const rubric = await call("POST", "/api/v1/rubrics", {
       code: "PERFORMANCE_V1",

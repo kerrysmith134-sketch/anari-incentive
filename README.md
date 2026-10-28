@@ -16,7 +16,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 |---|---|
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
-| Evaluation | Versioned rubrics; evidence-bound drafts (USER/AGENT/SYSTEM) with strengths, counter-evidence and uncertainty; submit → human decision; self-review blocked; approvals are versioned and supersede the prior decision |
+| Evaluation | Evaluation cycles; versioned rubrics; evidence-bound drafts (USER/AGENT/SYSTEM) with strengths, counter-evidence and uncertainty; submit → human decision; self-review blocked; approvals are versioned and supersede the prior decision |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
 | Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
@@ -45,7 +45,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks and settlement commands append hash-chained `audit_events`; `GET /audit-events` is role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **117 unit/API tests + 11 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, evaluation decisions/versioning, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **118 unit/API tests + 11 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, evaluation decisions/versioning, policy publication/succession, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -169,6 +169,8 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/contribution-claims/:id/submit` | DRAFT → SUBMITTED |
 | POST | `/api/v1/attribution-decisions` | Formal decision; claimant cannot be adjudicator |
 | GET | `/api/v1/attribution-decisions?claimId=` | List decisions |
+| POST/GET | `/api/v1/evaluation-cycles` | Create/list evaluation cycles |
+| GET | `/api/v1/evaluation-cycles/:id` | Get a cycle |
 | POST/GET | `/api/v1/rubrics` | Create/list rubric versions |
 | POST/GET | `/api/v1/evaluation-drafts` | Create/list evidence-bound drafts; employees see their own |
 | GET | `/api/v1/evaluation-drafts/:id` | Get a draft |

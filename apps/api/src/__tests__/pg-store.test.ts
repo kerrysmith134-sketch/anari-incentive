@@ -199,6 +199,20 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records human-reviewed evaluation decisions with versioning", async () => {
+    const cycle = await store.createEvaluationCycle({
+      name: "Postgres 2027 Q1",
+      cycleType: "MONTHLY",
+      startsAt: "2027-01-01T00:00:00Z",
+      endsAt: "2027-01-31T23:59:59Z",
+      timezone: "Asia/Shanghai",
+    });
+    expect(cycle.status).toBe("DRAFT");
+    expect(
+      (await store.listEvaluationCycles()).some(
+        (candidate) => candidate.id === cycle.id,
+      ),
+    ).toBe(true);
+
     const rubric = await store.createRubric({
       code: "PG_PERFORMANCE_V1",
       name: "Postgres performance",

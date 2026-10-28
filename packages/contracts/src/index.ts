@@ -285,6 +285,19 @@ export const settlementCommandSchema = z.object({
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 
+export const createEvaluationCycleSchema = z.object({
+  name: z.string().min(1),
+  cycleType: z.string().min(1),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  timezone: z.string().min(1),
+  policyVersionId: z.string().min(1).optional(),
+  rubricVersionId: uuidSchema.optional(),
+});
+export type CreateEvaluationCycleBody = z.infer<
+  typeof createEvaluationCycleSchema
+>;
+
 export const createRubricSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),

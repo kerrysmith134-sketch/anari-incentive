@@ -9,6 +9,7 @@ import type {
   ContributionClaim,
   EmployeeConfirmation,
   EvidenceLink,
+  EvaluationCycle,
   EvaluationDecision,
   EvaluationDraft,
   EvidenceNode,
@@ -130,6 +131,17 @@ export interface IncentiveStore {
   verifyLedger(tenantId?: string): Promise<boolean>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
 
+  createEvaluationCycle(input: {
+    name: string;
+    cycleType: string;
+    startsAt: string;
+    endsAt: string;
+    timezone: string;
+    policyVersionId?: string;
+    rubricVersionId?: string;
+  }): Promise<EvaluationCycle>;
+  getEvaluationCycle(id: string): Promise<EvaluationCycle>;
+  listEvaluationCycles(): Promise<EvaluationCycle[]>;
   createRubric(input: {
     code: string;
     name: string;

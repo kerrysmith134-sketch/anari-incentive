@@ -13,6 +13,7 @@ import {
   createContributionClaimSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
+  createEvaluationCycleSchema,
   createEvaluationDraftSchema,
   createEvidenceSchema,
   createRubricSchema,
@@ -299,6 +300,27 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/evaluation-cycles", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createEvaluationCycleSchema, request.body);
+    return reply
+      .status(201)
+      .send(data(await storeFor(request).createEvaluationCycle(body), request));
+  });
+
+  app.get("/api/v1/evaluation-cycles", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).listEvaluationCycles(), request);
+  });
+
+  app.get("/api/v1/evaluation-cycles/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).getEvaluationCycle(idOf(request)),
+      request,
+    );
   });
 
   app.post("/api/v1/rubrics", async (request, reply) => {

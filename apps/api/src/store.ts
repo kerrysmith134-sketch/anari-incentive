@@ -20,6 +20,7 @@ import {
   type CommitmentSnapshot,
   type ContributionClaim,
   type EmployeeConfirmation,
+  type EvaluationCycle,
   type EvaluationDecision,
   type EvaluationDraft,
   type EvidenceLink,
@@ -138,6 +139,7 @@ export class Store implements IncentiveStore {
   private readonly settlementBatches = new Map<string, SettlementBatch>();
   private readonly settlementLines = new Map<string, SettlementLine[]>();
   private readonly rubrics = new Map<string, Rubric>();
+  private readonly evaluationCycles = new Map<string, EvaluationCycle>();
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
 
@@ -924,6 +926,50 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createEvaluationCycle(input: {
+    name: string;
+    cycleType: string;
+    startsAt: string;
+    endsAt: string;
+    timezone: string;
+    policyVersionId?: string;
+    rubricVersionId?: string;
+  }): Promise<EvaluationCycle> {
+    if (new Date(input.endsAt).getTime() <= new Date(input.startsAt).getTime()) {
+      throw new ConflictError("CYCLE_DATES_INVALID");
+    }
+    const timestamp = now();
+    const cycle: EvaluationCycle = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      name: input.name,
+      cycleType: input.cycleType,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      timezone: input.timezone,
+      status: "DRAFT",
+      policyVersionId: input.policyVersionId,
+      rubricVersionId: input.rubricVersionId,
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.evaluationCycles.set(cycle.id, cycle);
+    return cycle;
+  }
+
+  async getEvaluationCycle(id: string): Promise<EvaluationCycle> {
+    const cycle = this.evaluationCycles.get(id);
+    if (!cycle) notFound("EvaluationCycle", id);
+    return cycle;
+  }
+
+  async listEvaluationCycles(): Promise<EvaluationCycle[]> {
+    return [...this.evaluationCycles.values()].sort((a, b) =>
+      b.startsAt.localeCompare(a.startsAt),
+    );
   }
 
   async createRubric(input: {

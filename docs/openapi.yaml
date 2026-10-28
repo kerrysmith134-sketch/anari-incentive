@@ -892,6 +892,62 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/evaluation-cycles:
+    get:
+      tags: [Evaluation]
+      summary: List evaluation cycles
+      responses:
+        "200":
+          description: Cycles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Evaluation]
+      summary: Create an evaluation cycle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEvaluationCycle"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/evaluation-cycles/{id}:
+    get:
+      tags: [Evaluation]
+      summary: Get an evaluation cycle
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Cycle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/rubrics:
     get:
       tags: [Evaluation]
@@ -1756,6 +1812,27 @@ components:
               $ref: "#/components/schemas/Decimal"
             checked:
               type: boolean
+
+    CreateEvaluationCycle:
+      type: object
+      required: [name, cycleType, startsAt, endsAt, timezone]
+      properties:
+        name:
+          type: string
+        cycleType:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        policyVersionId:
+          type: string
+        rubricVersionId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateRubric:
       type: object

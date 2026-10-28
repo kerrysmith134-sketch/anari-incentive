@@ -452,6 +452,22 @@ export interface Rubric {
   createdAt: string;
 }
 
+export interface EvaluationCycle {
+  id: UUID;
+  tenantId: UUID;
+  name: string;
+  cycleType: string;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  status: string;
+  policyVersionId?: UUID;
+  rubricVersionId?: UUID;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EvaluationDraft {
   id: UUID;
   tenantId: UUID;
