@@ -14,6 +14,7 @@ export default defineConfig({
       "@anari/agent-runtime": `${root}packages/agent-runtime/src/index.ts`,
       "@anari/connectors": `${root}packages/connectors/src/index.ts`,
       "@anari/auth": `${root}packages/auth/src/index.ts`,
+      "@anari/agent-persistence": `${root}packages/agent-persistence/src/index.ts`,
     },
   },
   test: {

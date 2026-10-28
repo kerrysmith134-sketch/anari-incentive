@@ -11,15 +11,16 @@ import type {
   WorkPackage,
 } from "@anari/domain";
 import type { AgentContext } from "@anari/agent-runtime";
+import type { TokenProvider } from "@anari/auth";
+
+type RequestHeaders = Record<string, string>;
 
 async function readData<T>(
   baseUrl: string,
   path: string,
-  tenantId: string,
+  headers: RequestHeaders,
 ): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    headers: { "x-tenant-id": tenantId },
-  });
+  const response = await fetch(`${baseUrl}${path}`, { headers });
   const body = (await response.json()) as {
     data?: T;
     error?: { message?: string };
@@ -35,15 +36,12 @@ async function readData<T>(
 async function postData<T>(
   baseUrl: string,
   path: string,
-  tenantId: string,
+  headers: RequestHeaders,
   body: unknown,
 ): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-tenant-id": tenantId,
-    },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const result = (await response.json()) as {
@@ -62,40 +60,60 @@ export class HttpAgentContext implements AgentContext {
   constructor(
     private readonly baseUrl: string,
     private readonly tenantId: string,
+    private readonly tokenProvider?: TokenProvider,
   ) {}
 
-  listWorkPackages(): Promise<WorkPackage[]> {
-    return readData(this.baseUrl, "/api/v1/work-packages", this.tenantId);
+  private async headers(): Promise<RequestHeaders> {
+    if (this.tokenProvider) {
+      return { authorization: `Bearer ${await this.tokenProvider.getToken()}` };
+    }
+    return { "x-tenant-id": this.tenantId };
   }
 
-  listClaims(): Promise<ContributionClaim[]> {
-    return readData(this.baseUrl, "/api/v1/contribution-claims", this.tenantId);
+  async listWorkPackages(): Promise<WorkPackage[]> {
+    return readData(
+      this.baseUrl,
+      "/api/v1/work-packages",
+      await this.headers(),
+    );
   }
 
-  listDecisions(claimId?: string): Promise<AttributionDecision[]> {
+  async listClaims(): Promise<ContributionClaim[]> {
+    return readData(
+      this.baseUrl,
+      "/api/v1/contribution-claims",
+      await this.headers(),
+    );
+  }
+
+  async listDecisions(claimId?: string): Promise<AttributionDecision[]> {
     const suffix = claimId ? `?claimId=${encodeURIComponent(claimId)}` : "";
     return readData(
       this.baseUrl,
       `/api/v1/attribution-decisions${suffix}`,
-      this.tenantId,
+      await this.headers(),
     );
   }
 
-  listRuns(): Promise<CalculationRun[]> {
-    return readData(this.baseUrl, "/api/v1/calculation-runs", this.tenantId);
+  async listRuns(): Promise<CalculationRun[]> {
+    return readData(
+      this.baseUrl,
+      "/api/v1/calculation-runs",
+      await this.headers(),
+    );
   }
 
-  listConfirmations(personId?: string): Promise<EmployeeConfirmation[]> {
+  async listConfirmations(personId?: string): Promise<EmployeeConfirmation[]> {
     const suffix = personId ? `?personId=${encodeURIComponent(personId)}` : "";
     return readData(
       this.baseUrl,
       `/api/v1/employee-confirmations${suffix}`,
-      this.tenantId,
+      await this.headers(),
     );
   }
 
-  listAppeals(): Promise<AppealCase[]> {
-    return readData(this.baseUrl, "/api/v1/appeals", this.tenantId);
+  async listAppeals(): Promise<AppealCase[]> {
+    return readData(this.baseUrl, "/api/v1/appeals", await this.headers());
   }
 
   async getLegalGate(
@@ -107,12 +125,12 @@ export class HttpAgentContext implements AgentContext {
     }>(
       this.baseUrl,
       `/api/v1/policy-versions/${encodeURIComponent(policyVersionId)}/legal-gate`,
-      this.tenantId,
+      await this.headers(),
     );
     return data.status === "RECORDED" ? data.gate : undefined;
   }
 
-  listEvidence(
+  async listEvidence(
     subjectType?: string,
     subjectId?: string,
   ): Promise<EvidenceNode[]> {
@@ -120,14 +138,18 @@ export class HttpAgentContext implements AgentContext {
     if (subjectType) params.set("subjectType", subjectType);
     if (subjectId) params.set("subjectId", subjectId);
     const suffix = params.size > 0 ? `?${params.toString()}` : "";
-    return readData(this.baseUrl, `/api/v1/evidence${suffix}`, this.tenantId);
+    return readData(
+      this.baseUrl,
+      `/api/v1/evidence${suffix}`,
+      await this.headers(),
+    );
   }
 
-  publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+  async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
     return postData(
       this.baseUrl,
       "/api/v1/policy-versions",
-      this.tenantId,
+      await this.headers(),
       input,
     );
   }

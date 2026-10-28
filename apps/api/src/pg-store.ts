@@ -253,7 +253,11 @@ export class PgStore implements IncentiveStore {
         "SELECT id FROM work_packages WHERE tenant_id = $1 ORDER BY created_at DESC",
         [this.tenantId],
       );
-      return Promise.all(rows.map((row) => this.loadWorkPackage(client, row.id)));
+      const packages: WorkPackage[] = [];
+      for (const row of rows) {
+        packages.push(await this.loadWorkPackage(client, row.id));
+      }
+      return packages;
     });
   }
 
@@ -436,7 +440,11 @@ export class PgStore implements IncentiveStore {
         "SELECT id FROM contribution_claims WHERE tenant_id=$1 ORDER BY created_at DESC",
         [this.tenantId],
       );
-      return Promise.all(rows.map((row) => this.loadClaim(client, row.id)));
+      const claims = [];
+      for (const row of rows) {
+        claims.push(await this.loadClaim(client, row.id));
+      }
+      return claims;
     });
   }
 
@@ -565,7 +573,11 @@ export class PgStore implements IncentiveStore {
           : "SELECT id FROM attribution_decisions WHERE tenant_id=$1 ORDER BY created_at DESC",
         claimId ? [this.tenantId, claimId] : [this.tenantId],
       );
-      return Promise.all(rows.map((row) => this.loadDecision(client, row.id)));
+      const decisions = [];
+      for (const row of rows) {
+        decisions.push(await this.loadDecision(client, row.id));
+      }
+      return decisions;
     });
   }
 
@@ -964,7 +976,11 @@ export class PgStore implements IncentiveStore {
         "SELECT id FROM calculation_runs WHERE tenant_id=$1 ORDER BY created_at DESC",
         [this.tenantId],
       );
-      return Promise.all(rows.map((row) => this.loadRun(client, row.id)));
+      const runs = [];
+      for (const row of rows) {
+        runs.push(await this.loadRun(client, row.id));
+      }
+      return runs;
     });
   }
 
@@ -1101,7 +1117,11 @@ export class PgStore implements IncentiveStore {
         "SELECT id FROM appeal_cases WHERE tenant_id=$1 ORDER BY created_at DESC",
         [this.tenantId],
       );
-      return Promise.all(rows.map((row) => this.loadAppeal(client, row.id)));
+      const appeals = [];
+      for (const row of rows) {
+        appeals.push(await this.loadAppeal(client, row.id));
+      }
+      return appeals;
     });
   }
 

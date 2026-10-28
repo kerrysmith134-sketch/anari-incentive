@@ -19,7 +19,8 @@
       "@anari/ai-gate": ["packages/ai-gate/src/index.ts"],
       "@anari/agent-runtime": ["packages/agent-runtime/src/index.ts"],
       "@anari/connectors": ["packages/connectors/src/index.ts"],
-      "@anari/auth": ["packages/auth/src/index.ts"]
+      "@anari/auth": ["packages/auth/src/index.ts"],
+      "@anari/agent-persistence": ["packages/agent-persistence/src/index.ts"]
     },
     "types": ["node", "vitest/globals"],
     "noEmit": true

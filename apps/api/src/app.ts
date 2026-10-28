@@ -80,7 +80,10 @@ const adminUi = readFileSync(
 );
 
 export type StoreResolver = (tenantId: string) => IncentiveStore;
-export type AgentRuntimeFactory = (store: IncentiveStore) => AgentRuntime;
+export type AgentRuntimeFactory = (
+  store: IncentiveStore,
+  tenantId: string,
+) => AgentRuntime;
 
 function tenantOf(request: FastifyRequest): string {
   return request.authContext?.tenantId ?? "tenant-demo";
@@ -118,7 +121,7 @@ export function buildApp(
     let runtime = scopedRuntimes.get(tenantId);
     if (!runtime) {
       runtime = agentRuntimeOrFactory
-        ? agentRuntimeOrFactory(storeFor(request))
+        ? agentRuntimeOrFactory(storeFor(request), tenantId)
         : createAgentRuntime(storeFor(request));
       scopedRuntimes.set(tenantId, runtime);
     }
@@ -245,40 +248,29 @@ export function buildApp(
       "tenant-demo";
     const batchKey = body.idempotencyKey ?? `scan-${Date.now()}`;
     const runs = await storeFor(request).listRuns();
+    const runtime = runtimeFor(request);
     const tasks = [];
 
-    tasks.push(
-      await runtimeFor(request).run(
-        runtimeFor(request).enqueue({
-          tenantId,
-          agentType: "EVIDENCE_GAP",
-          triggerType: "SCHEDULE",
-          idempotencyKey: `${batchKey}:evidence-gap`,
-        }).id,
-      ),
-    );
-    tasks.push(
-      await runtimeFor(request).run(
-        runtimeFor(request).enqueue({
-          tenantId,
-          agentType: "CONTRIBUTION_ANOMALY",
-          triggerType: "SCHEDULE",
-          idempotencyKey: `${batchKey}:contribution-anomaly`,
-        }).id,
-      ),
-    );
+    for (const agentType of ["EVIDENCE_GAP", "CONTRIBUTION_ANOMALY"] as const) {
+      const key =
+        agentType === "EVIDENCE_GAP" ? "evidence-gap" : "contribution-anomaly";
+      const task = await runtime.enqueue({
+        tenantId,
+        agentType,
+        triggerType: "SCHEDULE",
+        idempotencyKey: `${batchKey}:${key}`,
+      });
+      tasks.push(await runtime.run(task.id));
+    }
     for (const run of runs.slice(0, 5)) {
-      tasks.push(
-        await runtimeFor(request).run(
-          runtimeFor(request).enqueue({
-            tenantId,
-            agentType: "SETTLEMENT_READINESS",
-            triggerType: "SCHEDULE",
-            input: { runId: run.id },
-            idempotencyKey: `${batchKey}:settlement:${run.id}`,
-          }).id,
-        ),
-      );
+      const task = await runtime.enqueue({
+        tenantId,
+        agentType: "SETTLEMENT_READINESS",
+        triggerType: "SCHEDULE",
+        input: { runId: run.id },
+        idempotencyKey: `${batchKey}:settlement:${run.id}`,
+      });
+      tasks.push(await runtime.run(task.id));
     }
     return data(tasks, request);
   });
@@ -291,7 +283,7 @@ export function buildApp(
       "tenant-demo";
     return reply.status(201).send(
       data(
-        runtimeFor(request).enqueue({
+        await runtimeFor(request).enqueue({
           tenantId,
           agentType: body.agentType,
           triggerType: body.triggerType,
@@ -306,11 +298,11 @@ export function buildApp(
   });
 
   app.get("/api/v1/agent-tasks", async (request) =>
-    data(runtimeFor(request).list(), request),
+    data(await runtimeFor(request).list(), request),
   );
 
   app.get("/api/v1/agent-tasks/:id", async (request) =>
-    data(runtimeFor(request).get(idOf(request)), request),
+    data(await runtimeFor(request).get(idOf(request)), request),
   );
 
   app.post("/api/v1/agent-tasks/:id/run", async (request) =>
@@ -332,7 +324,7 @@ export function buildApp(
   app.post("/api/v1/agent-tasks/:id/reject", async (request) => {
     const body = parse(rejectAgentActionSchema, request.body);
     return data(
-      runtimeFor(request).reject(
+      await runtimeFor(request).reject(
         idOf(request),
         body.actionId,
         body.approverPersonId,

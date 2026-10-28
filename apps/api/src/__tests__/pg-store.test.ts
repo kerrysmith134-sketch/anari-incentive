@@ -1,6 +1,13 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
-import { PgStore } from "../pg-store.js";
+import {
+  AgentRuntime,
+  createDefaultSkills,
+  createDefaultTools,
+} from "@anari/agent-runtime";
+import { PgAgentTaskRepository } from "@anari/agent-persistence";
+import { createAgentContext } from "../agent-context.js";
+import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
 import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
 
@@ -393,6 +400,47 @@ describePg("PgStore vertical slice", () => {
         approvedBy: ADJUDICATOR,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("persists and rehydrates agent tasks with audit", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "test", repository },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "pg-agent-durable-1",
+    });
+    const ran = await runtime.run(task.id);
+    expect(ran.status).not.toBe("QUEUED");
+
+    const reloaded = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      {
+        actor: "test",
+        repository: new PgAgentTaskRepository(pool, DEMO_TENANT_ID),
+      },
+    );
+    const loaded = await reloaded.get(task.id);
+    expect(loaded.id).toBe(task.id);
+    expect(loaded.status).toBe(ran.status);
+    expect(loaded.findings.length).toBe(ran.findings.length);
+    expect((await reloaded.auditLog()).length).toBeGreaterThan(0);
+
+    const replay = await reloaded.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "pg-agent-durable-1",
+    });
+    expect(replay.id).toBe(task.id);
   });
 
   it("scopes reads to the store's tenant", async () => {

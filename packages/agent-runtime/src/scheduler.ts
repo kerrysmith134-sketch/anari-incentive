@@ -75,7 +75,7 @@ export class AgentScheduler {
       if (now - last < rule.intervalMs) continue;
       rule.lastRunAt = now;
       const bucket = Math.floor(now / rule.intervalMs);
-      const task = this.runtime.enqueue({
+      const task = await this.runtime.enqueue({
         tenantId: this.tenantId,
         agentType: rule.agentType,
         triggerType: "SCHEDULE",
@@ -96,7 +96,7 @@ export class AgentScheduler {
     const tasks: AgentTask[] = [];
     for (const rule of this.events.values()) {
       if (rule.eventType !== eventType) continue;
-      const task = this.runtime.enqueue({
+      const task = await this.runtime.enqueue({
         tenantId: this.tenantId,
         agentType: rule.agentType,
         triggerType: "EVENT",
@@ -118,7 +118,7 @@ export class AgentScheduler {
       if (value === undefined || !matches(value, rule.comparator, rule.value)) {
         continue;
       }
-      const task = this.runtime.enqueue({
+      const task = await this.runtime.enqueue({
         tenantId: this.tenantId,
         agentType: rule.agentType,
         triggerType: "THRESHOLD",

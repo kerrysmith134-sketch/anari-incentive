@@ -7,6 +7,7 @@ import type {
   AgentFinding,
   AgentSkill,
   AgentTask,
+  AgentTaskRepository,
   AgentTaskStatus,
   AgentTool,
   RiskTier,
@@ -53,6 +54,8 @@ export interface AgentRuntimeOptions {
   /** Actions at or above this tier require human approval. Defaults to T3. */
   requireApprovalAtOrAbove?: RiskTier;
   actor?: string;
+  /** Optional durable adapter; omitted for tests and local in-memory use. */
+  repository?: AgentTaskRepository;
 }
 
 /**
@@ -72,6 +75,8 @@ export class AgentRuntime {
   private readonly tasks = new Map<string, AgentTask>();
   private readonly byIdempotency = new Map<string, string>();
   private readonly audit: AgentAuditEntry[] = [];
+  private loaded = false;
+  private loading?: Promise<void>;
 
   constructor(
     private readonly context: AgentContext,
@@ -80,7 +85,42 @@ export class AgentRuntime {
     private readonly options: AgentRuntimeOptions = {},
   ) {}
 
-  enqueue(input: EnqueueAgentTaskInput): AgentTask {
+  private async ensureLoaded(): Promise<void> {
+    if (this.loaded || !this.options.repository) {
+      this.loaded = true;
+      return;
+    }
+    if (!this.loading) {
+      this.loading = this.options.repository.load().then(({ tasks, audit }) => {
+        for (const task of tasks) {
+          this.tasks.set(task.id, task);
+          this.byIdempotency.set(
+            `${task.tenantId}:${task.idempotencyKey}`,
+            task.id,
+          );
+        }
+        this.audit.push(...audit);
+        this.loaded = true;
+      });
+    }
+    await this.loading;
+  }
+
+  private async persist(task: AgentTask): Promise<void> {
+    if (this.options.repository) {
+      await this.options.repository.saveTask(task);
+    }
+  }
+
+  private async recordAudit(entry: AgentAuditEntry): Promise<void> {
+    this.audit.push(entry);
+    if (this.options.repository) {
+      await this.options.repository.appendAudit(entry);
+    }
+  }
+
+  async enqueue(input: EnqueueAgentTaskInput): Promise<AgentTask> {
+    await this.ensureLoaded();
     const key = `${input.tenantId}:${input.idempotencyKey}`;
     const existingId = this.byIdempotency.get(key);
     if (existingId) return this.get(existingId);
@@ -105,7 +145,8 @@ export class AgentRuntime {
     };
     this.tasks.set(task.id, task);
     this.byIdempotency.set(key, task.id);
-    this.audit.push({
+    await this.persist(task);
+    await this.recordAudit({
       taskId: task.id,
       actor: this.options.actor ?? "system",
       at: now(),
@@ -115,7 +156,7 @@ export class AgentRuntime {
   }
 
   async run(taskId: string): Promise<AgentTask> {
-    const task = this.get(taskId);
+    const task = await this.get(taskId);
     if (task.status === "SUCCEEDED" || task.status === "WAITING_APPROVAL") {
       return task;
     }
@@ -124,6 +165,7 @@ export class AgentRuntime {
       task.status = "FAILED";
       task.output = { error: `unknown agent type: ${task.agentType}` };
       task.updatedAt = now();
+      await this.persist(task);
       return task;
     }
 
@@ -173,7 +215,7 @@ export class AgentRuntime {
     } catch (error) {
       task.status = "FAILED";
       task.output = { error: String(error) };
-      this.audit.push({
+      await this.recordAudit({
         taskId: task.id,
         actor: this.options.actor ?? "system",
         at: now(),
@@ -181,6 +223,7 @@ export class AgentRuntime {
       });
     }
     task.updatedAt = now();
+    await this.persist(task);
     return task;
   }
 
@@ -189,7 +232,7 @@ export class AgentRuntime {
     actionId: string,
     approverPersonId: string,
   ): Promise<AgentTask> {
-    const task = this.get(taskId);
+    const task = await this.get(taskId);
     if (task.status !== "WAITING_APPROVAL") {
       throw new AgentRuntimeError(
         "AGENT_TASK_NOT_WAITING",
@@ -208,7 +251,7 @@ export class AgentRuntime {
     Object.assign(result, executed);
     task.approvedBy = approverPersonId;
     task.approvedAt = now();
-    this.audit.push({
+    await this.recordAudit({
       taskId: task.id,
       actionId,
       tool: action.tool,
@@ -225,16 +268,17 @@ export class AgentRuntime {
         : "SUCCEEDED"
       : "WAITING_APPROVAL";
     task.updatedAt = now();
+    await this.persist(task);
     return task;
   }
 
-  reject(
+  async reject(
     taskId: string,
     actionId: string,
     approverPersonId: string,
     reason: string,
-  ): AgentTask {
-    const task = this.get(taskId);
+  ): Promise<AgentTask> {
+    const task = await this.get(taskId);
     const result = task.results.find((candidate) => candidate.actionId === actionId);
     if (!result || result.status !== "PENDING_APPROVAL") {
       throw new AgentRuntimeError(
@@ -248,17 +292,19 @@ export class AgentRuntime {
     task.approvedBy = approverPersonId;
     task.approvedAt = now();
     task.updatedAt = now();
-    this.audit.push({
+    await this.recordAudit({
       taskId,
       actionId,
       actor: approverPersonId,
       at: now(),
       detail: `rejected: ${reason}`,
     });
+    await this.persist(task);
     return task;
   }
 
-  get(taskId: string): AgentTask {
+  async get(taskId: string): Promise<AgentTask> {
+    await this.ensureLoaded();
     const task = this.tasks.get(taskId);
     if (!task) {
       throw new AgentRuntimeError(
@@ -269,13 +315,15 @@ export class AgentRuntime {
     return task;
   }
 
-  list(): AgentTask[] {
+  async list(): Promise<AgentTask[]> {
+    await this.ensureLoaded();
     return [...this.tasks.values()].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
     );
   }
 
-  auditLog(): AgentAuditEntry[] {
+  async auditLog(): Promise<AgentAuditEntry[]> {
+    await this.ensureLoaded();
     return [...this.audit];
   }
 

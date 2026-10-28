@@ -1,9 +1,16 @@
 import { Pool } from "pg";
 import {
+  AgentRuntime,
+  createDefaultSkills,
+  createDefaultTools,
+} from "@anari/agent-runtime";
+import { PgAgentTaskRepository } from "@anari/agent-persistence";
+import {
   DevHeaderAuthenticator,
   OidcJwtAuthenticator,
 } from "@anari/auth";
-import { buildApp } from "./app.js";
+import { buildApp, type AgentRuntimeFactory } from "./app.js";
+import { createAgentContext } from "./agent-context.js";
 import { Store } from "./store.js";
 import { PgStore } from "./pg-store.js";
 
@@ -32,7 +39,21 @@ const authenticator =
         roles: ["admin"],
       });
 
-const app = buildApp(resolveStore, undefined, authenticator);
+const createRuntime: AgentRuntimeFactory | undefined = pool
+  ? (store, tenantId) =>
+      new AgentRuntime(
+        createAgentContext(store),
+        createDefaultTools(),
+        createDefaultSkills(),
+        {
+          requireApprovalAtOrAbove: "T3",
+          actor: "api",
+          repository: new PgAgentTaskRepository(pool, tenantId),
+        },
+      )
+  : undefined;
+
+const app = buildApp(resolveStore, createRuntime, authenticator);
 
 app
   .listen({ port, host: "0.0.0.0" })

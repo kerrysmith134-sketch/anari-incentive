@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { exportJWK, generateKeyPair, createLocalJWKSet } from "jose";
 import {
   AuthError,
+  ClientCredentialsTokenProvider,
   DevHeaderAuthenticator,
   OidcJwtAuthenticator,
+  StaticTokenProvider,
   signTestToken,
 } from "../index.js";
 
@@ -45,6 +47,29 @@ describe("OIDC authenticator", () => {
       userId: "user-1",
       roles: ["manager"],
     });
+  });
+
+  it("fetches and caches a client-credentials token", async () => {
+    let calls = 0;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      calls += 1;
+      expect(init?.method).toBe("POST");
+      expect(String(init?.body)).toContain("grant_type=client_credentials");
+      return new Response(
+        JSON.stringify({ access_token: "service-token", expires_in: 3600 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const provider = new ClientCredentialsTokenProvider({
+      tokenUrl: "https://issuer.example/token",
+      clientId: "worker",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+    expect(await provider.getToken()).toBe("service-token");
+    expect(await provider.getToken()).toBe("service-token");
+    expect(calls).toBe(1);
+    expect(await new StaticTokenProvider("static").getToken()).toBe("static");
   });
 
   it("rejects missing tokens", async () => {

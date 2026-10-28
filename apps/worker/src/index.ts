@@ -6,6 +6,12 @@ import {
   createDefaultSkills,
   createDefaultTools,
 } from "@anari/agent-runtime";
+import { PgAgentTaskRepository } from "@anari/agent-persistence";
+import {
+  ClientCredentialsTokenProvider,
+  StaticTokenProvider,
+  type TokenProvider,
+} from "@anari/auth";
 import { HttpAgentContext } from "./http-context.js";
 import { PgOutboxSource } from "./pg-outbox.js";
 
@@ -21,13 +27,38 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
+function createTokenProvider(): TokenProvider | undefined {
+  if (
+    process.env.OIDC_TOKEN_URL &&
+    process.env.OIDC_CLIENT_ID &&
+    process.env.OIDC_CLIENT_SECRET
+  ) {
+    return new ClientCredentialsTokenProvider({
+      tokenUrl: process.env.OIDC_TOKEN_URL,
+      clientId: process.env.OIDC_CLIENT_ID,
+      clientSecret: process.env.OIDC_CLIENT_SECRET,
+      scope: process.env.OIDC_SCOPE,
+      audience: process.env.OIDC_AUDIENCE,
+    });
+  }
+  if (process.env.WORKER_TOKEN) {
+    return new StaticTokenProvider(process.env.WORKER_TOKEN);
+  }
+  return undefined;
+}
+
 const pool = new Pool({ connectionString: databaseUrl });
-const context = new HttpAgentContext(apiBaseUrl, tenantId);
+const tokenProvider = createTokenProvider();
+const context = new HttpAgentContext(apiBaseUrl, tenantId, tokenProvider);
 const runtime = new AgentRuntime(
   context,
   createDefaultTools(),
   createDefaultSkills(),
-  { requireApprovalAtOrAbove: "T3", actor: "agent-worker" },
+  {
+    requireApprovalAtOrAbove: "T3",
+    actor: "agent-worker",
+    repository: new PgAgentTaskRepository(pool, tenantId),
+  },
 );
 const scheduler = new AgentScheduler(runtime, tenantId, "worker");
 
@@ -83,7 +114,9 @@ process.on("SIGTERM", () => {
 });
 
 console.log(
-  `agent worker started: api=${apiBaseUrl} tenant=${tenantId} scan=${scanIntervalMs}ms`,
+  `agent worker started: api=${apiBaseUrl} tenant=${tenantId} scan=${scanIntervalMs}ms auth=${
+    tokenProvider ? "bearer" : "dev-headers"
+  }`,
 );
 
 while (running) {

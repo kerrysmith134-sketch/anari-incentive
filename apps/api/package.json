@@ -16,6 +16,7 @@
     "zod": "^3.23.8",
     "pg": "^8.13.1",
     "@anari/agent-runtime": "0.1.0",
+    "@anari/agent-persistence": "0.1.0",
     "@anari/auth": "0.1.0"
   },
   "devDependencies": {

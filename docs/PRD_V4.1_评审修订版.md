@@ -488,6 +488,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
 - `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；`publish_policy` 为 T3，只有人工批准后才真正写入政策版本，并关闭前一版本的有效窗口；
+- `packages/agent-persistence`：Agent 任务、发现/动作/结果、批准与审计持久化到 PostgreSQL；API/Worker 重启后按幂等键恢复；Worker 支持静态 token 或 OIDC client credentials；
 - `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；
 - `fixtures`：核心通用 order policy + 5 个订单 fixture；reconciliation CSV；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；

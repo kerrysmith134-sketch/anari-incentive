@@ -20,7 +20,10 @@ import {
   SettlementReadinessSkill,
   createDefaultSkills,
   createDefaultTools,
+  type AgentAuditEntry,
   type AgentContext,
+  type AgentTask,
+  type AgentTaskRepository,
 } from "../index.js";
 
 class FakeContext implements AgentContext {
@@ -120,13 +123,33 @@ function formalRun(overrides: Partial<CalculationRun> = {}): CalculationRun {
   };
 }
 
-function runtime(context: AgentContext) {
+function runtime(context: AgentContext, repository?: AgentTaskRepository) {
   return new AgentRuntime(
     context,
     createDefaultTools(),
     createDefaultSkills(),
-    { requireApprovalAtOrAbove: "T3", actor: "agent" },
+    { requireApprovalAtOrAbove: "T3", actor: "agent", repository },
   );
+}
+
+class FakeRepository implements AgentTaskRepository {
+  tasks = new Map<string, AgentTask>();
+  audit: AgentAuditEntry[] = [];
+
+  async load() {
+    return {
+      tasks: [...this.tasks.values()].map((task) => structuredClone(task)),
+      audit: this.audit.map((entry) => ({ ...entry })),
+    };
+  }
+
+  async saveTask(task: AgentTask) {
+    this.tasks.set(task.id, structuredClone(task));
+  }
+
+  async appendAudit(entry: AgentAuditEntry) {
+    this.audit.push({ ...entry });
+  }
 }
 
 describe("agent runtime", () => {
@@ -135,7 +158,7 @@ describe("agent runtime", () => {
     context.workPackages = [workPackage()];
     const agent = runtime(context);
 
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "EVIDENCE_GAP",
       triggerType: "SCHEDULE",
@@ -151,7 +174,9 @@ describe("agent runtime", () => {
     const approved = await agent.approve(ran.id, escalation.id, "manager-1");
     expect(approved.status).toBe("SUCCEEDED");
     expect(approved.approvedBy).toBe("manager-1");
-    expect(agent.auditLog().some((entry) => entry.tool === "escalate")).toBe(true);
+    expect(
+      (await agent.auditLog()).some((entry) => entry.tool === "escalate"),
+    ).toBe(true);
   });
 
   it("executes low-risk evidence requests automatically", async () => {
@@ -173,7 +198,7 @@ describe("agent runtime", () => {
       }),
     ];
     const agent = runtime(context);
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "EVIDENCE_GAP",
       triggerType: "EVENT",
@@ -188,7 +213,7 @@ describe("agent runtime", () => {
     const context = new FakeContext();
     context.runs = [formalRun()];
     const agent = runtime(context);
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "SETTLEMENT_READINESS",
       triggerType: "THRESHOLD",
@@ -240,7 +265,7 @@ describe("agent runtime", () => {
       },
     ];
     const agent = runtime(context);
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "CONTRIBUTION_ANOMALY",
       triggerType: "SCHEDULE",
@@ -285,7 +310,7 @@ describe("agent runtime", () => {
       ],
     };
 
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "POLICY_PROPOSAL",
       triggerType: "MANUAL",
@@ -304,9 +329,11 @@ describe("agent runtime", () => {
     const publish = ran.actions.find((action) => action.tool === "publish_policy")!;
     const approved = await agent.approve(ran.id, publish.id, "admin-1");
     expect(approved.status).toBe("SUCCEEDED");
-    expect(agent.auditLog().some((entry) => entry.tool === "publish_policy")).toBe(
-      true,
-    );
+    expect(
+      (await agent.auditLog()).some(
+        (entry) => entry.tool === "publish_policy",
+      ),
+    ).toBe(true);
   });
 
   it("detects blocking evidence quality and escalates", async () => {
@@ -327,7 +354,7 @@ describe("agent runtime", () => {
       },
     ];
     const agent = runtime(context);
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "DATA_QUALITY",
       triggerType: "SCHEDULE",
@@ -354,7 +381,7 @@ describe("agent runtime", () => {
       },
     ];
     const agent = runtime(context);
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "APPEAL_SLA",
       triggerType: "SCHEDULE",
@@ -366,21 +393,49 @@ describe("agent runtime", () => {
     expect(ran.findings[0]!.code).toBe("APPEAL_SLA_BREACH");
   });
 
-  it("is idempotent for the same task key", () => {
+  it("is idempotent for the same task key", async () => {
     const agent = runtime(new FakeContext());
-    const first = agent.enqueue({
+    const first = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "EVIDENCE_GAP",
       triggerType: "MANUAL",
       idempotencyKey: "same-key",
     });
-    const second = agent.enqueue({
+    const second = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "EVIDENCE_GAP",
       triggerType: "MANUAL",
       idempotencyKey: "same-key",
     });
     expect(second.id).toBe(first.id);
+  });
+
+  it("rehydrates tasks, idempotency and audit from a repository", async () => {
+    const repository = new FakeRepository();
+    const context = new FakeContext();
+    context.workPackages = [workPackage()];
+    const first = runtime(context, repository);
+    const task = await first.enqueue({
+      tenantId: "tenant-1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "durable-1",
+    });
+    await first.run(task.id);
+
+    const second = runtime(new FakeContext(), repository);
+    const loaded = await second.get(task.id);
+    expect(loaded.status).toBe("WAITING_APPROVAL");
+    expect(await second.list()).toHaveLength(1);
+    expect((await second.auditLog()).length).toBeGreaterThan(0);
+
+    const replay = await second.enqueue({
+      tenantId: "tenant-1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "durable-1",
+    });
+    expect(replay.id).toBe(task.id);
   });
 });
 
@@ -465,7 +520,7 @@ describe("policy proposal loop", () => {
       ],
     };
 
-    const task = agent.enqueue({
+    const task = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "POLICY_PROPOSAL",
       triggerType: "MANUAL",

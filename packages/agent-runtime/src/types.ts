@@ -126,3 +126,13 @@ export interface AgentAuditEntry {
   at: string;
   detail: string;
 }
+
+/**
+ * Durable task/audit adapter. The runtime stays synchronous internally but
+ * loads once on first use and persists each task snapshot after a mutation.
+ */
+export interface AgentTaskRepository {
+  load(): Promise<{ tasks: AgentTask[]; audit: AgentAuditEntry[] }>;
+  saveTask(task: AgentTask): Promise<void>;
+  appendAudit(entry: AgentAuditEntry): Promise<void>;
+}

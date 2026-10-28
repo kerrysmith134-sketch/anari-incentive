@@ -4,8 +4,8 @@
 -- canonical state names from packages/domain/src/states.ts and the core
 -- objects required by PRD V4.1. Governance and money-path hardening live in
 -- 002_governance_schema.sql, 003_money_path_invariants.sql,
--- 004_policy_succession.sql, 005_ledger_sequence.sql and
--- 006_settlement_rls.sql.
+-- 004_policy_succession.sql, 005_ledger_sequence.sql,
+-- 006_settlement_rls.sql and 007_agent_task_state.sql.
 
 BEGIN;
 
