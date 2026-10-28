@@ -1,12 +1,12 @@
 # N-Perform / Anari Incentive
 
-**多人贡献认定与激励结算的 assurance layer。**
+**制度无关的、AI-native 的多人贡献认定与激励结算 assurance layer。**
 
-This repository is the implementation baseline for PRD V4.1. It does **not** try to be a generic HRIS, payroll system, project-management suite, or “AI gives everyone a score” product. It connects business facts, work packages, deliverables, acceptance, contribution claims, attribution decisions, deterministic calculation, approval, employee confirmation/appeal, and an append-only ledger — so a company can explain **who contributed to what, and why a payment is what it is**.
+This repository is the implementation baseline for PRD V4.1. The core is **institution-agnostic**: it does not know what a “charging pile”, “EPC project” or “sales commission” is. Industries and policies are configuration packs under [`examples/verticals/`](examples/verticals/); the first design partner (Anari) uses the EV charging equipment-sales pack, but that pack is a tenant configuration, not the product boundary.
 
-> **First wedge**: EV charging equipment sales — initially direct sales of DC fast-charging piles. The industry profile, sales work-package template, evidence map, channel/credit/after-sales rules and risk list are in [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md). EPC is a later extension, not the first wedge.
+> **Product principles**: policy-as-data; evidence-first; deterministic money; human-approved high-impact actions; proactive agents that observe, detect, plan, act, verify and escalate.
 >
-> Status: **Sprint 0/1/2 vertical slice**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with a reference policy pack, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, an AI evaluation gate scaffold, tests, and PostgreSQL migrations. It is not production-ready.
+> Status: **Sprint 0/1/2 vertical slice + agent-runtime scaffold**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with policy packs, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, a proactive agent runtime, an AI evaluation gate, tests, and PostgreSQL migrations. It is not production-ready.
 
 ---
 
@@ -17,9 +17,8 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Domain states | Canonical state machines and legal transitions in `packages/domain/src/states.ts` |
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
-| Equipment sales policy | `CHARGING_EQUIPMENT_SALES_V1`: order gross profit × 3.5% (cap 120k), 50% cash-collection weighting, 3% after-sales reserve, credit/quality gates, channel share separated from the internal pool |
-| EPC policy (later) | `CHARGING_PROJECT_CONTRIBUTION_V1`: project gross profit × 4% (cap 150k), 40% cash weighting, 5% retention holdback, acceptance/safety gates — kept as a later extension |
-| Reference policy pack | generic `order-contribution-v1`, equipment `charging-equipment-sales-v1` (primary), EPC `charging-project-contribution-v1` (later); 5 generic + 5 equipment + 5 EPC fixtures with expected outputs |
+| Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
+| Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for scheduled/on-demand sweeps |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
@@ -33,12 +32,13 @@ This repository is the implementation baseline for PRD V4.1. It does **not** try
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **70 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| Tests | **81 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
 - AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
-- Agent Runtime / autonomous execution;
+- Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
+- Production CRM/ERP/Feishu connectors;
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;
@@ -134,6 +134,12 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/appeals/:id/triage` | OPEN → TRIAGED; assign reviewer |
 | POST | `/api/v1/appeals/:id/review` | TRIAGED → UNDER_REVIEW |
 | POST | `/api/v1/appeals/:id/resolve` | UNDER_REVIEW → DECIDED → CLOSED/RECALCULATION_REQUIRED |
+| POST | `/api/v1/agent-tasks` | Enqueue a proactive agent task |
+| POST | `/api/v1/agent-tasks/scan` | Run a proactive scan: evidence gaps, anomalies, settlement readiness |
+| GET | `/api/v1/agent-tasks` / `/:id` | List/get agent tasks |
+| POST | `/api/v1/agent-tasks/:id/run` | Observe → plan → execute low-risk actions |
+| POST | `/api/v1/agent-tasks/:id/approve` | Human approval for a pending T2/T3 action |
+| POST | `/api/v1/agent-tasks/:id/reject` | Reject a pending action |
 
 ### Example: shadow calculation
 
@@ -180,14 +186,15 @@ packages/contracts/       Zod request schemas
 packages/policy-dsl/      Deterministic decimal, order-contribution policy, reference
 packages/ledger/          Append-only ledger, idempotency, hash chain
 packages/ai-gate/         Evaluation gate + non-scoring evidence assistant
-fixtures/                 Reference policy, anonymized order fixtures, reconciliation CSV
+packages/agent-runtime/   Proactive agent runtime, skills, tools, approval gates
+examples/verticals/       Tenant policy packs (charging equipment sales, EPC)
+fixtures/                 Generic reference policy, order fixtures, reconciliation CSV
 db/migrations/            PostgreSQL schema and money-path invariants
 db/seed/                  Demo tenant/people/cycle/policy + RLS app role
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 scripts/reconcile.ts     CSV vs engine reconciliation
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
-  wedge-ev-charging.md    EV charging / PV+BESS+charging wedge profile
   REVIEW_2026-10-27.md    Full review that drove the revision
   domain-contract.md      State machines, money-path invariants, commands
   adr/                    Architecture decision records
@@ -206,13 +213,16 @@ tests/                    Cross-package fixture/E2E tests
 7. **Same input + policy + engine version → same result hash.**
 8. **Evidence has provenance.** Evidence nodes link to subjects and to each other; a claim reference is not proof by itself.
 9. **AI is optional and gated.** Evidence summary/gap detection are allowed; numeric scoring requires a passed evaluation gate with IRR, subgroup, counterfactual and prompt-injection evidence.
+10. **The core is institution-agnostic.** A vertical is a policy pack under `examples/verticals/`, not a fork of the engine or a hard-coded industry workflow.
+11. **The agent is proactive but bounded.** It can observe, detect, plan, request evidence, remind and escalate; T0/T1 actions may run automatically, T2/T3 actions require a human, and every action is audited.
 
 ## Next steps (12-week sprint)
 
-- W1–2: pick 5–10 real cross-team orders, map work packages/evidence, baseline coverage/time/disputes.
+- W1–2: pick 5–10 real multi-party orders/projects from the first design partner, map work packages/evidence, baseline coverage/time/disputes; keep the core generic.
+- The **second reference policy pack** (professional services) is in place and covered by `tests/pack-conformance.test.ts`; use it as the regression guard against industry-specific core changes.
 - W3–4: legal review, employee consultation plan, DPIA, minimum-wage/deduction check.
 - W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **evidence API, employee page, confirmation/appeal done; CRM/ERP connector pending**.
-- W7–8: equipment-sales reference policy, independent spreadsheet/script reconciliation, shadow settlement — **policy, fixtures and CSV reconciliation done; shadow settlement with real orders pending**.
+- W7–8: first design-partner policy pack, independent spreadsheet/script reconciliation, shadow settlement — **pack, fixtures and CSV reconciliation done; shadow settlement with real orders pending**.
 - W9–10: 20–50 person cycle; measure coverage, time, disputes, trust.
 - W11–12: finance reconciliation, appeal drill, Go/No-Go.
 
@@ -222,6 +232,7 @@ See `docs/PRD_V4.1_评审修订版.md` §11 for Go/No-Go and kill criteria.
 
 - Full review: [`docs/REVIEW_2026-10-27.md`](docs/REVIEW_2026-10-27.md)
 - Revised PRD: [`docs/PRD_V4.1_评审修订版.md`](docs/PRD_V4.1_评审修订版.md)
-- EV charging wedge: [`docs/wedge-ev-charging.md`](docs/wedge-ev-charging.md)
+- Vertical packs: [`examples/verticals/`](examples/verticals/)
+- First design-partner pack: [`examples/verticals/charging-equipment-sales/`](examples/verticals/charging-equipment-sales/)
 - Domain contract: [`docs/domain-contract.md`](docs/domain-contract.md)
 - ADRs: [`docs/adr/`](docs/adr/)

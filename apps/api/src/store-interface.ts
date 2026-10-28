@@ -64,6 +64,7 @@ export interface IncentiveStore {
 
   createClaim(input: CreateContributionClaimInput): Promise<ContributionClaim>;
   getClaim(id: string): Promise<ContributionClaim>;
+  listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
   createAttributionDecision(
     input: CreateAttributionDecisionInput,

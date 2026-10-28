@@ -2,18 +2,18 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
-import { calculateChargingEquipmentSales } from "@anari/policy-dsl";
+import { calculateCashWeightedReserveChannel } from "@anari/policy-dsl";
 
 const root = process.cwd();
 const policy = JSON.parse(
   readFileSync(
-    join(root, "fixtures", "policies", "charging-equipment-sales-v1.json"),
+    join(root, "examples", "verticals", "charging-equipment-sales", "policy.json"),
     "utf8",
   ),
 ) as PolicyDefinition;
 
-const files = readdirSync(join(root, "fixtures", "orders"))
-  .filter((file) => file.startsWith("equipment-") && file.endsWith(".json"))
+const files = readdirSync(join(root, "examples", "verticals", "charging-equipment-sales", "fixtures"))
+  .filter((file) => file.endsWith(".json"))
   .sort();
 
 interface EquipmentFixture {
@@ -38,10 +38,10 @@ describe("charging equipment sales fixtures", () => {
   for (const file of files) {
     it(`matches expected equipment calculation: ${file}`, () => {
       const fixture = JSON.parse(
-        readFileSync(join(root, "fixtures", "orders", file), "utf8"),
+        readFileSync(join(root, "examples", "verticals", "charging-equipment-sales", "fixtures", file), "utf8"),
       ) as EquipmentFixture;
 
-      const result = calculateChargingEquipmentSales(policy, fixture.input);
+      const result = calculateCashWeightedReserveChannel(policy, fixture.input);
       expect(result.pool).toBe(fixture.expected.pool);
       expect(result.poolRounded).toBe(fixture.expected.poolRounded);
       expect(result.cashFactor).toBe(fixture.expected.cashFactor);

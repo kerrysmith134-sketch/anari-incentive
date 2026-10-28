@@ -1,0 +1,11 @@
+{
+  "id": "charging-equipment-sales",
+  "name": "EV charging equipment sales",
+  "version": "0.1.0",
+  "status": "example",
+  "description": "Direct and channel sales of EV charging piles; cash collection, credit/quality gates and after-sales reserve.",
+  "corePolicyCode": "CHARGING_EQUIPMENT_SALES_V1",
+  "policy": "policy.json",
+  "fixtures": "fixtures",
+  "policyVersionId": "00000000-0000-4000-8000-000000000102"
+}

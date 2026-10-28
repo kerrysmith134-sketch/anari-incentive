@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { PgStore } from "../pg-store.js";
-import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { Store } from "../store.js";
-import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID, REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const MEMBER = "00000000-0000-4000-8000-000000000002";
@@ -487,6 +488,91 @@ describe("vertical slice", () => {
     expect(run.status).toBe(422);
     expect(run.body.error.code).toBe("CALCULATION_BLOCKED");
     expect(run.body.error.details.blockers).toContain("SAFETY_INCIDENT_OPEN");
+  });
+
+  it("runs a proactive agent task and requires approval for escalation", async () => {
+    const created = await call("POST", "/api/v1/work-packages", {
+      title: "Agent scan target",
+      objective: "Check evidence gaps",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Delivery",
+        },
+      ],
+      acceptanceCriteria: ["Accepted"],
+    });
+    expect(created.status).toBe(201);
+
+    const enqueued = await call("POST", "/api/v1/agent-tasks", {
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "agent-scan-1",
+    });
+    expect(enqueued.status).toBe(201);
+    const taskId = enqueued.body.data.id as string;
+
+    const ran = await call("POST", `/api/v1/agent-tasks/${taskId}/run`);
+    expect(ran.status).toBe(200);
+    expect(ran.body.data.status).toBe("WAITING_APPROVAL");
+    expect(
+      ran.body.data.findings.map((finding: { code: string }) => finding.code),
+    ).toEqual(
+      expect.arrayContaining(["WORK_PACKAGE_NOT_COMMITTED", "NO_EVIDENCE"]),
+    );
+
+    const escalate = ran.body.data.actions.find(
+      (action: { tool: string }) => action.tool === "escalate",
+    );
+    const approved = await call(
+      "POST",
+      `/api/v1/agent-tasks/${taskId}/approve`,
+      {
+        actionId: escalate.id,
+        approverPersonId: ADJUDICATOR,
+      },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("SUCCEEDED");
+    expect(approved.body.data.approvedBy).toBe(ADJUDICATOR);
+
+    const replay = await call("POST", "/api/v1/agent-tasks", {
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "agent-scan-1",
+    });
+    expect(replay.body.data.id).toBe(taskId);
+  });
+
+  it("runs a proactive agent scan across the tenant", async () => {
+    await call("POST", "/api/v1/work-packages", {
+      title: "Scan target",
+      objective: "Detect evidence gaps",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Delivery",
+        },
+      ],
+      acceptanceCriteria: ["Accepted"],
+    });
+
+    const scan = await call("POST", "/api/v1/agent-tasks/scan", {
+      idempotencyKey: "scan-test-1",
+    });
+    expect(scan.status).toBe(200);
+    expect(scan.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(
+      scan.body.data.some(
+        (task: { agentType: string; status: string }) =>
+          task.agentType === "EVIDENCE_GAP" &&
+          task.status === "WAITING_APPROVAL",
+      ),
+    ).toBe(true);
   });
 
   it("creates an evidence graph and links supporting/counter evidence", async () => {

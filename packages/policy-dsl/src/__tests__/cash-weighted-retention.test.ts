@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import {
   PolicyGateError,
-  calculateChargingProjectContribution,
+  calculateCashWeightedRetention,
 } from "../index.js";
 
 const policy: PolicyDefinition = {
@@ -60,7 +60,7 @@ function input(overrides: Partial<CalculationInput["order"]> = {}): CalculationI
 
 describe("charging project contribution", () => {
   it("applies cash collection and retention holdback", () => {
-    const result = calculateChargingProjectContribution(policy, input());
+    const result = calculateCashWeightedRetention(policy, input());
     // base 40,000; cash factor 0.75; adjusted 36,000; retention 1,800; payable 34,200
     expect(result.pool).toBe("40000");
     expect(result.cashFactor).toBe("0.75");
@@ -77,7 +77,7 @@ describe("charging project contribution", () => {
   });
 
   it("pays the full cash-adjusted pool when collected", () => {
-    const result = calculateChargingProjectContribution(
+    const result = calculateCashWeightedRetention(
       policy,
       input({ cashCollected: "2000000" }),
     );
@@ -87,7 +87,7 @@ describe("charging project contribution", () => {
   });
 
   it("reduces the pool when no cash is collected", () => {
-    const result = calculateChargingProjectContribution(
+    const result = calculateCashWeightedRetention(
       policy,
       input({ cashCollected: "0" }),
     );
@@ -98,7 +98,7 @@ describe("charging project contribution", () => {
 
   it("blocks on an open safety incident", () => {
     expect(() =>
-      calculateChargingProjectContribution(
+      calculateCashWeightedRetention(
         policy,
         input({ safetyIncidents: 1 }),
       ),
@@ -107,7 +107,7 @@ describe("charging project contribution", () => {
 
   it("blocks before customer acceptance", () => {
     expect(() =>
-      calculateChargingProjectContribution(
+      calculateCashWeightedRetention(
         policy,
         input({ acceptanceStatus: "PENDING" }),
       ),
@@ -115,8 +115,8 @@ describe("charging project contribution", () => {
   });
 
   it("is deterministic for the same input", () => {
-    const a = calculateChargingProjectContribution(policy, input());
-    const b = calculateChargingProjectContribution(policy, input());
+    const a = calculateCashWeightedRetention(policy, input());
+    const b = calculateCashWeightedRetention(policy, input());
     expect(a.resultHash).toBe(b.resultHash);
   });
 });

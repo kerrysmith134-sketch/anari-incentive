@@ -1,5 +1,5 @@
 {
-  "code": "ORDER_CONTRIBUTION_V1",
+  "code": "GENERIC_CONTRIBUTION_V1",
   "version": 1,
   "currency": "CNY",
   "poolRate": "0.05",
@@ -8,5 +8,7 @@
   "minimumWage": {
     "monthlyMinimum": "2690",
     "checked": false
-  }
+  },
+  "calculator": "SIMPLE_POOL",
+  "incentiveType": "CONTRIBUTION"
 }

@@ -14,7 +14,8 @@
     "@anari/policy-dsl": "0.1.0",
     "fastify": "^5.0.0",
     "zod": "^3.23.8",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "@anari/agent-runtime": "0.1.0"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10"

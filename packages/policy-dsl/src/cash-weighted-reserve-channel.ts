@@ -14,10 +14,10 @@ import {
   ENGINE_VERSION,
   type OrderContributionResult,
 } from "./evaluator.js";
-import { PolicyGateError } from "./charging.js";
 import { sha256 } from "./hash.js";
+import { PolicyGateError } from "./errors.js";
 
-export interface ChargingEquipmentResult extends OrderContributionResult {
+export interface CashWeightedReserveChannelResult extends OrderContributionResult {
   cashFactor: string;
   afterSalesReserve: string;
   channelPool: string;
@@ -26,7 +26,8 @@ export interface ChargingEquipmentResult extends OrderContributionResult {
 }
 
 /**
- * EV charging equipment sales policy (the first wedge).
+ * Generic cash-weighted pool with an after-sales reserve and an optional channel split.
+ * The policy pack selects this calculator; the calculator has no industry knowledge.
  *
  * - base pool = min(grossProfit * poolRate, poolCap)
  * - cash factor = min(1, cashCollected / invoiceAmount)
@@ -40,10 +41,10 @@ export interface ChargingEquipmentResult extends OrderContributionResult {
  * Credit approval and quality holds are hard gates. Channel share is recorded
  * separately; internal employees are not paid on the channel partner's share.
  */
-export function calculateChargingEquipmentSales(
+export function calculateCashWeightedReserveChannel(
   policy: PolicyDefinition,
   input: CalculationInput,
-): ChargingEquipmentResult {
+): CashWeightedReserveChannelResult {
   if (input.order.currency !== policy.currency) {
     throw new Error(
       `Currency mismatch: order ${input.order.currency}, policy ${policy.currency}`,
@@ -109,7 +110,7 @@ export function calculateChargingEquipmentSales(
   const channelRounded = roundTo(channelPool, 2, policy.rounding);
   const reserveRounded = roundTo(afterSalesReserve, 2, policy.rounding);
   const lines = allocatePool(policy, input, internalRounded, {
-    incentiveType: "CHARGING_EQUIPMENT_SALES",
+    incentiveType: policy.incentiveType ?? "CONTRIBUTION",
     baseAmount: grossProfit,
     trace: {
       pool: formatDecimal(basePool),

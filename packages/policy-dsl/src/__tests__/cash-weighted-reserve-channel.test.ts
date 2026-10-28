@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import {
   PolicyGateError,
-  calculateChargingEquipmentSales,
+  calculateCashWeightedReserveChannel,
 } from "../index.js";
 
 const policy: PolicyDefinition = {
@@ -53,7 +53,7 @@ function input(overrides: Partial<CalculationInput["order"]> = {}): CalculationI
 
 describe("charging equipment sales", () => {
   it("applies cash weighting and after-sales reserve", () => {
-    const result = calculateChargingEquipmentSales(policy, input());
+    const result = calculateCashWeightedReserveChannel(policy, input());
     // base 21,000; factor 0.8; adjusted 18,900; reserve 567; payable 18,333
     expect(result.pool).toBe("21000");
     expect(result.cashFactor).toBe("0.8");
@@ -69,7 +69,7 @@ describe("charging equipment sales", () => {
   });
 
   it("splits channel share out of the internal pool", () => {
-    const result = calculateChargingEquipmentSales(
+    const result = calculateCashWeightedReserveChannel(
       policy,
       input({
         id: "equipment-order-002",
@@ -89,7 +89,7 @@ describe("charging equipment sales", () => {
   });
 
   it("caps the pool", () => {
-    const result = calculateChargingEquipmentSales(
+    const result = calculateCashWeightedReserveChannel(
       policy,
       input({
         id: "equipment-order-003",
@@ -105,7 +105,7 @@ describe("charging equipment sales", () => {
 
   it("blocks without credit approval", () => {
     expect(() =>
-      calculateChargingEquipmentSales(
+      calculateCashWeightedReserveChannel(
         policy,
         input({ creditApproved: false }),
       ),
@@ -114,13 +114,13 @@ describe("charging equipment sales", () => {
 
   it("blocks on quality hold", () => {
     expect(() =>
-      calculateChargingEquipmentSales(policy, input({ qualityHold: true })),
+      calculateCashWeightedReserveChannel(policy, input({ qualityHold: true })),
     ).toThrow(/QUALITY_HOLD/);
   });
 
   it("blocks a channel share without a partner", () => {
     expect(() =>
-      calculateChargingEquipmentSales(
+      calculateCashWeightedReserveChannel(
         policy,
         input({ channelShare: "0.1" }),
       ),

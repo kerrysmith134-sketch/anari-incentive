@@ -11,9 +11,13 @@ import {
   createAttributionDecisionSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
+  approveAgentActionSchema,
   createEvidenceLinkSchema,
   createEvidenceSchema,
   createWorkPackageSchema,
+  enqueueAgentTaskSchema,
+  rejectAgentActionSchema,
+  scanAgentTasksSchema,
   lockCalculationRunSchema,
   recordConfirmationSchema,
   recordLegalGateSchema,
@@ -25,6 +29,7 @@ import {
   InvalidStateTransitionError,
   InvariantViolationError,
 } from "@anari/domain";
+import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import { LedgerError } from "@anari/ledger";
 import {
   CalculationBlockedError,
@@ -33,6 +38,7 @@ import {
   Store,
 } from "./store.js";
 import type { IncentiveStore } from "./store-interface.js";
+import { createAgentRuntime } from "./agent.js";
 
 type IdParams = { id: string };
 
@@ -59,6 +65,7 @@ const employeeUi = readFileSync(
 
 export function buildApp(
   store: IncentiveStore = new Store(),
+  agentRuntime: AgentRuntime = createAgentRuntime(store),
 ): FastifyInstance {
   const app = Fastify({ logger: false });
 
@@ -112,6 +119,13 @@ export function buildApp(
         meta: { correlation_id: request.id },
       });
     }
+    if (error instanceof AgentRuntimeError) {
+      const status = error.code === "AGENT_TASK_NOT_FOUND" ? 404 : 409;
+      return reply.status(status).send({
+        ...errorBody(error.code, error.message),
+        meta: { correlation_id: request.id },
+      });
+    }
     if (error instanceof ConflictError) {
       return reply.status(409).send({
         ...errorBody(error.code, error.message),
@@ -122,6 +136,107 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/agent-tasks/scan", async (request) => {
+    const body = parse(scanAgentTasksSchema, request.body ?? {});
+    const tenantId =
+      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+    const batchKey = body.idempotencyKey ?? `scan-${Date.now()}`;
+    const runs = await store.listRuns();
+    const tasks = [];
+
+    tasks.push(
+      await agentRuntime.run(
+        agentRuntime.enqueue({
+          tenantId,
+          agentType: "EVIDENCE_GAP",
+          triggerType: "SCHEDULE",
+          idempotencyKey: `${batchKey}:evidence-gap`,
+        }).id,
+      ),
+    );
+    tasks.push(
+      await agentRuntime.run(
+        agentRuntime.enqueue({
+          tenantId,
+          agentType: "CONTRIBUTION_ANOMALY",
+          triggerType: "SCHEDULE",
+          idempotencyKey: `${batchKey}:contribution-anomaly`,
+        }).id,
+      ),
+    );
+    for (const run of runs.slice(0, 5)) {
+      tasks.push(
+        await agentRuntime.run(
+          agentRuntime.enqueue({
+            tenantId,
+            agentType: "SETTLEMENT_READINESS",
+            triggerType: "SCHEDULE",
+            input: { runId: run.id },
+            idempotencyKey: `${batchKey}:settlement:${run.id}`,
+          }).id,
+        ),
+      );
+    }
+    return data(tasks, request);
+  });
+
+  app.post("/api/v1/agent-tasks", async (request, reply) => {
+    const body = parse(enqueueAgentTaskSchema, request.body);
+    const tenantId =
+      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+    return reply.status(201).send(
+      data(
+        agentRuntime.enqueue({
+          tenantId,
+          agentType: body.agentType,
+          triggerType: body.triggerType,
+          triggerRef: body.triggerRef,
+          input: body.input,
+          idempotencyKey: body.idempotencyKey,
+          riskTier: body.riskTier,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/agent-tasks", async (request) =>
+    data(agentRuntime.list(), request),
+  );
+
+  app.get("/api/v1/agent-tasks/:id", async (request) =>
+    data(agentRuntime.get(idOf(request)), request),
+  );
+
+  app.post("/api/v1/agent-tasks/:id/run", async (request) =>
+    data(await agentRuntime.run(idOf(request)), request),
+  );
+
+  app.post("/api/v1/agent-tasks/:id/approve", async (request) => {
+    const body = parse(approveAgentActionSchema, request.body);
+    return data(
+      await agentRuntime.approve(
+        idOf(request),
+        body.actionId,
+        body.approverPersonId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/agent-tasks/:id/reject", async (request) => {
+    const body = parse(rejectAgentActionSchema, request.body);
+    return data(
+      agentRuntime.reject(
+        idOf(request),
+        body.actionId,
+        body.approverPersonId,
+        body.reason,
+      ),
+      request,
+    );
   });
 
   app.get("/", async (_request, reply) =>

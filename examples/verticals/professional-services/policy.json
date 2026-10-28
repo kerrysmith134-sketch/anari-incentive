@@ -1,0 +1,20 @@
+{
+  "code": "PROFESSIONAL_SERVICES_MARGIN_V1",
+  "version": 1,
+  "currency": "CNY",
+  "poolRate": "0.025",
+  "poolCap": "80000",
+  "rounding": "HALF_UP",
+  "cashCollectionWeight": "0.3",
+  "retentionHoldbackRate": "0",
+  "qualityGate": {
+    "requireAcceptance": true,
+    "blockOnSafetyIncident": false
+  },
+  "calculator": "CASH_WEIGHTED_RETENTION_POOL",
+  "minimumWage": {
+    "monthlyMinimum": "2690",
+    "checked": false
+  },
+  "incentiveType": "PROFESSIONAL_SERVICES_CONTRIBUTION"
+}

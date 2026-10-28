@@ -93,7 +93,7 @@ export function allocatePool(
   options: AllocatePoolOptions = {},
 ): CalculationLine[] {
   const { total, parsed } = normalizeWeights(input.participants);
-  const incentiveType = options.incentiveType ?? "ORDER_CONTRIBUTION";
+  const incentiveType = options.incentiveType ?? policy.incentiveType ?? "CONTRIBUTION";
   const baseAmount = options.baseAmount ?? parseDecimal(input.order.grossProfit);
 
   const participants: AllocatableParticipant[] = parsed.map((item) => {

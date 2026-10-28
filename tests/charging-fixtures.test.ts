@@ -2,18 +2,18 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
-import { calculateChargingProjectContribution } from "@anari/policy-dsl";
+import { calculateCashWeightedRetention } from "@anari/policy-dsl";
 
 const root = process.cwd();
 const policy = JSON.parse(
   readFileSync(
-    join(root, "fixtures", "policies", "charging-project-contribution-v1.json"),
+    join(root, "examples", "verticals", "charging-epc", "policy.json"),
     "utf8",
   ),
 ) as PolicyDefinition;
 
-const files = readdirSync(join(root, "fixtures", "orders"))
-  .filter((file) => file.startsWith("charging-") && file.endsWith(".json"))
+const files = readdirSync(join(root, "examples", "verticals", "charging-epc", "fixtures"))
+  .filter((file) => file.endsWith(".json"))
   .sort();
 
 interface ChargingFixture {
@@ -36,10 +36,10 @@ describe("charging project fixtures", () => {
   for (const file of files) {
     it(`matches expected charging calculation: ${file}`, () => {
       const fixture = JSON.parse(
-        readFileSync(join(root, "fixtures", "orders", file), "utf8"),
+        readFileSync(join(root, "examples", "verticals", "charging-epc", "fixtures", file), "utf8"),
       ) as ChargingFixture;
 
-      const result = calculateChargingProjectContribution(
+      const result = calculateCashWeightedRetention(
         policy,
         fixture.input,
       );
@@ -60,7 +60,7 @@ describe("charging project fixtures", () => {
       );
       expect(sum).toBeCloseTo(Number(fixture.expected.poolRounded), 6);
       expect(
-        calculateChargingProjectContribution(policy, fixture.input).resultHash,
+        calculateCashWeightedRetention(policy, fixture.input).resultHash,
       ).toBe(result.resultHash);
     });
   }

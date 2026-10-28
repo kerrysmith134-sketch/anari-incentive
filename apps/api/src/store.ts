@@ -34,9 +34,7 @@ import type {
 import { InMemoryLedger } from "@anari/ledger";
 import {
   PolicyGateError,
-  calculateChargingEquipmentSales,
-  calculateChargingProjectContribution,
-  calculateOrderContribution,
+  calculateByPolicy,
   sha256,
 } from "@anari/policy-dsl";
 import type {
@@ -281,6 +279,10 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  async listClaims(): Promise<ContributionClaim[]> {
+    return [...this.claims.values()];
   }
 
   async submitClaim(id: string): Promise<ContributionClaim> {
@@ -535,12 +537,7 @@ export class Store implements IncentiveStore {
 
     let result;
     try {
-      result =
-        policy.code === "CHARGING_EQUIPMENT_SALES_V1"
-          ? calculateChargingEquipmentSales(policy, calculationInput)
-          : policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
-            ? calculateChargingProjectContribution(policy, calculationInput)
-            : calculateOrderContribution(policy, calculationInput);
+      result = calculateByPolicy(policy, calculationInput);
     } catch (error) {
       if (error instanceof PolicyGateError) {
         throw new CalculationBlockedError(error.blockers);

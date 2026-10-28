@@ -1,0 +1,11 @@
+{
+  "id": "charging-epc",
+  "name": "EV charging station EPC",
+  "version": "0.1.0",
+  "status": "later-extension",
+  "description": "EPC delivery of charging stations; acceptance/safety gates and retention holdback. Not the first wedge.",
+  "corePolicyCode": "CHARGING_PROJECT_CONTRIBUTION_V1",
+  "policy": "policy.json",
+  "fixtures": "fixtures",
+  "policyVersionId": "00000000-0000-4000-8000-000000000101"
+}

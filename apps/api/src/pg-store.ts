@@ -35,9 +35,7 @@ import type {
 import { hashLedgerEntry } from "@anari/ledger";
 import {
   PolicyGateError,
-  calculateChargingEquipmentSales,
-  calculateChargingProjectContribution,
-  calculateOrderContribution,
+  calculateByPolicy,
   sha256,
 } from "@anari/policy-dsl";
 import type {
@@ -349,6 +347,16 @@ export class PgStore implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.tx((client) => this.loadClaim(client, id));
+  }
+
+  async listClaims(): Promise<ContributionClaim[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        "SELECT id FROM contribution_claims WHERE tenant_id=$1 ORDER BY created_at DESC",
+        [this.tenantId],
+      );
+      return Promise.all(rows.map((row) => this.loadClaim(client, row.id)));
+    });
   }
 
   async submitClaim(id: string): Promise<ContributionClaim> {
@@ -677,12 +685,7 @@ export class PgStore implements IncentiveStore {
       };
       let result;
       try {
-        result =
-          policy.code === "CHARGING_EQUIPMENT_SALES_V1"
-            ? calculateChargingEquipmentSales(policy, calculationInput)
-            : policy.code === "CHARGING_PROJECT_CONTRIBUTION_V1"
-              ? calculateChargingProjectContribution(policy, calculationInput)
-              : calculateOrderContribution(policy, calculationInput);
+        result = calculateByPolicy(policy, calculationInput);
       } catch (error) {
         if (error instanceof PolicyGateError) {
           throw new CalculationBlockedError(error.blockers);

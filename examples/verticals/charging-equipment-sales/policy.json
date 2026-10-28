@@ -14,5 +14,7 @@
   "minimumWage": {
     "monthlyMinimum": "2690",
     "checked": false
-  }
+  },
+  "calculator": "CASH_WEIGHTED_RESERVE_CHANNEL_POOL",
+  "incentiveType": "CHARGING_EQUIPMENT_SALES"
 }

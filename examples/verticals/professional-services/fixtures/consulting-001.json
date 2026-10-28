@@ -1,0 +1,34 @@
+{
+  "name": "consulting-project",
+  "input": {
+    "tenantId": "tenant-demo",
+    "cycleId": "00000000-0000-4000-8000-000000000020",
+    "policyVersionId": "00000000-0000-4000-8000-000000000103",
+    "mode": "SHADOW",
+    "order": {
+      "id": "consulting-001",
+      "grossProfit": "400000",
+      "currency": "CNY",
+      "contractAmount": "1000000",
+      "cashCollected": "800000",
+      "acceptanceStatus": "ACCEPTED",
+      "safetyIncidents": 0
+    },
+    "participants": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.5", "role": "ENGAGEMENT_PARTNER"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.3", "role": "CONSULTANT"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "workPackageId": "00000000-0000-4000-8000-000000000010", "attributionWeight": "0.2", "role": "ANALYST"}
+    ]
+  },
+  "expected": {
+    "pool": "10000",
+    "poolRounded": "9400",
+    "cashFactor": "0.8",
+    "retentionHeld": "0",
+    "lines": [
+      {"personId": "00000000-0000-4000-8000-000000000001", "roundedAmount": "4700"},
+      {"personId": "00000000-0000-4000-8000-000000000002", "roundedAmount": "2820"},
+      {"personId": "00000000-0000-4000-8000-000000000003", "roundedAmount": "1880"}
+    ]
+  }
+}

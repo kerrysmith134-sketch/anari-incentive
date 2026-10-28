@@ -106,7 +106,7 @@ export interface OrderFact {
   id: string;
   grossProfit: DecimalString;
   currency: string;
-  /** Charging/energy-project fields; optional for the generic order policy. */
+  /** Optional policy inputs used by cash-weighted / retention packs. */
   contractAmount?: DecimalString;
   cashCollected?: DecimalString;
   retentionAmount?: DecimalString;
@@ -114,7 +114,7 @@ export interface OrderFact {
   siteId?: string;
   safetyIncidents?: number;
   acceptanceStatus?: "ACCEPTED" | "PENDING" | "REJECTED";
-  /** Charging-equipment sales fields. */
+  /** Optional sales/cash/reserve/channel inputs. */
   invoiceAmount?: DecimalString;
   creditApproved?: boolean;
   qualityHold?: boolean;
@@ -244,20 +244,28 @@ export interface PolicyDefinition {
   rounding: "HALF_UP" | "HALF_EVEN" | "DOWN";
   /** Charging-project policy: share of the pool exposed to cash collection. */
   cashCollectionWeight?: DecimalString;
-  /** Charging-project policy: share of the pool held until warranty expiry. */
+  /** Cash-weighted retention pack: share held until warranty/retention expiry. */
   retentionHoldbackRate?: DecimalString;
-  /** Charging-project policy: hard quality gates. */
+  /** Cash-weighted retention pack: hard quality gates. */
   qualityGate?: {
     requireAcceptance: boolean;
     blockOnSafetyIncident: boolean;
   };
-  /** Charging-equipment sales: share of the pool held for after-sales/returns. */
+  /** Reserve/channel pack: share held for after-sales/returns. */
   afterSalesReserveRate?: DecimalString;
-  /** Charging-equipment sales: credit/quality gates. */
+  /** Reserve/channel pack: credit/quality gates. */
   creditGate?: {
     requireCreditApproval: boolean;
     blockOnQualityHold: boolean;
   };
+  /** Line item type emitted by the calculator; set by the pack, not the core. */
+  incentiveType?: string;
+  /** Generic calculator selected by the policy pack, not by industry code. */
+  calculator?:
+    | "SIMPLE_POOL"
+    | "CASH_WEIGHTED_POOL"
+    | "CASH_WEIGHTED_RETENTION_POOL"
+    | "CASH_WEIGHTED_RESERVE_CHANNEL_POOL";
   /** Optional display guard; payroll compliance is still a separate gate. */
   minimumWage?: {
     monthlyMinimum: DecimalString;

@@ -7,7 +7,9 @@
 **修订依据**：`docs/REVIEW_2026-10-27.md`（N-Perform 全面评审）  
 **修订性质**：不是重写 V4.0。V4.0 的产品原则、五层模型、LLM 零金额、证据图谱、贡献认定、追加式账本继续有效；本文件只修改**范围、合规门禁、AI 评测顺序、领域契约、金额路径不变量和验收标准**。未修订部分以 V4.0 为准。
 
-> **一句话定位**：N-Perform 不是“AI 给每个人打分”的绩效 OS，而是**多人贡献认定与激励结算的 assurance layer**——让企业能解释“谁对什么结果做了什么贡献、为什么得到这笔钱”，并在争议、审计、复算时拿得出证据。
+> **一句话定位**：N-Perform 不是“AI 给每个人打分”的绩效 OS，而是**制度无关、AI-native 的多人贡献认定与激励结算 assurance layer**——让企业能解释“谁对什么结果做了什么贡献、为什么得到这笔钱”，并在争议、审计、复算时拿得出证据。
+
+> **定位澄清（2026-10-28）**：N-Perform 是独立产品，核心不包含任何行业概念（充电桩、EPC、销售提成等）。行业、岗位、指标、政策、证据源都是**租户配置包（Policy Pack）**，放在 `examples/verticals/`，不是产品边界。Anari 的充电桩设备销售只是首个设计伙伴的配置包；核心必须能在不改代码的情况下运行第二个、第三个不同制度的租户。AI-native 也不是“加一个聊天框”，而是**主动式 Agent**：持续观察、发现缺口、生成计划、执行低风险动作、请求人工批准高影响动作、追踪闭环、升级阻塞。
 
 ---
 
@@ -111,18 +113,40 @@
 
 ---
 
-## 2.6 首个 wedge 行业画像：充电桩设备销售
+## 2.6 首个设计伙伴与配置包（不是产品边界）
 
-首个 wedge 不是泛行业，也不是 EPC，而是 **充电桩设备销售（DC 快充桩直销为首期）**。行业画像见 `docs/wedge-ev-charging.md`，要点：
+首个设计伙伴是 Anari。它的业务是**充电桩设备销售**，但这只是第一个 `Policy Pack`，不是产品定义。核心必须保持制度无关：
 
-- **订单类型**：DC 快充桩直销（首期），后续再扩展 AC 目的地桩、经销商/渠道、框架/战略客户、备件/售后、项目型设备供货。**EPC/充电站工程首期不做**。
-- **参与角色**：销售、产品/售前、商务、财务/信用、订单管理、采购/供应链、制造/质量、物流、售后。
-- **工作包**：商机/客户关系、技术选型/配置、投标/报价/商务、信用/合同审批、订单/排产/交期、采购/物料/成本、生产/质检/出厂、物流/发运/签收、回款/信用/坏账、售后/质保/备件、客户成功/复购。
-- **证据源**：CRM、ERP（订单/BOM/成本/发货）、MES/QMS、物流 POD、财务回款/账龄、售后/RMA、渠道协议。
-- **参考政策**：`CHARGING_EQUIPMENT_SALES_V1`——订单毛利 × 3.5%、封顶 12 万、50% 现金权重、3% 售后准备金、信用/质量硬门禁、渠道分成单列；细节见行业楔子文档。
-- **首期范围**：1 个法人、1 个区域、5–10 个 DC 快充桩直销订单、20–50 人、1 个季度、影子结算。
+- **核心不知道“充电桩/EPC/销售提成”**。行业字段、角色、工作包模板、证据要求、政策公式、fixtures 都在 pack 里；
+- **Policy Pack 契约**：`id`、`name`、`version`、`policy`、`fixtures`、`roles`、`workPackageTemplates`、`evidenceRequirements`、`simulationData`、`seed`；
+- **首个 pack**：`examples/verticals/charging-equipment-sales/`（DC 快充桩直销，含渠道/信用/售后规则）；
+- **第二参考 pack**：`examples/verticals/professional-services/` 已加入，用专业服务利润池验证核心不改代码；`tests/pack-conformance.test.ts` 作为“制度无关”的回归门槛；
+- **pack 不能 fork 引擎**：如果 pack 需要新原语，先把原语加入受限 DSL、版本化、补 conformance test，再让 pack 使用；不能为一个客户改核心分支。
 
-**明确不做**：EPC/施工/并网/质保金、充电站运营收益分成、O&M 收益分成、渠道佣金/返点自动化、补贴/绿证/碳收益、出口/多币种、多法人合并。这些需要单独政策，不要混进首个设备销售政策。
+**明确不做**：把某个行业的字段、公式、角色、工作包写进核心；用“行业版本”代替 `Policy Pack`；让核心代码出现 `if (industry === "charging")`。
+
+---
+
+## 2.7 AI-native：主动式 Agent，不是静态 SaaS
+
+AI-native 的核心不是聊天，而是**主动闭环**：
+
+```
+observe → detect → plan → act (low risk) → request approval (high impact)
+        → verify → escalate → learn
+```
+
+P0 必须有的 Agent 能力：
+
+- **触发**：事件、定时、阈值、人工；
+- **技能**：证据缺口、结算就绪、贡献异常、数据质量、申诉 SLA、制度漂移；
+- **工具分级**：T0 只读、T1 低风险写入（建待办/催证据/提醒）、T2 业务流程动作（升级/指派/发起复核）、T3 高影响（正式认定/评价/规则发布/金额批准/锁账）；
+- **人类批准**：T3 必须人类批准；T2 按租户策略可自动或需批准；Agent 不能自批；
+- **可恢复**：幂等键、重试、死信、checkpoint、人工接管、AI 关闭降级；
+- **可审计**：任务、计划、工具调用、输入/输出、批准人、结果、失败原因全部留痕；
+- **可学习**：Agent 可以提出政策改进建议、模拟影响，但不能自动发布；人类批准后才形成新版本。
+
+**验收指标**：发现到关闭的中位时长、自动解决率、升级率、误报率、人工改判率、每闭环成本、AI 关闭时人工可完成率。不是“AI 采纳率”。
 
 ---
 
@@ -202,7 +226,7 @@ V4.0 把具体制度降为“租户配置实例”，这是正确的产品方向
 | INC-11 | 绩效评价与发展/薪酬决策适度分离 | 评价模板区分发展/奖惩 |
 | INC-12 | 年度制度审查：员工调查、申诉统计、子群体影响、副作用指标 | 年度报告 |
 
-### 5.3 首个租户 reference policy pack（INC-13）：充电桩项目
+### 5.3 Policy Pack 契约与首个设计伙伴配置（INC-13）
 
 首个租户必须先冻结一套可执行配置，至少包括：
 
@@ -216,7 +240,7 @@ V4.0 把具体制度降为“租户配置实例”，这是正确的产品方向
 - 告知/签收/申诉/确认流程；
 - 测试用例（正常/边界/异常/历史回放）。
 
-**首个租户参考政策**：`CHARGING_EQUIPMENT_SALES_V1`
+**核心要求**：核心必须通过 `Policy Pack` 运行不同制度，不改代码。第一个 pack 是 `examples/verticals/charging-equipment-sales/`（Anari 充电桩设备销售），第二个 pack 必须制度明显不同（如专业服务/制造/渠道分销）。以下是首个 pack 的示例政策，不是核心公式：
 
 ```
 basePool = min(订单毛利 × 3.5%, 120,000)
@@ -229,7 +253,7 @@ internalPool = payablePool − channelPool
 个人金额 = internalPool × 经确认的贡献权重
 ```
 
-质量/信用门禁：信用未批准、质量冻结、渠道分成但无渠道伙伴 → 阻断。该政策是首个租户的可执行示例，不是 Anari 最终制度；数值需财务回测、法务审查、员工程序后生效。EPC 项目政策 `CHARGING_PROJECT_CONTRIBUTION_V1` 仅作为后续扩展示例，不是首个 wedge。
+质量/信用门禁：信用未批准、质量冻结、渠道分成但无渠道伙伴 → 阻断。该政策是首个 pack 的可执行示例，不是 Anari 最终制度，也不是核心公式；数值需财务回测、法务审查、员工程序后生效。EPC 项目 pack 仅作为后续扩展示例。
 
 **如果首个租户制度无法映射到现有 schema/规则引擎，应明确 descope，而不是用 JSONB 假装支持。**
 
@@ -458,8 +482,9 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储；`/` 提供最小员工确认页；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
-- `fixtures`：通用 order policy + 5 个订单 fixture；充电桩设备销售 `CHARGING_EQUIPMENT_SALES_V1` + 5 个直销/渠道/备件/框架 fixture；EPC 项目政策 + 5 个项目 fixture（后续扩展示例）；reconciliation CSV；
-- `docs/wedge-ev-charging.md`：充电桩行业 wedge 画像、工作包模板、证据地图、风险清单；
+- `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；
+- `examples/verticals/`：Policy Pack 目录；`charging-equipment-sales/`（首个设计伙伴）、`professional-services/`（制度无关 conformance pack）与 `charging-epc/`（后续扩展示例）；
+- `fixtures`：核心通用 order policy + 5 个订单 fixture；reconciliation CSV；
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；
 - `docs/adr`：关键架构决策。
 

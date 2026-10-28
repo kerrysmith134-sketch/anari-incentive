@@ -1,0 +1,11 @@
+{
+  "id": "professional-services",
+  "name": "Professional services margin pool",
+  "version": "0.1.0",
+  "status": "conformance-example",
+  "description": "A materially different policy: consulting project margin, cash weighting, no after-sales reserve or channel split. Exists to prove the core is institution-agnostic.",
+  "corePolicyCode": "PROFESSIONAL_SERVICES_MARGIN_V1",
+  "policyVersionId": "00000000-0000-4000-8000-000000000103",
+  "policy": "policy.json",
+  "fixtures": "fixtures"
+}

@@ -15,14 +15,8 @@ import {
   type OrderContributionResult,
 } from "./evaluator.js";
 import { sha256 } from "./hash.js";
+import { PolicyGateError } from "./errors.js";
 
-export class PolicyGateError extends Error {
-  readonly code = "POLICY_GATE_BLOCKED";
-  constructor(readonly blockers: string[]) {
-    super(`Policy gate blocked: ${blockers.join(", ")}`);
-    this.name = "PolicyGateError";
-  }
-}
 
 export interface ChargingProjectResult extends OrderContributionResult {
   cashFactor: string;
@@ -31,7 +25,8 @@ export interface ChargingProjectResult extends OrderContributionResult {
 }
 
 /**
- * EV-charging / PV+BESS+charging project policy.
+ * Generic cash-weighted pool with a retention holdback and acceptance/safety gates.
+ * The policy pack selects this calculator; the calculator has no industry knowledge.
  *
  * - base pool = min(grossProfit * poolRate, poolCap)
  * - cash factor = min(1, cashCollected / contractAmount)
@@ -43,7 +38,7 @@ export interface ChargingProjectResult extends OrderContributionResult {
  * first slice only calculates and exposes it. Quality gates (acceptance,
  * safety incidents) block the calculation before money is produced.
  */
-export function calculateChargingProjectContribution(
+export function calculateCashWeightedRetention(
   policy: PolicyDefinition,
   input: CalculationInput,
 ): ChargingProjectResult {
@@ -97,7 +92,7 @@ export function calculateChargingProjectContribution(
   const payableRounded = roundTo(payablePool, 2, policy.rounding);
   const retentionRounded = roundTo(retentionHeld, 2, policy.rounding);
   const lines = allocatePool(policy, input, payableRounded, {
-    incentiveType: "CHARGING_PROJECT_CONTRIBUTION",
+    incentiveType: policy.incentiveType ?? "CONTRIBUTION",
     baseAmount: grossProfit,
     trace: {
       pool: formatDecimal(basePool),

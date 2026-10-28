@@ -188,3 +188,35 @@ export const createEvidenceLinkSchema = z.object({
   rationale: z.string().optional(),
 });
 export type CreateEvidenceLinkInput = z.infer<typeof createEvidenceLinkSchema>;
+
+export const enqueueAgentTaskSchema = z.object({
+  agentType: z.enum([
+    "EVIDENCE_GAP",
+    "SETTLEMENT_READINESS",
+    "CONTRIBUTION_ANOMALY",
+  ]),
+  triggerType: z.enum(["EVENT", "SCHEDULE", "MANUAL", "THRESHOLD"]),
+  triggerRef: z.string().optional(),
+  input: z.record(z.unknown()).default({}),
+  idempotencyKey: z.string().min(1),
+  riskTier: z.enum(["T0", "T1", "T2", "T3"]).optional(),
+});
+export type EnqueueAgentTaskBody = z.input<typeof enqueueAgentTaskSchema>;
+
+export const approveAgentActionSchema = z.object({
+  actionId: uuidSchema,
+  approverPersonId: uuidSchema,
+});
+export type ApproveAgentActionBody = z.infer<typeof approveAgentActionSchema>;
+
+export const rejectAgentActionSchema = z.object({
+  actionId: uuidSchema,
+  approverPersonId: uuidSchema,
+  reason: z.string().min(1),
+});
+export type RejectAgentActionBody = z.infer<typeof rejectAgentActionSchema>;
+
+export const scanAgentTasksSchema = z.object({
+  idempotencyKey: z.string().min(1).optional(),
+});
+export type ScanAgentTasksBody = z.infer<typeof scanAgentTasksSchema>;

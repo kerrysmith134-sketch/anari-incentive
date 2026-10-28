@@ -213,7 +213,7 @@ The resulting `EvaluationGate` blocks numeric AI scoring when any threshold fail
 
 ## 8. Charging equipment sales policy (`CHARGING_EQUIPMENT_SALES_V1`)
 
-This is the first wedge. The EPC policy remains in the codebase as a later extension.
+This is an example Policy Pack (`examples/verticals/charging-equipment-sales/`), not a core capability. The core has no industry code; packs are policy data + fixtures. The EPC pack remains as a later extension.
 
 ```
 basePool = min(orderGrossProfit × 3.5%, 120,000)
@@ -231,3 +231,19 @@ Gates: credit approval required; quality hold blocks; a positive channel share r
 ### Later extension: `CHARGING_PROJECT_CONTRIBUTION_V1`
 
 EPC projects use projected gross profit, 40% cash weighting, 5% retention holdback and acceptance/safety gates. Do not mix EPC and equipment-sales policies in the same cycle without explicit mutual-exclusion rules.
+
+
+---
+
+## 9. Proactive agent runtime
+
+`packages/agent-runtime` is deliberately separate from the policy engine:
+
+- skills observe business state and produce findings;
+- findings become actions with T0–T3 risk tiers;
+- T0/T1 may execute automatically; T2/T3 require a human;
+- every task, action, tool call and approval is audited;
+- tasks are idempotent and can be re-run safely;
+- `POST /agent-tasks/scan` performs a scheduled/on-demand sweep of evidence gaps, contribution anomalies and settlement readiness.
+
+The core has no industry-specific agent. A policy pack can add evidence requirements and policy data, but it cannot bypass the approval gate or write formal money.

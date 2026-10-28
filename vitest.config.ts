@@ -11,6 +11,7 @@ export default defineConfig({
       "@anari/policy-dsl": `${root}packages/policy-dsl/src/index.ts`,
       "@anari/ledger": `${root}packages/ledger/src/index.ts`,
       "@anari/ai-gate": `${root}packages/ai-gate/src/index.ts`,
+      "@anari/agent-runtime": `${root}packages/agent-runtime/src/index.ts`,
     },
   },
   test: {
