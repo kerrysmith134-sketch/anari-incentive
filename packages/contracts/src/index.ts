@@ -194,6 +194,7 @@ export const enqueueAgentTaskSchema = z.object({
     "EVIDENCE_GAP",
     "SETTLEMENT_READINESS",
     "CONTRIBUTION_ANOMALY",
+    "POLICY_PROPOSAL",
   ]),
   triggerType: z.enum(["EVENT", "SCHEDULE", "MANUAL", "THRESHOLD"]),
   triggerRef: z.string().optional(),
@@ -220,3 +221,54 @@ export const scanAgentTasksSchema = z.object({
   idempotencyKey: z.string().min(1).optional(),
 });
 export type ScanAgentTasksBody = z.infer<typeof scanAgentTasksSchema>;
+
+export const policyDefinitionSchema = z.object({
+  code: z.string().min(1),
+  version: z.number().int().positive(),
+  currency: z.string().length(3),
+  poolRate: decimal,
+  poolCap: decimal,
+  rounding: z.enum(["HALF_UP", "HALF_EVEN", "DOWN"]),
+  cashCollectionWeight: decimal.optional(),
+  retentionHoldbackRate: decimal.optional(),
+  afterSalesReserveRate: decimal.optional(),
+  qualityGate: z
+    .object({
+      requireAcceptance: z.boolean(),
+      blockOnSafetyIncident: z.boolean(),
+    })
+    .optional(),
+  creditGate: z
+    .object({
+      requireCreditApproval: z.boolean(),
+      blockOnQualityHold: z.boolean(),
+    })
+    .optional(),
+  calculator: z
+    .enum([
+      "SIMPLE_POOL",
+      "CASH_WEIGHTED_POOL",
+      "CASH_WEIGHTED_RETENTION_POOL",
+      "CASH_WEIGHTED_RESERVE_CHANNEL_POOL",
+    ])
+    .optional(),
+  incentiveType: z.string().optional(),
+  minimumWage: z
+    .object({ monthlyMinimum: decimal, checked: z.boolean() })
+    .optional(),
+});
+export type PolicyDefinitionBody = z.input<typeof policyDefinitionSchema>;
+
+export const policySimulationSchema = z.object({
+  currentPolicyVersionId: z.string().min(1),
+  proposedPolicy: policyDefinitionSchema,
+  samples: z
+    .array(
+      z.object({
+        personId: uuidSchema,
+        input: createCalculationRunSchema,
+      }),
+    )
+    .min(1),
+});
+export type PolicySimulationBody = z.input<typeof policySimulationSchema>;

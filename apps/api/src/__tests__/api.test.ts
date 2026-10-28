@@ -546,6 +546,48 @@ describe("vertical slice", () => {
     expect(replay.body.data.id).toBe(taskId);
   });
 
+  it("simulates a policy change without publishing it", async () => {
+    const simulation = await call("POST", "/api/v1/policy-simulations", {
+      currentPolicyVersionId: REFERENCE_POLICY_ID,
+      proposedPolicy: {
+        code: "GENERIC_CONTRIBUTION_V1",
+        version: 2,
+        currency: "CNY",
+        poolRate: "0.06",
+        poolCap: "100000",
+        rounding: "HALF_UP",
+        calculator: "SIMPLE_POOL",
+      },
+      samples: [
+        {
+          personId: OWNER,
+          input: {
+            cycleId: CYCLE,
+            policyVersionId: REFERENCE_POLICY_ID,
+            mode: "SHADOW",
+            order: {
+              id: "sim-order-1",
+              grossProfit: "100000",
+              currency: "CNY",
+            },
+            participants: [
+              {
+                personId: OWNER,
+                workPackageId: "00000000-0000-4000-8000-000000000010",
+                attributionWeight: "1",
+                role: "OWNER",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(simulation.status).toBe(200);
+    expect(simulation.body.data.currentTotal).toBe("5000");
+    expect(simulation.body.data.proposedTotal).toBe("6000");
+    expect(simulation.body.data.deltaTotal).toBe("1000");
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

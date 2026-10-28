@@ -318,6 +318,131 @@ export function createDefaultSkills(): Record<string, AgentSkill> {
     new EvidenceGapSkill(),
     new SettlementReadinessSkill(),
     new ContributionAnomalySkill(),
+    new PolicyProposalSkill(),
   ];
   return Object.fromEntries(skills.map((skill) => [skill.name, skill]));
+}
+
+import type { CalculationInput, PolicyDefinition } from "@anari/domain";
+import { simulatePolicyChange } from "@anari/policy-dsl";
+
+interface PolicyProposalInput {
+  currentPolicy?: PolicyDefinition;
+  proposedPolicy?: PolicyDefinition;
+  samples?: Array<{ personId: string; input: CalculationInput }>;
+  rationale?: string;
+}
+
+/**
+ * Proposes a policy change from a simulation, never publishes it. The
+ * `publish_policy` action is T3 and always waits for a human.
+ */
+export class PolicyProposalSkill implements AgentSkill {
+  readonly name = "POLICY_PROPOSAL";
+
+  async observe(
+    _context: AgentContext,
+    input: Record<string, unknown>,
+  ): Promise<AgentFinding[]> {
+    const proposal = input as PolicyProposalInput;
+    if (
+      !proposal.currentPolicy ||
+      !proposal.proposedPolicy ||
+      !proposal.samples ||
+      proposal.samples.length === 0
+    ) {
+      return [
+        {
+          code: "POLICY_INPUT_REQUIRED",
+          severity: "WARNING",
+          subjectType: "POLICY",
+          subjectId: proposal.proposedPolicy?.code ?? "unknown",
+          message: "Policy proposal needs current policy, proposed policy and samples.",
+        },
+      ];
+    }
+    const simulation = simulatePolicyChange(
+      proposal.currentPolicy,
+      proposal.proposedPolicy,
+      proposal.samples,
+    );
+    const findings: AgentFinding[] = [];
+    if (simulation.blockers.length > 0) {
+      findings.push({
+        code: "POLICY_SIMULATION_BLOCKED",
+        severity: "BLOCKING",
+        subjectType: "POLICY",
+        subjectId: proposal.proposedPolicy.code,
+        message: `Policy simulation has ${simulation.blockers.length} blockers.`,
+        suggestedAction: "Fix simulation inputs before proposing a policy.",
+      });
+    } else {
+      findings.push({
+        code: "POLICY_PROPOSAL_READY",
+        severity: "INFO",
+        subjectType: "POLICY",
+        subjectId: proposal.proposedPolicy.code,
+        message: `Simulation delta total ${simulation.deltaTotal}; affected ${simulation.affectedPeople}.`,
+        suggestedAction: "Review the simulation and approve or reject the policy.",
+      });
+    }
+    if (Number(simulation.deltaTotal) > 0) {
+      findings.push({
+        code: "POLICY_BUDGET_INCREASE",
+        severity: "WARNING",
+        subjectType: "POLICY",
+        subjectId: proposal.proposedPolicy.code,
+        message: `Proposed policy increases total payout by ${simulation.deltaTotal}.`,
+      });
+    }
+    if (simulation.lines.some((line) => Number(line.delta) < 0)) {
+      findings.push({
+        code: "POLICY_NEGATIVE_IMPACT",
+        severity: "WARNING",
+        subjectType: "POLICY",
+        subjectId: proposal.proposedPolicy.code,
+        message: "At least one person would receive less under the proposal.",
+      });
+    }
+    return findings;
+  }
+
+  plan(finding: AgentFinding): AgentAction[] {
+    if (finding.code === "POLICY_PROPOSAL_READY") {
+      return [
+        action({
+          tool: "publish_policy",
+          riskTier: "T3",
+          targetType: "POLICY",
+          targetId: finding.subjectId,
+          description: "Publish the simulated policy after human approval.",
+          payload: { policyVersionId: finding.subjectId },
+          requiresApproval: true,
+        }),
+      ];
+    }
+    if (finding.code === "POLICY_SIMULATION_BLOCKED") {
+      return [
+        action({
+          tool: "escalate",
+          riskTier: "T2",
+          targetType: finding.subjectType,
+          targetId: finding.subjectId,
+          description: "Escalate policy simulation blocker.",
+          payload: { finding: finding.code },
+          requiresApproval: true,
+        }),
+      ];
+    }
+    return [
+      action({
+        tool: "record_finding",
+        riskTier: "T0",
+        targetType: finding.subjectType,
+        targetId: finding.subjectId,
+        description: "Record policy proposal finding.",
+        payload: { finding: finding.code },
+      }),
+    ];
+  }
 }

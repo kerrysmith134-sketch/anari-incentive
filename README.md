@@ -18,7 +18,8 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Contribution model | Work package → commitment snapshot → claim → attribution decision; claimant cannot adjudicate their own claim |
 | Policy engine | Deterministic decimal arithmetic, order-contribution pool, cap, largest-remainder allocation, trace, result hash |
 | Policy packs | Core has no industry code. `examples/verticals/charging-equipment-sales/` is the first design-partner pack; `examples/verticals/professional-services/` is a conformance pack proving a materially different policy runs without core changes; `examples/verticals/charging-epc/` is a later extension. Each pack = policy data + fixtures + README. |
-| Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for scheduled/on-demand sweeps |
+| Agent runtime | `packages/agent-runtime`: proactive observe → find → plan → act → verify → escalate; T0/T1 auto-execute, T2/T3 require human approval; scheduler (schedule/event/threshold); policy proposal + impact simulation; idempotency, audit log, AI-off fallback; `POST /agent-tasks/scan` for sweeps |
+| Policy simulation | `simulatePolicyChange` replays representative inputs through current vs proposed policy; returns per-person/total deltas and blockers. It never publishes or writes money. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
@@ -32,7 +33,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
-| Tests | **81 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
+| Tests | **85 unit/API tests + 6 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, AI gate metrics, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -136,6 +137,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/appeals/:id/resolve` | UNDER_REVIEW → DECIDED → CLOSED/RECALCULATION_REQUIRED |
 | POST | `/api/v1/agent-tasks` | Enqueue a proactive agent task |
 | POST | `/api/v1/agent-tasks/scan` | Run a proactive scan: evidence gaps, anomalies, settlement readiness |
+| POST | `/api/v1/policy-simulations` | Replay samples through current vs proposed policy; no publication |
 | GET | `/api/v1/agent-tasks` / `/:id` | List/get agent tasks |
 | POST | `/api/v1/agent-tasks/:id/run` | Observe → plan → execute low-risk actions |
 | POST | `/api/v1/agent-tasks/:id/approve` | Human approval for a pending T2/T3 action |
@@ -193,6 +195,7 @@ db/migrations/            PostgreSQL schema and money-path invariants
 db/seed/                  Demo tenant/people/cycle/policy + RLS app role
 scripts/test-pg.sh        Disposable PostgreSQL integration test runner
 scripts/reconcile.ts     CSV vs engine reconciliation
+scripts/agent-scan.ts    Cron/on-demand proactive agent scan
 docs/
   PRD_V4.1_评审修订版.md   Revised product requirements
   REVIEW_2026-10-27.md    Full review that drove the revision
@@ -220,6 +223,7 @@ tests/                    Cross-package fixture/E2E tests
 
 - W1–2: pick 5–10 real multi-party orders/projects from the first design partner, map work packages/evidence, baseline coverage/time/disputes; keep the core generic.
 - The **second reference policy pack** (professional services) is in place and covered by `tests/pack-conformance.test.ts`; use it as the regression guard against industry-specific core changes.
+- Agent scheduler (schedule/event/threshold), policy proposal and impact simulation are in place; wire them to the production event bus/cron and real connectors next.
 - W3–4: legal review, employee consultation plan, DPIA, minimum-wage/deduction check.
 - W5–6: minimal evidence workbench + one real connector; employee confirmation/appeal — **evidence API, employee page, confirmation/appeal done; CRM/ERP connector pending**.
 - W7–8: first design-partner policy pack, independent spreadsheet/script reconciliation, shadow settlement — **pack, fixtures and CSV reconciliation done; shadow settlement with real orders pending**.

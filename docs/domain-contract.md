@@ -244,6 +244,13 @@ EPC projects use projected gross profit, 40% cash weighting, 5% retention holdba
 - T0/T1 may execute automatically; T2/T3 require a human;
 - every task, action, tool call and approval is audited;
 - tasks are idempotent and can be re-run safely;
-- `POST /agent-tasks/scan` performs a scheduled/on-demand sweep of evidence gaps, contribution anomalies and settlement readiness.
+- `POST /agent-tasks/scan` performs a scheduled/on-demand sweep of evidence gaps, contribution anomalies and settlement readiness;
+- `AgentScheduler` supports schedule, domain-event and threshold triggers with idempotent keys;
+- `PolicyProposalSkill` can simulate a proposed policy and create a T3 `publish_policy` action; it never publishes automatically.
 
 The core has no industry-specific agent. A policy pack can add evidence requirements and policy data, but it cannot bypass the approval gate or write formal money.
+
+
+## 10. Policy simulation
+
+`simulatePolicyChange(currentPolicy, proposedPolicy, samples)` returns per-person current/proposed/delta amounts, totals, affected people and blockers. It is a decision-support function: it does not publish a policy, write a ledger or approve a payment. `POST /policy-simulations` exposes it for an admin UI; the proposed policy is data, not a code deployment.

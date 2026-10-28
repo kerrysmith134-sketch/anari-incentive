@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type {
   AttributionDecision,
+  CalculationInput,
   CalculationRun,
   ContributionClaim,
   EmployeeConfirmation,
   EvidenceNode,
   LegalGateRecord,
+  PolicyDefinition,
   WorkPackage,
 } from "@anari/domain";
 import {
@@ -233,6 +235,62 @@ describe("agent runtime", () => {
     expect(ran.status).toBe("WAITING_APPROVAL");
   });
 
+  it("proposes a policy change and requires T3 approval", async () => {
+    const agent = runtime(new FakeContext());
+    const current: PolicyDefinition = {
+      code: "GENERIC_CONTRIBUTION_V1",
+      version: 1,
+      currency: "CNY",
+      poolRate: "0.05",
+      poolCap: "100000",
+      rounding: "HALF_UP",
+      calculator: "SIMPLE_POOL",
+    };
+    const proposed: PolicyDefinition = {
+      ...current,
+      version: 2,
+      poolRate: "0.06",
+    };
+    const sampleInput: CalculationInput = {
+      tenantId: "tenant-1",
+      cycleId: "cycle-1",
+      policyVersionId: "policy-1",
+      mode: "SHADOW",
+      order: { id: "order-1", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: "person-1",
+          workPackageId: "wp-1",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+
+    const task = agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "POLICY_PROPOSAL",
+      triggerType: "MANUAL",
+      input: {
+        currentPolicy: current,
+        proposedPolicy: proposed,
+        samples: [{ personId: "person-1", input: sampleInput }],
+      },
+      idempotencyKey: "policy-proposal-1",
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    expect(ran.findings.map((finding) => finding.code)).toContain(
+      "POLICY_PROPOSAL_READY",
+    );
+    const publish = ran.actions.find((action) => action.tool === "publish_policy")!;
+    const approved = await agent.approve(ran.id, publish.id, "admin-1");
+    expect(approved.status).toBe("SUCCEEDED");
+    expect(agent.auditLog().some((entry) => entry.tool === "publish_policy")).toBe(
+      true,
+    );
+  });
+
   it("is idempotent for the same task key", () => {
     const agent = runtime(new FakeContext());
     const first = agent.enqueue({
@@ -248,5 +306,52 @@ describe("agent runtime", () => {
       idempotencyKey: "same-key",
     });
     expect(second.id).toBe(first.id);
+  });
+});
+
+import { AgentScheduler } from "../scheduler.js";
+
+describe("agent scheduler", () => {
+  it("ticks schedules, emits events and evaluates thresholds idempotently", async () => {
+    const context = new FakeContext();
+    context.workPackages = [workPackage()];
+    const agent = runtime(context);
+    const scheduler = new AgentScheduler(agent, "tenant-1", "test");
+    scheduler.addSchedule({
+      id: "evidence-hourly",
+      agentType: "EVIDENCE_GAP",
+      intervalMs: 1000,
+    });
+    scheduler.addEventRule({
+      id: "on-acceptance",
+      eventType: "WORK_PACKAGE_ACCEPTED",
+      agentType: "EVIDENCE_GAP",
+    });
+    scheduler.addThresholdRule({
+      id: "open-appeals",
+      metric: "openAppeals",
+      comparator: ">=",
+      value: 3,
+      agentType: "CONTRIBUTION_ANOMALY",
+    });
+
+    const first = await scheduler.tick(0);
+    expect(first).toHaveLength(1);
+    expect(await scheduler.tick(500)).toHaveLength(0);
+    const second = await scheduler.tick(1000);
+    expect(second).toHaveLength(1);
+    expect(second[0]!.id).not.toBe(first[0]!.id);
+
+    const events = await scheduler.emit(
+      "WORK_PACKAGE_ACCEPTED",
+      {},
+      "event-1",
+    );
+    expect(events).toHaveLength(1);
+
+    const thresholds = await scheduler.evaluateThresholds({ openAppeals: 4 });
+    expect(thresholds).toHaveLength(1);
+    const replay = await scheduler.evaluateThresholds({ openAppeals: 4 });
+    expect(replay[0]!.id).toBe(thresholds[0]!.id);
   });
 });

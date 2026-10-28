@@ -16,6 +16,7 @@ import {
   createEvidenceSchema,
   createWorkPackageSchema,
   enqueueAgentTaskSchema,
+  policySimulationSchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
@@ -30,6 +31,7 @@ import {
   InvariantViolationError,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
+import { simulatePolicyChange } from "@anari/policy-dsl";
 import { LedgerError } from "@anari/ledger";
 import {
   CalculationBlockedError,
@@ -136,6 +138,21 @@ export function buildApp(
       ...errorBody("INTERNAL_ERROR", "internal server error"),
       meta: { correlation_id: request.id },
     });
+  });
+
+  app.post("/api/v1/policy-simulations", async (request) => {
+    const body = parse(policySimulationSchema, request.body);
+    const currentPolicy = await store.getPolicy(body.currentPolicyVersionId);
+    const tenantId =
+      (request.headers["x-tenant-id"] as string | undefined) ?? "tenant-demo";
+    const samples = body.samples.map((sample) => ({
+      personId: sample.personId,
+      input: { ...sample.input, tenantId },
+    }));
+    return data(
+      simulatePolicyChange(currentPolicy, body.proposedPolicy, samples),
+      request,
+    );
   });
 
   app.post("/api/v1/agent-tasks/scan", async (request) => {

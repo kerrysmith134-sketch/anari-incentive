@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@anari/domain": "0.1.0"
+    "@anari/domain": "0.1.0",
+    "@anari/policy-dsl": "0.1.0"
   }
 }
