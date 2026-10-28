@@ -398,13 +398,33 @@ describe("employee evidence", () => {
     const ownerApp = buildApp(appStore, undefined, ownerAuth);
     const memberApp = buildApp(appStore, undefined, memberAuth);
 
+    const workPackage = await call("POST", "/api/v1/work-packages", {
+      title: "Evidence package",
+      objective: "Submit evidence",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Delivery",
+        },
+        {
+          personId: MEMBER,
+          responsibilityCode: "CONTRIBUTOR",
+          expectedOutput: "Support",
+        },
+      ],
+      acceptanceCriteria: ["Accepted"],
+    });
+    const workPackageId = workPackage.body.data.id as string;
+
     const impersonation = await ownerApp.inject({
       method: "POST",
       url: "/api/v1/evidence",
       payload: {
         evidenceType: "DELIVERY_RECORD",
         subjectType: "WORK_PACKAGE",
-        subjectId: "00000000-0000-4000-8000-000000000010",
+        subjectId: workPackageId,
         sourceSystem: "EMPLOYEE",
         normalizedPayload: { delivered: true },
         submittedBy: MEMBER,
@@ -412,13 +432,26 @@ describe("employee evidence", () => {
     } as never);
     expect(impersonation.statusCode).toBe(403);
 
+    const foreignSubject = await ownerApp.inject({
+      method: "POST",
+      url: "/api/v1/evidence",
+      payload: {
+        evidenceType: "DELIVERY_RECORD",
+        subjectType: "WORK_PACKAGE",
+        subjectId: "00000000-0000-4000-8000-000000000099",
+        sourceSystem: "EMPLOYEE",
+        normalizedPayload: { delivered: true },
+      },
+    } as never);
+    expect(foreignSubject.statusCode).toBe(404);
+
     const created = await ownerApp.inject({
       method: "POST",
       url: "/api/v1/evidence",
       payload: {
         evidenceType: "DELIVERY_RECORD",
         subjectType: "WORK_PACKAGE",
-        subjectId: "00000000-0000-4000-8000-000000000010",
+        subjectId: workPackageId,
         sourceSystem: "EMPLOYEE",
         normalizedPayload: { delivered: true },
       },

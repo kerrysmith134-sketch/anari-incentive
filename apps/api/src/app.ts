@@ -632,6 +632,26 @@ export function buildApp(
     if (person && body.submittedBy && body.submittedBy !== person) {
       throw new ForbiddenError("cannot submit evidence as another person");
     }
+    if (person) {
+      const selfEvidence =
+        body.subjectType === "PERSON" && body.subjectId === person;
+      if (!selfEvidence) {
+        if (body.subjectType !== "WORK_PACKAGE") {
+          throw new ForbiddenError(
+            "employees may only attach evidence to their own work packages or person",
+          );
+        }
+        const wp = await storeFor(request).getWorkPackage(body.subjectId);
+        if (
+          wp.ownerPersonId !== person &&
+          !wp.members.some((member) => member.personId === person)
+        ) {
+          throw new ForbiddenError(
+            "work package is not visible to this person",
+          );
+        }
+      }
+    }
     const submittedBy = person ?? body.submittedBy;
     return reply.status(201).send(
       data(
