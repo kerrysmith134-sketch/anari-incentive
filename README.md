@@ -30,7 +30,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
 | Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
-| Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS |
+| Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS; the API resolves a store and agent runtime per authenticated tenant |
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
 | Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal |
@@ -39,15 +39,15 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **103 unit/API tests + 8 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, policy publication/succession, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
+| Tests | **104 unit/API tests + 9 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, policy publication/succession, tenant isolation, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
 - AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
 - Production CRM/ERP/Feishu connectors (a generic CSV connector and ingestion API exist; provider-specific OAuth/field mapping is pending);
-- Per-request tenant-scoped store factory (authentication establishes identity, but the store is currently bound to one tenant per process);
 - Worker OIDC bearer support (the worker currently calls the API with dev headers);
+- Durable agent task storage (the runtime's tasks/audit are in-process; `agent_tasks` tables exist but are not yet wired);
 - Multi-tenant self-service, billing, tenant onboarding;
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;

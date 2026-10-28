@@ -77,9 +77,16 @@ const adminUi = readFileSync(
   "utf8",
 );
 
+export type StoreResolver = (tenantId: string) => IncentiveStore;
+export type AgentRuntimeFactory = (store: IncentiveStore) => AgentRuntime;
+
+function tenantOf(request: FastifyRequest): string {
+  return request.authContext?.tenantId ?? "tenant-demo";
+}
+
 export function buildApp(
-  store: IncentiveStore = new Store(),
-  agentRuntime: AgentRuntime = createAgentRuntime(store),
+  storeOrResolver: IncentiveStore | StoreResolver = new Store(),
+  agentRuntimeOrFactory?: AgentRuntime | AgentRuntimeFactory,
   authenticator: Authenticator = new DevHeaderAuthenticator({
     tenantId: "tenant-demo",
     userId: "dev-user",
@@ -87,6 +94,34 @@ export function buildApp(
   }),
 ): FastifyInstance {
   const app = Fastify({ logger: false });
+  const scopedStores = new Map<string, IncentiveStore>();
+  const scopedRuntimes = new Map<string, AgentRuntime>();
+
+  function storeFor(request: FastifyRequest): IncentiveStore {
+    if (typeof storeOrResolver !== "function") return storeOrResolver;
+    const tenantId = tenantOf(request);
+    let scoped = scopedStores.get(tenantId);
+    if (!scoped) {
+      scoped = storeOrResolver(tenantId);
+      scopedStores.set(tenantId, scoped);
+    }
+    return scoped;
+  }
+
+  function runtimeFor(request: FastifyRequest): AgentRuntime {
+    if (agentRuntimeOrFactory && typeof agentRuntimeOrFactory !== "function") {
+      return agentRuntimeOrFactory;
+    }
+    const tenantId = tenantOf(request);
+    let runtime = scopedRuntimes.get(tenantId);
+    if (!runtime) {
+      runtime = agentRuntimeOrFactory
+        ? agentRuntimeOrFactory(storeFor(request))
+        : createAgentRuntime(storeFor(request));
+      scopedRuntimes.set(tenantId, runtime);
+    }
+    return runtime;
+  }
 
   app.addHook("preHandler", async (request, reply) => {
     if (!request.url.startsWith("/api/v1")) return;
@@ -180,12 +215,12 @@ export function buildApp(
     const body = parse(publishPolicySchema, request.body);
     return reply
       .status(201)
-      .send(data(await store.publishPolicy(body), request));
+      .send(data(await storeFor(request).publishPolicy(body), request));
   });
 
   app.post("/api/v1/policy-simulations", async (request) => {
     const body = parse(policySimulationSchema, request.body);
-    const currentPolicy = await store.getPolicy(body.currentPolicyVersionId);
+    const currentPolicy = await storeFor(request).getPolicy(body.currentPolicyVersionId);
     const tenantId =
       request.authContext?.tenantId ??
       (request.headers["x-tenant-id"] as string | undefined) ??
@@ -207,12 +242,12 @@ export function buildApp(
       (request.headers["x-tenant-id"] as string | undefined) ??
       "tenant-demo";
     const batchKey = body.idempotencyKey ?? `scan-${Date.now()}`;
-    const runs = await store.listRuns();
+    const runs = await storeFor(request).listRuns();
     const tasks = [];
 
     tasks.push(
-      await agentRuntime.run(
-        agentRuntime.enqueue({
+      await runtimeFor(request).run(
+        runtimeFor(request).enqueue({
           tenantId,
           agentType: "EVIDENCE_GAP",
           triggerType: "SCHEDULE",
@@ -221,8 +256,8 @@ export function buildApp(
       ),
     );
     tasks.push(
-      await agentRuntime.run(
-        agentRuntime.enqueue({
+      await runtimeFor(request).run(
+        runtimeFor(request).enqueue({
           tenantId,
           agentType: "CONTRIBUTION_ANOMALY",
           triggerType: "SCHEDULE",
@@ -232,8 +267,8 @@ export function buildApp(
     );
     for (const run of runs.slice(0, 5)) {
       tasks.push(
-        await agentRuntime.run(
-          agentRuntime.enqueue({
+        await runtimeFor(request).run(
+          runtimeFor(request).enqueue({
             tenantId,
             agentType: "SETTLEMENT_READINESS",
             triggerType: "SCHEDULE",
@@ -254,7 +289,7 @@ export function buildApp(
       "tenant-demo";
     return reply.status(201).send(
       data(
-        agentRuntime.enqueue({
+        runtimeFor(request).enqueue({
           tenantId,
           agentType: body.agentType,
           triggerType: body.triggerType,
@@ -269,21 +304,21 @@ export function buildApp(
   });
 
   app.get("/api/v1/agent-tasks", async (request) =>
-    data(agentRuntime.list(), request),
+    data(runtimeFor(request).list(), request),
   );
 
   app.get("/api/v1/agent-tasks/:id", async (request) =>
-    data(agentRuntime.get(idOf(request)), request),
+    data(runtimeFor(request).get(idOf(request)), request),
   );
 
   app.post("/api/v1/agent-tasks/:id/run", async (request) =>
-    data(await agentRuntime.run(idOf(request)), request),
+    data(await runtimeFor(request).run(idOf(request)), request),
   );
 
   app.post("/api/v1/agent-tasks/:id/approve", async (request) => {
     const body = parse(approveAgentActionSchema, request.body);
     return data(
-      await agentRuntime.approve(
+      await runtimeFor(request).approve(
         idOf(request),
         body.actionId,
         body.approverPersonId,
@@ -295,7 +330,7 @@ export function buildApp(
   app.post("/api/v1/agent-tasks/:id/reject", async (request) => {
     const body = parse(rejectAgentActionSchema, request.body);
     return data(
-      agentRuntime.reject(
+      runtimeFor(request).reject(
         idOf(request),
         body.actionId,
         body.approverPersonId,
@@ -317,12 +352,12 @@ export function buildApp(
 
   app.post("/api/v1/ingestion/events:batch", async (request) => {
     const body = parse(ingestionBatchSchema, request.body);
-    return data(await store.ingestEvents(body), request);
+    return data(await storeFor(request).ingestEvents(body), request);
   });
 
   app.post("/api/v1/evidence", async (request, reply) => {
     const body = parse(createEvidenceSchema, request.body);
-    return reply.status(201).send(data(await store.createEvidence(body), request));
+    return reply.status(201).send(data(await storeFor(request).createEvidence(body), request));
   });
 
   app.get("/api/v1/evidence", async (request) => {
@@ -331,7 +366,7 @@ export function buildApp(
       subjectId?: string;
     };
     return data(
-      await store.listEvidence(query.subjectType, query.subjectId),
+      await storeFor(request).listEvidence(query.subjectType, query.subjectId),
       request,
     );
   });
@@ -340,46 +375,46 @@ export function buildApp(
     const body = parse(createEvidenceLinkSchema, request.body);
     return reply
       .status(201)
-      .send(data(await store.linkEvidence(idOf(request), body), request));
+      .send(data(await storeFor(request).linkEvidence(idOf(request), body), request));
   });
 
   app.get("/api/v1/evidence/:id/links", async (request) =>
-    data(await store.listEvidenceLinks(idOf(request)), request),
+    data(await storeFor(request).listEvidenceLinks(idOf(request)), request),
   );
 
   app.post("/api/v1/work-packages", async (request, reply) => {
     const body = parse(createWorkPackageSchema, request.body);
-    return reply.status(201).send(data(await store.createWorkPackage(body), request));
+    return reply.status(201).send(data(await storeFor(request).createWorkPackage(body), request));
   });
 
   app.get("/api/v1/work-packages", async (request) =>
-    data(await store.listWorkPackages(), request),
+    data(await storeFor(request).listWorkPackages(), request),
   );
 
   app.get("/api/v1/work-packages/:id", async (request) =>
-    data(await store.getWorkPackage(idOf(request)), request),
+    data(await storeFor(request).getWorkPackage(idOf(request)), request),
   );
 
   app.post("/api/v1/work-packages/:id/commit", async (request) => {
     const body = parse(commitWorkPackageSchema, request.body);
     return data(
-      await store.commitWorkPackage(idOf(request), body.expectedVersion),
+      await storeFor(request).commitWorkPackage(idOf(request), body.expectedVersion),
       request,
     );
   });
 
   app.post("/api/v1/work-packages/:id/start", async (request) =>
-    data(await store.startWorkPackage(idOf(request)), request),
+    data(await storeFor(request).startWorkPackage(idOf(request)), request),
   );
 
   app.post("/api/v1/work-packages/:id/submit", async (request) =>
-    data(await store.submitWorkPackage(idOf(request)), request),
+    data(await storeFor(request).submitWorkPackage(idOf(request)), request),
   );
 
   app.post("/api/v1/work-packages/:id/accept", async (request) => {
     const body = parse(acceptWorkPackageSchema, request.body);
     return data(
-      await store.acceptWorkPackage(idOf(request), body.reviewerPersonId),
+      await storeFor(request).acceptWorkPackage(idOf(request), body.reviewerPersonId),
       request,
     );
   });
@@ -387,7 +422,7 @@ export function buildApp(
   app.post("/api/v1/work-packages/:id/reject", async (request) => {
     const body = parse(rejectWorkPackageSchema, request.body);
     return data(
-      await store.rejectWorkPackage(
+      await storeFor(request).rejectWorkPackage(
         idOf(request),
         body.reviewerPersonId,
         body.reason,
@@ -398,37 +433,37 @@ export function buildApp(
 
   app.post("/api/v1/contribution-claims", async (request, reply) => {
     const body = parse(createContributionClaimSchema, request.body);
-    return reply.status(201).send(data(await store.createClaim(body), request));
+    return reply.status(201).send(data(await storeFor(request).createClaim(body), request));
   });
 
   app.get("/api/v1/contribution-claims", async (request) =>
-    data(await store.listClaims(), request),
+    data(await storeFor(request).listClaims(), request),
   );
 
   app.get("/api/v1/contribution-claims/:id", async (request) =>
-    data(await store.getClaim(idOf(request)), request),
+    data(await storeFor(request).getClaim(idOf(request)), request),
   );
 
   app.post("/api/v1/contribution-claims/:id/submit", async (request) =>
-    data(await store.submitClaim(idOf(request)), request),
+    data(await storeFor(request).submitClaim(idOf(request)), request),
   );
 
   app.post("/api/v1/attribution-decisions", async (request, reply) => {
     const body = parse(createAttributionDecisionSchema, request.body);
     return reply
       .status(201)
-      .send(data(await store.createAttributionDecision(body), request));
+      .send(data(await storeFor(request).createAttributionDecision(body), request));
   });
 
   app.get("/api/v1/attribution-decisions", async (request) => {
     const query = request.query as { claimId?: string };
-    return data(await store.listDecisions(query.claimId), request);
+    return data(await storeFor(request).listDecisions(query.claimId), request);
   });
 
   app.post("/api/v1/policy-versions/:id/legal-gate", async (request) => {
     const body = parse(recordLegalGateSchema, request.body);
     return data(
-      await store.recordLegalGate({
+      await storeFor(request).recordLegalGate({
         policyVersionId: idOf(request),
         ...body,
       }),
@@ -437,7 +472,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/policy-versions/:id/legal-gate", async (request) => {
-    const gate = await store.getLegalGate(idOf(request));
+    const gate = await storeFor(request).getLegalGate(idOf(request));
     if (!gate) {
       return data({ status: "MISSING", policyVersionId: idOf(request) }, request);
     }
@@ -448,74 +483,74 @@ export function buildApp(
     const body = parse(createCalculationRunSchema, request.body);
     return reply
       .status(201)
-      .send(data(await store.createCalculationRun(body), request));
+      .send(data(await storeFor(request).createCalculationRun(body), request));
   });
 
   app.get("/api/v1/calculation-runs", async (request) =>
-    data(await store.listRuns(), request),
+    data(await storeFor(request).listRuns(), request),
   );
 
   app.get("/api/v1/calculation-runs/:id", async (request) =>
-    data(await store.getRun(idOf(request)), request),
+    data(await storeFor(request).getRun(idOf(request)), request),
   );
 
   app.post("/api/v1/calculation-runs/:id/approve", async (request) =>
-    data(await store.approveRun(idOf(request)), request),
+    data(await storeFor(request).approveRun(idOf(request)), request),
   );
 
   app.post("/api/v1/calculation-runs/:id/lock", async (request) => {
     const body = parse(lockCalculationRunSchema, request.body);
-    return data(await store.lockRun(idOf(request), body.confirmation), request);
+    return data(await storeFor(request).lockRun(idOf(request), body.confirmation), request);
   });
 
   app.post("/api/v1/employee-confirmations", async (request, reply) => {
     const body = parse(recordConfirmationSchema, request.body);
     return reply
       .status(201)
-      .send(data(await store.recordConfirmation(body), request));
+      .send(data(await storeFor(request).recordConfirmation(body), request));
   });
 
   app.get("/api/v1/employee-confirmations", async (request) => {
     const query = request.query as { personId?: string };
-    return data(await store.listConfirmations(query.personId), request);
+    return data(await storeFor(request).listConfirmations(query.personId), request);
   });
 
   app.get("/api/v1/ledger", async (request) =>
-    data(await store.listLedger(), request),
+    data(await storeFor(request).listLedger(), request),
   );
 
   app.get("/api/v1/ledger/verify", async (request) =>
-    data({ valid: await store.verifyLedger() }, request),
+    data({ valid: await storeFor(request).verifyLedger() }, request),
   );
 
   app.post("/api/v1/appeals", async (request, reply) => {
     const body = parse(createAppealSchema, request.body);
-    return reply.status(201).send(data(await store.createAppeal(body), request));
+    return reply.status(201).send(data(await storeFor(request).createAppeal(body), request));
   });
 
   app.get("/api/v1/appeals", async (request) =>
-    data(await store.listAppeals(), request),
+    data(await storeFor(request).listAppeals(), request),
   );
 
   app.get("/api/v1/appeals/:id", async (request) =>
-    data(await store.getAppeal(idOf(request)), request),
+    data(await storeFor(request).getAppeal(idOf(request)), request),
   );
 
   app.post("/api/v1/appeals/:id/triage", async (request) => {
     const body = parse(triageAppealSchema, request.body);
     return data(
-      await store.triageAppeal(idOf(request), body.reviewerPersonId),
+      await storeFor(request).triageAppeal(idOf(request), body.reviewerPersonId),
       request,
     );
   });
 
   app.post("/api/v1/appeals/:id/review", async (request) =>
-    data(await store.reviewAppeal(idOf(request)), request),
+    data(await storeFor(request).reviewAppeal(idOf(request)), request),
   );
 
   app.post("/api/v1/appeals/:id/resolve", async (request) => {
     const body = parse(resolveAppealSchema, request.body);
-    return data(await store.resolveAppeal(idOf(request), body), request);
+    return data(await storeFor(request).resolveAppeal(idOf(request), body), request);
   });
 
   return app;

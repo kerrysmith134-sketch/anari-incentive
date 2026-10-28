@@ -124,6 +124,7 @@ Additional application-level invariants:
 - Same input + policy + engine version produces the same `resultHash`.
 - The independent reference calculation must agree with the main calculation.
 - The ledger hash chain is verified after every mutation in tests.
+- PostgreSQL ledger verification orders by the monotonic `ledger_seq`, not `created_at`, because entries created in one transaction share a timestamp.
 
 ---
 
@@ -289,7 +290,7 @@ All `/api/v1` routes pass through a Fastify `preHandler`:
 - `AUTH_MODE=dev`: `DevHeaderAuthenticator` accepts `X-Tenant-Id` / `X-User-Id` and is only for local development.
 - Missing or invalid credentials return `401 UNAUTHENTICATED`.
 
-Current limitation: stores are constructed per process with a fixed tenant. A production deployment must create a tenant-scoped store per request (or enforce tenant in every query) before serving multiple tenants from one process. RLS is enabled in PostgreSQL as defense in depth.
+`buildApp` accepts either a single store or a `StoreResolver`. The server passes a resolver and the app caches one store and one agent runtime per authenticated tenant, so two tokens with different tenant claims cannot see each other's work packages, claims, runs or agent tasks. RLS remains defense in depth. `AUTH_MODE=dev` is still a development-only authenticator: it trusts client-supplied headers and must not be exposed in production.
 
 ---
 

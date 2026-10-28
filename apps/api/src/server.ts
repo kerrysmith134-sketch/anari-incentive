@@ -12,9 +12,12 @@ const usePostgres =
   process.env.STORE === "postgres" ||
   (process.env.STORE !== "memory" && Boolean(process.env.DATABASE_URL));
 
-const store = usePostgres
-  ? new PgStore(new Pool({ connectionString: process.env.DATABASE_URL }))
-  : new Store();
+const pool = usePostgres
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : undefined;
+
+const resolveStore = (tenantId: string) =>
+  pool ? new PgStore(pool, tenantId) : new Store(tenantId);
 
 const authenticator =
   process.env.AUTH_MODE === "oidc"
@@ -29,7 +32,7 @@ const authenticator =
         roles: ["admin"],
       });
 
-const app = buildApp(store, undefined, authenticator);
+const app = buildApp(resolveStore, undefined, authenticator);
 
 app
   .listen({ port, host: "0.0.0.0" })

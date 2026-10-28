@@ -349,6 +349,16 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("scopes reads to the store's tenant", async () => {
+    const other = new PgStore(
+      pool,
+      "00000000-0000-4000-8000-000000000099",
+    );
+    expect(await other.listWorkPackages()).toEqual([]);
+    expect(await other.listClaims()).toEqual([]);
+    expect(await other.listRuns()).toEqual([]);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

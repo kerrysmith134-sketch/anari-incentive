@@ -1185,7 +1185,7 @@ export class PgStore implements IncentiveStore {
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {
     return this.tx(async (client) => {
       const { rows } = await client.query(
-        "SELECT * FROM amount_ledger WHERE tenant_id=$1 ORDER BY created_at, id",
+        "SELECT * FROM amount_ledger WHERE tenant_id=$1 ORDER BY ledger_seq",
         [tenantId],
       );
       return rows.map((row) => this.mapLedger(row));
@@ -1195,7 +1195,7 @@ export class PgStore implements IncentiveStore {
   async verifyLedger(tenantId = this.tenantId): Promise<boolean> {
     return this.tx(async (client) => {
       const { rows } = await client.query(
-        "SELECT * FROM amount_ledger WHERE tenant_id=$1 ORDER BY created_at, id",
+        "SELECT * FROM amount_ledger WHERE tenant_id=$1 ORDER BY ledger_seq",
         [tenantId],
       );
       let prevHash = "GENESIS";

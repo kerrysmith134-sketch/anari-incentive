@@ -99,6 +99,8 @@ export class Store implements IncentiveStore {
   private readonly publishedPolicies = new Map<string, PolicyDefinition>();
   private readonly publishedPolicyKeys = new Set<string>();
 
+  constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {}
+
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy =
       this.publishedPolicies.get(policyVersionId) ??
@@ -140,7 +142,7 @@ export class Store implements IncentiveStore {
     const timestamp = now();
     const workPackage: WorkPackage = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       title: input.title,
       objective: input.objective,
       ownerPersonId: input.ownerPersonId,
@@ -297,7 +299,7 @@ export class Store implements IncentiveStore {
     const timestamp = now();
     const claim: ContributionClaim = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       workPackageId: input.workPackageId,
       claimantPersonId: input.claimantPersonId,
       claimType: input.claimType,
@@ -376,7 +378,7 @@ export class Store implements IncentiveStore {
 
     const decision: AttributionDecision = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       claimId: claim.id,
       decisionVersion: (previous?.decisionVersion ?? 0) + 1,
       status: input.status,
@@ -443,7 +445,7 @@ export class Store implements IncentiveStore {
     const existing = this.legalGates.get(input.policyVersionId);
     const record: LegalGateRecord = {
       id: existing?.id ?? randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       policyVersionId: input.policyVersionId,
       democraticProcedureRef: input.democraticProcedureRef,
       employeeNoticeRef: input.employeeNoticeRef,
@@ -469,7 +471,7 @@ export class Store implements IncentiveStore {
     }
     const node: EvidenceNode = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       evidenceType: input.evidenceType,
       subjectType: input.subjectType,
       subjectId: input.subjectId,
@@ -544,7 +546,7 @@ export class Store implements IncentiveStore {
     if (existing) return existing;
     const link: EvidenceLink = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       fromEvidenceId,
       toEvidenceId: input.toEvidenceId,
       relationType: input.relationType,
@@ -590,7 +592,7 @@ export class Store implements IncentiveStore {
     }
 
     const calculationInput: CalculationInput = {
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       cycleId: input.cycleId,
       policyVersionId: input.policyVersionId,
       mode: input.mode,
@@ -610,7 +612,7 @@ export class Store implements IncentiveStore {
     }
     const run: CalculationRun = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       cycleId: input.cycleId,
       mode: input.mode,
       policyVersionId: input.policyVersionId,
@@ -707,7 +709,7 @@ export class Store implements IncentiveStore {
     const timestamp = now();
     const record: EmployeeConfirmation = existing ?? {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       personId: input.personId,
       targetType: input.targetType,
       targetId: input.targetId,
@@ -756,7 +758,7 @@ export class Store implements IncentiveStore {
   }): Promise<AppealCase> {
     const appeal: AppealCase = {
       id: randomUUID(),
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: this.tenantId,
       appellantPersonId: input.appellantPersonId,
       targetType: input.targetType,
       targetId: input.targetId,
@@ -851,11 +853,11 @@ export class Store implements IncentiveStore {
     return appeal;
   }
 
-  async listLedger(tenantId = DEFAULT_TENANT_ID): Promise<AmountLedgerEntry[]> {
+  async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {
     return this.ledger.list(tenantId);
   }
 
-  async verifyLedger(tenantId = DEFAULT_TENANT_ID): Promise<boolean> {
+  async verifyLedger(tenantId = this.tenantId): Promise<boolean> {
     return this.ledger.verifyChain(tenantId);
   }
 }

@@ -179,6 +179,83 @@ describe("authentication", () => {
   });
 });
 
+describe("tenant isolation", () => {
+  it("resolves a store and agent runtime per authenticated tenant", async () => {
+    const authenticator: Authenticator = {
+      async authenticate(credentials) {
+        return {
+          tenantId: credentials.tenantId ?? "tenant-a",
+          userId: "user-1",
+          roles: ["admin"],
+        };
+      },
+    };
+    const scopedApp = buildApp(
+      (tenantId) => new Store(tenantId),
+      undefined,
+      authenticator,
+    );
+
+    const created = await scopedApp.inject({
+      method: "POST",
+      url: "/api/v1/work-packages",
+      headers: { "x-tenant-id": "tenant-a" },
+      payload: {
+        title: "Tenant A package",
+        objective: "Prove isolation",
+        ownerPersonId: OWNER,
+        members: [
+          {
+            personId: OWNER,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+        ],
+        acceptanceCriteria: ["Accepted"],
+      },
+    } as never);
+    expect(created.statusCode).toBe(201);
+    expect(created.json().data.tenantId).toBe("tenant-a");
+
+    const tenantA = await scopedApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+      headers: { "x-tenant-id": "tenant-a" },
+    } as never);
+    expect(tenantA.json().data).toHaveLength(1);
+
+    const tenantB = await scopedApp.inject({
+      method: "GET",
+      url: "/api/v1/work-packages",
+      headers: { "x-tenant-id": "tenant-b" },
+    } as never);
+    expect(tenantB.json().data).toHaveLength(0);
+
+    await scopedApp.inject({
+      method: "POST",
+      url: "/api/v1/agent-tasks",
+      headers: { "x-tenant-id": "tenant-a" },
+      payload: {
+        agentType: "EVIDENCE_GAP",
+        triggerType: "MANUAL",
+        idempotencyKey: "tenant-a-task",
+      },
+    } as never);
+    const tasksA = await scopedApp.inject({
+      method: "GET",
+      url: "/api/v1/agent-tasks",
+      headers: { "x-tenant-id": "tenant-a" },
+    } as never);
+    expect(tasksA.json().data).toHaveLength(1);
+    const tasksB = await scopedApp.inject({
+      method: "GET",
+      url: "/api/v1/agent-tasks",
+      headers: { "x-tenant-id": "tenant-b" },
+    } as never);
+    expect(tasksB.json().data).toHaveLength(0);
+  });
+});
+
 describe("employee view", () => {
   it("serves the minimal employee confirmation page", async () => {
     const response = await app.inject({ method: "GET", url: "/" } as never);
