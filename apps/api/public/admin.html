@@ -374,6 +374,11 @@ order-batch-2,80000</textarea>
         </thead>
         <tbody id="workPackages"></tbody>
       </table>
+      <label for="batchAcceptIds" style="margin-top:10px">批量验收（每行一个工作包 ID）</label>
+      <textarea id="batchAcceptIds" placeholder="WORK_PACKAGE_ID"></textarea>
+      <div class="actions">
+        <button id="batchAccept">批量验收</button>
+      </div>
 
       <div class="grid" style="margin-top:14px">
         <div>
@@ -852,6 +857,32 @@ order-batch-2,80000</textarea>
         });
         setStatus("wpStatus", `${command} 完成`, "ok");
         await loadWorkPackages();
+      } catch (error) {
+        setStatus("wpStatus", String(error.message), "bad");
+      }
+    }
+
+    async function batchAcceptWorkPackages() {
+      try {
+        const ids = $("batchAcceptIds").value
+          .split("\n")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if (ids.length === 0) throw new Error("请至少填写一个工作包 ID");
+        const reviewerPersonId = $("decisionAdjudicator").value.trim();
+        const result = await api("/api/v1/work-packages:accept-batch", {
+          method: "POST",
+          body: JSON.stringify({
+            items: ids.map((id) => ({ id, reviewerPersonId })),
+          }),
+        });
+        setStatus(
+          "wpStatus",
+          `已验收 ${result.workPackages.length} 个工作包`,
+          "ok",
+        );
+        await loadWorkPackages();
+        await loadClaims();
       } catch (error) {
         setStatus("wpStatus", String(error.message), "bad");
       }
@@ -1596,6 +1627,7 @@ order-batch-2,80000</textarea>
       await loadClaims();
     });
     $("createClaim").addEventListener("click", createClaim);
+    $("batchAccept").addEventListener("click", batchAcceptWorkPackages);
     $("createDecision").addEventListener("click", createDecision);
     $("refreshAppeals").addEventListener("click", loadAppeals);
     $("refreshNotifications").addEventListener("click", loadNotifications);
