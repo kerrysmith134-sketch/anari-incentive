@@ -25,8 +25,8 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Policy publication | `POST /policy-versions` writes a `PUBLISHED`, content-hashed, approver-attributed version; a successor closes the prior effective window and published content stays immutable. Formal calculations still require the separate legal gate. |
 | Independent reference | Separate `Number`-based reference calculation; mismatch is visible in tests |
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; API and PostgreSQL-backed |
-| Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector and CLI importer (`npm run import:csv`) |
-| Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; the worker supports a static token or OAuth client-credentials token |
+| Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector + CLI importer (`npm run import:csv`); generic paginated HTTP/JSON connector for CRM/ERP REST APIs |
+| Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; the worker supports a static token or OAuth client-credentials token |
 | Ledger | Append-only, idempotent, lock, reversal, per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL commands; verified line-to-ledger match; CSV export for finance |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request |
@@ -40,8 +40,9 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
 | Database | PostgreSQL 16 migrations: core schema, governance schema, money-path invariants, audit hash chain, RLS for core tables |
+| Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **107 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration, tenant isolation, AI gate metrics, auth, ingestion, OpenAPI route coverage, and RLS |
+| Tests | **112 unit/API tests + 10 PostgreSQL integration tests** covering state transitions, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export, policy publication/succession, durable agent rehydration, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## What is intentionally not implemented yet
 
@@ -141,6 +142,8 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/` | Minimal employee confirmation page |
 | GET | `/admin` | Minimal admin page: policy simulation + agent approvals |
 | GET | `/health` | Liveness |
+| GET | `/ready` | Readiness; checks the store (`503` on failure) |
+| GET | `/metrics` | Prometheus text metrics |
 | POST | `/api/v1/ingestion/events:batch` | Ingest connector events; dedup + evidence projection |
 | POST | `/api/v1/evidence` | Create evidence node |
 | GET | `/api/v1/evidence?subjectType=&subjectId=` | List evidence for a subject |

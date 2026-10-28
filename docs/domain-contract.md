@@ -291,11 +291,12 @@ The settlement does not change the ledger and cannot create money. A re-settleme
 Connectors are adapters, not a second domain model. A connector emits `IngestionEvent`s; the core stores them in `raw_events` with a uniqueness constraint on `(tenant_id, source_system, source_record_id, source_event_version)`, then projects an `evidence_nodes` row. Re-ingesting the same record is idempotent.
 
 - `packages/connectors/src/csv.ts` implements a generic CSV connector with explicit field mapping.
+- `packages/connectors/src/http-json.ts` implements a paginated HTTP/JSON pull connector: configurable records path, cursor path/parameter, page-size parameter, headers and the same field mapping as CSV.
 - `scripts/import-csv.ts` posts a CSV file to `POST /api/v1/ingestion/events:batch`.
 - `fixtures/connectors/crm-orders.csv` + `crm-orders.mapping.json` are the reference fixtures.
 - Connector payloads are untrusted input: they may create evidence but never write money, approve attribution or bypass the legal gate.
 
-Real CRM/ERP/Feishu connectors must implement the same `Connector` interface and must not add provider-specific concepts to the core.
+Real CRM/ERP/Feishu connectors must implement the same `Connector` interface and must not add provider-specific concepts to the core. Provider-specific OAuth and webhook signature verification are adapter concerns.
 
 ---
 
@@ -311,10 +312,23 @@ All `/api/v1` routes pass through a Fastify `preHandler`:
 
 The worker authenticates to the API with either a static `WORKER_TOKEN` or OAuth client credentials (`OIDC_TOKEN_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`); tokens are cached until shortly before expiry. Its token tenant claim must match `TENANT_ID`, because task persistence and API reads both resolve that tenant.
 
+Roles are enforced per command (`admin` always passes):
+
+| Role | Can do |
+|---|---|
+| `admin` | everything, including legal gates, policy publication and publishing an agent-proposed policy |
+| `manager` | simulations, agent scans/approval (except policy publication), attribution decisions, package acceptance, appeals |
+| `finance` | calculations, approval/locking, settlement commands, settlement-related agent approvals |
+| `integration` | event ingestion |
+| `employee` | own confirmations, claims, appeals; no money/rule commands |
+
+The employee/admin web pages are served without authentication, but every data-changing call they make goes through the authenticated API. Object-level filtering (an employee seeing only their own rows) is not yet implemented; do not expose the employee page to a role that must not see tenant-wide GET responses.
+
 ---
 
 ## 13. Contract and CI
 
 - `docs/openapi.yaml` is the OpenAPI 3.1 contract. `tests/openapi.test.ts` parses it, checks every route in `apps/api/src/app.ts` is documented, rejects stale documented routes, and verifies local `$ref`s resolve.
 - `scripts/ci.sh` is the verification entry point: install → typecheck → unit/API tests → `docker compose config` → PostgreSQL integration tests. `CI_SKIP_PG=1` skips the Docker-backed tests.
+- `/health` is liveness; `/ready` checks the store. `/metrics` exposes Prometheus counters and latency using registered route patterns (bounded cardinality), plus process uptime/heap gauges. The endpoint has no auth and should be reachable only from the monitoring network.
 - Admin UI at `/admin` is a minimal development surface for policy simulation and agent approvals; it is not a production IAM-controlled console.

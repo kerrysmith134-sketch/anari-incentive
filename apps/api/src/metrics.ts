@@ -1,0 +1,98 @@
+/**
+ * Minimal dependency-free Prometheus metrics.
+ *
+ * Route labels use the registered route pattern (e.g. `/api/v1/work-packages/:id`)
+ * rather than the raw URL, so cardinality stays bounded.
+ */
+interface Series {
+  method: string;
+  route: string;
+  status: string;
+  count: number;
+  durationMsSum: number;
+}
+
+function escapeLabel(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export class ApiMetrics {
+  private readonly series = new Map<string, Series>();
+  private readonly startedAt = Date.now();
+
+  observeRequest(
+    method: string,
+    route: string,
+    status: number | string,
+    durationMs: number,
+  ): void {
+    const key = `${method}|${route}|${status}`;
+    const existing = this.series.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.durationMsSum += durationMs;
+      return;
+    }
+    this.series.set(key, {
+      method,
+      route,
+      status: String(status),
+      count: 1,
+      durationMsSum: durationMs,
+    });
+  }
+
+  render(): string {
+    const lines: string[] = [
+      "# HELP n_perform_http_requests_total HTTP requests by route and status.",
+      "# TYPE n_perform_http_requests_total counter",
+    ];
+    for (const series of this.series.values()) {
+      lines.push(
+        `n_perform_http_requests_total{method="${escapeLabel(
+          series.method,
+        )}",route="${escapeLabel(series.route)}",status="${escapeLabel(
+          series.status,
+        )}"} ${series.count}`,
+      );
+    }
+    lines.push(
+      "# HELP n_perform_http_request_duration_ms_sum Cumulative request duration in milliseconds.",
+      "# TYPE n_perform_http_request_duration_ms_sum counter",
+    );
+    for (const series of this.series.values()) {
+      lines.push(
+        `n_perform_http_request_duration_ms_sum{method="${escapeLabel(
+          series.method,
+        )}",route="${escapeLabel(series.route)}",status="${escapeLabel(
+          series.status,
+        )}"} ${series.durationMsSum.toFixed(3)}`,
+      );
+    }
+    lines.push(
+      "# HELP n_perform_http_request_duration_ms_count Number of timed requests.",
+      "# TYPE n_perform_http_request_duration_ms_count counter",
+    );
+    for (const series of this.series.values()) {
+      lines.push(
+        `n_perform_http_request_duration_ms_count{method="${escapeLabel(
+          series.method,
+        )}",route="${escapeLabel(series.route)}",status="${escapeLabel(
+          series.status,
+        )}"} ${series.count}`,
+      );
+    }
+    lines.push(
+      "# HELP n_perform_process_uptime_seconds Process uptime.",
+      "# TYPE n_perform_process_uptime_seconds gauge",
+      `n_perform_process_uptime_seconds ${(
+        (Date.now() - this.startedAt) /
+        1000
+      ).toFixed(3)}`,
+      "# HELP n_perform_process_heap_used_bytes Heap used.",
+      "# TYPE n_perform_process_heap_used_bytes gauge",
+      `n_perform_process_heap_used_bytes ${process.memoryUsage().heapUsed}`,
+    );
+    return lines.join("\n") + "\n";
+  }
+}

@@ -130,6 +130,10 @@ export class Store implements IncentiveStore {
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {}
 
+  async ping(): Promise<void> {
+    return;
+  }
+
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy =
       this.publishedPolicies.get(policyVersionId) ??

@@ -104,6 +104,15 @@ export class PgStore implements IncentiveStore {
     private readonly tenantId: string = DEMO_TENANT_ID,
   ) {}
 
+  async ping(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("SELECT 1");
+    } finally {
+      client.release();
+    }
+  }
+
   private async tx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {

@@ -38,6 +38,7 @@ import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
   AuthError,
   DevHeaderAuthenticator,
+  ForbiddenError,
   type Authenticator,
 } from "@anari/auth";
 import { simulatePolicyChange } from "@anari/policy-dsl";
@@ -50,6 +51,7 @@ import {
 } from "./store.js";
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
+import { ApiMetrics } from "./metrics.js";
 
 type IdParams = { id: string };
 
@@ -89,6 +91,16 @@ function tenantOf(request: FastifyRequest): string {
   return request.authContext?.tenantId ?? "tenant-demo";
 }
 
+function requireRoles(request: FastifyRequest, ...allowed: string[]): void {
+  const roles = request.authContext?.roles ?? [];
+  if (roles.includes("admin") || roles.some((role) => allowed.includes(role))) {
+    return;
+  }
+  throw new ForbiddenError(
+    `requires one of: ${allowed.join(", ")} (or admin)`,
+  );
+}
+
 export function buildApp(
   storeOrResolver: IncentiveStore | StoreResolver = new Store(),
   agentRuntimeOrFactory?: AgentRuntime | AgentRuntimeFactory,
@@ -99,8 +111,10 @@ export function buildApp(
   }),
 ): FastifyInstance {
   const app = Fastify({ logger: false });
+  const metrics = new ApiMetrics();
   const scopedStores = new Map<string, IncentiveStore>();
   const scopedRuntimes = new Map<string, AgentRuntime>();
+  let readinessProbe: IncentiveStore | undefined;
 
   function storeFor(request: FastifyRequest): IncentiveStore {
     if (typeof storeOrResolver !== "function") return storeOrResolver;
@@ -147,10 +161,25 @@ export function buildApp(
     }
   });
 
+  app.addHook("onResponse", async (request, reply) => {
+    metrics.observeRequest(
+      request.method,
+      request.routeOptions.url ?? request.url,
+      reply.statusCode,
+      reply.elapsedTime,
+    );
+  });
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.status(400).send({
         ...errorBody("VALIDATION_ERROR", "request validation failed", error.issues),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (error instanceof ForbiddenError) {
+      return reply.status(403).send({
+        ...errorBody(error.code, error.message),
         meta: { correlation_id: request.id },
       });
     }
@@ -217,6 +246,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/policy-versions", async (request, reply) => {
+    requireRoles(request, "admin");
     const body = parse(publishPolicySchema, request.body);
     return reply
       .status(201)
@@ -224,6 +254,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/policy-simulations", async (request) => {
+    requireRoles(request, "manager", "finance");
     const body = parse(policySimulationSchema, request.body);
     const currentPolicy = await storeFor(request).getPolicy(body.currentPolicyVersionId);
     const tenantId =
@@ -241,6 +272,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/agent-tasks/scan", async (request) => {
+    requireRoles(request, "manager");
     const body = parse(scanAgentTasksSchema, request.body ?? {});
     const tenantId =
       request.authContext?.tenantId ??
@@ -276,6 +308,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/agent-tasks", async (request, reply) => {
+    requireRoles(request, "manager");
     const body = parse(enqueueAgentTaskSchema, request.body);
     const tenantId =
       request.authContext?.tenantId ??
@@ -305,14 +338,26 @@ export function buildApp(
     data(await runtimeFor(request).get(idOf(request)), request),
   );
 
-  app.post("/api/v1/agent-tasks/:id/run", async (request) =>
-    data(await runtimeFor(request).run(idOf(request)), request),
-  );
+  app.post("/api/v1/agent-tasks/:id/run", async (request) => {
+    requireRoles(request, "manager");
+    return data(await runtimeFor(request).run(idOf(request)), request);
+  });
 
   app.post("/api/v1/agent-tasks/:id/approve", async (request) => {
     const body = parse(approveAgentActionSchema, request.body);
+    const runtime = runtimeFor(request);
+    const task = await runtime.get(idOf(request));
+    const action = task.actions.find(
+      (candidate) => candidate.id === body.actionId,
+    );
+    requireRoles(
+      request,
+      ...(action?.tool === "publish_policy"
+        ? ["admin"]
+        : ["manager", "finance"]),
+    );
     return data(
-      await runtimeFor(request).approve(
+      await runtime.approve(
         idOf(request),
         body.actionId,
         body.approverPersonId,
@@ -322,6 +367,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/agent-tasks/:id/reject", async (request) => {
+    requireRoles(request, "manager", "finance");
     const body = parse(rejectAgentActionSchema, request.body);
     return data(
       await runtimeFor(request).reject(
@@ -344,7 +390,29 @@ export function buildApp(
 
   app.get("/health", async (request) => data({ status: "ok" }, request));
 
+  app.get("/ready", async (request, reply) => {
+    const store =
+      typeof storeOrResolver === "function"
+        ? (readinessProbe ??= storeOrResolver("tenant-demo"))
+        : storeOrResolver;
+    try {
+      await store.ping?.();
+      return data({ status: "ready" }, request);
+    } catch {
+      return reply
+        .status(503)
+        .send(errorBody("NOT_READY", "dependency check failed"));
+    }
+  });
+
+  app.get("/metrics", async (_request, reply) =>
+    reply
+      .type("text/plain; version=0.0.4; charset=utf-8")
+      .send(metrics.render()),
+  );
+
   app.post("/api/v1/ingestion/events:batch", async (request) => {
+    requireRoles(request, "integration");
     const body = parse(ingestionBatchSchema, request.body);
     return data(await storeFor(request).ingestEvents(body), request);
   });
@@ -406,6 +474,7 @@ export function buildApp(
   );
 
   app.post("/api/v1/work-packages/:id/accept", async (request) => {
+    requireRoles(request, "manager");
     const body = parse(acceptWorkPackageSchema, request.body);
     return data(
       await storeFor(request).acceptWorkPackage(idOf(request), body.reviewerPersonId),
@@ -414,6 +483,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/work-packages/:id/reject", async (request) => {
+    requireRoles(request, "manager");
     const body = parse(rejectWorkPackageSchema, request.body);
     return data(
       await storeFor(request).rejectWorkPackage(
@@ -443,6 +513,7 @@ export function buildApp(
   );
 
   app.post("/api/v1/attribution-decisions", async (request, reply) => {
+    requireRoles(request, "manager");
     const body = parse(createAttributionDecisionSchema, request.body);
     return reply
       .status(201)
@@ -455,6 +526,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/policy-versions/:id/legal-gate", async (request) => {
+    requireRoles(request, "admin");
     const body = parse(recordLegalGateSchema, request.body);
     return data(
       await storeFor(request).recordLegalGate({
@@ -475,6 +547,10 @@ export function buildApp(
 
   app.post("/api/v1/calculation-runs", async (request, reply) => {
     const body = parse(createCalculationRunSchema, request.body);
+    requireRoles(
+      request,
+      ...(body.mode === "FORMAL" ? ["finance"] : ["manager", "finance"]),
+    );
     return reply
       .status(201)
       .send(data(await storeFor(request).createCalculationRun(body), request));
@@ -488,11 +564,13 @@ export function buildApp(
     data(await storeFor(request).getRun(idOf(request)), request),
   );
 
-  app.post("/api/v1/calculation-runs/:id/approve", async (request) =>
-    data(await storeFor(request).approveRun(idOf(request)), request),
-  );
+  app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
+    requireRoles(request, "finance");
+    return data(await storeFor(request).approveRun(idOf(request)), request);
+  });
 
   app.post("/api/v1/calculation-runs/:id/lock", async (request) => {
+    requireRoles(request, "finance");
     const body = parse(lockCalculationRunSchema, request.body);
     return data(await storeFor(request).lockRun(idOf(request), body.confirmation), request);
   });
@@ -518,6 +596,7 @@ export function buildApp(
   );
 
   app.post("/api/v1/settlement-batches", async (request, reply) => {
+    requireRoles(request, "finance");
     const body = parse(createSettlementBatchSchema, request.body);
     return reply
       .status(201)
@@ -533,6 +612,7 @@ export function buildApp(
   );
 
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
+    requireRoles(request, "finance");
     const body = parse(settlementCommandSchema, request.body);
     return data(
       await storeFor(request).commandSettlementBatch(idOf(request), body),
@@ -554,6 +634,7 @@ export function buildApp(
   );
 
   app.post("/api/v1/appeals/:id/triage", async (request) => {
+    requireRoles(request, "manager");
     const body = parse(triageAppealSchema, request.body);
     return data(
       await storeFor(request).triageAppeal(idOf(request), body.reviewerPersonId),
@@ -561,11 +642,13 @@ export function buildApp(
     );
   });
 
-  app.post("/api/v1/appeals/:id/review", async (request) =>
-    data(await storeFor(request).reviewAppeal(idOf(request)), request),
-  );
+  app.post("/api/v1/appeals/:id/review", async (request) => {
+    requireRoles(request, "manager");
+    return data(await storeFor(request).reviewAppeal(idOf(request)), request);
+  });
 
   app.post("/api/v1/appeals/:id/resolve", async (request) => {
+    requireRoles(request, "manager");
     const body = parse(resolveAppealSchema, request.body);
     return data(await storeFor(request).resolveAppeal(idOf(request), body), request);
   });

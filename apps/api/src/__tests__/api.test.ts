@@ -164,6 +164,59 @@ describe("authentication", () => {
     expect(response.json().error.code).toBe("UNAUTHENTICATED");
   });
 
+  it("rejects sensitive commands for a non-privileged role", async () => {
+    const employee: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: "tenant-demo",
+          userId: "employee-1",
+          roles: ["employee"],
+        };
+      },
+    };
+    const employeeApp = buildApp(new Store(), undefined, employee);
+    const publish = await employeeApp.inject({
+      method: "POST",
+      url: "/api/v1/policy-versions",
+      payload: {
+        policy: {
+          code: "GENERIC_CONTRIBUTION_V1",
+          version: 9,
+          currency: "CNY",
+          poolRate: "0.05",
+          poolCap: "100000",
+          rounding: "HALF_UP",
+          calculator: "SIMPLE_POOL",
+        },
+        effectiveFrom: "2026-11-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      },
+    } as never);
+    expect(publish.statusCode).toBe(403);
+    expect(publish.json().error.code).toBe("FORBIDDEN");
+
+    const settlement = await employeeApp.inject({
+      method: "POST",
+      url: "/api/v1/settlement-batches",
+      payload: { cycleId: CYCLE },
+    } as never);
+    expect(settlement.statusCode).toBe(403);
+
+    const confirmation = await employeeApp.inject({
+      method: "POST",
+      url: "/api/v1/employee-confirmations",
+      payload: {
+        personId: OWNER,
+        targetType: "CALCULATION",
+        targetId: CYCLE,
+        decision: "VIEWED",
+      },
+    } as never);
+    // The target does not exist in this fresh store (404), but the employee
+    // role is not blocked by authorization.
+    expect(confirmation.statusCode).not.toBe(403);
+  });
+
   it("allows API requests when authentication succeeds", async () => {
     const allowing: Authenticator = {
       async authenticate() {
@@ -262,6 +315,27 @@ describe("employee view", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.body).toContain("N-Perform 员工确认");
+  });
+});
+
+describe("observability", () => {
+  it("reports readiness", async () => {
+    const response = await app.inject({ method: "GET", url: "/ready" } as never);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.status).toBe("ready");
+  });
+
+  it("renders Prometheus metrics with bounded route labels", async () => {
+    await app.inject({ method: "GET", url: "/health" } as never);
+    const response = await app.inject({
+      method: "GET",
+      url: "/metrics",
+    } as never);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.body).toContain("n_perform_http_requests_total");
+    expect(response.body).toContain('route="/health"');
+    expect(response.body).toContain("n_perform_process_uptime_seconds");
   });
 });
 

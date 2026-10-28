@@ -483,8 +483,8 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - 结算批次：从锁定账本按周期生成批次，显式 RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/CANCEL 命令，CSV 财务导出，行与账本强校验；
 - `packages/ai-gate`：评测门禁 + 非评分证据助手 + kappa/子群体/反事实/注入评测；
 - `apps/api`：工作包→evidence→claim→decision→legal gate→calculation→confirmation→appeal→approve→lock 的最小 API；内存与 PostgreSQL 两种存储，按认证租户解析 store 与 Agent Runtime；`/` 提供最小员工确认页，`/admin` 提供政策模拟与 Agent 审批页；
-- `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；
-- `packages/connectors`：通用 Connector 接口 + CSV 连接器；`POST /api/v1/ingestion/events:batch` 幂等入库并投影为 evidence；
+- `packages/auth`：OIDC/JWT 与开发头认证；所有 `/api/v1` 路由默认要求认证；高风险命令按 `admin/manager/finance/integration` 角色授权；
+- `packages/connectors`：通用 Connector 接口 + CSV 连接器 + 分页 HTTP/JSON 连接器（字段映射、cursor、headers 可配）；`POST /api/v1/ingestion/events:batch` 幂等入库并投影为 evidence；
 - `db/migrations`：核心 schema、治理 schema、金额路径不变量；
 - `db/seed`：demo tenant/people/cycle/policy + RLS app role；
 - `packages/agent-runtime`：主动式 Agent Runtime、工具分级、审批门禁、审计；`publish_policy` 为 T3，只有人工批准后才真正写入政策版本，并关闭前一版本的有效窗口；
@@ -494,6 +494,7 @@ OpenAPI、JSON Schema、SQL、TypeScript 类型应从契约生成或校验；CI 
 - `scripts/reconcile.ts`：独立 CSV 对账脚本；
 - `docs/openapi.yaml`：OpenAPI 3.1 契约；`tests/openapi.test.ts` 校验路由覆盖与 `$ref`；
 - `scripts/ci.sh`：安装→类型检查→测试→compose 校验→PostgreSQL 集成测试；
+- `/ready` 依赖检查、`/metrics` Prometheus 指标（按注册路由模式，低基数）；
 - `docs/adr`：关键架构决策。
 
 该切片**不是**完整 P0；它是 P0 的第一个可运行骨架，用于验证领域契约、金额路径和测试方式。

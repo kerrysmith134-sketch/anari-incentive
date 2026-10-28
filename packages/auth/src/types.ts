@@ -24,3 +24,12 @@ export class AuthError extends Error {
     this.name = "AuthError";
   }
 }
+
+export class ForbiddenError extends Error {
+  readonly status = 403;
+  readonly code = "FORBIDDEN";
+  constructor(message = "insufficient role") {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}

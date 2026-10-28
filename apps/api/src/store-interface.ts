@@ -55,6 +55,8 @@ export interface ResolveAppealInput {
 }
 
 export interface IncentiveStore {
+  /** Optional dependency check used by /ready. */
+  ping?(): Promise<void>;
   getPolicy(policyVersionId: string): Promise<PolicyDefinition>;
   publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
 

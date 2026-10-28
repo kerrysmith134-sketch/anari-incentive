@@ -1,4 +1,4 @@
-import type { IngestionEvent } from "@anari/domain";
+import { mapRecordToEvent, type ColumnMapping } from "./mapping.js";
 import type { Connector, ConnectorPullResult } from "./types.js";
 
 /** Minimal RFC-4180-style CSV parser (quotes, escaped quotes, newlines). */
@@ -49,15 +49,7 @@ export function parseCsv(input: string): string[][] {
 export interface CsvConnectorConfig {
   sourceSystem: string;
   /** CSV column names mapped to ingestion fields. */
-  columns: {
-    sourceRecordId: string;
-    eventType: string;
-    subjectType: string;
-    subjectId: string;
-    evidenceType: string;
-    occurredAt?: string;
-    sourceEventVersion?: string;
-  };
+  columns: ColumnMapping;
   pageSize?: number;
 }
 
@@ -92,23 +84,10 @@ export class CsvConnector implements Connector {
     return { events, nextCursor: next };
   }
 
-  private toEvent(row: string[]): IngestionEvent {
+  private toEvent(row: string[]) {
     const record = Object.fromEntries(
       this.header.map((column, index) => [column, row[index] ?? ""]),
     );
-    const columns = this.config.columns;
-    return {
-      sourceRecordId: record[columns.sourceRecordId]!,
-      sourceEventVersion: columns.sourceEventVersion
-        ? record[columns.sourceEventVersion]
-        : "1",
-      eventType: record[columns.eventType]!,
-      occurredAt: columns.occurredAt ? record[columns.occurredAt] : undefined,
-      subjectType: record[columns.subjectType]!,
-      subjectId: record[columns.subjectId]!,
-      evidenceType: record[columns.evidenceType]!,
-      qualityStatus: "UNVERIFIED",
-      payload: record,
-    };
+    return mapRecordToEvent(record, this.config.columns);
   }
 }
