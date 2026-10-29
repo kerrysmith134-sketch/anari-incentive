@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
-import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
+import { formatDecimal, parseDecimal, sha256 } from "@anari/policy-dsl";
 import type {
   Acceptance,
   AiSuggestionLog,
@@ -26,6 +26,7 @@ import type {
   InboxMessage,
   MetricDefinition,
   ModelEvaluationRun,
+  ModelPrompt,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -527,6 +528,29 @@ export interface PlatformStore {
     tenantId: string,
     runId: string,
   ): Promise<ModelEvaluationRun>;
+  createModelPrompt(input: {
+    tenantId: string;
+    promptCode: string;
+    version: number;
+    purpose: string;
+    modelProvider: string;
+    modelName: string;
+    template: string;
+  }): Promise<ModelPrompt>;
+  listModelPrompts(
+    tenantId: string,
+    filter?: { promptCode?: string; status?: ModelPrompt["status"] },
+  ): Promise<ModelPrompt[]>;
+  getModelPrompt(tenantId: string, promptId: string): Promise<ModelPrompt>;
+  activateModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+    evaluationRunId: string;
+  }): Promise<ModelPrompt>;
+  retireModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+  }): Promise<ModelPrompt>;
   createWorkflowRun(input: {
     tenantId: string;
     agentTaskId: string;
@@ -671,6 +695,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly acceptances = new Map<string, Acceptance>();
   private readonly aiSuggestions = new Map<string, AiSuggestionLog>();
   private readonly modelEvaluationRuns = new Map<string, ModelEvaluationRun>();
+  private readonly modelPrompts = new Map<string, ModelPrompt>();
   private readonly workflowRuns = new Map<string, WorkflowRun>();
   private readonly integrationConnections = new Map<
     string,
@@ -2711,6 +2736,137 @@ export class MemoryPlatformStore implements PlatformStore {
       notFound("ModelEvaluationRun", runId);
     }
     return run;
+  }
+
+  async createModelPrompt(input: {
+    tenantId: string;
+    promptCode: string;
+    version: number;
+    purpose: string;
+    modelProvider: string;
+    modelName: string;
+    template: string;
+  }): Promise<ModelPrompt> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const existing = [...this.modelPrompts.values()].find(
+      (prompt) =>
+        prompt.tenantId === input.tenantId &&
+        prompt.promptCode === input.promptCode &&
+        prompt.version === input.version,
+    );
+    if (existing) {
+      throw new ConflictError(
+        `Model prompt ${input.promptCode}:${input.version} already exists`,
+      );
+    }
+    const prompt: ModelPrompt = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      promptCode: input.promptCode,
+      version: input.version,
+      purpose: input.purpose,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      template: input.template,
+      templateHash: sha256({ template: input.template }),
+      status: "DRAFT",
+      createdAt: now(),
+    };
+    this.modelPrompts.set(prompt.id, prompt);
+    return prompt;
+  }
+
+  async listModelPrompts(
+    tenantId: string,
+    filter?: { promptCode?: string; status?: ModelPrompt["status"] },
+  ): Promise<ModelPrompt[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelPrompts.values()]
+      .filter(
+        (prompt) =>
+          prompt.tenantId === tenantId &&
+          (!filter?.promptCode ||
+            prompt.promptCode === filter.promptCode) &&
+          (!filter?.status || prompt.status === filter.status),
+      )
+      .sort(
+        (a, b) =>
+          a.promptCode.localeCompare(b.promptCode) || b.version - a.version,
+      );
+  }
+
+  async getModelPrompt(
+    tenantId: string,
+    promptId: string,
+  ): Promise<ModelPrompt> {
+    const prompt = this.modelPrompts.get(promptId);
+    if (!prompt || prompt.tenantId !== tenantId) {
+      notFound("ModelPrompt", promptId);
+    }
+    return prompt;
+  }
+
+  async activateModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+    evaluationRunId: string;
+  }): Promise<ModelPrompt> {
+    const prompt = await this.getModelPrompt(input.tenantId, input.promptId);
+    if (prompt.status !== "DRAFT") {
+      throw new ConflictError(
+        `model prompt ${prompt.id} is ${prompt.status}`,
+      );
+    }
+    const evaluation = await this.getModelEvaluationRun(
+      input.tenantId,
+      input.evaluationRunId,
+    );
+    if (!evaluation.passed) {
+      throw new ConflictError(
+        `MODEL_EVALUATION_NOT_PASSED: ${evaluation.id}`,
+      );
+    }
+    if (
+      evaluation.modelProvider !== prompt.modelProvider ||
+      evaluation.modelName !== prompt.modelName
+    ) {
+      throw new ConflictError(
+        `MODEL_EVALUATION_MODEL_MISMATCH: ${evaluation.id}`,
+      );
+    }
+    const active = [...this.modelPrompts.values()].find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.promptCode === prompt.promptCode &&
+        candidate.status === "ACTIVE" &&
+        candidate.id !== prompt.id,
+    );
+    if (active) {
+      throw new ConflictError(
+        `MODEL_PROMPT_ALREADY_ACTIVE: ${active.promptCode}:${active.version}`,
+      );
+    }
+    prompt.status = "ACTIVE";
+    prompt.evaluationRunId = evaluation.id;
+    prompt.activatedAt = now();
+    return prompt;
+  }
+
+  async retireModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+  }): Promise<ModelPrompt> {
+    const prompt = await this.getModelPrompt(input.tenantId, input.promptId);
+    if (prompt.status !== "ACTIVE") {
+      throw new ConflictError(
+        `model prompt ${prompt.id} is ${prompt.status}`,
+      );
+    }
+    prompt.status = "RETIRED";
+    prompt.retiredAt = now();
+    return prompt;
   }
 
   async createWorkflowRun(input: {
@@ -5648,6 +5804,165 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapModelEvaluationRun(rows[0]);
   }
 
+  async createModelPrompt(input: {
+    tenantId: string;
+    promptCode: string;
+    version: number;
+    purpose: string;
+    modelProvider: string;
+    modelName: string;
+    template: string;
+  }): Promise<ModelPrompt> {
+    await this.assertTenant(input.tenantId);
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_prompts
+          (id, tenant_id, prompt_code, version, purpose, model_provider,
+           model_name, template, template_hash, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'DRAFT')
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.promptCode,
+          input.version,
+          input.purpose,
+          input.modelProvider,
+          input.modelName,
+          input.template,
+          sha256({ template: input.template }),
+        ],
+      );
+      return this.mapModelPrompt(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `Model prompt ${input.promptCode}:${input.version} already exists`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listModelPrompts(
+    tenantId: string,
+    filter?: { promptCode?: string; status?: ModelPrompt["status"] },
+  ): Promise<ModelPrompt[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM model_prompts WHERE tenant_id=$1";
+    if (filter?.promptCode) {
+      params.push(filter.promptCode);
+      sql += ` AND prompt_code=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY prompt_code, version DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapModelPrompt(row));
+  }
+
+  async getModelPrompt(
+    tenantId: string,
+    promptId: string,
+  ): Promise<ModelPrompt> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM model_prompts WHERE tenant_id=$1 AND id=$2",
+      [tenantId, promptId],
+    );
+    if (!rows[0]) notFound("ModelPrompt", promptId);
+    return this.mapModelPrompt(rows[0]);
+  }
+
+  async activateModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+    evaluationRunId: string;
+  }): Promise<ModelPrompt> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM model_prompts
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.promptId],
+      );
+      if (!rows[0]) notFound("ModelPrompt", input.promptId);
+      const prompt = this.mapModelPrompt(rows[0]);
+      if (prompt.status !== "DRAFT") {
+        throw new ConflictError(
+          `model prompt ${prompt.id} is ${prompt.status}`,
+        );
+      }
+      const { rows: evaluations } = await client.query(
+        `SELECT id, passed, model_provider, model_name
+           FROM model_evaluation_runs
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, input.evaluationRunId],
+      );
+      if (!evaluations[0]) {
+        notFound("ModelEvaluationRun", input.evaluationRunId);
+      }
+      if (!evaluations[0].passed) {
+        throw new ConflictError(
+          `MODEL_EVALUATION_NOT_PASSED: ${input.evaluationRunId}`,
+        );
+      }
+      if (
+        evaluations[0].model_provider !== prompt.modelProvider ||
+        evaluations[0].model_name !== prompt.modelName
+      ) {
+        throw new ConflictError(
+          `MODEL_EVALUATION_MODEL_MISMATCH: ${input.evaluationRunId}`,
+        );
+      }
+      const { rows: active } = await client.query(
+        `SELECT id, version FROM model_prompts
+          WHERE tenant_id=$1 AND prompt_code=$2 AND status='ACTIVE'
+            AND id<>$3`,
+        [input.tenantId, prompt.promptCode, prompt.id],
+      );
+      if (active[0]) {
+        throw new ConflictError(
+          `MODEL_PROMPT_ALREADY_ACTIVE: ${prompt.promptCode}:${active[0].version}`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE model_prompts
+            SET status='ACTIVE', evaluation_run_id=$3, activated_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.promptId, input.evaluationRunId],
+      );
+      return this.mapModelPrompt(updated[0]);
+    });
+  }
+
+  async retireModelPrompt(input: {
+    tenantId: string;
+    promptId: string;
+  }): Promise<ModelPrompt> {
+    const { rows } = await this.pool.query(
+      `UPDATE model_prompts
+          SET status='RETIRED', retired_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.promptId],
+    );
+    if (!rows[0]) {
+      const prompt = await this.getModelPrompt(
+        input.tenantId,
+        input.promptId,
+      );
+      throw new ConflictError(
+        `model prompt ${prompt.id} is ${prompt.status}`,
+      );
+    }
+    return this.mapModelPrompt(rows[0]);
+  }
+
   async createWorkflowRun(input: {
     tenantId: string;
     agentTaskId: string;
@@ -6626,6 +6941,25 @@ export class PgPlatformStore implements PlatformStore {
       passed: row.passed,
       blockers: row.blockers ?? [],
       evaluatedAt: iso(row.evaluated_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapModelPrompt(row: QueryResultRow): ModelPrompt {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      promptCode: row.prompt_code,
+      version: Number(row.version),
+      purpose: row.purpose,
+      modelProvider: row.model_provider,
+      modelName: row.model_name,
+      template: row.template,
+      templateHash: row.template_hash,
+      status: row.status,
+      evaluationRunId: row.evaluation_run_id ?? undefined,
+      activatedAt: iso(row.activated_at),
+      retiredAt: iso(row.retired_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

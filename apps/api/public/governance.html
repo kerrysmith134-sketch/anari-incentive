@@ -507,6 +507,29 @@
     </section>
 
     <section class="card">
+      <h2>提示词注册</h2>
+      <div class="grid">
+        <div><label>提示词编码</label><input id="promptCode" value="EVIDENCE_SUMMARY" /></div>
+        <div><label>版本</label><input id="promptVersion" value="1" /></div>
+        <div><label>用途</label><input id="promptPurpose" value="EVIDENCE_SUMMARY" /></div>
+        <div><label>模型提供方</label><input id="promptProvider" value="anthropic" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>模型名</label><input id="promptModel" value="claude" /></div>
+        <div><label>激活用评测 ID</label><input id="promptEvaluation" placeholder="UUID" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createPrompt" style="width:100%">创建提示词</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshPrompts" style="width:100%">刷新提示词</button></div>
+      </div>
+      <label style="margin-top:10px">模板</label>
+      <textarea id="promptTemplate">Summarize the supplied evidence without assigning a numeric score.</textarea>
+      <div class="status" id="promptStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>版本</th><th>状态</th><th>模型</th><th>操作</th></tr></thead>
+        <tbody id="promptRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>周期就绪度</h2>
       <div class="grid">
         <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
@@ -1720,6 +1743,75 @@
       }
     }
 
+    async function loadPrompts() {
+      try {
+        const prompts = await api("/api/v1/model-prompts");
+        $("promptRows").innerHTML = prompts.map((prompt) => `<tr>
+          <td class="mono">${escapeHtml(prompt.promptCode)}</td>
+          <td>v${prompt.version}</td>
+          <td><span class="pill">${escapeHtml(prompt.status)}</span></td>
+          <td>${escapeHtml(prompt.modelProvider)}/${escapeHtml(prompt.modelName)}</td>
+          <td>
+            ${prompt.status === "DRAFT" ? `<button data-activate-prompt="${prompt.id}">激活</button>` : ""}
+            ${prompt.status === "ACTIVE" ? `<button data-retire-prompt="${prompt.id}">停用</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus("promptStatus", `共 ${prompts.length} 个提示词版本`, "ok");
+      } catch (error) {
+        setStatus("promptStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createPrompt() {
+      try {
+        await api("/api/v1/model-prompts", {
+          method: "POST",
+          body: JSON.stringify({
+            promptCode: $("promptCode").value.trim(),
+            version: Number($("promptVersion").value),
+            purpose: $("promptPurpose").value.trim(),
+            modelProvider: $("promptProvider").value.trim(),
+            modelName: $("promptModel").value.trim(),
+            template: $("promptTemplate").value.trim(),
+          }),
+        });
+        setStatus("promptStatus", "提示词草稿已创建", "ok");
+        await loadPrompts();
+      } catch (error) {
+        setStatus("promptStatus", String(error.message), "bad");
+      }
+    }
+
+    async function activatePrompt(id) {
+      const evaluationRunId = $("promptEvaluation").value.trim();
+      if (!evaluationRunId) {
+        setStatus("promptStatus", "请填写激活用评测 ID", "bad");
+        return;
+      }
+      try {
+        await api(`/api/v1/model-prompts/${id}/activate`, {
+          method: "POST",
+          body: JSON.stringify({ evaluationRunId }),
+        });
+        setStatus("promptStatus", "提示词已激活", "ok");
+        await loadPrompts();
+      } catch (error) {
+        setStatus("promptStatus", String(error.message), "bad");
+      }
+    }
+
+    async function retirePrompt(id) {
+      try {
+        await api(`/api/v1/model-prompts/${id}/retire`, {
+          method: "POST",
+        });
+        setStatus("promptStatus", "提示词已停用", "ok");
+        await loadPrompts();
+      } catch (error) {
+        setStatus("promptStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -1910,6 +2002,19 @@
       if (button) finishWorkflow(button.dataset.finishWorkflow);
     });
     $("refreshAi").addEventListener("click", loadAi);
+    $("createPrompt").addEventListener("click", createPrompt);
+    $("refreshPrompts").addEventListener("click", loadPrompts);
+    $("promptRows").addEventListener("click", (event) => {
+      const activate = event.target.closest(
+        "button[data-activate-prompt]",
+      );
+      if (activate) {
+        activatePrompt(activate.dataset.activatePrompt);
+        return;
+      }
+      const retire = event.target.closest("button[data-retire-prompt]");
+      if (retire) retirePrompt(retire.dataset.retirePrompt);
+    });
     $("loadReadiness").addEventListener("click", loadReadiness);
     $("loadPolicyReadiness").addEventListener(
       "click",
@@ -1938,6 +2043,7 @@
         loadLedgerEntries(),
         loadAdjustments(),
         loadAi(),
+        loadPrompts(),
       ]);
     })();
   </script>

@@ -2126,6 +2126,38 @@ describePg("PgStore vertical slice", () => {
         .sampleSize,
     ).toBe(50);
 
+    const prompt = await platform.createModelPrompt({
+      tenantId: DEMO_TENANT_ID,
+      promptCode: "PG_EVIDENCE_SUMMARY",
+      version: 1,
+      purpose: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      template: "Summarize evidence without scoring.",
+    });
+    expect(prompt.status).toBe("DRAFT");
+    expect(prompt.templateHash).toMatch(/^sha256:/);
+    const activatedPrompt = await platform.activateModelPrompt({
+      tenantId: DEMO_TENANT_ID,
+      promptId: prompt.id,
+      evaluationRunId: evaluation.id,
+    });
+    expect(activatedPrompt.status).toBe("ACTIVE");
+    expect(activatedPrompt.evaluationRunId).toBe(evaluation.id);
+    expect(
+      (
+        await platform.listModelPrompts(DEMO_TENANT_ID, {
+          promptCode: "PG_EVIDENCE_SUMMARY",
+          status: "ACTIVE",
+        })
+      ).map((candidate) => candidate.id),
+    ).toEqual([prompt.id]);
+    const retiredPrompt = await platform.retireModelPrompt({
+      tenantId: DEMO_TENANT_ID,
+      promptId: prompt.id,
+    });
+    expect(retiredPrompt.status).toBe("RETIRED");
+
     const workflow = await platform.createWorkflowRun({
       tenantId: DEMO_TENANT_ID,
       agentTaskId: task.id,

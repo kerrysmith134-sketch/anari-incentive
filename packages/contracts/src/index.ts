@@ -487,6 +487,23 @@ export type CreateModelEvaluationRunBody = z.infer<
   typeof createModelEvaluationRunSchema
 >;
 
+export const createModelPromptSchema = z.object({
+  promptCode: z.string().min(1),
+  version: z.number().int().positive(),
+  purpose: z.string().min(1),
+  modelProvider: z.string().min(1),
+  modelName: z.string().min(1),
+  template: z.string().min(1),
+});
+export type CreateModelPromptBody = z.infer<typeof createModelPromptSchema>;
+
+export const activateModelPromptSchema = z.object({
+  evaluationRunId: uuidSchema,
+});
+export type ActivateModelPromptBody = z.infer<
+  typeof activateModelPromptSchema
+>;
+
 export const createWorkflowRunSchema = z.object({
   agentTaskId: uuidSchema,
   workflowName: z.string().min(1),

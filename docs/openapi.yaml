@@ -2211,6 +2211,111 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/model-prompts:
+    get:
+      tags: [Agent]
+      summary: List versioned model prompts
+      parameters:
+        - name: promptCode
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [DRAFT, ACTIVE, RETIRED]
+      responses:
+        "200":
+          description: Model prompts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Create a draft model prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelPrompt"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/model-prompts/{id}/activate:
+    post:
+      tags: [Agent]
+      summary: Activate a model prompt with a passed evaluation
+      description: The evaluation must pass and match the prompt's provider and model; another active version of the same prompt code must be retired first.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateModelPrompt"
+      responses:
+        "200":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/model-prompts/{id}/retire:
+    post:
+      tags: [Agent]
+      summary: Retire an active model prompt
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/workflow-runs:
     get:
       tags: [Agent]
@@ -5395,6 +5500,32 @@ components:
           type: array
           items:
             type: string
+
+    CreateModelPrompt:
+      type: object
+      required:
+        [promptCode, version, purpose, modelProvider, modelName, template]
+      properties:
+        promptCode:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        purpose:
+          type: string
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        template:
+          type: string
+
+    ActivateModelPrompt:
+      type: object
+      required: [evaluationRunId]
+      properties:
+        evaluationRunId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateWorkflowRun:
       type: object

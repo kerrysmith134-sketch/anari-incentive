@@ -60,6 +60,8 @@ import {
   createAiSuggestionLogSchema,
   acceptAiSuggestionSchema,
   createModelEvaluationRunSchema,
+  createModelPromptSchema,
+  activateModelPromptSchema,
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
   createIntegrationConnectionSchema,
@@ -3191,6 +3193,64 @@ export function buildApp(
         tenantOf(request),
         idOf(request),
       ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-prompts", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createModelPromptSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createModelPrompt({
+          tenantId: tenantOf(request),
+          promptCode: body.promptCode,
+          version: body.version,
+          purpose: body.purpose,
+          modelProvider: body.modelProvider,
+          modelName: body.modelName,
+          template: body.template,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/model-prompts", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      promptCode?: string;
+      status?: "DRAFT" | "ACTIVE" | "RETIRED";
+    };
+    return data(
+      await platformStore.listModelPrompts(tenantOf(request), {
+        promptCode: query.promptCode,
+        status: query.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-prompts/:id/activate", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(activateModelPromptSchema, request.body);
+    return data(
+      await platformStore.activateModelPrompt({
+        tenantId: tenantOf(request),
+        promptId: idOf(request),
+        evaluationRunId: body.evaluationRunId,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-prompts/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retireModelPrompt({
+        tenantId: tenantOf(request),
+        promptId: idOf(request),
+      }),
       request,
     );
   });

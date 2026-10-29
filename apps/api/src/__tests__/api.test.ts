@@ -2275,6 +2275,102 @@ describe("AI suggestion logs and workflow runs", () => {
     );
     expect(workflows.body.data).toHaveLength(1);
   });
+
+  it("activates a model prompt only with a matching passed evaluation", async () => {
+    const createPrompt = (version: number) =>
+      call("POST", "/api/v1/model-prompts", {
+        promptCode: "EVIDENCE_SUMMARY",
+        version,
+        purpose: "EVIDENCE_SUMMARY",
+        modelProvider: "anthropic",
+        modelName: "claude",
+        template: "Summarize evidence without scoring.",
+      });
+    const prompt = await createPrompt(1);
+    expect(prompt.status).toBe(201);
+    expect(prompt.body.data.status).toBe("DRAFT");
+    expect(prompt.body.data.templateHash).toMatch(/^sha256:/);
+    const duplicate = await createPrompt(1);
+    expect(duplicate.status).toBe(409);
+
+    const evaluation = (modelName: string, passed: boolean) =>
+      call("POST", "/api/v1/model-evaluation-runs", {
+        evaluationType: "IRR",
+        modelProvider: "anthropic",
+        modelName,
+        promptVersion: "v1",
+        datasetRef: "gold-set-1",
+        sampleSize: 50,
+        metrics: { kappa: passed ? 0.8 : 0.3 },
+        subgroupMetrics: {},
+        passed,
+        blockers: passed ? [] : ["KAPPA_BELOW_THRESHOLD"],
+      });
+    const failedEvaluation = await evaluation("claude", false);
+    const failedActivation = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: failedEvaluation.body.data.id },
+    );
+    expect(failedActivation.status).toBe(409);
+    expect(failedActivation.body.error.message).toContain(
+      "MODEL_EVALUATION_NOT_PASSED",
+    );
+
+    const mismatch = await evaluation("claude-other", true);
+    const mismatchActivation = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: mismatch.body.data.id },
+    );
+    expect(mismatchActivation.status).toBe(409);
+    expect(mismatchActivation.body.error.message).toContain(
+      "MODEL_EVALUATION_MODEL_MISMATCH",
+    );
+
+    const passedEvaluation = await evaluation("claude", true);
+    const activated = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: passedEvaluation.body.data.id },
+    );
+    expect(activated.status).toBe(200);
+    expect(activated.body.data.status).toBe("ACTIVE");
+    expect(activated.body.data.evaluationRunId).toBe(
+      passedEvaluation.body.data.id,
+    );
+
+    const second = await createPrompt(2);
+    const concurrentActivation = await call(
+      "POST",
+      `/api/v1/model-prompts/${second.body.data.id}/activate`,
+      { evaluationRunId: passedEvaluation.body.data.id },
+    );
+    expect(concurrentActivation.status).toBe(409);
+    expect(concurrentActivation.body.error.message).toContain(
+      "MODEL_PROMPT_ALREADY_ACTIVE",
+    );
+
+    const retired = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/retire`,
+    );
+    expect(retired.status).toBe(200);
+    expect(retired.body.data.status).toBe("RETIRED");
+    const activatedSecond = await call(
+      "POST",
+      `/api/v1/model-prompts/${second.body.data.id}/activate`,
+      { evaluationRunId: passedEvaluation.body.data.id },
+    );
+    expect(activatedSecond.status).toBe(200);
+    expect(activatedSecond.body.data.status).toBe("ACTIVE");
+    const activePrompts = await call(
+      "GET",
+      "/api/v1/model-prompts?promptCode=EVIDENCE_SUMMARY&status=ACTIVE",
+    );
+    expect(activePrompts.body.data).toHaveLength(1);
+    expect(activePrompts.body.data[0].version).toBe(2);
+  });
 });
 
 describe("integrations", () => {

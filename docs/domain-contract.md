@@ -221,6 +221,9 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /ai-suggestion-logs` | manager/finance, agent task exists | Records prompt/model/input hash, output and validation status |
 | `POST /ai-suggestion-logs/:id/accept` | not already accepted, person exists | Records one-time human acceptance |
 | `POST /model-evaluation-runs` | manager/finance | Records metrics, subgroup metrics, pass/fail and blockers |
+| `POST /model-prompts` | admin | Creates a DRAFT versioned prompt with a template hash |
+| `POST /model-prompts/:id/activate` | admin, DRAFT, passed evaluation for the same provider/model, no other ACTIVE version of the code | Sets ACTIVE, links the evaluation and records `activatedAt` |
+| `POST /model-prompts/:id/retire` | admin, ACTIVE | Sets RETIRED and records `retiredAt` |
 | `POST /workflow-runs` | manager/finance, agent task exists | Records a workflow run with state |
 | `POST /workflow-runs/:id/finish` | manager/finance, not finished | Sets status, current step and `finishedAt` |
 | `POST /integration-connections` | admin | Creates an ACTIVE connection with a credential reference |

@@ -737,6 +737,25 @@ export interface ModelEvaluationRun {
   createdAt: string;
 }
 
+export type ModelPromptStatus = "DRAFT" | "ACTIVE" | "RETIRED";
+
+export interface ModelPrompt {
+  id: UUID;
+  tenantId: UUID;
+  promptCode: string;
+  version: number;
+  purpose: string;
+  modelProvider: string;
+  modelName: string;
+  template: string;
+  templateHash: string;
+  status: ModelPromptStatus;
+  evaluationRunId?: UUID;
+  activatedAt?: string;
+  retiredAt?: string;
+  createdAt: string;
+}
+
 export interface WorkflowRun {
   id: UUID;
   tenantId: UUID;
