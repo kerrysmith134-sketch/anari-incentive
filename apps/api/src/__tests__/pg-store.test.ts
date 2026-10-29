@@ -2269,6 +2269,95 @@ describePg("PgStore vertical slice", () => {
     ).toBe(true);
   });
 
+  it("scopes governance records by tenant", async () => {
+    const platform = new PgPlatformStore(pool);
+    const tenantA = await platform.createTenant({
+      name: "Isolation A",
+      slug: `isolation-a-${Date.now()}`,
+    });
+    const tenantB = await platform.createTenant({
+      name: "Isolation B",
+      slug: `isolation-b-${Date.now()}`,
+    });
+    const personA = await platform.createPerson({
+      tenantId: tenantA.id,
+      employeeCode: "ISO-A1",
+      displayName: "Isolation Person A",
+    });
+    const noticeA = await platform.createNotice({
+      tenantId: tenantA.id,
+      noticeType: "POLICY",
+      title: "Isolation notice",
+      bodyRef: "isolation-notice",
+      effectiveFrom: "2026-01-01T00:00:00Z",
+      acknowledgementRequired: false,
+    });
+    const approvalA = await platform.createApprovalRequest({
+      tenantId: tenantA.id,
+      actionType: "SETTLEMENT_LOCK",
+      targetType: "SETTLEMENT_BATCH",
+      targetId: personA.id,
+      targetVersion: 1,
+      requestedByType: "USER",
+      requestedById: personA.id,
+      riskTier: "T2",
+      requiredApprovals: 1,
+      payloadHash: "sha256:isolation",
+      idempotencyKey: `isolation-${Date.now()}`,
+    });
+    const connectionA = await platform.createIntegrationConnection({
+      tenantId: tenantA.id,
+      provider: "isolation",
+      connectionName: "Isolation connection",
+      credentialRef: "vault://isolation",
+      config: {},
+    });
+    await platform.receiveWebhook({
+      tenantId: tenantA.id,
+      sourceSystem: "isolation",
+      messageId: "isolation-message",
+      payloadHash: "sha256:isolation-webhook",
+    });
+    await platform.receiveInboxMessage({
+      tenantId: tenantA.id,
+      consumerName: "isolation",
+      messageId: "isolation-inbox",
+    });
+    await platform.upsertExternalIdentity({
+      tenantId: tenantA.id,
+      sourceSystem: "isolation",
+      externalId: "isolation-external",
+      personId: personA.id,
+      objectType: "PERSON",
+    });
+
+    expect(
+      (await platform.listNotices(tenantA.id)).some(
+        (notice) => notice.id === noticeA.id,
+      ),
+    ).toBe(true);
+    expect(await platform.listNotices(tenantB.id)).toEqual([]);
+    await expect(
+      platform.getNotice(tenantB.id, noticeA.id),
+    ).rejects.toMatchObject({ code: "RESOURCE_NOT_FOUND" });
+
+    expect(await platform.listApprovalRequests(tenantB.id)).toEqual([]);
+    await expect(
+      platform.getApprovalRequest(tenantB.id, approvalA.id),
+    ).rejects.toMatchObject({ code: "RESOURCE_NOT_FOUND" });
+
+    expect(await platform.listIntegrationConnections(tenantB.id)).toEqual(
+      [],
+    );
+    await expect(
+      platform.getIntegrationConnection(tenantB.id, connectionA.id),
+    ).rejects.toMatchObject({ code: "RESOURCE_NOT_FOUND" });
+
+    expect(await platform.listWebhooks(tenantB.id)).toEqual([]);
+    expect(await platform.listInboxMessages(tenantB.id)).toEqual([]);
+    expect(await platform.listExternalIdentities(tenantB.id)).toEqual([]);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",
