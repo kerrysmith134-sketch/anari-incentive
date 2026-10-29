@@ -1889,6 +1889,34 @@ describePg("PgStore vertical slice", () => {
         )
       ).some((candidate) => candidate.id === link.id),
     ).toBe(true);
+
+    const metricCode = `PG_METRIC_${Date.now()}`;
+    const metric = await platform.createMetricDefinition({
+      tenantId: DEMO_TENANT_ID,
+      code: metricCode,
+      version: 1,
+      name: "PG metric",
+      dataType: "DECIMAL",
+      sourceContract: { source: "ERP" },
+      effectiveFrom: "2026-01-01",
+    });
+    expect(metric.active).toBe(true);
+    await expect(
+      platform.createMetricDefinition({
+        tenantId: DEMO_TENANT_ID,
+        code: metricCode,
+        version: 1,
+        name: "Duplicate",
+        dataType: "DECIMAL",
+        sourceContract: {},
+        effectiveFrom: "2026-01-01",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const retiredMetric = await platform.retireMetricDefinition({
+      tenantId: DEMO_TENANT_ID,
+      metricId: metric.id,
+    });
+    expect(retiredMetric.active).toBe(false);
   });
 
   it("records applied migrations", async () => {

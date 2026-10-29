@@ -394,6 +394,33 @@ export type CreatePolicyNoticeBody = z.infer<
   typeof createPolicyNoticeSchema
 >;
 
+export const createMetricDefinitionSchema = z
+  .object({
+    code: z.string().min(1),
+    version: z.number().int().positive(),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    dataType: z.string().min(1),
+    unit: z.string().optional(),
+    aggregationMethod: z.string().optional(),
+    sourceContract: z.record(z.unknown()).default({}),
+    effectiveFrom: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)"),
+    effectiveTo: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
+      .optional(),
+  })
+  .refine(
+    (value) =>
+      !value.effectiveTo || value.effectiveTo >= value.effectiveFrom,
+    "effectiveTo must not be before effectiveFrom",
+  );
+export type CreateMetricDefinitionBody = z.infer<
+  typeof createMetricDefinitionSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

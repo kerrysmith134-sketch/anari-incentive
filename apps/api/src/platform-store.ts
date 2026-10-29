@@ -18,6 +18,7 @@ import type {
   EmployeeNotice,
   EmployeeRepresentation,
   FinancialFact,
+  MetricDefinition,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -387,6 +388,27 @@ export interface PlatformStore {
     tenantId: string,
     policyVersionId?: string,
   ): Promise<PolicyNotice[]>;
+  createMetricDefinition(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    description?: string;
+    dataType: string;
+    unit?: string;
+    aggregationMethod?: string;
+    sourceContract: Record<string, unknown>;
+    effectiveFrom: string;
+    effectiveTo?: string;
+  }): Promise<MetricDefinition>;
+  listMetricDefinitions(
+    tenantId: string,
+    filter?: { code?: string; active?: boolean },
+  ): Promise<MetricDefinition[]>;
+  retireMetricDefinition(input: {
+    tenantId: string;
+    metricId: string;
+  }): Promise<MetricDefinition>;
 }
 
 function now(): string {
@@ -425,6 +447,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly ruleChangeOrders = new Map<string, RuleChangeOrder>();
   private readonly policyTestCases = new Map<string, PolicyTestCase>();
   private readonly policyNotices = new Map<string, PolicyNotice>();
+  private readonly metricDefinitions = new Map<string, MetricDefinition>();
 
   constructor(
     options: {
@@ -1997,6 +2020,94 @@ export class MemoryPlatformStore implements PlatformStore {
             link.policyVersionId === policyVersionId),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createMetricDefinition(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    description?: string;
+    dataType: string;
+    unit?: string;
+    aggregationMethod?: string;
+    sourceContract: Record<string, unknown>;
+    effectiveFrom: string;
+    effectiveTo?: string;
+  }): Promise<MetricDefinition> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.metricDefinitions.values()].some(
+        (metric) =>
+          metric.tenantId === input.tenantId &&
+          metric.code === input.code &&
+          metric.version === input.version,
+      )
+    ) {
+      throw new ConflictError(
+        `metric ${input.code} v${input.version} already exists`,
+      );
+    }
+    if (
+      input.effectiveTo &&
+      input.effectiveTo < input.effectiveFrom
+    ) {
+      throw new ConflictError(
+        "effectiveTo must not be before effectiveFrom",
+      );
+    }
+    const metric: MetricDefinition = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      version: input.version,
+      name: input.name,
+      description: input.description,
+      dataType: input.dataType,
+      unit: input.unit,
+      aggregationMethod: input.aggregationMethod,
+      sourceContract: input.sourceContract,
+      active: true,
+      effectiveFrom: input.effectiveFrom,
+      effectiveTo: input.effectiveTo,
+      createdAt: now(),
+    };
+    this.metricDefinitions.set(metric.id, metric);
+    return metric;
+  }
+
+  async listMetricDefinitions(
+    tenantId: string,
+    filter?: { code?: string; active?: boolean },
+  ): Promise<MetricDefinition[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.metricDefinitions.values()]
+      .filter(
+        (metric) =>
+          metric.tenantId === tenantId &&
+          (!filter?.code || metric.code === filter.code) &&
+          (filter?.active === undefined ||
+            metric.active === filter.active),
+      )
+      .sort(
+        (a, b) =>
+          a.code.localeCompare(b.code) || b.version - a.version,
+      );
+  }
+
+  async retireMetricDefinition(input: {
+    tenantId: string;
+    metricId: string;
+  }): Promise<MetricDefinition> {
+    const metric = this.metricDefinitions.get(input.metricId);
+    if (!metric || metric.tenantId !== input.tenantId) {
+      notFound("MetricDefinition", input.metricId);
+    }
+    if (!metric.active) {
+      throw new ConflictError(`metric ${metric.id} is already retired`);
+    }
+    metric.active = false;
+    return metric;
   }
 
   private assertUserNotLinked(
@@ -3985,6 +4096,105 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createMetricDefinition(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    description?: string;
+    dataType: string;
+    unit?: string;
+    aggregationMethod?: string;
+    sourceContract: Record<string, unknown>;
+    effectiveFrom: string;
+    effectiveTo?: string;
+  }): Promise<MetricDefinition> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO metric_definitions
+          (id, tenant_id, code, version, name, description, data_type,
+           unit, aggregation_method, source_contract, effective_from,
+           effective_to)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.version,
+          input.name,
+          input.description ?? null,
+          input.dataType,
+          input.unit ?? null,
+          input.aggregationMethod ?? null,
+          input.sourceContract,
+          input.effectiveFrom,
+          input.effectiveTo ?? null,
+        ],
+      );
+      return this.mapMetricDefinition(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `metric ${input.code} v${input.version} already exists`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      if (code === "23514") {
+        throw new ConflictError(
+          "effectiveTo must not be before effectiveFrom",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listMetricDefinitions(
+    tenantId: string,
+    filter?: { code?: string; active?: boolean },
+  ): Promise<MetricDefinition[]> {
+    await this.assertTenant(tenantId);
+    const params: Array<string | boolean> = [tenantId];
+    let sql = "SELECT * FROM metric_definitions WHERE tenant_id=$1";
+    if (filter?.code) {
+      params.push(filter.code);
+      sql += ` AND code=$${params.length}`;
+    }
+    if (filter?.active !== undefined) {
+      params.push(filter.active);
+      sql += ` AND active=$${params.length}`;
+    }
+    sql += " ORDER BY code, version DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapMetricDefinition(row));
+  }
+
+  async retireMetricDefinition(input: {
+    tenantId: string;
+    metricId: string;
+  }): Promise<MetricDefinition> {
+    const { rows } = await this.pool.query(
+      `UPDATE metric_definitions SET active=false
+        WHERE tenant_id=$1 AND id=$2 AND active=true
+        RETURNING *`,
+      [input.tenantId, input.metricId],
+    );
+    if (!rows[0]) {
+      const { rows: existing } = await this.pool.query(
+        "SELECT * FROM metric_definitions WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.metricId],
+      );
+      if (!existing[0]) notFound("MetricDefinition", input.metricId);
+      throw new ConflictError(
+        `metric ${input.metricId} is already retired`,
+      );
+    }
+    return this.mapMetricDefinition(rows[0]);
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -4361,6 +4571,25 @@ export class PgPlatformStore implements PlatformStore {
       policyVersionId: row.policy_version_id,
       noticeId: row.notice_id,
       audience: row.audience ?? {},
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapMetricDefinition(row: QueryResultRow): MetricDefinition {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      version: Number(row.version),
+      name: row.name,
+      description: row.description ?? undefined,
+      dataType: row.data_type,
+      unit: row.unit ?? undefined,
+      aggregationMethod: row.aggregation_method ?? undefined,
+      sourceContract: row.source_contract ?? {},
+      active: row.active,
+      effectiveFrom: isoDate(row.effective_from) ?? "",
+      effectiveTo: isoDate(row.effective_to),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

@@ -483,6 +483,23 @@ export interface PolicyNotice {
   createdAt: string;
 }
 
+export interface MetricDefinition {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  version: number;
+  name: string;
+  description?: string;
+  dataType: string;
+  unit?: string;
+  aggregationMethod?: string;
+  sourceContract: Record<string, unknown>;
+  active: boolean;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

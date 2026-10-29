@@ -1972,6 +1972,49 @@ describe("policy governance", () => {
     );
     expect(links.body.data).toHaveLength(1);
     expect(links.body.data[0].audience).toEqual({ group: "all" });
+
+    const metric = await call("POST", "/api/v1/metric-definitions", {
+      code: "GP_MARGIN",
+      version: 1,
+      name: "Gross profit margin",
+      dataType: "DECIMAL",
+      aggregationMethod: "SUM",
+      effectiveFrom: "2026-01-01",
+    });
+    expect(metric.status).toBe(201);
+    expect(metric.body.data.active).toBe(true);
+    const metricId = metric.body.data.id as string;
+
+    const duplicateMetric = await call(
+      "POST",
+      "/api/v1/metric-definitions",
+      {
+        code: "GP_MARGIN",
+        version: 1,
+        name: "Duplicate",
+        dataType: "DECIMAL",
+        effectiveFrom: "2026-01-01",
+      },
+    );
+    expect(duplicateMetric.status).toBe(409);
+
+    const metrics = await call(
+      "GET",
+      "/api/v1/metric-definitions?code=GP_MARGIN",
+    );
+    expect(metrics.body.data).toHaveLength(1);
+
+    const retiredMetric = await call(
+      "POST",
+      `/api/v1/metric-definitions/${metricId}/retire`,
+    );
+    expect(retiredMetric.status).toBe(200);
+    expect(retiredMetric.body.data.active).toBe(false);
+    const reRetireMetric = await call(
+      "POST",
+      `/api/v1/metric-definitions/${metricId}/retire`,
+    );
+    expect(reRetireMetric.status).toBe(409);
   });
 });
 

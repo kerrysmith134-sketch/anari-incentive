@@ -1836,6 +1836,79 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/metric-definitions:
+    get:
+      tags: [Policy]
+      summary: List metric definitions
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Metric definitions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Policy]
+      summary: Create a metric definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMetricDefinition"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/metric-definitions/{id}/retire:
+    post:
+      tags: [Policy]
+      summary: Retire a metric definition
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -4131,6 +4204,35 @@ components:
         audience:
           type: object
           additionalProperties: true
+
+    CreateMetricDefinition:
+      type: object
+      required: [code, version, name, dataType, effectiveFrom]
+      properties:
+        code:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        description:
+          type: string
+        dataType:
+          type: string
+        unit:
+          type: string
+        aggregationMethod:
+          type: string
+        sourceContract:
+          type: object
+          additionalProperties: true
+        effectiveFrom:
+          type: string
+          format: date
+        effectiveTo:
+          type: string
+          format: date
 
     CalculationOrder:
       type: object

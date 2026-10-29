@@ -50,6 +50,7 @@ import {
   reviewRuleChangeOrderSchema,
   createPolicyTestCaseSchema,
   createPolicyNoticeSchema,
+  createMetricDefinitionSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -2135,6 +2136,53 @@ export function buildApp(
         tenantOf(request),
         query.policyVersionId,
       ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/metric-definitions", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createMetricDefinitionSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createMetricDefinition({
+          tenantId: tenantOf(request),
+          code: body.code,
+          version: body.version,
+          name: body.name,
+          description: body.description,
+          dataType: body.dataType,
+          unit: body.unit,
+          aggregationMethod: body.aggregationMethod,
+          sourceContract: body.sourceContract ?? {},
+          effectiveFrom: body.effectiveFrom,
+          effectiveTo: body.effectiveTo,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/metric-definitions", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { code?: string; active?: string };
+    return data(
+      await platformStore.listMetricDefinitions(tenantOf(request), {
+        code: query.code,
+        active:
+          query.active === undefined ? undefined : query.active === "true",
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/metric-definitions/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retireMetricDefinition({
+        tenantId: tenantOf(request),
+        metricId: idOf(request),
+      }),
       request,
     );
   });

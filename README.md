@@ -34,7 +34,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Ledger | Append-only, idempotent, lock, linked reversal (`POST /ledger/:id/reverse`), per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Batch operations | Work-package acceptance, attribution decisions and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
 | Batch calculation | `POST /calculation-runs:batch` validates and creates up to 50 runs in one transaction; any blocked item rolls back all runs and ledger entries |
-| Policy governance | Rule change orders (DRAFT → APPROVED/REJECTED → PUBLICIZED, requester ≠ approver), versioned policy test cases (ACTIVE/RETIRED) and policy-notice links with audience |
+| Policy governance | Rule change orders (DRAFT → APPROVED/REJECTED → PUBLICIZED, requester ≠ approver), versioned policy test cases (ACTIVE/RETIRED), policy-notice links with audience, and versioned metric definitions with effective dates and retirement |
 | Budgets | Draft → approved budget pools per cycle with decimal amounts; reserved allocations cannot exceed the approved pool; releasing an allocation restores the committed amount; cash-gate inputs record the reserve, forecast reference and pass/fail per cycle date; financial facts upsert by source key with quality status |
 | Approvals | Approval requests with payload hash, risk tier, required approval count, idempotency key, expiry, separation of duties, per-approver decisions and one-time consumption |
 | Recalculation | Targeted recalculation requests (`EVIDENCE`/`ATTRIBUTION`/`EVALUATION`/`LEDGER`) with open → approved/rejected → completed lifecycle; completion records the new calculation run; targets are validated before recording |
@@ -262,6 +262,8 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST/GET | `/api/v1/policy-test-cases` | Create/list policy test cases |
 | POST | `/api/v1/policy-test-cases/:id/retire` | Retire a test case |
 | POST/GET | `/api/v1/policy-notices` | Link/list policy notices |
+| POST/GET | `/api/v1/metric-definitions` | Create/list metric definitions |
+| POST | `/api/v1/metric-definitions/:id/retire` | Retire a metric definition |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | POST | `/api/v1/calculation-runs:batch` | Up to 50 calculation runs in one atomic transaction |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |

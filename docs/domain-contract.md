@@ -206,6 +206,8 @@ Additional application-level invariants:
 | `POST /policy-test-cases` | admin, policy exists, case code unique per version | Creates an ACTIVE test case |
 | `POST /policy-test-cases/:id/retire` | admin, ACTIVE | Sets RETIRED |
 | `POST /policy-notices` | admin, policy and notice exist, unique link | Links a notice to a policy version with an audience |
+| `POST /metric-definitions` | admin, code+version unique | Creates an ACTIVE versioned metric with effective dates |
+| `POST /metric-definitions/:id/retire` | admin, ACTIVE | Sets the metric inactive |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
