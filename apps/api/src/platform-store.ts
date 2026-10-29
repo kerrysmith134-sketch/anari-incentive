@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, QueryResultRow } from "pg";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
+  ApprovalDecision,
+  ApprovalRequest,
+  ApprovalRiskTier,
+  ApprovalStatus,
   ConsultationOutcome,
   ConsultationType,
   DpiaAssessmentType,
@@ -186,6 +190,50 @@ export interface PlatformStore {
     retentionPolicyId: string;
     legalHold: boolean;
   }): Promise<RetentionPolicy>;
+  createApprovalRequest(input: {
+    tenantId: string;
+    actionType: string;
+    targetType: string;
+    targetId: string;
+    targetVersion: number;
+    requestedByType: "USER" | "AGENT" | "SYSTEM";
+    requestedById?: string;
+    riskTier: ApprovalRiskTier;
+    requiredApprovals: number;
+    expiresAt?: string;
+    payloadHash: string;
+    idempotencyKey: string;
+  }): Promise<ApprovalRequest>;
+  listApprovalRequests(
+    tenantId: string,
+    filter?: {
+      status?: ApprovalStatus;
+      targetType?: string;
+      targetId?: string;
+    },
+  ): Promise<ApprovalRequest[]>;
+  getApprovalRequest(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalRequest>;
+  listApprovalDecisions(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalDecision[]>;
+  decideApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    decision: "APPROVE" | "REJECT";
+    approverPersonId: string;
+    payloadHash: string;
+    reason?: string;
+    authContext: Record<string, unknown>;
+  }): Promise<ApprovalRequest>;
+  consumeApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    consumedBy: string;
+  }): Promise<ApprovalRequest>;
 }
 
 function now(): string {
@@ -210,6 +258,8 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly dpias = new Map<string, DpiaRecord>();
   private readonly dsars = new Map<string, DsarRequest>();
   private readonly retentionPolicies = new Map<string, RetentionPolicy>();
+  private readonly approvalRequests = new Map<string, ApprovalRequest>();
+  private readonly approvalDecisions = new Map<string, ApprovalDecision>();
 
   constructor(
     options: {
@@ -971,6 +1021,193 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     policy.legalHold = input.legalHold;
     return policy;
+  }
+
+  async createApprovalRequest(input: {
+    tenantId: string;
+    actionType: string;
+    targetType: string;
+    targetId: string;
+    targetVersion: number;
+    requestedByType: "USER" | "AGENT" | "SYSTEM";
+    requestedById?: string;
+    riskTier: ApprovalRiskTier;
+    requiredApprovals: number;
+    expiresAt?: string;
+    payloadHash: string;
+    idempotencyKey: string;
+  }): Promise<ApprovalRequest> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const existing = [...this.approvalRequests.values()].find(
+      (request) =>
+        request.tenantId === input.tenantId &&
+        request.idempotencyKey === input.idempotencyKey,
+    );
+    if (existing) {
+      if (existing.payloadHash !== input.payloadHash) {
+        throw new ConflictError(
+          `idempotency key ${input.idempotencyKey} was reused with a different payload`,
+        );
+      }
+      return existing;
+    }
+    const request: ApprovalRequest = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      actionType: input.actionType,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      targetVersion: input.targetVersion,
+      requestedByType: input.requestedByType,
+      requestedById: input.requestedById,
+      riskTier: input.riskTier,
+      status: "PENDING",
+      requiredApprovals: input.requiredApprovals,
+      approvedCount: 0,
+      expiresAt: input.expiresAt,
+      payloadHash: input.payloadHash,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: now(),
+    };
+    this.approvalRequests.set(request.id, request);
+    return request;
+  }
+
+  async listApprovalRequests(
+    tenantId: string,
+    filter?: {
+      status?: ApprovalStatus;
+      targetType?: string;
+      targetId?: string;
+    },
+  ): Promise<ApprovalRequest[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.approvalRequests.values()]
+      .filter(
+        (request) =>
+          request.tenantId === tenantId &&
+          (!filter?.status || request.status === filter.status) &&
+          (!filter?.targetType || request.targetType === filter.targetType) &&
+          (!filter?.targetId || request.targetId === filter.targetId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getApprovalRequest(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalRequest> {
+    const request = this.approvalRequests.get(requestId);
+    if (!request || request.tenantId !== tenantId) {
+      notFound("ApprovalRequest", requestId);
+    }
+    return request;
+  }
+
+  async listApprovalDecisions(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalDecision[]> {
+    await this.getApprovalRequest(tenantId, requestId);
+    return [...this.approvalDecisions.values()]
+      .filter((decision) => decision.requestId === requestId)
+      .sort((a, b) => a.decidedAt.localeCompare(b.decidedAt));
+  }
+
+  async decideApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    decision: "APPROVE" | "REJECT";
+    approverPersonId: string;
+    payloadHash: string;
+    reason?: string;
+    authContext: Record<string, unknown>;
+  }): Promise<ApprovalRequest> {
+    const request = await this.getApprovalRequest(
+      input.tenantId,
+      input.requestId,
+    );
+    if (request.status !== "PENDING") {
+      throw new ConflictError(
+        `approval request ${request.id} is ${request.status}`,
+      );
+    }
+    if (request.expiresAt && new Date(request.expiresAt) <= new Date()) {
+      request.status = "EXPIRED";
+      throw new ConflictError(`approval request ${request.id} has expired`);
+    }
+    if (input.payloadHash !== request.payloadHash) {
+      throw new ConflictError(
+        "PAYLOAD_HASH_MISMATCH: the approved payload differs from the request",
+      );
+    }
+    if (
+      request.requestedByType === "USER" &&
+      request.requestedById === input.approverPersonId
+    ) {
+      throw new ConflictError(
+        "SEPARATION_OF_DUTIES: the requester cannot approve their own request",
+      );
+    }
+    const approver = this.persons.get(input.approverPersonId);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approverPersonId);
+    }
+    const key = `${request.id}:${input.approverPersonId}`;
+    if (this.approvalDecisions.has(key)) {
+      throw new ConflictError(
+        `approver ${input.approverPersonId} already decided this request`,
+      );
+    }
+    const decision: ApprovalDecision = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      requestId: request.id,
+      decision: input.decision,
+      approverPersonId: input.approverPersonId,
+      payloadHash: input.payloadHash,
+      reason: input.reason,
+      decidedAt: now(),
+      authContext: input.authContext,
+    };
+    this.approvalDecisions.set(key, decision);
+    if (input.decision === "REJECT") {
+      request.status = "REJECTED";
+    } else {
+      request.approvedCount += 1;
+      if (request.approvedCount >= request.requiredApprovals) {
+        request.status = "APPROVED";
+      }
+    }
+    return request;
+  }
+
+  async consumeApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    consumedBy: string;
+  }): Promise<ApprovalRequest> {
+    const request = await this.getApprovalRequest(
+      input.tenantId,
+      input.requestId,
+    );
+    if (request.status !== "APPROVED") {
+      throw new ConflictError(
+        `approval request ${request.id} is ${request.status}`,
+      );
+    }
+    if (request.consumedAt) {
+      throw new ConflictError(
+        `approval request ${request.id} was already consumed`,
+      );
+    }
+    const consumer = this.persons.get(input.consumedBy);
+    if (!consumer || consumer.tenantId !== input.tenantId) {
+      notFound("Person", input.consumedBy);
+    }
+    request.consumedAt = now();
+    request.consumedBy = input.consumedBy;
+    return request;
   }
 
   private assertUserNotLinked(
@@ -1927,6 +2164,277 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapRetentionPolicy(rows[0]);
   }
 
+  async createApprovalRequest(input: {
+    tenantId: string;
+    actionType: string;
+    targetType: string;
+    targetId: string;
+    targetVersion: number;
+    requestedByType: "USER" | "AGENT" | "SYSTEM";
+    requestedById?: string;
+    riskTier: ApprovalRiskTier;
+    requiredApprovals: number;
+    expiresAt?: string;
+    payloadHash: string;
+    idempotencyKey: string;
+  }): Promise<ApprovalRequest> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO approval_requests
+          (id, tenant_id, action_type, target_type, target_id,
+           target_version, requested_by_type, requested_by_id, risk_tier,
+           required_approvals, expires_at, payload_hash, idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.actionType,
+          input.targetType,
+          input.targetId,
+          input.targetVersion,
+          input.requestedByType,
+          input.requestedById ?? null,
+          input.riskTier,
+          input.requiredApprovals,
+          input.expiresAt ?? null,
+          input.payloadHash,
+          input.idempotencyKey,
+        ],
+      );
+      return this.mapApprovalRequest(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        const { rows } = await this.pool.query(
+          `SELECT * FROM approval_requests
+            WHERE tenant_id=$1 AND idempotency_key=$2`,
+          [input.tenantId, input.idempotencyKey],
+        );
+        if (rows[0] && rows[0].payload_hash === input.payloadHash) {
+          return this.mapApprovalRequest(rows[0]);
+        }
+        throw new ConflictError(
+          `idempotency key ${input.idempotencyKey} was reused with a different payload`,
+        );
+      }
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listApprovalRequests(
+    tenantId: string,
+    filter?: {
+      status?: ApprovalStatus;
+      targetType?: string;
+      targetId?: string;
+    },
+  ): Promise<ApprovalRequest[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM approval_requests WHERE tenant_id=$1";
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    if (filter?.targetType) {
+      params.push(filter.targetType);
+      sql += ` AND target_type=$${params.length}`;
+    }
+    if (filter?.targetId) {
+      params.push(filter.targetId);
+      sql += ` AND target_id=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapApprovalRequest(row));
+  }
+
+  async getApprovalRequest(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalRequest> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM approval_requests WHERE tenant_id=$1 AND id=$2",
+      [tenantId, requestId],
+    );
+    if (!rows[0]) notFound("ApprovalRequest", requestId);
+    return this.mapApprovalRequest(rows[0]);
+  }
+
+  async listApprovalDecisions(
+    tenantId: string,
+    requestId: string,
+  ): Promise<ApprovalDecision[]> {
+    await this.getApprovalRequest(tenantId, requestId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM approval_decisions
+        WHERE tenant_id=$1 AND request_id=$2
+        ORDER BY decided_at`,
+      [tenantId, requestId],
+    );
+    return rows.map((row) => this.mapApprovalDecision(row));
+  }
+
+  async decideApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    decision: "APPROVE" | "REJECT";
+    approverPersonId: string;
+    payloadHash: string;
+    reason?: string;
+    authContext: Record<string, unknown>;
+  }): Promise<ApprovalRequest> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM approval_requests
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.requestId],
+      );
+      if (!rows[0]) notFound("ApprovalRequest", input.requestId);
+      const request = this.mapApprovalRequest(rows[0]);
+      if (request.status !== "PENDING") {
+        throw new ConflictError(
+          `approval request ${request.id} is ${request.status}`,
+        );
+      }
+      if (request.expiresAt && new Date(request.expiresAt) <= new Date()) {
+        await client.query(
+          `UPDATE approval_requests SET status='EXPIRED'
+            WHERE tenant_id=$1 AND id=$2`,
+          [input.tenantId, input.requestId],
+        );
+        throw new ConflictError(
+          `approval request ${request.id} has expired`,
+        );
+      }
+      if (input.payloadHash !== request.payloadHash) {
+        throw new ConflictError(
+          "PAYLOAD_HASH_MISMATCH: the approved payload differs from the request",
+        );
+      }
+      if (
+        request.requestedByType === "USER" &&
+        request.requestedById === input.approverPersonId
+      ) {
+        throw new ConflictError(
+          "SEPARATION_OF_DUTIES: the requester cannot approve their own request",
+        );
+      }
+      try {
+        await client.query(
+          `INSERT INTO approval_decisions
+            (id, tenant_id, request_id, decision, approver_person_id,
+             payload_hash, reason, auth_context)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            randomUUID(),
+            input.tenantId,
+            input.requestId,
+            input.decision,
+            input.approverPersonId,
+            input.payloadHash,
+            input.reason ?? null,
+            input.authContext,
+          ],
+        );
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "23505") {
+          throw new ConflictError(
+            `approver ${input.approverPersonId} already decided this request`,
+          );
+        }
+        if (code === "23503") {
+          throw new NotFoundError(
+            `Person ${input.approverPersonId} not found`,
+          );
+        }
+        throw error;
+      }
+      const approvedCount =
+        input.decision === "APPROVE"
+          ? request.approvedCount + 1
+          : request.approvedCount;
+      const status: ApprovalStatus =
+        input.decision === "REJECT"
+          ? "REJECTED"
+          : approvedCount >= request.requiredApprovals
+            ? "APPROVED"
+            : "PENDING";
+      const { rows: updated } = await client.query(
+        `UPDATE approval_requests
+            SET approved_count=$3, status=$4
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.requestId, approvedCount, status],
+      );
+      return this.mapApprovalRequest(updated[0]);
+    });
+  }
+
+  async consumeApprovalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    consumedBy: string;
+  }): Promise<ApprovalRequest> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM approval_requests
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.requestId],
+      );
+      if (!rows[0]) notFound("ApprovalRequest", input.requestId);
+      const request = this.mapApprovalRequest(rows[0]);
+      if (request.status !== "APPROVED") {
+        throw new ConflictError(
+          `approval request ${request.id} is ${request.status}`,
+        );
+      }
+      if (request.consumedAt) {
+        throw new ConflictError(
+          `approval request ${request.id} was already consumed`,
+        );
+      }
+      try {
+        const { rows: updated } = await client.query(
+          `UPDATE approval_requests
+              SET consumed_at=now(), consumed_by=$3
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [input.tenantId, input.requestId, input.consumedBy],
+        );
+        return this.mapApprovalRequest(updated[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${input.consumedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
+  private async transaction<T>(
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -2107,6 +2615,43 @@ export class PgPlatformStore implements PlatformStore {
       legalBasis: row.legal_basis,
       legalHold: row.legal_hold,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapApprovalRequest(row: QueryResultRow): ApprovalRequest {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      actionType: row.action_type,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      targetVersion: Number(row.target_version),
+      requestedByType: row.requested_by_type,
+      requestedById: row.requested_by_id ?? undefined,
+      riskTier: row.risk_tier,
+      status: row.status,
+      requiredApprovals: Number(row.required_approvals),
+      approvedCount: Number(row.approved_count),
+      expiresAt: iso(row.expires_at),
+      payloadHash: row.payload_hash,
+      idempotencyKey: row.idempotency_key,
+      consumedAt: iso(row.consumed_at),
+      consumedBy: row.consumed_by ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapApprovalDecision(row: QueryResultRow): ApprovalDecision {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      requestId: row.request_id,
+      decision: row.decision,
+      approverPersonId: row.approver_person_id,
+      payloadHash: row.payload_hash,
+      reason: row.reason ?? undefined,
+      decidedAt: iso(row.decided_at) ?? new Date().toISOString(),
+      authContext: row.auth_context ?? {},
     };
   }
 }

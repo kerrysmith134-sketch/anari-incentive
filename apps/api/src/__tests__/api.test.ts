@@ -1457,6 +1457,242 @@ describe("retention policies", () => {
   });
 });
 
+describe("approval requests", () => {
+  it("enforces idempotency, payload hash, separation of duties and consumption", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Approval tenant",
+      slug: `approval-${Date.now()}`,
+    });
+    const requester = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "A-001",
+      displayName: "Approval Requester",
+    });
+    const firstApprover = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "A-002",
+      displayName: "First Approver",
+    });
+    const secondApprover = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "A-003",
+      displayName: "Second Approver",
+    });
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "approval-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const call = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+    const targetId = "00000000-0000-4000-8000-0000000000aa";
+
+    const created = await call("POST", "/api/v1/approval-requests", {
+      actionType: "SETTLEMENT_LOCK",
+      targetType: "SETTLEMENT_BATCH",
+      targetId,
+      requestedByType: "USER",
+      requestedById: requester.id,
+      riskTier: "T2",
+      requiredApprovals: 2,
+      payload: { batchId: targetId },
+      idempotencyKey: "approval-1",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("PENDING");
+    const requestId = created.body.data.id as string;
+    const payloadHash = created.body.data.payloadHash as string;
+
+    const replay = await call("POST", "/api/v1/approval-requests", {
+      actionType: "SETTLEMENT_LOCK",
+      targetType: "SETTLEMENT_BATCH",
+      targetId,
+      requestedByType: "USER",
+      requestedById: requester.id,
+      riskTier: "T2",
+      requiredApprovals: 2,
+      payload: { batchId: targetId },
+      idempotencyKey: "approval-1",
+    });
+    expect(replay.status).toBe(201);
+    expect(replay.body.data.id).toBe(requestId);
+
+    const conflictingReplay = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "SETTLEMENT_LOCK",
+        targetType: "SETTLEMENT_BATCH",
+        targetId,
+        requestedByType: "USER",
+        requestedById: requester.id,
+        riskTier: "T2",
+        requiredApprovals: 2,
+        payload: { batchId: "different" },
+        idempotencyKey: "approval-1",
+      },
+    );
+    expect(conflictingReplay.status).toBe(409);
+
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: requester.id,
+        payloadHash,
+      },
+    );
+    expect(selfApproval.status).toBe(409);
+
+    const wrongHash = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: firstApprover.id,
+        payloadHash: "sha256:deadbeef",
+      },
+    );
+    expect(wrongHash.status).toBe(409);
+
+    const firstDecision = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: firstApprover.id,
+        payloadHash,
+      },
+    );
+    expect(firstDecision.status).toBe(200);
+    expect(firstDecision.body.data.status).toBe("PENDING");
+    expect(firstDecision.body.data.approvedCount).toBe(1);
+
+    const duplicateDecision = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: firstApprover.id,
+        payloadHash,
+      },
+    );
+    expect(duplicateDecision.status).toBe(409);
+
+    const secondDecision = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: secondApprover.id,
+        payloadHash,
+      },
+    );
+    expect(secondDecision.status).toBe(200);
+    expect(secondDecision.body.data.status).toBe("APPROVED");
+    expect(secondDecision.body.data.approvedCount).toBe(2);
+
+    const decisions = await call(
+      "GET",
+      `/api/v1/approval-requests/${requestId}/decisions`,
+    );
+    expect(decisions.body.data).toHaveLength(2);
+
+    const consumed = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/consume`,
+      { consumedBy: secondApprover.id },
+    );
+    expect(consumed.status).toBe(200);
+    expect(consumed.body.data.consumedAt).toBeTruthy();
+
+    const reconsumed = await call(
+      "POST",
+      `/api/v1/approval-requests/${requestId}/consume`,
+      { consumedBy: secondApprover.id },
+    );
+    expect(reconsumed.status).toBe(409);
+
+    const rejectedRequest = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "SETTLEMENT_LOCK",
+        targetType: "SETTLEMENT_BATCH",
+        targetId,
+        requestedByType: "USER",
+        requestedById: requester.id,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { batchId: "reject-me" },
+        idempotencyKey: "approval-2",
+      },
+    );
+    const rejected = await call(
+      "POST",
+      `/api/v1/approval-requests/${rejectedRequest.body.data.id}/decide`,
+      {
+        decision: "REJECT",
+        approverPersonId: firstApprover.id,
+        payloadHash: rejectedRequest.body.data.payloadHash,
+        reason: "Amount not verified",
+      },
+    );
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.data.status).toBe("REJECTED");
+
+    const expiredRequest = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "SETTLEMENT_LOCK",
+        targetType: "SETTLEMENT_BATCH",
+        targetId,
+        requestedByType: "USER",
+        requestedById: requester.id,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        payload: { batchId: "expired" },
+        idempotencyKey: "approval-3",
+      },
+    );
+    const expired = await call(
+      "POST",
+      `/api/v1/approval-requests/${expiredRequest.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: firstApprover.id,
+        payloadHash: expiredRequest.body.data.payloadHash,
+      },
+    );
+    expect(expired.status).toBe(409);
+    const expiredList = await call(
+      "GET",
+      "/api/v1/approval-requests?status=EXPIRED",
+    );
+    expect(expiredList.body.data).toHaveLength(1);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

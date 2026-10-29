@@ -36,6 +36,9 @@ import {
   completeRecalculationRequestSchema,
   createRetentionPolicySchema,
   setRetentionLegalHoldSchema,
+  createApprovalRequestSchema,
+  decideApprovalRequestSchema,
+  consumeApprovalRequestSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -77,6 +80,7 @@ import {
 } from "@anari/auth";
 import {
   diffPolicyDefinitions,
+  sha256,
   simulatePolicyChange,
 } from "@anari/policy-dsl";
 import { LedgerError } from "@anari/ledger";
@@ -1605,6 +1609,105 @@ export function buildApp(
         tenantId: tenantOf(request),
         retentionPolicyId: idOf(request),
         legalHold: body.legalHold,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/approval-requests", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createApprovalRequestSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createApprovalRequest({
+          tenantId: tenantOf(request),
+          actionType: body.actionType,
+          targetType: body.targetType,
+          targetId: body.targetId,
+          targetVersion: body.targetVersion ?? 1,
+          requestedByType: body.requestedByType,
+          requestedById: body.requestedById,
+          riskTier: body.riskTier,
+          requiredApprovals: body.requiredApprovals ?? 1,
+          expiresAt: body.expiresAt,
+          payloadHash: sha256(body.payload ?? {}),
+          idempotencyKey: body.idempotencyKey,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/approval-requests", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      status?: string;
+      targetType?: string;
+      targetId?: string;
+    };
+    return data(
+      await platformStore.listApprovalRequests(tenantOf(request), {
+        status: query.status as
+          | "PENDING"
+          | "APPROVED"
+          | "REJECTED"
+          | "EXPIRED"
+          | "CANCELLED"
+          | undefined,
+        targetType: query.targetType,
+        targetId: query.targetId,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/approval-requests/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getApprovalRequest(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/approval-requests/:id/decisions", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listApprovalDecisions(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/approval-requests/:id/decide", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(decideApprovalRequestSchema, request.body);
+    return data(
+      await platformStore.decideApprovalRequest({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        decision: body.decision,
+        approverPersonId: body.approverPersonId,
+        payloadHash: body.payloadHash,
+        reason: body.reason,
+        authContext: body.authContext ?? {},
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/approval-requests/:id/consume", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(consumeApprovalRequestSchema, request.body);
+    return data(
+      await platformStore.consumeApprovalRequest({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        consumedBy: body.consumedBy,
       }),
       request,
     );

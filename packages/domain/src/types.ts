@@ -329,6 +329,48 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export type ApprovalRiskTier = "T0" | "T1" | "T2" | "T3";
+
+export type ApprovalStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "CANCELLED";
+
+export interface ApprovalRequest {
+  id: UUID;
+  tenantId: UUID;
+  actionType: string;
+  targetType: string;
+  targetId: UUID;
+  targetVersion: number;
+  requestedByType: "USER" | "AGENT" | "SYSTEM";
+  requestedById?: UUID;
+  riskTier: ApprovalRiskTier;
+  status: ApprovalStatus;
+  requiredApprovals: number;
+  approvedCount: number;
+  expiresAt?: string;
+  payloadHash: string;
+  idempotencyKey: string;
+  consumedAt?: string;
+  consumedBy?: UUID;
+  createdAt: string;
+}
+
+export interface ApprovalDecision {
+  id: UUID;
+  tenantId: UUID;
+  requestId: UUID;
+  decision: "APPROVE" | "REJECT";
+  approverPersonId: UUID;
+  payloadHash: string;
+  reason?: string;
+  decidedAt: string;
+  authContext: Record<string, unknown>;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

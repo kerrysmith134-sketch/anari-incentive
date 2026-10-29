@@ -189,6 +189,9 @@ Additional application-level invariants:
 | `POST /dsar-requests/:id/resolve` | admin, DSAR is OPEN | Sets RESOLVED/REJECTED with a resolution reference and timestamp; re-resolution is rejected |
 | `POST /retention-policies` | admin, category unique per tenant | Creates a retention rule with months, legal basis and legal hold |
 | `POST /retention-policies/:id/legal-hold` | admin, policy exists | Sets or clears the legal hold |
+| `POST /approval-requests` | manager/finance; idempotency key | Creates PENDING with payload hash, risk tier and required approvals; replay with a different payload conflicts |
+| `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
+| `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

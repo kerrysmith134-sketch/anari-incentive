@@ -31,6 +31,7 @@ tags:
   - name: Calculation
   - name: Confirmations
   - name: Compliance
+  - name: Approvals
   - name: Ledger
   - name: Appeals
   - name: Evidence
@@ -1143,6 +1144,163 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/approval-requests:
+    get:
+      tags: [Approvals]
+      summary: List approval requests
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED]
+        - name: targetType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: targetId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Approval requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Approvals]
+      summary: Create an approval request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApprovalRequest"
+      responses:
+        "201":
+          description: Created or replayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/approval-requests/{id}:
+    get:
+      tags: [Approvals]
+      summary: Read an approval request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Approval request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/approval-requests/{id}/decisions:
+    get:
+      tags: [Approvals]
+      summary: List approval decisions
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Decisions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/approval-requests/{id}/decide:
+    post:
+      tags: [Approvals]
+      summary: Approve or reject an approval request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideApprovalRequest"
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/approval-requests/{id}/consume:
+    post:
+      tags: [Approvals]
+      summary: Mark an approved request as consumed
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsumeApprovalRequest"
+      responses:
+        "200":
+          description: Consumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
 
   /api/v1/calculation-runs:batch:
     post:
@@ -3124,6 +3282,66 @@ components:
       properties:
         legalHold:
           type: boolean
+
+    CreateApprovalRequest:
+      type: object
+      required:
+        [actionType, targetType, targetId, requestedByType, riskTier, idempotencyKey]
+      properties:
+        actionType:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        targetVersion:
+          type: integer
+          minimum: 1
+          default: 1
+        requestedByType:
+          type: string
+          enum: [USER, AGENT, SYSTEM]
+        requestedById:
+          $ref: "#/components/schemas/Uuid"
+        riskTier:
+          type: string
+          enum: [T0, T1, T2, T3]
+        requiredApprovals:
+          type: integer
+          minimum: 1
+          default: 1
+        expiresAt:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+        idempotencyKey:
+          type: string
+
+    DecideApprovalRequest:
+      type: object
+      required: [decision, approverPersonId, payloadHash]
+      properties:
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        approverPersonId:
+          $ref: "#/components/schemas/Uuid"
+        payloadHash:
+          type: string
+        reason:
+          type: string
+        authContext:
+          type: object
+          additionalProperties: true
+
+    ConsumeApprovalRequest:
+      type: object
+      required: [consumedBy]
+      properties:
+        consumedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CalculationOrder:
       type: object

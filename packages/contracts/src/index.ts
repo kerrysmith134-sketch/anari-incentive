@@ -255,6 +255,41 @@ export type SetRetentionLegalHoldBody = z.infer<
   typeof setRetentionLegalHoldSchema
 >;
 
+export const createApprovalRequestSchema = z.object({
+  actionType: z.string().min(1),
+  targetType: z.string().min(1),
+  targetId: uuidSchema,
+  targetVersion: z.number().int().positive().default(1),
+  requestedByType: z.enum(["USER", "AGENT", "SYSTEM"]),
+  requestedById: uuidSchema.optional(),
+  riskTier: z.enum(["T0", "T1", "T2", "T3"]),
+  requiredApprovals: z.number().int().positive().default(1),
+  expiresAt: z.string().datetime().optional(),
+  payload: z.record(z.unknown()).default({}),
+  idempotencyKey: z.string().min(1),
+});
+export type CreateApprovalRequestBody = z.infer<
+  typeof createApprovalRequestSchema
+>;
+
+export const decideApprovalRequestSchema = z.object({
+  decision: z.enum(["APPROVE", "REJECT"]),
+  approverPersonId: uuidSchema,
+  payloadHash: z.string().min(1),
+  reason: z.string().min(1).optional(),
+  authContext: z.record(z.unknown()).default({}),
+});
+export type DecideApprovalRequestBody = z.infer<
+  typeof decideApprovalRequestSchema
+>;
+
+export const consumeApprovalRequestSchema = z.object({
+  consumedBy: uuidSchema,
+});
+export type ConsumeApprovalRequestBody = z.infer<
+  typeof consumeApprovalRequestSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

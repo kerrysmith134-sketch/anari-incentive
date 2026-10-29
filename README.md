@@ -34,6 +34,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Ledger | Append-only, idempotent, lock, linked reversal (`POST /ledger/:id/reverse`), per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Batch operations | Work-package acceptance, attribution decisions and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
 | Batch calculation | `POST /calculation-runs:batch` validates and creates up to 50 runs in one transaction; any blocked item rolls back all runs and ledger entries |
+| Approvals | Approval requests with payload hash, risk tier, required approval count, idempotency key, expiry, separation of duties, per-approver decisions and one-time consumption |
 | Recalculation | Targeted recalculation requests (`EVIDENCE`/`ATTRIBUTION`/`EVALUATION`/`LEDGER`) with open → approved/rejected → completed lifecycle; completion records the new calculation run; targets are validated before recording |
 | Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL commands; verified line-to-ledger match; CSV export with employee code/name; RECOVERY batches may be negative and require every affected person's SETTLEMENT confirmation before locking |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request; referencing a notice id requires complete acknowledgement coverage, referencing a consultation id requires a concluded consultation for that policy version, and referencing a DPIA id requires an approved assessment |
@@ -53,7 +54,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **145 unit/API tests + 28 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **146 unit/API tests + 29 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, approval requests, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## Operations
 
@@ -236,6 +237,11 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/recalculation-requests/:id/complete` | Complete with a new calculation run |
 | POST/GET | `/api/v1/retention-policies` | Create/list data-retention policies |
 | POST | `/api/v1/retention-policies/:id/legal-hold` | Set/clear a legal hold |
+| POST/GET | `/api/v1/approval-requests` | Create/list approval requests |
+| GET | `/api/v1/approval-requests/:id` | Read an approval request |
+| GET | `/api/v1/approval-requests/:id/decisions` | List approval decisions |
+| POST | `/api/v1/approval-requests/:id/decide` | Approve or reject with payload hash |
+| POST | `/api/v1/approval-requests/:id/consume` | Mark an approved request consumed |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | POST | `/api/v1/calculation-runs:batch` | Up to 50 calculation runs in one atomic transaction |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |

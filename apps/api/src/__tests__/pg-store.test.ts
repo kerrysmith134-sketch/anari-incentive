@@ -1554,6 +1554,101 @@ describePg("PgStore vertical slice", () => {
     expect(held.legalHold).toBe(true);
   });
 
+  it("records approval requests with dual decisions", async () => {
+    const platform = new PgPlatformStore(pool);
+    const idempotencyKey = `pg-approval-${Date.now()}`;
+    const request = await platform.createApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      actionType: "LEDGER_LOCK",
+      targetType: "LEDGER_ENTRY",
+      targetId: "00000000-0000-4000-8000-0000000000ab",
+      targetVersion: 1,
+      requestedByType: "USER",
+      requestedById: OWNER,
+      riskTier: "T2",
+      requiredApprovals: 2,
+      payloadHash: "sha256:pg-approval-payload",
+      idempotencyKey,
+    });
+    expect(request.status).toBe("PENDING");
+
+    const replay = await platform.createApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      actionType: "LEDGER_LOCK",
+      targetType: "LEDGER_ENTRY",
+      targetId: "00000000-0000-4000-8000-0000000000ab",
+      targetVersion: 1,
+      requestedByType: "USER",
+      requestedById: OWNER,
+      riskTier: "T2",
+      requiredApprovals: 2,
+      payloadHash: "sha256:pg-approval-payload",
+      idempotencyKey,
+    });
+    expect(replay.id).toBe(request.id);
+
+    await expect(
+      platform.decideApprovalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: request.id,
+        decision: "APPROVE",
+        approverPersonId: OWNER,
+        payloadHash: "sha256:pg-approval-payload",
+        authContext: {},
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    await expect(
+      platform.decideApprovalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: request.id,
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: "sha256:wrong",
+        authContext: {},
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const first = await platform.decideApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: request.id,
+      decision: "APPROVE",
+      approverPersonId: ADJUDICATOR,
+      payloadHash: "sha256:pg-approval-payload",
+      authContext: { role: "finance" },
+    });
+    expect(first.status).toBe("PENDING");
+    expect(first.approvedCount).toBe(1);
+
+    const second = await platform.decideApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: request.id,
+      decision: "APPROVE",
+      approverPersonId: MEMBER,
+      payloadHash: "sha256:pg-approval-payload",
+      authContext: { role: "finance" },
+    });
+    expect(second.status).toBe("APPROVED");
+    expect(second.approvedCount).toBe(2);
+    expect(
+      await platform.listApprovalDecisions(DEMO_TENANT_ID, request.id),
+    ).toHaveLength(2);
+
+    const consumed = await platform.consumeApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: request.id,
+      consumedBy: ADJUDICATOR,
+    });
+    expect(consumed.consumedAt).toBeTruthy();
+    await expect(
+      platform.consumeApprovalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: request.id,
+        consumedBy: ADJUDICATOR,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",
