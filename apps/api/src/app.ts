@@ -86,6 +86,7 @@ import {
   linkPersonUserSchema,
   policySimulationSchema,
   publishPolicySchema,
+  rollbackPolicySchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
@@ -105,6 +106,7 @@ import {
   InvalidStateTransitionError,
   InvariantViolationError,
   type CalculationRun,
+  type PolicyRollbackResult,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
@@ -1122,6 +1124,48 @@ export function buildApp(
     const published = await storeFor(request).publishPolicy(body);
     countEvent("policy_published");
     return reply.status(201).send(data(published, request));
+  });
+
+  app.post("/api/v1/policy-versions/:id/rollback", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(rollbackPolicySchema, request.body);
+    await ensureApproval(request, "POLICY_PUBLISH", body.approvalRequestId);
+    const store = storeFor(request);
+    const source = await store.getPolicyVersion(idOf(request));
+    if (body.approvalRequestId) {
+      if (!body.newPolicyVersionId) {
+        throw new ConflictError(
+          "POLICY_VERSION_ID_REQUIRED: an approval needs a planned policy version id",
+        );
+      }
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "POLICY_PUBLISH",
+        targetType: "POLICY_VERSION",
+        targetId: body.newPolicyVersionId,
+      });
+    }
+    const versions = await store.listPolicyVersions();
+    const nextVersion =
+      Math.max(
+        0,
+        ...versions
+          .filter((version) => version.code === source.code)
+          .map((version) => version.version),
+      ) + 1;
+    const published = await store.publishPolicy({
+      policy: { ...source.policy, version: nextVersion },
+      policyVersionId: body.newPolicyVersionId,
+      effectiveFrom: body.effectiveFrom,
+      approvedBy: body.approvedBy,
+      scope: source.scope,
+    });
+    countEvent("policy_published");
+    const result: PolicyRollbackResult = {
+      ...published,
+      sourcePolicyVersionId: source.policyVersionId,
+    };
+    return reply.status(201).send(data(result, request));
   });
 
   app.post("/api/v1/policy-simulations", async (request) => {

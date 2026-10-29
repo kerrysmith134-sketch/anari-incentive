@@ -2993,6 +2993,85 @@ describe("observability", () => {
     expect(denied.body.error.message).toContain("APPROVAL_REQUIRED");
   });
 
+  it("consumes a POLICY_PUBLISH approval when rolling back", async () => {
+    const base = {
+      code: "ROLLBACK_APPROVAL_POLICY",
+      currency: "CNY",
+      poolRate: "0.05",
+      poolCap: "1000",
+      rounding: "HALF_UP" as const,
+      calculator: "SIMPLE_POOL" as const,
+    };
+    const first = await appStore.publishPolicy({
+      policy: { ...base, version: 1 },
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    await appStore.publishPolicy({
+      policy: { ...base, version: 2, poolRate: "0.07" },
+      effectiveFrom: "2027-02-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requiredApprovals: ["POLICY_PUBLISH"] },
+    );
+
+    const denied = await call(
+      "POST",
+      `/api/v1/policy-versions/${first.policyVersionId}/rollback`,
+      {
+        effectiveFrom: "2027-03-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(denied.status).toBe(409);
+    expect(denied.body.error.message).toContain("APPROVAL_REQUIRED");
+
+    const newPolicyVersionId = "00000000-0000-4000-8000-0000000008b8";
+    const approval = await call("POST", "/api/v1/approval-requests", {
+      actionType: "POLICY_PUBLISH",
+      targetType: "POLICY_VERSION",
+      targetId: newPolicyVersionId,
+      requestedByType: "USER",
+      requestedById: OWNER,
+      riskTier: "T2",
+      requiredApprovals: 1,
+      payload: { policyVersionId: newPolicyVersionId },
+      idempotencyKey: `rollback-approval-${newPolicyVersionId}`,
+    });
+    expect(approval.status).toBe(201);
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${approval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: approval.body.data.payloadHash,
+      },
+    );
+
+    const rollback = await call(
+      "POST",
+      `/api/v1/policy-versions/${first.policyVersionId}/rollback`,
+      {
+        newPolicyVersionId,
+        effectiveFrom: "2027-03-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+        approvalRequestId: approval.body.data.id,
+      },
+    );
+    expect(rollback.status).toBe(201);
+    expect(rollback.body.data.policyVersionId).toBe(newPolicyVersionId);
+    expect(rollback.body.data.policy.version).toBe(3);
+    const consumed = await call(
+      "GET",
+      `/api/v1/approval-requests/${approval.body.data.id}`,
+    );
+    expect(consumed.body.data.consumedAt).toBeTruthy();
+  });
+
   it("renders business event counters", async () => {
     const created = await call("POST", "/api/v1/approval-requests", {
       actionType: "SETTLEMENT_LOCK",
@@ -4637,6 +4716,123 @@ describe("vertical slice", () => {
     });
     expect(duplicate.status).toBe(409);
     expect(duplicate.body.error.code).toBe("CONFLICT");
+  });
+
+  it("closes the seeded reference policy window on succession", async () => {
+    const published = await call("POST", "/api/v1/policy-versions", {
+      policy: {
+        code: "GENERIC_CONTRIBUTION_V1",
+        version: 11,
+        currency: "CNY",
+        poolRate: "0.06",
+        poolCap: "100000",
+        rounding: "HALF_UP",
+        calculator: "SIMPLE_POOL",
+      },
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(published.status).toBe(201);
+    const versions = (await call("GET", "/api/v1/policy-versions")).body
+      .data as Array<{
+      policyVersionId: string;
+      effectiveFrom?: string;
+      effectiveTo?: string;
+    }>;
+    expect(
+      versions.find(
+        (version) => version.policyVersionId === REFERENCE_POLICY_ID,
+      )?.effectiveTo,
+    ).toBe("2027-01-01T00:00:00Z");
+    expect(
+      versions.find(
+        (version) =>
+          version.policyVersionId === published.body.data.policyVersionId,
+      )?.effectiveTo,
+    ).toBeUndefined();
+  });
+
+  it("rolls a policy back as a new version and closes the prior window", async () => {
+    const base = {
+      code: "ROLLBACK_POLICY",
+      currency: "CNY",
+      poolRate: "0.05",
+      poolCap: "100000",
+      rounding: "HALF_UP" as const,
+      calculator: "SIMPLE_POOL" as const,
+    };
+    const first = await call("POST", "/api/v1/policy-versions", {
+      policy: { ...base, version: 1 },
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(first.status).toBe(201);
+    const second = await call("POST", "/api/v1/policy-versions", {
+      policy: { ...base, version: 2, poolRate: "0.07" },
+      effectiveFrom: "2027-02-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(second.status).toBe(201);
+
+    type Version = {
+      policyVersionId: string;
+      version: number;
+      effectiveFrom?: string;
+      effectiveTo?: string;
+    };
+    let versions = (await call("GET", "/api/v1/policy-versions"))
+      .body.data as Version[];
+    expect(
+      versions.find(
+        (version) => version.policyVersionId === first.body.data.policyVersionId,
+      )?.effectiveTo,
+    ).toBe("2027-02-01T00:00:00Z");
+    expect(
+      versions.find(
+        (version) =>
+          version.policyVersionId === second.body.data.policyVersionId,
+      )?.effectiveTo,
+    ).toBeUndefined();
+
+    const rollback = await call(
+      "POST",
+      `/api/v1/policy-versions/${first.body.data.policyVersionId}/rollback`,
+      {
+        effectiveFrom: "2027-03-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(rollback.status).toBe(201);
+    expect(rollback.body.data.sourcePolicyVersionId).toBe(
+      first.body.data.policyVersionId,
+    );
+    expect(rollback.body.data.policy.version).toBe(3);
+    expect(rollback.body.data.policy.poolRate).toBe("0.05");
+
+    versions = (await call("GET", "/api/v1/policy-versions")).body
+      .data as Version[];
+    expect(
+      versions.find(
+        (version) =>
+          version.policyVersionId === second.body.data.policyVersionId,
+      )?.effectiveTo,
+    ).toBe("2027-03-01T00:00:00Z");
+    const rolled = versions.find(
+      (version) =>
+        version.policyVersionId === rollback.body.data.policyVersionId,
+    );
+    expect(rolled?.version).toBe(3);
+    expect(rolled?.effectiveTo).toBeUndefined();
+
+    const missing = await call(
+      "POST",
+      "/api/v1/policy-versions/00000000-0000-4000-8000-000000000999/rollback",
+      {
+        effectiveFrom: "2027-04-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(missing.status).toBe(404);
   });
 
   it("runs a proactive agent scan across the tenant", async () => {

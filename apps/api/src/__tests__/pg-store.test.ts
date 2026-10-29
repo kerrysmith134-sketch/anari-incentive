@@ -1085,6 +1085,11 @@ describePg("PgStore vertical slice", () => {
     expect(loaded.code).toBe("GENERIC_CONTRIBUTION_V1");
     expect(loaded.version).toBe(42);
 
+    const superseded = await store.getPolicyVersion(REFERENCE_POLICY_ID);
+    expect(superseded.effectiveTo).toBe(
+      new Date("2026-11-01T00:00:00Z").toISOString(),
+    );
+
     const versions = await store.listPolicyVersions();
     expect(
       versions.some(
@@ -1101,6 +1106,41 @@ describePg("PgStore vertical slice", () => {
         approvedBy: ADJUDICATOR,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("reads policy version details and closes windows on succession", async () => {
+    const base = {
+      code: "PG_POLICY_SUCCESSION",
+      currency: "CNY",
+      poolRate: "0.05",
+      poolCap: "100000",
+      rounding: "HALF_UP" as const,
+      calculator: "SIMPLE_POOL" as const,
+    };
+    const first = await store.publishPolicy({
+      policy: { ...base, version: 1 },
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+      scope: { region: "CN" },
+    });
+    const second = await store.publishPolicy({
+      policy: { ...base, version: 2, poolRate: "0.07" },
+      effectiveFrom: "2027-02-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+
+    const detail = await store.getPolicyVersion(first.policyVersionId);
+    expect(detail.code).toBe("PG_POLICY_SUCCESSION");
+    expect(detail.version).toBe(1);
+    expect(detail.policy.poolRate).toBe("0.05");
+    expect(detail.scope).toEqual({ region: "CN" });
+    expect(detail.effectiveTo).toBe(
+      new Date("2027-02-01T00:00:00Z").toISOString(),
+    );
+
+    const current = await store.getPolicyVersion(second.policyVersionId);
+    expect(current.version).toBe(2);
+    expect(current.effectiveTo).toBeUndefined();
   });
 
   it("persists and rehydrates agent tasks with audit", async () => {

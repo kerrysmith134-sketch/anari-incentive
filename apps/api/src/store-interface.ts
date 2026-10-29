@@ -21,6 +21,7 @@ import type {
   IngestionResult,
   LegalGateRecord,
   PolicyDefinition,
+  PolicyVersionDetail,
   PolicyVersionSummary,
   PublishPolicyInput,
   PublishedPolicy,
@@ -71,6 +72,7 @@ export interface IncentiveStore {
   /** Optional dependency check used by /ready. */
   ping?(): Promise<void>;
   getPolicy(policyVersionId: string): Promise<PolicyDefinition>;
+  getPolicyVersion(policyVersionId: string): Promise<PolicyVersionDetail>;
   listPolicyVersions(): Promise<PolicyVersionSummary[]>;
   publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy>;
 

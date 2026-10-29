@@ -173,7 +173,7 @@
       <div class="status" id="policyStatus"></div>
       <table>
         <thead>
-        <tr><th>编码</th><th>版本</th><th>状态</th><th>生效</th><th>结束</th></tr>
+        <tr><th>编码</th><th>版本</th><th>状态</th><th>生效</th><th>结束</th><th>操作</th></tr>
         </thead>
         <tbody id="policyVersions"></tbody>
       </table>
@@ -1941,6 +1941,7 @@ order-batch-2,80000</textarea>
           <td><span class="pill">${escapeHtml(version.status)}</span></td>
           <td>${escapeHtml(version.effectiveFrom || "—")}</td>
           <td>${escapeHtml(version.effectiveTo || "—")}</td>
+          <td><button data-rollback-policy="${version.policyVersionId}">回滚至此</button></td>
         </tr>`).join("");
         const options = versions.map(
           (version) =>
@@ -1981,6 +1982,25 @@ order-batch-2,80000</textarea>
           }),
         });
         setStatus("policyStatus", "政策已发布；FORMAL 计算仍需单独记录法律门禁", "ok");
+        await loadPolicies();
+        await loadAudit();
+      } catch (error) {
+        setStatus("policyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function rollbackPolicy(policyVersionId) {
+      try {
+        const effectiveFrom = $("policyEffectiveFrom").value.trim();
+        const approvedBy = $("policyApprover").value.trim();
+        if (!effectiveFrom || !approvedBy) {
+          throw new Error("请填写生效时间和批准人 ID");
+        }
+        await api(`/api/v1/policy-versions/${policyVersionId}/rollback`, {
+          method: "POST",
+          body: JSON.stringify({ effectiveFrom, approvedBy }),
+        });
+        setStatus("policyStatus", "已回滚为新的政策版本；旧版本保持不可变", "ok");
         await loadPolicies();
         await loadAudit();
       } catch (error) {
@@ -2302,6 +2322,10 @@ order-batch-2,80000</textarea>
     $("refreshAudit").addEventListener("click", loadAudit);
     $("verifyAudit").addEventListener("click", verifyAudit);
     $("publishPolicy").addEventListener("click", publishPolicy);
+    $("policyVersions").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-rollback-policy]");
+      if (button) rollbackPolicy(button.dataset.rollbackPolicy);
+    });
     $("runPolicyDiff").addEventListener("click", runPolicyDiff);
     $("runBatch").addEventListener("click", runBatchCalculation);
     $("createTenant").addEventListener("click", createTenant);

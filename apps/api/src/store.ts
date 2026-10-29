@@ -33,6 +33,7 @@ import {
   type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
+  type PolicyVersionDetail,
   type PolicyVersionSummary,
   type PublishPolicyInput,
   type PublishedPolicy,
@@ -155,6 +156,14 @@ export class Store implements IncentiveStore {
   private readonly ingestedKeys = new Set<string>();
   private readonly publishedPolicies = new Map<string, PolicyDefinition>();
   private readonly publishedPolicyKeys = new Set<string>();
+  private readonly publishedPolicyScopes = new Map<
+    string,
+    Record<string, unknown>
+  >();
+  private readonly policyWindows = new Map<
+    string,
+    { effectiveFrom?: string; effectiveTo?: string }
+  >();
   private readonly publishedPolicySummaries = new Map<
     string,
     PolicyVersionSummary
@@ -189,6 +198,40 @@ export class Store implements IncentiveStore {
     return;
   }
 
+  private fixturePolicySummary(
+    id: string,
+    policy: PolicyDefinition,
+  ): PolicyVersionSummary {
+    const window = this.policyWindows.get(id);
+    return {
+      policyVersionId: id,
+      code: policy.code,
+      version: policy.version,
+      status: "PUBLISHED",
+      effectiveFrom: window?.effectiveFrom,
+      effectiveTo: window?.effectiveTo,
+    };
+  }
+
+  private openPolicyVersion(code: string): PolicyVersionSummary | undefined {
+    const candidates = [
+      ...[...this.publishedPolicySummaries.values()].filter(
+        (summary) => summary.code === code && !summary.effectiveTo,
+      ),
+      ...[...policies.entries()]
+        .filter(
+          ([id, policy]) =>
+            policy.code === code &&
+            !this.publishedPolicySummaries.has(id) &&
+            !this.policyWindows.get(id)?.effectiveTo,
+        )
+        .map(([id, policy]) => this.fixturePolicySummary(id, policy)),
+    ];
+    return candidates.sort((a, b) =>
+      (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""),
+    )[0];
+  }
+
   async getPolicy(policyVersionId: string): Promise<PolicyDefinition> {
     const policy =
       this.publishedPolicies.get(policyVersionId) ??
@@ -197,15 +240,29 @@ export class Store implements IncentiveStore {
     return policy;
   }
 
+  async getPolicyVersion(
+    policyVersionId: string,
+  ): Promise<PolicyVersionDetail> {
+    const policy =
+      this.publishedPolicies.get(policyVersionId) ??
+      policies.get(policyVersionId);
+    if (!policy) notFound("Policy", policyVersionId);
+    const summary =
+      this.publishedPolicySummaries.get(policyVersionId) ??
+      this.fixturePolicySummary(policyVersionId, policy);
+    return {
+      ...summary,
+      policy,
+      scope: structuredClone(
+        this.publishedPolicyScopes.get(policyVersionId) ?? {},
+      ),
+    };
+  }
+
   async listPolicyVersions(): Promise<PolicyVersionSummary[]> {
     const summaries = new Map<string, PolicyVersionSummary>();
     for (const [id, policy] of policies) {
-      summaries.set(id, {
-        policyVersionId: id,
-        code: policy.code,
-        version: policy.version,
-        status: "PUBLISHED",
-      });
+      summaries.set(id, this.fixturePolicySummary(id, policy));
     }
     for (const [id, summary] of this.publishedPolicySummaries) {
       summaries.set(id, summary);
@@ -224,14 +281,48 @@ export class Store implements IncentiveStore {
       throw new ConflictError(`Policy ${policyVersionId} already exists`);
     }
     const policyKey = `${input.policy.code}:${input.policy.version}`;
-    if (this.publishedPolicyKeys.has(policyKey)) {
+    if (
+      this.publishedPolicyKeys.has(policyKey) ||
+      [...policies.values()].some(
+        (policy) =>
+          `${policy.code}:${policy.version}` === policyKey,
+      )
+    ) {
       throw new ConflictError(`Policy ${policyKey} already exists`);
+    }
+
+    const open = this.openPolicyVersion(input.policy.code);
+    if (
+      open?.effectiveFrom &&
+      new Date(input.effectiveFrom).getTime() <=
+        new Date(open.effectiveFrom).getTime()
+    ) {
+      throw new ConflictError(
+        `effectiveFrom must be after the open version (${open.effectiveFrom})`,
+      );
+    }
+    if (open) {
+      const published = this.publishedPolicySummaries.get(
+        open.policyVersionId,
+      );
+      if (published) {
+        published.effectiveTo = input.effectiveFrom;
+      } else {
+        this.policyWindows.set(open.policyVersionId, {
+          effectiveFrom: open.effectiveFrom,
+          effectiveTo: input.effectiveFrom,
+        });
+      }
     }
 
     const publishedAt = now();
     const contentHash = sha256(input.policy);
     this.publishedPolicies.set(policyVersionId, input.policy);
     this.publishedPolicyKeys.add(policyKey);
+    this.publishedPolicyScopes.set(
+      policyVersionId,
+      structuredClone(input.scope ?? {}),
+    );
     this.publishedPolicySummaries.set(policyVersionId, {
       policyVersionId,
       code: input.policy.code,

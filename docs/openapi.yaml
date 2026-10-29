@@ -4254,6 +4254,40 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/policy-versions/{id}/rollback:
+    post:
+      tags: [Policy]
+      summary: Roll back to an earlier policy version
+      description: |
+        Publishes the content of an earlier version as the next version for the
+        same policy code and closes the current effective window. Existing
+        versions stay immutable. Requires admin; when an approvalRequestId is
+        supplied, newPolicyVersionId is required and the approved POLICY_PUBLISH
+        request for that version is consumed.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackPolicy"
+      responses:
+        "201":
+          description: Rolled back as a new published version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/policy-simulations:
     post:
       tags: [Policy]
@@ -5978,6 +6012,22 @@ components:
           allOf:
             - $ref: "#/components/schemas/Uuid"
           description: When supplied, policyVersionId is required and the approved POLICY_PUBLISH request for that version is consumed.
+
+    RollbackPolicy:
+      type: object
+      required: [effectiveFrom, approvedBy]
+      properties:
+        newPolicyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        effectiveFrom:
+          type: string
+          format: date-time
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, newPolicyVersionId is required and the approved POLICY_PUBLISH request for that version is consumed.
 
     PolicySimulation:
       type: object

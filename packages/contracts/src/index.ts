@@ -1057,6 +1057,14 @@ export const publishPolicySchema = z.object({
 });
 export type PublishPolicyBody = z.infer<typeof publishPolicySchema>;
 
+export const rollbackPolicySchema = z.object({
+  newPolicyVersionId: uuidSchema.optional(),
+  effectiveFrom: z.string().datetime(),
+  approvedBy: uuidSchema,
+  approvalRequestId: uuidSchema.optional(),
+});
+export type RollbackPolicyBody = z.infer<typeof rollbackPolicySchema>;
+
 export const policySimulationSchema = z.object({
   currentPolicyVersionId: z.string().min(1),
   proposedPolicy: policyDefinitionSchema,

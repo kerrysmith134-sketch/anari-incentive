@@ -34,6 +34,7 @@ import {
   type IngestionResult,
   type LegalGateRecord,
   type PolicyDefinition,
+  type PolicyVersionDetail,
   type PolicyVersionSummary,
   type PublishPolicyInput,
   type PublishedPolicy,
@@ -157,6 +158,34 @@ export class PgStore implements IncentiveStore {
       );
       if (!rows[0]) notFound("Policy", policyVersionId);
       return rows[0].rule_ast as PolicyDefinition;
+    });
+  }
+
+  async getPolicyVersion(
+    policyVersionId: string,
+  ): Promise<PolicyVersionDetail> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT id, policy_code, version, status, effective_from, effective_to,
+                content_hash, published_at, rule_ast, scope
+           FROM policy_versions
+          WHERE tenant_id = $1 AND id = $2`,
+        [this.tenantId, policyVersionId],
+      );
+      if (!rows[0]) notFound("Policy", policyVersionId);
+      const row = rows[0];
+      return {
+        policyVersionId: row.id,
+        code: row.policy_code,
+        version: asNumber(row.version),
+        status: row.status,
+        effectiveFrom: iso(row.effective_from),
+        effectiveTo: iso(row.effective_to),
+        contentHash: row.content_hash,
+        publishedAt: iso(row.published_at),
+        policy: row.rule_ast as PolicyDefinition,
+        scope: (row.scope ?? {}) as Record<string, unknown>,
+      };
     });
   }
 

@@ -851,6 +851,11 @@ export interface PolicyVersionSummary {
   publishedAt?: string;
 }
 
+export interface PolicyVersionDetail extends PolicyVersionSummary {
+  policy: PolicyDefinition;
+  scope: Record<string, unknown>;
+}
+
 export interface PublishedPolicy {
   policyVersionId: UUID;
   policy: PolicyDefinition;
@@ -858,6 +863,10 @@ export interface PublishedPolicy {
   effectiveFrom: string;
   publishedAt: string;
   approvedBy: UUID;
+}
+
+export interface PolicyRollbackResult extends PublishedPolicy {
+  sourcePolicyVersionId: UUID;
 }
 
 export interface PublishPolicyInput {
