@@ -187,6 +187,8 @@ Additional application-level invariants:
 | `POST /dpia-records/:id/approve` | admin, approver exists, not already approved | Marks the assessment APPROVED with approver and timestamp |
 | `POST /dsar-requests` | authenticated; employees only for themselves | Creates an OPEN DSAR with type and optional due date |
 | `POST /dsar-requests/:id/resolve` | admin, DSAR is OPEN | Sets RESOLVED/REJECTED with a resolution reference and timestamp; re-resolution is rejected |
+| `POST /retention-policies` | admin, category unique per tenant | Creates a retention rule with months, legal basis and legal hold |
+| `POST /retention-policies/:id/legal-hold` | admin, policy exists | Sets or clears the legal hold |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

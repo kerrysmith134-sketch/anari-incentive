@@ -1076,6 +1076,74 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/retention-policies:
+    get:
+      tags: [Compliance]
+      summary: List data-retention policies
+      responses:
+        "200":
+          description: Retention policies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Create a data-retention policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRetentionPolicy"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/retention-policies/{id}/legal-hold:
+    post:
+      tags: [Compliance]
+      summary: Set or clear a retention legal hold
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRetentionLegalHold"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -3034,6 +3102,28 @@ components:
       properties:
         newCalculationRunId:
           $ref: "#/components/schemas/Uuid"
+
+    CreateRetentionPolicy:
+      type: object
+      required: [dataCategory, retentionMonths, legalBasis]
+      properties:
+        dataCategory:
+          type: string
+        retentionMonths:
+          type: integer
+          minimum: 1
+        legalBasis:
+          type: string
+        legalHold:
+          type: boolean
+          default: false
+
+    SetRetentionLegalHold:
+      type: object
+      required: [legalHold]
+      properties:
+        legalHold:
+          type: boolean
 
     CalculationOrder:
       type: object

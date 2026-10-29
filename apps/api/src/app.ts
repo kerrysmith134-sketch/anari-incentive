@@ -34,6 +34,8 @@ import {
   createRecalculationRequestSchema,
   reviewRecalculationRequestSchema,
   completeRecalculationRequestSchema,
+  createRetentionPolicySchema,
+  setRetentionLegalHoldSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1565,6 +1567,44 @@ export function buildApp(
         dsarId: idOf(request),
         resolution: body.resolution,
         resolutionRef: body.resolutionRef,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-policies", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createRetentionPolicySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createRetentionPolicy({
+          tenantId: tenantOf(request),
+          dataCategory: body.dataCategory,
+          retentionMonths: body.retentionMonths,
+          legalBasis: body.legalBasis,
+          legalHold: body.legalHold ?? false,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/retention-policies", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listRetentionPolicies(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-policies/:id/legal-hold", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(setRetentionLegalHoldSchema, request.body);
+    return data(
+      await platformStore.setRetentionLegalHold({
+        tenantId: tenantOf(request),
+        retentionPolicyId: idOf(request),
+        legalHold: body.legalHold,
       }),
       request,
     );

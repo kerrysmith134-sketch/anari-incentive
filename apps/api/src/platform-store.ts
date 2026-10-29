@@ -21,6 +21,7 @@ import type {
   PolicyAcknowledgement,
   PolicyConsultation,
   RepresentationBodyType,
+  RetentionPolicy,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
@@ -172,6 +173,19 @@ export interface PlatformStore {
     resolution: "RESOLVED" | "REJECTED";
     resolutionRef: string;
   }): Promise<DsarRequest>;
+  createRetentionPolicy(input: {
+    tenantId: string;
+    dataCategory: string;
+    retentionMonths: number;
+    legalBasis: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy>;
+  listRetentionPolicies(tenantId: string): Promise<RetentionPolicy[]>;
+  setRetentionLegalHold(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy>;
 }
 
 function now(): string {
@@ -195,6 +209,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly consultations = new Map<string, PolicyConsultation>();
   private readonly dpias = new Map<string, DpiaRecord>();
   private readonly dsars = new Map<string, DsarRequest>();
+  private readonly retentionPolicies = new Map<string, RetentionPolicy>();
 
   constructor(
     options: {
@@ -904,6 +919,58 @@ export class MemoryPlatformStore implements PlatformStore {
     dsar.resolutionRef = input.resolutionRef;
     dsar.resolvedAt = now();
     return dsar;
+  }
+
+  async createRetentionPolicy(input: {
+    tenantId: string;
+    dataCategory: string;
+    retentionMonths: number;
+    legalBasis: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.retentionPolicies.values()].some(
+        (policy) =>
+          policy.tenantId === input.tenantId &&
+          policy.dataCategory === input.dataCategory,
+      )
+    ) {
+      throw new ConflictError(
+        `retention policy for ${input.dataCategory} already exists`,
+      );
+    }
+    const policy: RetentionPolicy = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      dataCategory: input.dataCategory,
+      retentionMonths: input.retentionMonths,
+      legalBasis: input.legalBasis,
+      legalHold: input.legalHold,
+      createdAt: now(),
+    };
+    this.retentionPolicies.set(policy.id, policy);
+    return policy;
+  }
+
+  async listRetentionPolicies(tenantId: string): Promise<RetentionPolicy[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.retentionPolicies.values()]
+      .filter((policy) => policy.tenantId === tenantId)
+      .sort((a, b) => a.dataCategory.localeCompare(b.dataCategory));
+  }
+
+  async setRetentionLegalHold(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy> {
+    const policy = this.retentionPolicies.get(input.retentionPolicyId);
+    if (!policy || policy.tenantId !== input.tenantId) {
+      notFound("RetentionPolicy", input.retentionPolicyId);
+    }
+    policy.legalHold = input.legalHold;
+    return policy;
   }
 
   private assertUserNotLinked(
@@ -1795,6 +1862,71 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapDsar(rows[0]);
   }
 
+  async createRetentionPolicy(input: {
+    tenantId: string;
+    dataCategory: string;
+    retentionMonths: number;
+    legalBasis: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO retention_policies
+          (id, tenant_id, data_category, retention_months, legal_basis,
+           legal_hold)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.dataCategory,
+          input.retentionMonths,
+          input.legalBasis,
+          input.legalHold,
+        ],
+      );
+      return this.mapRetentionPolicy(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `retention policy for ${input.dataCategory} already exists`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listRetentionPolicies(tenantId: string): Promise<RetentionPolicy[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM retention_policies
+        WHERE tenant_id=$1
+        ORDER BY data_category`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapRetentionPolicy(row));
+  }
+
+  async setRetentionLegalHold(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    legalHold: boolean;
+  }): Promise<RetentionPolicy> {
+    const { rows } = await this.pool.query(
+      `UPDATE retention_policies
+          SET legal_hold=$3
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [input.tenantId, input.retentionPolicyId, input.legalHold],
+    );
+    if (!rows[0]) notFound("RetentionPolicy", input.retentionPolicyId);
+    return this.mapRetentionPolicy(rows[0]);
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -1962,6 +2094,18 @@ export class PgPlatformStore implements PlatformStore {
       dueAt: iso(row.due_at),
       resolvedAt: iso(row.resolved_at),
       resolutionRef: row.resolution_ref ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapRetentionPolicy(row: QueryResultRow): RetentionPolicy {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      dataCategory: row.data_category,
+      retentionMonths: Number(row.retention_months),
+      legalBasis: row.legal_basis,
+      legalHold: row.legal_hold,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

@@ -1521,6 +1521,39 @@ describePg("PgStore vertical slice", () => {
     expect(rejected.status).toBe("REJECTED");
   });
 
+  it("records retention policies and legal holds", async () => {
+    const platform = new PgPlatformStore(pool);
+    const dataCategory = `PG_EVIDENCE_${Date.now()}`;
+    const policy = await platform.createRetentionPolicy({
+      tenantId: DEMO_TENANT_ID,
+      dataCategory,
+      retentionMonths: 24,
+      legalBasis: "Employment contract",
+      legalHold: false,
+    });
+    expect(policy.legalHold).toBe(false);
+    expect(
+      (await platform.listRetentionPolicies(DEMO_TENANT_ID)).some(
+        (candidate) => candidate.id === policy.id,
+      ),
+    ).toBe(true);
+    await expect(
+      platform.createRetentionPolicy({
+        tenantId: DEMO_TENANT_ID,
+        dataCategory,
+        retentionMonths: 12,
+        legalBasis: "Duplicate",
+        legalHold: false,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const held = await platform.setRetentionLegalHold({
+      tenantId: DEMO_TENANT_ID,
+      retentionPolicyId: policy.id,
+      legalHold: true,
+    });
+    expect(held.legalHold).toBe(true);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

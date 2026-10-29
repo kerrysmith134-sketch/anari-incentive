@@ -1389,6 +1389,74 @@ describe("recalculation requests", () => {
   });
 });
 
+describe("retention policies", () => {
+  it("creates policies by category and toggles legal hold", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Retention tenant",
+      slug: `retention-${Date.now()}`,
+    });
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "retention-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const call = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const created = await call("POST", "/api/v1/retention-policies", {
+      dataCategory: "EVIDENCE",
+      retentionMonths: 24,
+      legalBasis: "Employment contract and statutory limitation",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.legalHold).toBe(false);
+    const policyId = created.body.data.id as string;
+
+    const duplicate = await call("POST", "/api/v1/retention-policies", {
+      dataCategory: "EVIDENCE",
+      retentionMonths: 12,
+      legalBasis: "Duplicate",
+    });
+    expect(duplicate.status).toBe(409);
+
+    const policies = await call("GET", "/api/v1/retention-policies");
+    expect(policies.body.data).toHaveLength(1);
+    expect(policies.body.data[0].retentionMonths).toBe(24);
+
+    const held = await call(
+      "POST",
+      `/api/v1/retention-policies/${policyId}/legal-hold`,
+      { legalHold: true },
+    );
+    expect(held.status).toBe(200);
+    expect(held.body.data.legalHold).toBe(true);
+
+    const missing = await call(
+      "POST",
+      "/api/v1/retention-policies/00000000-0000-4000-8000-0000000000ff/legal-hold",
+      { legalHold: true },
+    );
+    expect(missing.status).toBe(404);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

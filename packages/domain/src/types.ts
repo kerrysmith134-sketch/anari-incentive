@@ -318,6 +318,17 @@ export interface DsarRequest {
   createdAt: string;
 }
 
+/** Tenant data-retention rule per data category. */
+export interface RetentionPolicy {
+  id: UUID;
+  tenantId: UUID;
+  dataCategory: string;
+  retentionMonths: number;
+  legalBasis: string;
+  legalHold: boolean;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

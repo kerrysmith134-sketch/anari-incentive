@@ -238,6 +238,23 @@ export const resolveDsarSchema = z.object({
 });
 export type ResolveDsarBody = z.infer<typeof resolveDsarSchema>;
 
+export const createRetentionPolicySchema = z.object({
+  dataCategory: z.string().min(1),
+  retentionMonths: z.number().int().positive(),
+  legalBasis: z.string().min(1),
+  legalHold: z.boolean().default(false),
+});
+export type CreateRetentionPolicyBody = z.infer<
+  typeof createRetentionPolicySchema
+>;
+
+export const setRetentionLegalHoldSchema = z.object({
+  legalHold: z.boolean(),
+});
+export type SetRetentionLegalHoldBody = z.infer<
+  typeof setRetentionLegalHoldSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([
