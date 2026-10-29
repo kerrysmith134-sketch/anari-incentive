@@ -11,6 +11,7 @@ import {
 } from "@anari/auth";
 import { buildApp, type AgentRuntimeFactory } from "./app.js";
 import { createAgentContext } from "./agent-context.js";
+import { OtlpHttpTraceExporter } from "./tracing.js";
 import { Store } from "./store.js";
 import { PgStore } from "./pg-store.js";
 import {
@@ -93,6 +94,29 @@ const platformStore = pool
       },
     });
 
+const otlpEndpoint =
+  process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ??
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const otlpHeaders = Object.fromEntries(
+  (process.env.OTEL_EXPORTER_OTLP_HEADERS ?? "")
+    .split(",")
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const index = pair.indexOf("=");
+      return index === -1
+        ? [pair, ""]
+        : [pair.slice(0, index), pair.slice(index + 1)];
+    }),
+);
+const tracer = otlpEndpoint
+  ? new OtlpHttpTraceExporter({
+      endpoint: otlpEndpoint,
+      headers: otlpHeaders,
+      serviceName: "anari-incentive",
+    })
+  : undefined;
+
 const app = buildApp(
   resolveStore,
   createRuntime,
@@ -127,6 +151,7 @@ const app = buildApp(
         ]),
     ),
     enforceBudgetPools: process.env.ENFORCE_BUDGET_POOLS === "true",
+    tracer,
   },
 );
 
@@ -136,6 +161,11 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   console.log(`received ${signal}, shutting down`);
   await app.close();
+  if (tracer) {
+    await tracer
+      .close()
+      .catch((error) => console.error("[tracing] flush failed", error));
+  }
   if (pool) await pool.end();
   process.exit(0);
 }

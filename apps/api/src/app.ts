@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import Fastify, {
@@ -135,6 +136,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
+import type { SpanRecorder } from "./tracing.js";
 import {
   MemoryPlatformStore,
   type PlatformStore,
@@ -192,6 +194,8 @@ export interface BuildAppOptions {
   webhookSchemes?: Record<string, "hmac" | "hubspot" | "feishu">;
   /** Require and reserve an approved budget pool for FORMAL calculations. */
   enforceBudgetPools?: boolean;
+  /** Optional trace recorder; the server wires an OTLP exporter. */
+  tracer?: SpanRecorder;
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -519,6 +523,19 @@ export function buildApp(
     });
   }
 
+  app.addHook("onRequest", async (request) => {
+    if (!options.tracer) return;
+    (
+      request as FastifyRequest & {
+        traceSpan?: { traceId: string; spanId: string; startedAt: number };
+      }
+    ).traceSpan = {
+      traceId: randomBytes(16).toString("hex"),
+      spanId: randomBytes(8).toString("hex"),
+      startedAt: Date.now(),
+    };
+  });
+
   app.addHook("preParsing", async (request, _reply, payload) => {
     if (!request.url.startsWith("/api/v1/webhooks/")) return payload;
     const chunks: Buffer[] = [];
@@ -562,6 +579,36 @@ export function buildApp(
       reply.statusCode,
       reply.elapsedTime,
     );
+    const trace = (
+      request as FastifyRequest & {
+        traceSpan?: { traceId: string; spanId: string; startedAt: number };
+      }
+    ).traceSpan;
+    if (options.tracer && trace) {
+      const route = request.routeOptions.url ?? request.url;
+      const attributes: Record<string, string | number | boolean> = {
+        "http.method": request.method,
+        "http.route": route,
+        "http.status_code": reply.statusCode,
+        "request.id": request.id,
+      };
+      if (request.authContext?.tenantId) {
+        attributes["tenant.id"] = request.authContext.tenantId;
+      }
+      options.tracer.record({
+        traceId: trace.traceId,
+        spanId: trace.spanId,
+        name: `${request.method} ${route}`,
+        startTimeUnixNano: (
+          BigInt(trace.startedAt) * 1_000_000n
+        ).toString(),
+        endTimeUnixNano: (
+          BigInt(Date.now()) * 1_000_000n
+        ).toString(),
+        attributes,
+        statusCode: reply.statusCode >= 500 ? 2 : 1,
+      });
+    }
   });
 
   app.setErrorHandler((error, request, reply) => {
