@@ -239,6 +239,21 @@
     </section>
 
     <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>员工告知与签收</strong>
+        <button id="refreshNotices">刷新告知</button>
+      </div>
+      <div class="status" id="noticeStatus"></div>
+      <table>
+        <thead>
+        <tr><th>标题</th><th>类型</th><th>生效时间</th><th>操作</th></tr>
+        </thead>
+        <tbody id="noticeRows"></tbody>
+      </table>
+      <div class="note">签收表示你已知悉制度内容；拒绝签收不会被当作同意，并会被记录。制度内容与版本以 HR 发布的正文为准。</div>
+    </section>
+
+    <section class="card">
       <label for="reason">异议/申诉理由</label>
       <textarea id="reason" placeholder="请说明你认为哪些证据/贡献/金额需要复核。"></textarea>
       <div class="note">提出异议会阻止正式锁账；申诉会进入独立复核流程。请勿填写与本次计算无关的敏感信息。</div>
@@ -534,6 +549,51 @@
       }
     }
 
+    async function loadNotices() {
+      try {
+        const notices = await api("/api/v1/notices");
+        $("noticeRows").innerHTML = notices.map((notice) => `
+          <tr>
+            <td>${escapeHtml(notice.title)}</td>
+            <td>${escapeHtml(notice.noticeType)}</td>
+            <td>${escapeHtml(notice.effectiveFrom)}</td>
+            <td>
+              <button data-notice="${notice.id}" data-decision="ACKNOWLEDGE">签收</button>
+              <button data-notice="${notice.id}" data-decision="DECLINE">拒绝</button>
+            </td>
+          </tr>`).join("");
+        $("noticeStatus").textContent = `共 ${notices.length} 条告知`;
+      } catch (error) {
+        $("noticeStatus").textContent = String(error.message);
+      }
+    }
+
+    async function acknowledgeNotice(noticeId, decision) {
+      const personId = $("personId").value.trim();
+      if (!personId) {
+        $("noticeStatus").textContent = "请先填写员工 ID";
+        return;
+      }
+      const payload = { personId, decision };
+      if (decision === "DECLINE") {
+        const reason = window.prompt("请填写拒绝签收的原因");
+        if (!reason) return;
+        payload.declineReason = reason;
+      } else {
+        payload.signatureRef = "employee-page";
+      }
+      try {
+        await api(`/api/v1/notices/${noticeId}/acknowledgements`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        $("noticeStatus").textContent =
+          decision === "ACKNOWLEDGE" ? "已签收" : "已记录拒绝";
+      } catch (error) {
+        $("noticeStatus").textContent = String(error.message);
+      }
+    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -564,6 +624,12 @@
     $("objectRecovery").addEventListener("click", () =>
       recordRecovery("OBJECTED"),
     );
+    $("refreshNotices").addEventListener("click", loadNotices);
+    $("noticeRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-notice]");
+      if (!button) return;
+      acknowledgeNotice(button.dataset.notice, button.dataset.decision);
+    });
     $("notificationRows").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notification]");
       if (!button) return;
@@ -574,6 +640,7 @@
     loadMyClaims();
     loadEvidence();
     loadNotifications();
+    loadNotices();
   </script>
 </body>
 </html>

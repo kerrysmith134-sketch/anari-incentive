@@ -103,12 +103,46 @@ export const legalGateSchema = z.object({
 export const recordLegalGateSchema = z.object({
   democraticProcedureRef: z.string().min(1).optional(),
   employeeNoticeRef: z.string().min(1).optional(),
+  employeeNoticeId: uuidSchema.optional(),
   dataProtectionAssessmentRef: z.string().min(1).optional(),
   minimumWageChecked: z.boolean(),
   policyApproved: z.boolean(),
   recordedBy: uuidSchema,
 });
 export type RecordLegalGateBody = z.infer<typeof recordLegalGateSchema>;
+
+export const createNoticeSchema = z.object({
+  noticeType: z.enum([
+    "POLICY",
+    "PAY_PLAN",
+    "AI_USE",
+    "DATA_PROCESSING",
+    "OTHER",
+  ]),
+  title: z.string().min(1),
+  bodyRef: z.string().min(1),
+  policyVersionId: uuidSchema.optional(),
+  publishedAt: z.string().datetime().optional(),
+  effectiveFrom: z.string().datetime(),
+  acknowledgementRequired: z.boolean().default(true),
+});
+export type CreateNoticeBody = z.infer<typeof createNoticeSchema>;
+
+export const recordAcknowledgementSchema = z
+  .object({
+    personId: uuidSchema,
+    decision: z.enum(["ACKNOWLEDGE", "DECLINE"]),
+    signatureRef: z.string().min(1).optional(),
+    declineReason: z.string().min(1).optional(),
+  })
+  .refine(
+    (value) =>
+      value.decision !== "DECLINE" || Boolean(value.declineReason),
+    "declineReason is required when declining",
+  );
+export type RecordAcknowledgementBody = z.infer<
+  typeof recordAcknowledgementSchema
+>;
 
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,

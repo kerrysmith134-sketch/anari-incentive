@@ -176,6 +176,9 @@ Additional application-level invariants:
 | `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
+| `POST /notices` | admin, policy version exists if supplied | Publishes an employee notice |
+| `POST /notices/:id/acknowledgements` | notice/person exist; employees only for themselves | Upserts ACKNOWLEDGE or DECLINE (decline reason required) |
+| `GET /notices/:id/acknowledgements` | manager/finance/admin | Returns the coverage summary and acknowledgement rows |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
@@ -228,6 +231,8 @@ A `FORMAL` calculation does not accept a gate from the request body. The gate mu
 - `dataProtectionAssessmentRef`
 
 Missing any of these blocks the run with `CALCULATION_BLOCKED`. A `SHADOW` run may proceed without the gate and produces no ledger entries.
+
+`employeeNoticeRef` can be supplied directly or derived by passing `employeeNoticeId`. A referenced notice must exist in the tenant, must not belong to a different policy version, and — when `acknowledgement_required` is true — every ACTIVE person in the tenant must have acknowledged it; otherwise the gate is rejected with `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE`. A `DECLINE` is recorded but does not satisfy the requirement. Coverage counts only `employment_status='ACTIVE'` people.
 
 ### Employee confirmation
 

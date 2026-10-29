@@ -194,6 +194,61 @@
     </section>
 
     <section class="card">
+      <h2>员工告知与签收</h2>
+      <div class="grid">
+        <div>
+          <label>类型</label>
+          <select id="noticeType">
+            <option value="POLICY">POLICY</option>
+            <option value="PAY_PLAN">PAY_PLAN</option>
+            <option value="AI_USE">AI_USE</option>
+            <option value="DATA_PROCESSING">DATA_PROCESSING</option>
+            <option value="OTHER">OTHER</option>
+          </select>
+        </div>
+        <div>
+          <label>标题</label>
+          <input id="noticeTitle" value="2026 incentive policy" />
+        </div>
+        <div>
+          <label>正文引用</label>
+          <input id="noticeBodyRef" value="policy-notice-2026" />
+        </div>
+        <div>
+          <label>生效时间（ISO）</label>
+          <input id="noticeEffectiveFrom" value="2026-01-01T00:00:00Z" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>政策版本（可选）</label>
+          <select id="noticePolicy"><option value="">不关联</option></select>
+        </div>
+        <div>
+          <label>需要签收</label>
+          <select id="noticeRequired">
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createNotice" style="width:100%">发布告知</button>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="refreshNotices" style="width:100%">刷新</button>
+        </div>
+      </div>
+      <div class="status" id="noticeStatus"></div>
+      <table>
+        <thead>
+        <tr><th>标题</th><th>类型</th><th>生效</th><th>需签收</th><th>操作</th></tr>
+        </thead>
+        <tbody id="notices"></tbody>
+      </table>
+      <pre id="noticeCoverage" hidden></pre>
+    </section>
+
+    <section class="card">
       <h2>批量计算</h2>
       <div class="grid">
         <div>
@@ -1834,6 +1889,7 @@ order-batch-2,80000</textarea>
         $("diffBase").innerHTML = options;
         $("diffTarget").innerHTML = options;
         $("batchPolicy").innerHTML = options;
+        $("noticePolicy").innerHTML = '<option value="">不关联</option>' + options;
         if (versions.length > 1) $("diffTarget").selectedIndex = 1;
         setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
@@ -1868,6 +1924,61 @@ order-batch-2,80000</textarea>
         await loadAudit();
       } catch (error) {
         setStatus("policyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadNotices() {
+      try {
+        const notices = await api("/api/v1/notices");
+        $("notices").innerHTML = notices.map((notice) => `<tr>
+          <td>${escapeHtml(notice.title)}</td>
+          <td>${escapeHtml(notice.noticeType)}</td>
+          <td>${escapeHtml(notice.effectiveFrom)}</td>
+          <td>${notice.acknowledgementRequired ? "是" : "否"}</td>
+          <td><button data-notice="${notice.id}">查看签收</button></td>
+        </tr>`).join("");
+        setStatus("noticeStatus", `共 ${notices.length} 条告知`, "ok");
+      } catch (error) {
+        setStatus("noticeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createNotice() {
+      try {
+        const policyVersionId = $("noticePolicy").value;
+        await api("/api/v1/notices", {
+          method: "POST",
+          body: JSON.stringify({
+            noticeType: $("noticeType").value,
+            title: $("noticeTitle").value.trim(),
+            bodyRef: $("noticeBodyRef").value.trim(),
+            effectiveFrom: $("noticeEffectiveFrom").value.trim(),
+            policyVersionId: policyVersionId || undefined,
+            acknowledgementRequired: $("noticeRequired").value === "true",
+          }),
+        });
+        setStatus("noticeStatus", "告知已发布", "ok");
+        await loadNotices();
+      } catch (error) {
+        setStatus("noticeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function showNoticeCoverage(noticeId) {
+      try {
+        const coverage = await api(
+          `/api/v1/notices/${noticeId}/acknowledgements`,
+        );
+        const el = $("noticeCoverage");
+        el.hidden = false;
+        el.textContent = JSON.stringify(coverage, null, 2);
+        setStatus(
+          "noticeStatus",
+          `已签收 ${coverage.summary.acknowledgedCount}/${coverage.summary.personCount}，拒绝 ${coverage.summary.declinedCount}，完成 ${coverage.summary.complete}`,
+          coverage.summary.complete ? "ok" : "warn",
+        );
+      } catch (error) {
+        setStatus("noticeStatus", String(error.message), "bad");
       }
     }
 
@@ -2026,6 +2137,13 @@ order-batch-2,80000</textarea>
     $("createPerson").addEventListener("click", createPerson);
     $("createOrgNode").addEventListener("click", createOrgNode);
     $("setManager").addEventListener("click", setManager);
+    $("createNotice").addEventListener("click", createNotice);
+    $("refreshNotices").addEventListener("click", loadNotices);
+    $("notices").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-notice]");
+      if (!button) return;
+      showNoticeCoverage(button.dataset.notice);
+    });
     $("personTenant").addEventListener("change", () => {
       void loadPersons();
       void loadOrgNodes();
@@ -2096,6 +2214,7 @@ order-batch-2,80000</textarea>
 
     loadPlatformData();
     loadPolicies();
+    loadNotices();
     loadTasks();
     loadSettlements();
     loadLedger();

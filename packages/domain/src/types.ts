@@ -180,6 +180,58 @@ export interface EmployeeConfirmation {
   createdAt: string;
 }
 
+export type NoticeType =
+  | "POLICY"
+  | "PAY_PLAN"
+  | "AI_USE"
+  | "DATA_PROCESSING"
+  | "OTHER";
+
+/** A published employee notice (policy, pay plan, AI use, data processing). */
+export interface EmployeeNotice {
+  id: UUID;
+  tenantId: UUID;
+  policyVersionId?: UUID;
+  noticeType: NoticeType;
+  title: string;
+  bodyRef: string;
+  publishedAt: string;
+  effectiveFrom: string;
+  acknowledgementRequired: boolean;
+  createdAt: string;
+}
+
+export interface PolicyAcknowledgement {
+  id: UUID;
+  tenantId: UUID;
+  noticeId: UUID;
+  personId: UUID;
+  acknowledgedAt?: string;
+  signatureRef?: string;
+  declinedAt?: string;
+  declineReason?: string;
+  createdAt: string;
+}
+
+/**
+ * Coverage of a notice across active persons in the tenant. A declined
+ * acknowledgement is recorded but does not count as acknowledgement.
+ */
+export interface NoticeAcknowledgementSummary {
+  noticeId: UUID;
+  acknowledgementRequired: boolean;
+  personCount: number;
+  acknowledgedCount: number;
+  declinedCount: number;
+  pendingCount: number;
+  complete: boolean;
+}
+
+export interface NoticeAcknowledgementOverview {
+  summary: NoticeAcknowledgementSummary;
+  acknowledgements: PolicyAcknowledgement[];
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

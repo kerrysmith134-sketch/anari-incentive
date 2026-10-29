@@ -30,6 +30,7 @@ tags:
   - name: Policy
   - name: Calculation
   - name: Confirmations
+  - name: Compliance
   - name: Ledger
   - name: Appeals
   - name: Evidence
@@ -491,6 +492,110 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/notices:
+    get:
+      tags: [Compliance]
+      summary: List employee notices
+      responses:
+        "200":
+          description: Notices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Compliance]
+      summary: Publish an employee notice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNotice"
+      responses:
+        "201":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/notices/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read an employee notice
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Notice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/notices/{id}/acknowledgements:
+    get:
+      tags: [Compliance]
+      summary: Read acknowledgement coverage for a notice
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Summary and acknowledgement rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Compliance]
+      summary: Record an acknowledgement or decline
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordAcknowledgement"
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/calculation-runs:batch:
     post:
@@ -2263,6 +2368,10 @@ components:
           type: string
         employeeNoticeRef:
           type: string
+        employeeNoticeId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, coverage must be complete if the notice requires acknowledgement; the notice id becomes the employeeNoticeRef.
         dataProtectionAssessmentRef:
           type: string
         minimumWageChecked:
@@ -2271,6 +2380,44 @@ components:
           type: boolean
         recordedBy:
           $ref: "#/components/schemas/Uuid"
+
+    CreateNotice:
+      type: object
+      required: [noticeType, title, bodyRef, effectiveFrom]
+      properties:
+        noticeType:
+          type: string
+          enum: [POLICY, PAY_PLAN, AI_USE, DATA_PROCESSING, OTHER]
+        title:
+          type: string
+        bodyRef:
+          type: string
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        publishedAt:
+          type: string
+          format: date-time
+        effectiveFrom:
+          type: string
+          format: date-time
+        acknowledgementRequired:
+          type: boolean
+          default: true
+
+    RecordAcknowledgement:
+      type: object
+      required: [personId, decision]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        decision:
+          type: string
+          enum: [ACKNOWLEDGE, DECLINE]
+        signatureRef:
+          type: string
+        declineReason:
+          type: string
+          description: Required when decision is DECLINE.
 
     CalculationOrder:
       type: object

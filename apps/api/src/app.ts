@@ -22,6 +22,7 @@ import {
   createDataQualityIssueSchema,
   createEvaluationCycleSchema,
   createNotificationSchema,
+  createNoticeSchema,
   createPlatformPersonSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
@@ -40,6 +41,7 @@ import {
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
+  recordAcknowledgementSchema,
   recordConfirmationSchema,
   recordLegalGateSchema,
   rejectWorkPackageSchema,
@@ -1180,11 +1182,112 @@ export function buildApp(
   app.post("/api/v1/policy-versions/:id/legal-gate", async (request) => {
     requireRoles(request, "admin");
     const body = parse(recordLegalGateSchema, request.body);
+    const policyVersionId = idOf(request);
+    let employeeNoticeRef = body.employeeNoticeRef;
+    if (body.employeeNoticeId) {
+      const tenantId = tenantOf(request);
+      const notice = await platformStore.getNotice(
+        tenantId,
+        body.employeeNoticeId,
+      );
+      if (notice.policyVersionId && notice.policyVersionId !== policyVersionId) {
+        throw new ConflictError(
+          `NOTICE_POLICY_MISMATCH: notice ${notice.id} belongs to policy ${notice.policyVersionId}`,
+        );
+      }
+      const coverage = await platformStore.listAcknowledgements(
+        tenantId,
+        notice.id,
+      );
+      if (notice.acknowledgementRequired && !coverage.summary.complete) {
+        throw new ConflictError(
+          `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE: ${coverage.summary.acknowledgedCount}/${coverage.summary.personCount} acknowledged, ${coverage.summary.declinedCount} declined`,
+        );
+      }
+      employeeNoticeRef = employeeNoticeRef ?? notice.id;
+    }
     return data(
       await storeFor(request).recordLegalGate({
-        policyVersionId: idOf(request),
-        ...body,
+        policyVersionId,
+        democraticProcedureRef: body.democraticProcedureRef,
+        employeeNoticeRef,
+        dataProtectionAssessmentRef: body.dataProtectionAssessmentRef,
+        minimumWageChecked: body.minimumWageChecked,
+        policyApproved: body.policyApproved,
+        recordedBy: body.recordedBy,
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/notices", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createNoticeSchema, request.body);
+    if (body.policyVersionId) {
+      await storeFor(request).getPolicy(body.policyVersionId);
+    }
+    return reply
+      .status(201)
+      .send(
+        data(
+          await platformStore.createNotice({
+            tenantId: tenantOf(request),
+            noticeType: body.noticeType,
+            title: body.title,
+            bodyRef: body.bodyRef,
+            policyVersionId: body.policyVersionId,
+            publishedAt: body.publishedAt,
+            effectiveFrom: body.effectiveFrom,
+            acknowledgementRequired: body.acknowledgementRequired ?? true,
+          }),
+          request,
+        ),
+      );
+  });
+
+  app.get("/api/v1/notices", async (request) => {
+    return data(await platformStore.listNotices(tenantOf(request)), request);
+  });
+
+  app.get("/api/v1/notices/:id/acknowledgements", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listAcknowledgements(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/notices/:id/acknowledgements", async (request) => {
+    const body = parse(recordAcknowledgementSchema, request.body);
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own) {
+        throw new ForbiddenError(
+          "employee identity is required (person_id claim or X-Person-Id)",
+        );
+      }
+      if (own !== body.personId) {
+        throw new ForbiddenError(
+          "an employee cannot acknowledge a notice for another person",
+        );
+      }
+    }
+    return data(
+      await platformStore.recordAcknowledgement({
+        tenantId: tenantOf(request),
+        noticeId: idOf(request),
+        personId: body.personId,
+        decision: body.decision,
+        signatureRef: body.signatureRef,
+        declineReason: body.declineReason,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/notices/:id", async (request) => {
+    return data(
+      await platformStore.getNotice(tenantOf(request), idOf(request)),
       request,
     );
   });

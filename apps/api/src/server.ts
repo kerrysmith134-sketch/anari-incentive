@@ -30,6 +30,12 @@ const pool = usePostgres
 const resolveStore = (tenantId: string) =>
   pool ? new PgStore(pool, tenantId) : new Store(tenantId);
 
+const defaultTenantId =
+  process.env.DEFAULT_TENANT_ID ??
+  (usePostgres
+    ? "00000000-0000-4000-8000-000000000001"
+    : "tenant-demo");
+
 const authenticator =
   process.env.AUTH_MODE === "oidc"
     ? new OidcJwtAuthenticator({
@@ -38,11 +44,7 @@ const authenticator =
         jwksUrl: process.env.OIDC_JWKS_URL,
       })
     : new DevHeaderAuthenticator({
-        tenantId:
-          process.env.DEFAULT_TENANT_ID ??
-          (usePostgres
-            ? "00000000-0000-4000-8000-000000000001"
-            : "tenant-demo"),
+        tenantId: defaultTenantId,
         userId: "dev-user",
         personId:
           process.env.DEFAULT_PERSON_ID ??
@@ -66,7 +68,30 @@ const createRuntime: AgentRuntimeFactory | undefined = pool
 
 const platformStore = pool
   ? new PgPlatformStore(pool)
-  : new MemoryPlatformStore();
+  : new MemoryPlatformStore({
+      demoTenant: {
+        id: defaultTenantId,
+        name: "Demo tenant",
+        slug: "demo-tenant",
+        persons: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            employeeCode: "E001",
+            displayName: "Sales Lead",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000002",
+            employeeCode: "E002",
+            displayName: "Product Manager",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000003",
+            employeeCode: "E003",
+            displayName: "Finance Reviewer",
+          },
+        ],
+      },
+    });
 
 const app = buildApp(
   resolveStore,

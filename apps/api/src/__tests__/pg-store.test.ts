@@ -1279,6 +1279,61 @@ describePg("PgStore vertical slice", () => {
       managerPersonId: null,
     });
     expect(cleared.managerPersonId).toBeUndefined();
+
+    const notice = await platform.createNotice({
+      tenantId: tenant.id,
+      noticeType: "POLICY",
+      title: "PG incentive policy notice",
+      bodyRef: "pg-notice-ref",
+      effectiveFrom: "2026-01-01T00:00:00Z",
+      acknowledgementRequired: true,
+    });
+    expect((await platform.listNotices(tenant.id)).some((n) => n.id === notice.id)).toBe(true);
+    expect((await platform.getNotice(tenant.id, notice.id)).title).toBe(
+      "PG incentive policy notice",
+    );
+    const before = await platform.listAcknowledgements(tenant.id, notice.id);
+    expect(before.summary).toMatchObject({
+      personCount: 2,
+      acknowledgedCount: 0,
+      declinedCount: 0,
+      pendingCount: 2,
+      complete: false,
+    });
+    await platform.recordAcknowledgement({
+      tenantId: tenant.id,
+      noticeId: notice.id,
+      personId: person.id,
+      decision: "ACKNOWLEDGE",
+      signatureRef: "pg-signature",
+    });
+    await platform.recordAcknowledgement({
+      tenantId: tenant.id,
+      noticeId: notice.id,
+      personId: unlinkedPerson.id,
+      decision: "DECLINE",
+      declineReason: "Metric not agreed",
+    });
+    const partial = await platform.listAcknowledgements(tenant.id, notice.id);
+    expect(partial.summary).toMatchObject({
+      acknowledgedCount: 1,
+      declinedCount: 1,
+      pendingCount: 0,
+      complete: false,
+    });
+    await platform.recordAcknowledgement({
+      tenantId: tenant.id,
+      noticeId: notice.id,
+      personId: unlinkedPerson.id,
+      decision: "ACKNOWLEDGE",
+    });
+    const complete = await platform.listAcknowledgements(tenant.id, notice.id);
+    expect(complete.summary).toMatchObject({
+      acknowledgedCount: 2,
+      declinedCount: 0,
+      pendingCount: 0,
+      complete: true,
+    });
   });
 
   it("records applied migrations", async () => {

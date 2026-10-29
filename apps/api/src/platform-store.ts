@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, QueryResultRow } from "pg";
 import type {
+  EmployeeNotice,
+  NoticeAcknowledgementOverview,
+  NoticeType,
   PlatformIdentity,
   PlatformMembership,
   PlatformOrgAssignment,
@@ -8,6 +11,7 @@ import type {
   PlatformPerson,
   PlatformTenant,
   PlatformUser,
+  PolicyAcknowledgement,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
@@ -73,6 +77,30 @@ export interface PlatformStore {
     personId: string;
     managerPersonId: string | null;
   }): Promise<PlatformPerson>;
+  createNotice(input: {
+    tenantId: string;
+    noticeType: NoticeType;
+    title: string;
+    bodyRef: string;
+    policyVersionId?: string;
+    publishedAt?: string;
+    effectiveFrom: string;
+    acknowledgementRequired: boolean;
+  }): Promise<EmployeeNotice>;
+  listNotices(tenantId: string): Promise<EmployeeNotice[]>;
+  getNotice(tenantId: string, noticeId: string): Promise<EmployeeNotice>;
+  recordAcknowledgement(input: {
+    tenantId: string;
+    noticeId: string;
+    personId: string;
+    decision: "ACKNOWLEDGE" | "DECLINE";
+    signatureRef?: string;
+    declineReason?: string;
+  }): Promise<PolicyAcknowledgement>;
+  listAcknowledgements(
+    tenantId: string,
+    noticeId: string,
+  ): Promise<NoticeAcknowledgementOverview>;
 }
 
 function now(): string {
@@ -90,6 +118,47 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly persons = new Map<string, PlatformPerson>();
   private readonly orgNodes = new Map<string, PlatformOrgNode>();
   private readonly orgAssignments = new Map<string, PlatformOrgAssignment>();
+  private readonly notices = new Map<string, EmployeeNotice>();
+  private readonly acknowledgements = new Map<string, PolicyAcknowledgement>();
+
+  constructor(
+    options: {
+      /** Seed a demo tenant (and optional people) for memory-mode demos. */
+      demoTenant?: {
+        id: string;
+        name: string;
+        slug: string;
+        persons?: Array<{
+          id: string;
+          employeeCode: string;
+          displayName: string;
+        }>;
+      };
+    } = {},
+  ) {
+    const demo = options.demoTenant;
+    if (!demo) return;
+    const createdAt = now();
+    this.tenants.set(demo.id, {
+      id: demo.id,
+      name: demo.name,
+      slug: demo.slug,
+      status: "ACTIVE",
+      defaultTimezone: "UTC",
+      defaultCurrency: "CNY",
+      createdAt,
+    });
+    for (const person of demo.persons ?? []) {
+      this.persons.set(person.id, {
+        id: person.id,
+        tenantId: demo.id,
+        employeeCode: person.employeeCode,
+        displayName: person.displayName,
+        employmentStatus: "ACTIVE",
+        createdAt,
+      });
+    }
+  }
 
   async createTenant(input: {
     name: string;
@@ -390,6 +459,136 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     person.managerPersonId = input.managerPersonId;
     return person;
+  }
+
+  async createNotice(input: {
+    tenantId: string;
+    noticeType: NoticeType;
+    title: string;
+    bodyRef: string;
+    policyVersionId?: string;
+    publishedAt?: string;
+    effectiveFrom: string;
+    acknowledgementRequired: boolean;
+  }): Promise<EmployeeNotice> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const timestamp = now();
+    const notice: EmployeeNotice = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      policyVersionId: input.policyVersionId,
+      noticeType: input.noticeType,
+      title: input.title,
+      bodyRef: input.bodyRef,
+      publishedAt: input.publishedAt ?? timestamp,
+      effectiveFrom: input.effectiveFrom,
+      acknowledgementRequired: input.acknowledgementRequired,
+      createdAt: timestamp,
+    };
+    this.notices.set(notice.id, notice);
+    return notice;
+  }
+
+  async listNotices(tenantId: string): Promise<EmployeeNotice[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.notices.values()]
+      .filter((notice) => notice.tenantId === tenantId)
+      .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  }
+
+  async getNotice(
+    tenantId: string,
+    noticeId: string,
+  ): Promise<EmployeeNotice> {
+    const notice = this.notices.get(noticeId);
+    if (!notice || notice.tenantId !== tenantId) {
+      notFound("Notice", noticeId);
+    }
+    return notice;
+  }
+
+  async recordAcknowledgement(input: {
+    tenantId: string;
+    noticeId: string;
+    personId: string;
+    decision: "ACKNOWLEDGE" | "DECLINE";
+    signatureRef?: string;
+    declineReason?: string;
+  }): Promise<PolicyAcknowledgement> {
+    const notice = await this.getNotice(input.tenantId, input.noticeId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    const key = `${notice.id}:${input.personId}`;
+    const existing = this.acknowledgements.get(key);
+    const timestamp = now();
+    const acknowledgement: PolicyAcknowledgement = existing ?? {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      noticeId: notice.id,
+      personId: input.personId,
+      createdAt: timestamp,
+    };
+    if (input.decision === "ACKNOWLEDGE") {
+      acknowledgement.acknowledgedAt = timestamp;
+      acknowledgement.signatureRef = input.signatureRef;
+      acknowledgement.declinedAt = undefined;
+      acknowledgement.declineReason = undefined;
+    } else {
+      acknowledgement.declinedAt = timestamp;
+      acknowledgement.declineReason = input.declineReason;
+      acknowledgement.acknowledgedAt = undefined;
+      acknowledgement.signatureRef = undefined;
+    }
+    this.acknowledgements.set(key, acknowledgement);
+    return acknowledgement;
+  }
+
+  async listAcknowledgements(
+    tenantId: string,
+    noticeId: string,
+  ): Promise<NoticeAcknowledgementOverview> {
+    const notice = await this.getNotice(tenantId, noticeId);
+    const acknowledgements = [...this.acknowledgements.values()]
+      .filter((candidate) => candidate.noticeId === notice.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const activePersonIds = new Set(
+      [...this.persons.values()]
+        .filter(
+          (person) =>
+            person.tenantId === tenantId &&
+            person.employmentStatus === "ACTIVE",
+        )
+        .map((person) => person.id),
+    );
+    const activeAcknowledgements = acknowledgements.filter((candidate) =>
+      activePersonIds.has(candidate.personId),
+    );
+    const acknowledgedCount = activeAcknowledgements.filter(
+      (candidate) => candidate.acknowledgedAt,
+    ).length;
+    const declinedCount = activeAcknowledgements.filter(
+      (candidate) => candidate.declinedAt,
+    ).length;
+    return {
+      summary: {
+        noticeId: notice.id,
+        acknowledgementRequired: notice.acknowledgementRequired,
+        personCount: activePersonIds.size,
+        acknowledgedCount,
+        declinedCount,
+        pendingCount: Math.max(
+          activePersonIds.size - acknowledgedCount - declinedCount,
+          0,
+        ),
+        complete:
+          !notice.acknowledgementRequired ||
+          (activePersonIds.size > 0 &&
+            acknowledgedCount >= activePersonIds.size),
+      },
+      acknowledgements,
+    };
   }
 
   private assertUserNotLinked(
@@ -811,6 +1010,164 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapPerson(rows[0]);
   }
 
+  async createNotice(input: {
+    tenantId: string;
+    noticeType: NoticeType;
+    title: string;
+    bodyRef: string;
+    policyVersionId?: string;
+    publishedAt?: string;
+    effectiveFrom: string;
+    acknowledgementRequired: boolean;
+  }): Promise<EmployeeNotice> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO employee_notices
+          (id, tenant_id, policy_version_id, notice_type, title, body_ref,
+           published_at, effective_from, acknowledgement_required)
+         VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()),$8,$9)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.policyVersionId ?? null,
+          input.noticeType,
+          input.title,
+          input.bodyRef,
+          input.publishedAt ?? null,
+          input.effectiveFrom,
+          input.acknowledgementRequired,
+        ],
+      );
+      return this.mapNotice(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("tenant or policy version not found");
+      }
+      throw error;
+    }
+  }
+
+  async listNotices(tenantId: string): Promise<EmployeeNotice[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM employee_notices
+        WHERE tenant_id=$1
+        ORDER BY published_at DESC, created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapNotice(row));
+  }
+
+  async getNotice(
+    tenantId: string,
+    noticeId: string,
+  ): Promise<EmployeeNotice> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM employee_notices WHERE tenant_id=$1 AND id=$2",
+      [tenantId, noticeId],
+    );
+    if (!rows[0]) notFound("Notice", noticeId);
+    return this.mapNotice(rows[0]);
+  }
+
+  async recordAcknowledgement(input: {
+    tenantId: string;
+    noticeId: string;
+    personId: string;
+    decision: "ACKNOWLEDGE" | "DECLINE";
+    signatureRef?: string;
+    declineReason?: string;
+  }): Promise<PolicyAcknowledgement> {
+    const notice = await this.getNotice(input.tenantId, input.noticeId);
+    const { rows: personRows } = await this.pool.query(
+      "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+      [input.tenantId, input.personId],
+    );
+    if (!personRows[0]) notFound("Person", input.personId);
+    const acknowledge = input.decision === "ACKNOWLEDGE";
+    const { rows } = await this.pool.query(
+      `INSERT INTO policy_acknowledgements
+        (id, tenant_id, notice_id, person_id, acknowledged_at, signature_ref,
+         declined_at, decline_reason)
+       VALUES ($1,$2,$3,$4,
+               CASE WHEN $5 THEN now() ELSE NULL END,
+               $6,
+               CASE WHEN $5 THEN NULL ELSE now() END,
+               $7)
+       ON CONFLICT (tenant_id, notice_id, person_id)
+       DO UPDATE SET acknowledged_at = EXCLUDED.acknowledged_at,
+                     signature_ref = EXCLUDED.signature_ref,
+                     declined_at = EXCLUDED.declined_at,
+                     decline_reason = EXCLUDED.decline_reason
+       RETURNING *`,
+      [
+        randomUUID(),
+        input.tenantId,
+        notice.id,
+        input.personId,
+        acknowledge,
+        acknowledge ? (input.signatureRef ?? null) : null,
+        acknowledge ? null : (input.declineReason ?? null),
+      ],
+    );
+    return this.mapAcknowledgement(rows[0]);
+  }
+
+  async listAcknowledgements(
+    tenantId: string,
+    noticeId: string,
+  ): Promise<NoticeAcknowledgementOverview> {
+    const notice = await this.getNotice(tenantId, noticeId);
+    const [{ rows: acknowledgementRows }, { rows: personRows }] =
+      await Promise.all([
+        this.pool.query(
+          `SELECT pa.*, p.employment_status AS person_employment_status
+             FROM policy_acknowledgements pa
+             JOIN people p
+               ON p.tenant_id = pa.tenant_id AND p.id = pa.person_id
+            WHERE pa.tenant_id=$1 AND pa.notice_id=$2
+            ORDER BY pa.created_at DESC`,
+          [tenantId, noticeId],
+        ),
+        this.pool.query(
+          `SELECT count(*)::int AS count FROM people
+            WHERE tenant_id=$1 AND employment_status='ACTIVE'`,
+          [tenantId],
+        ),
+      ]);
+    const acknowledgements = acknowledgementRows.map((row) =>
+      this.mapAcknowledgement(row),
+    );
+    const activePersons = Number(personRows[0]?.count ?? 0);
+    const activeAcknowledgements = acknowledgementRows.filter(
+      (row) => row.person_employment_status === "ACTIVE",
+    );
+    const acknowledgedCount = activeAcknowledgements.filter(
+      (row) => row.acknowledged_at,
+    ).length;
+    const declinedCount = activeAcknowledgements.filter(
+      (row) => row.declined_at,
+    ).length;
+    return {
+      summary: {
+        noticeId: notice.id,
+        acknowledgementRequired: notice.acknowledgementRequired,
+        personCount: activePersons,
+        acknowledgedCount,
+        declinedCount,
+        pendingCount: Math.max(
+          activePersons - acknowledgedCount - declinedCount,
+          0,
+        ),
+        complete:
+          !notice.acknowledgementRequired ||
+          (activePersons > 0 && acknowledgedCount >= activePersons),
+      },
+      acknowledgements,
+    };
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -891,6 +1248,35 @@ export class PgPlatformStore implements PlatformStore {
       validFrom: isoDate(row.valid_from) ?? "",
       validTo: isoDate(row.valid_to),
       allocation: decimalText(row.allocation),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapNotice(row: QueryResultRow): EmployeeNotice {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      policyVersionId: row.policy_version_id ?? undefined,
+      noticeType: row.notice_type,
+      title: row.title,
+      bodyRef: row.body_ref,
+      publishedAt: iso(row.published_at) ?? new Date().toISOString(),
+      effectiveFrom: iso(row.effective_from) ?? new Date().toISOString(),
+      acknowledgementRequired: row.acknowledgement_required,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapAcknowledgement(row: QueryResultRow): PolicyAcknowledgement {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      noticeId: row.notice_id,
+      personId: row.person_id,
+      acknowledgedAt: iso(row.acknowledged_at),
+      signatureRef: row.signature_ref ?? undefined,
+      declinedAt: iso(row.declined_at),
+      declineReason: row.decline_reason ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

@@ -726,6 +726,210 @@ describe("platform onboarding", () => {
   });
 });
 
+describe("employee notices and acknowledgements", () => {
+  it("tracks coverage and gates the legal gate on required acknowledgements", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Notice tenant",
+      slug: `notice-${Date.now()}`,
+    });
+    const first = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "N-001",
+      displayName: "Notice Employee One",
+    });
+    const second = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "N-002",
+      displayName: "Notice Employee Two",
+    });
+
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "notice-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const adminCall = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const created = await adminCall("POST", "/api/v1/notices", {
+      noticeType: "POLICY",
+      title: "2026 incentive policy",
+      bodyRef: "policy-notice-2026",
+      policyVersionId: REFERENCE_POLICY_ID,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.acknowledgementRequired).toBe(true);
+    const noticeId = created.body.data.id as string;
+
+    const notices = await adminCall("GET", "/api/v1/notices");
+    expect(notices.body.data).toHaveLength(1);
+    const detail = await adminCall("GET", `/api/v1/notices/${noticeId}`);
+    expect(detail.body.data.title).toBe("2026 incentive policy");
+
+    const initial = await adminCall(
+      "GET",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+    );
+    expect(initial.body.data.summary).toMatchObject({
+      personCount: 2,
+      acknowledgedCount: 0,
+      declinedCount: 0,
+      pendingCount: 2,
+      complete: false,
+    });
+
+    const gateBody = {
+      employeeNoticeId: noticeId,
+      democraticProcedureRef: "dp-1",
+      dataProtectionAssessmentRef: "dpia-1",
+      minimumWageChecked: true,
+      policyApproved: true,
+      recordedBy: first.id,
+    };
+    const incompleteGate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(incompleteGate.status).toBe(409);
+
+    const employeeAuth = (personId: string, userId: string): Authenticator => ({
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId,
+          roles: ["employee"],
+          personId,
+        };
+      },
+    });
+    const firstApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      employeeAuth(first.id, "notice-employee-1"),
+      platformStore,
+    );
+    const secondApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      employeeAuth(second.id, "notice-employee-2"),
+      platformStore,
+    );
+    const firstCall = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await firstApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const acknowledged = await firstCall(
+      "POST",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+      {
+        personId: first.id,
+        decision: "ACKNOWLEDGE",
+        signatureRef: "sig-1",
+      },
+    );
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.body.data.acknowledgedAt).toBeTruthy();
+
+    const otherPerson = await firstCall(
+      "POST",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+      { personId: second.id, decision: "ACKNOWLEDGE" },
+    );
+    expect(otherPerson.status).toBe(403);
+
+    const missingReason = await firstCall(
+      "POST",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+      { personId: first.id, decision: "DECLINE" },
+    );
+    expect(missingReason.status).toBe(400);
+
+    const declined = await firstCall(
+      "POST",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+      {
+        personId: first.id,
+        decision: "DECLINE",
+        declineReason: "The metric is not agreed",
+      },
+    );
+    expect(declined.status).toBe(200);
+    expect(declined.body.data.declinedAt).toBeTruthy();
+
+    const afterDecline = await adminCall(
+      "GET",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+    );
+    expect(afterDecline.body.data.summary).toMatchObject({
+      acknowledgedCount: 0,
+      declinedCount: 1,
+      pendingCount: 1,
+      complete: false,
+    });
+
+    await firstCall(
+      "POST",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+      { personId: first.id, decision: "ACKNOWLEDGE", signatureRef: "sig-2" },
+    );
+    const secondAck = await secondApp.inject({
+      method: "POST",
+      url: `/api/v1/notices/${noticeId}/acknowledgements`,
+      payload: { personId: second.id, decision: "ACKNOWLEDGE" },
+    } as never);
+    expect(secondAck.statusCode).toBe(200);
+
+    const complete = await adminCall(
+      "GET",
+      `/api/v1/notices/${noticeId}/acknowledgements`,
+    );
+    expect(complete.body.data.summary).toMatchObject({
+      acknowledgedCount: 2,
+      declinedCount: 0,
+      pendingCount: 0,
+      complete: true,
+    });
+
+    const gate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(gate.status).toBe(200);
+    expect(gate.body.data.employeeNoticeRef).toBe(noticeId);
+
+    const employeeCoverage = await firstApp.inject({
+      method: "GET",
+      url: `/api/v1/notices/${noticeId}/acknowledgements`,
+    } as never);
+    expect(employeeCoverage.statusCode).toBe(403);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {
