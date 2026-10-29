@@ -2685,9 +2685,12 @@ paths:
       tags: [Ingestion]
       summary: Receive a signed provider webhook into the inbox
       description: |
-        Verifies `x-signature-256` over the exact raw body with the source's
-        HMAC secret (`WEBHOOK_SECRET_<SOURCE>`). When `x-timestamp` is present
-        it is included in the signed content and must be within 300 seconds.
+        Verifies the source's signature scheme over the exact raw body:
+        generic HMAC (`x-signature-256`, optional `x-timestamp` within 300s),
+        HubSpot (`x-hubspot-signature-v3`/`x-hubspot-signature`), or Feishu/Lark
+        (`x-lark-signature`, `x-lark-request-timestamp`, `x-lark-request-nonce`).
+        Configure secrets with `WEBHOOK_SECRET_<SOURCE>` and schemes with
+        `WEBHOOK_SCHEME_<SOURCE>`.
       parameters:
         - name: source
           in: path

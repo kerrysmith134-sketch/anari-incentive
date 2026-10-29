@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { AuthError, type Authenticator } from "@anari/auth";
 import { computeWebhookSignature } from "@anari/connectors";
+import {
+  computeFeishuSignature,
+  computeHubSpotV3Signature,
+} from "@anari/connectors";
 import { buildApp } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
@@ -2487,6 +2491,75 @@ describe("integrations", () => {
       payload,
     } as never);
     expect(unknown.statusCode).toBe(404);
+  });
+
+  it("dispatches provider-specific webhook schemes", async () => {
+    const hubspotApp = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      {
+        webhookSecrets: { hubspot: "client-secret" },
+        webhookSchemes: { hubspot: "hubspot" },
+      },
+    );
+    const hubspotPayload = JSON.stringify({ messageId: "hs-1" });
+    const timestamp = String(Date.now());
+    const hubspotSignature = computeHubSpotV3Signature({
+      clientSecret: "client-secret",
+      method: "POST",
+      uri: "/api/v1/webhooks/hubspot",
+      body: hubspotPayload,
+      timestamp,
+    });
+    const hubspotResponse = await hubspotApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/hubspot",
+      headers: {
+        "content-type": "application/json",
+        "x-hubspot-signature-v3": hubspotSignature,
+        "x-hubspot-request-timestamp": timestamp,
+        "x-message-id": "hs-1",
+      },
+      payload: hubspotPayload,
+    } as never);
+    expect(hubspotResponse.statusCode).toBe(202);
+    expect(hubspotResponse.json().data.sourceSystem).toBe("hubspot");
+
+    const feishuApp = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      {
+        webhookSecrets: { feishu: "encrypt-key" },
+        webhookSchemes: { feishu: "feishu" },
+      },
+    );
+    const feishuPayload = JSON.stringify({ messageId: "fs-1" });
+    const feishuTimestamp = "1767225600";
+    const feishuNonce = "nonce-1";
+    const feishuSignature = computeFeishuSignature({
+      encryptKey: "encrypt-key",
+      timestamp: feishuTimestamp,
+      nonce: feishuNonce,
+      body: feishuPayload,
+    });
+    const feishuResponse = await feishuApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/feishu",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": feishuTimestamp,
+        "x-lark-request-nonce": feishuNonce,
+        "x-lark-signature": feishuSignature,
+        "x-message-id": "fs-1",
+      },
+      payload: feishuPayload,
+    } as never);
+    expect(feishuResponse.statusCode).toBe(202);
+    expect(feishuResponse.json().data.sourceSystem).toBe("feishu");
   });
 });
 

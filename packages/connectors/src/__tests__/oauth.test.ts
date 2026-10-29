@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ClientCredentialsTokenSource,
   OAuthTokenError,
+  RefreshTokenSource,
 } from "../index.js";
 
 describe("client credentials token source", () => {
@@ -72,5 +73,38 @@ describe("client credentials token source", () => {
     await expect(source.getToken()).rejects.toMatchObject({
       code: "OAUTH_TOKEN_ERROR",
     });
+  });
+
+  it("rotates refresh tokens and reuses the rotated value", async () => {
+    const bodies: string[] = [];
+    let calls = 0;
+    let now = 1_000_000;
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      calls += 1;
+      bodies.push(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          access_token: `token-${calls}`,
+          refresh_token: `refresh-${calls + 1}`,
+          expires_in: 60,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const source = new RefreshTokenSource({
+      tokenUrl: "https://auth.example/token",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      refreshToken: "refresh-1",
+      fetchImpl,
+      now: () => now,
+    });
+
+    expect(await source.getToken()).toBe("token-1");
+    expect(bodies[0]).toContain("grant_type=refresh_token");
+    expect(bodies[0]).toContain("refresh_token=refresh-1");
+    now += 40_000;
+    expect(await source.getToken()).toBe("token-2");
+    expect(bodies[1]).toContain("refresh_token=refresh-2");
   });
 });

@@ -114,6 +114,18 @@ const app = buildApp(
           value as string,
         ]),
     ),
+    webhookSchemes: Object.fromEntries(
+      Object.entries(process.env)
+        .filter(
+          ([key, value]) =>
+            key.startsWith("WEBHOOK_SCHEME_") &&
+            ["hmac", "hubspot", "feishu"].includes(value ?? ""),
+        )
+        .map(([key, value]) => [
+          key.slice("WEBHOOK_SCHEME_".length).toLowerCase(),
+          value as "hmac" | "hubspot" | "feishu",
+        ]),
+    ),
     enforceBudgetPools: process.env.ENFORCE_BUDGET_POOLS === "true",
   },
 );

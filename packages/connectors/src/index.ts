@@ -4,3 +4,5 @@ export * from "./csv.js";
 export * from "./http-json.js";
 export * from "./webhook.js";
 export * from "./oauth.js";
+export * from "./hubspot.js";
+export * from "./feishu.js";

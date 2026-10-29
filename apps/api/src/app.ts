@@ -106,7 +106,11 @@ import {
   type CalculationRun,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
-import { verifyWebhookSignature } from "@anari/connectors";
+import {
+  verifyFeishuSignature,
+  verifyHubSpotSignature,
+  verifyWebhookSignature,
+} from "@anari/connectors";
 import {
   AuthError,
   DevHeaderAuthenticator,
@@ -184,6 +188,8 @@ export interface BuildAppOptions {
   requiredApprovals?: string[];
   /** HMAC secrets by webhook source name for POST /api/v1/webhooks/:source. */
   webhookSecrets?: Record<string, string>;
+  /** Signature scheme per webhook source. Defaults to generic HMAC. */
+  webhookSchemes?: Record<string, "hmac" | "hubspot" | "feishu">;
   /** Require and reserve an approved budget pool for FORMAL calculations. */
   enforceBudgetPools?: boolean;
 }
@@ -2841,14 +2847,53 @@ export function buildApp(
     const raw =
       (request as FastifyRequest & { rawBody?: Buffer }).rawBody ??
       Buffer.alloc(0);
-    const timestamp = request.headers["x-timestamp"] as string | undefined;
-    const valid = verifyWebhookSignature({
-      secret,
-      payload: raw,
-      signature: request.headers["x-signature-256"] as string | undefined,
-      timestamp,
-      toleranceSeconds: timestamp ? 300 : undefined,
-    });
+    const rawText = raw.toString("utf8");
+    const scheme = options.webhookSchemes?.[source] ?? "hmac";
+    let valid = false;
+    if (scheme === "hubspot") {
+      valid = verifyHubSpotSignature({
+        clientSecret: secret,
+        method: request.method,
+        uri: request.url,
+        body: rawText,
+        signatureV3: request.headers["x-hubspot-signature-v3"] as
+          | string
+          | undefined,
+        signatureV1: request.headers["x-hubspot-signature"] as
+          | string
+          | undefined,
+        timestamp: request.headers["x-hubspot-request-timestamp"] as
+          | string
+          | undefined,
+      });
+    } else if (scheme === "feishu") {
+      valid = verifyFeishuSignature({
+        encryptKey: secret,
+        timestamp: request.headers["x-lark-request-timestamp"] as
+          | string
+          | undefined,
+        nonce: request.headers["x-lark-request-nonce"] as
+          | string
+          | undefined,
+        body: rawText,
+        signature: request.headers["x-lark-signature"] as
+          | string
+          | undefined,
+      });
+    } else {
+      const timestamp = request.headers["x-timestamp"] as
+        | string
+        | undefined;
+      valid = verifyWebhookSignature({
+        secret,
+        payload: raw,
+        signature: request.headers["x-signature-256"] as
+          | string
+          | undefined,
+        timestamp,
+        toleranceSeconds: timestamp ? 300 : undefined,
+      });
+    }
     if (!valid) {
       throw new ConflictError("WEBHOOK_SIGNATURE_INVALID");
     }
@@ -2856,12 +2901,12 @@ export function buildApp(
     const messageId =
       (request.headers["x-message-id"] as string | undefined) ??
       payload.messageId ??
-      sha256(raw.toString("utf8"));
+      sha256(rawText);
     const webhook = await platformStore.receiveWebhook({
       tenantId: tenantOf(request),
       sourceSystem: source,
       messageId,
-      payloadHash: sha256(raw.toString("utf8")),
+      payloadHash: sha256(rawText),
     });
     countEvent("webhook_received");
     return reply.status(202).send(data(webhook, request));
