@@ -1788,6 +1788,33 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/policy-test-cases/{id}/run:
+    post:
+      tags: [Policy]
+      summary: Run a policy test case
+      description: |
+        Executes the stored calculation input against the policy version bound
+        to the case and compares any supplied `pool`, `poolRounded`,
+        `resultHash` or `lines` expectations. Unsupported expectation keys,
+        calculation blockers or value differences make `passed` false.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Test case result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/policy-notices:
     get:
       tags: [Policy]

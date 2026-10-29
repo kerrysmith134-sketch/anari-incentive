@@ -1892,6 +1892,12 @@ describePg("PgStore vertical slice", () => {
       category: "NORMAL",
     });
     expect(testCase.status).toBe("ACTIVE");
+    const loadedCase = await platform.getPolicyTestCase(
+      DEMO_TENANT_ID,
+      testCase.id,
+    );
+    expect(loadedCase.caseCode).toBe(caseCode);
+    expect(loadedCase.expectedOutput).toEqual({ roundedAmount: "5000" });
     await expect(
       platform.createPolicyTestCase({
         tenantId: DEMO_TENANT_ID,

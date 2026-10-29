@@ -474,6 +474,25 @@ export interface PolicyTestCase {
   createdAt: string;
 }
 
+export interface PolicyTestCaseDifference {
+  path: string;
+  expected: unknown;
+  actual: unknown;
+}
+
+export interface PolicyTestCaseRunResult {
+  testCaseId: UUID;
+  policyVersionId: UUID;
+  caseCode: string;
+  passed: boolean;
+  expected: Record<string, unknown>;
+  actual: Record<string, unknown>;
+  differences: PolicyTestCaseDifference[];
+  unsupportedExpectationKeys: string[];
+  blockers: string[];
+  resultHash?: string;
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

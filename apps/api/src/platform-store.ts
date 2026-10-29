@@ -389,6 +389,10 @@ export interface PlatformStore {
     tenantId: string,
     policyVersionId?: string,
   ): Promise<PolicyTestCase[]>;
+  getPolicyTestCase(
+    tenantId: string,
+    testCaseId: string,
+  ): Promise<PolicyTestCase>;
   retirePolicyTestCase(input: {
     tenantId: string;
     testCaseId: string;
@@ -2176,6 +2180,18 @@ export class MemoryPlatformStore implements PlatformStore {
             testCase.policyVersionId === policyVersionId),
       )
       .sort((a, b) => a.caseCode.localeCompare(b.caseCode));
+  }
+
+  async getPolicyTestCase(
+    tenantId: string,
+    testCaseId: string,
+  ): Promise<PolicyTestCase> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    const testCase = this.policyTestCases.get(testCaseId);
+    if (!testCase || testCase.tenantId !== tenantId) {
+      notFound("PolicyTestCase", testCaseId);
+    }
+    return testCase;
   }
 
   async retirePolicyTestCase(input: {
@@ -4868,6 +4884,19 @@ export class PgPlatformStore implements PlatformStore {
     sql += " ORDER BY case_code";
     const { rows } = await this.pool.query(sql, params);
     return rows.map((row) => this.mapPolicyTestCase(row));
+  }
+
+  async getPolicyTestCase(
+    tenantId: string,
+    testCaseId: string,
+  ): Promise<PolicyTestCase> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM policy_test_cases WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, testCaseId],
+    );
+    if (!rows[0]) notFound("PolicyTestCase", testCaseId);
+    return this.mapPolicyTestCase(rows[0]);
   }
 
   async retirePolicyTestCase(input: {

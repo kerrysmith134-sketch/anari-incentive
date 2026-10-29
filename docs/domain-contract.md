@@ -209,6 +209,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /rule-change-orders/:id/publicize` | admin, APPROVED | Sets PUBLICIZED and `publicizedAt` |
 | `POST /policy-test-cases` | admin, policy exists, case code unique per version | Creates an ACTIVE test case |
 | `POST /policy-test-cases/:id/retire` | admin, ACTIVE | Sets RETIRED |
+| `POST /policy-test-cases/:id/run` | manager/finance, case and policy exist | Runs the stored calculation request against the case's policy; compares any `pool`, `poolRounded`, `resultHash` or `lines` expectations and reports differences, unsupported keys and policy-gate blockers |
 | `POST /policy-notices` | admin, policy and notice exist, unique link | Links a notice to a policy version with an audience |
 | `POST /metric-definitions` | admin, code+version unique | Creates an ACTIVE versioned metric with effective dates |
 | `POST /metric-definitions/:id/retire` | admin, ACTIVE | Sets the metric inactive |

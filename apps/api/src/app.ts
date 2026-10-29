@@ -138,6 +138,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
+import { runPolicyTestCase } from "./policy-test-runner.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import type { SpanRecorder } from "./tracing.js";
 import {
@@ -2493,6 +2494,18 @@ export function buildApp(
       }),
       request,
     );
+  });
+
+  app.post("/api/v1/policy-test-cases/:id/run", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const testCase = await platformStore.getPolicyTestCase(
+      tenantOf(request),
+      idOf(request),
+    );
+    const policy = await storeFor(request).getPolicy(
+      testCase.policyVersionId,
+    );
+    return data(runPolicyTestCase(testCase, policy), request);
   });
 
   app.post("/api/v1/policy-notices", async (request, reply) => {

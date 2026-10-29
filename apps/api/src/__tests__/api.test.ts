@@ -4837,6 +4837,96 @@ describe("vertical slice", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("runs a policy test case against its bound policy", async () => {
+    const input = {
+      cycleId: CYCLE,
+      order: {
+        id: "case-order-1",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: "00000000-0000-4000-8000-000000000010",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+    const passing = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "RUN-CASE-1",
+      input,
+      expectedOutput: {
+        pool: "5000",
+        poolRounded: "5000",
+        lines: [{ personId: OWNER, roundedAmount: "5000" }],
+      },
+      category: "NORMAL",
+    });
+    expect(passing.status).toBe(201);
+    const passRun = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${passing.body.data.id}/run`,
+    );
+    expect(passRun.status).toBe(200);
+    expect(passRun.body.data.passed).toBe(true);
+    expect(passRun.body.data.differences).toEqual([]);
+    expect(passRun.body.data.blockers).toEqual([]);
+    expect(passRun.body.data.actual.poolRounded).toBe("5000");
+
+    const failing = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "RUN-CASE-2",
+      input,
+      expectedOutput: { poolRounded: "5001" },
+      category: "BOUNDARY",
+    });
+    expect(failing.status).toBe(201);
+    const failRun = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${failing.body.data.id}/run`,
+    );
+    expect(failRun.status).toBe(200);
+    expect(failRun.body.data.passed).toBe(false);
+    expect(failRun.body.data.differences).toEqual([
+      { path: "poolRounded", expected: "5001", actual: "5000" },
+    ]);
+
+    const invalid = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "RUN-CASE-3",
+      input: {},
+      expectedOutput: { pool: "5000" },
+      category: "EXCEPTION",
+    });
+    expect(invalid.status).toBe(201);
+    const invalidRun = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${invalid.body.data.id}/run`,
+    );
+    expect(invalidRun.status).toBe(400);
+    expect(invalidRun.body.error.code).toBe("VALIDATION_ERROR");
+
+    const unsupported = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "RUN-CASE-4",
+      input,
+      expectedOutput: { roundedAmount: "5000" },
+      category: "HISTORICAL",
+    });
+    const unsupportedRun = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${unsupported.body.data.id}/run`,
+    );
+    expect(unsupportedRun.status).toBe(200);
+    expect(unsupportedRun.body.data.passed).toBe(false);
+    expect(unsupportedRun.body.data.unsupportedExpectationKeys).toEqual([
+      "roundedAmount",
+    ]);
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

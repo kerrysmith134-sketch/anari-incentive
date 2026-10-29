@@ -271,11 +271,12 @@
         <div style="display:flex;align-items:flex-end"><button class="primary" id="createCase" style="width:100%">创建用例</button></div>
       </div>
       <div class="grid" style="margin-top:10px">
-        <div><label>输入（JSON）</label><input id="caseInput" value='{"grossProfit":"100000"}' /></div>
-        <div><label>期望输出（JSON）</label><input id="caseExpected" value='{"roundedAmount":"5000"}' /></div>
+        <div><label>输入（JSON，计算请求）</label><textarea id="caseInput">{"cycleId":"00000000-0000-4000-8000-000000000020","order":{"id":"order-test-1","grossProfit":"100000","currency":"CNY"},"participants":[{"personId":"00000000-0000-4000-8000-000000000001","workPackageId":"00000000-0000-4000-8000-000000000010","attributionWeight":"1","role":"OWNER"}]}</textarea></div>
+        <div><label>期望输出（JSON）</label><textarea id="caseExpected">{"pool":"5000","poolRounded":"5000"}</textarea></div>
         <div style="display:flex;align-items:flex-end"><button id="refreshCases" style="width:100%">刷新用例</button></div>
       </div>
       <div class="status" id="caseStatus"></div>
+      <pre id="caseResult" hidden></pre>
       <table>
         <thead><tr><th>编码</th><th>分类</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="caseRows"></tbody>
@@ -910,7 +911,10 @@
           <td class="mono">${escapeHtml(item.caseCode)}</td>
           <td>${escapeHtml(item.category)}</td>
           <td><span class="pill">${escapeHtml(item.status)}</span></td>
-          <td>${item.status === "ACTIVE" ? `<button data-retire-case="${item.id}">停用</button>` : "—"}</td>
+          <td>
+            <button data-run-case="${item.id}">运行</button>
+            ${item.status === "ACTIVE" ? `<button data-retire-case="${item.id}">停用</button>` : ""}
+          </td>
         </tr>`).join("");
         setStatus("caseStatus", `共 ${cases.length} 条测试用例`, "ok");
       } catch (error) {
@@ -932,6 +936,26 @@
         });
         setStatus("caseStatus", "测试用例已创建", "ok");
         await loadCases();
+      } catch (error) {
+        setStatus("caseStatus", String(error.message), "bad");
+      }
+    }
+
+    async function runCase(id) {
+      try {
+        const result = await api(
+          `/api/v1/policy-test-cases/${id}/run`,
+          { method: "POST" },
+        );
+        $("caseResult").hidden = false;
+        $("caseResult").textContent = JSON.stringify(result, null, 2);
+        setStatus(
+          "caseStatus",
+          result.passed
+            ? "测试用例通过"
+            : `测试未通过：差异 ${result.differences.length}，阻断 ${result.blockers.length}`,
+          result.passed ? "ok" : "bad",
+        );
       } catch (error) {
         setStatus("caseStatus", String(error.message), "bad");
       }
@@ -1633,6 +1657,11 @@
     $("createCase").addEventListener("click", createCase);
     $("refreshCases").addEventListener("click", loadCases);
     $("caseRows").addEventListener("click", (event) => {
+      const run = event.target.closest("button[data-run-case]");
+      if (run) {
+        runCase(run.dataset.runCase);
+        return;
+      }
       const retire = event.target.closest("button[data-retire-case]");
       if (retire) retireCase(retire.dataset.retireCase);
     });
