@@ -5390,6 +5390,10 @@ components:
         mode:
           type: string
           enum: [SHADOW, FORMAL]
+        budgetPoolId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Required for FORMAL runs when ENFORCE_BUDGET_POOLS is enabled; the run total is reserved against the approved pool.
         order:
           $ref: "#/components/schemas/CalculationOrder"
         participants:

@@ -114,6 +114,7 @@ const app = buildApp(
           value as string,
         ]),
     ),
+    enforceBudgetPools: process.env.ENFORCE_BUDGET_POOLS === "true",
   },
 );
 

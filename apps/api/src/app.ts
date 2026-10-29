@@ -98,6 +98,7 @@ import {
   settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
+import type { CreateCalculationRunInput } from "@anari/contracts";
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
@@ -113,6 +114,8 @@ import {
 } from "@anari/auth";
 import {
   diffPolicyDefinitions,
+  formatDecimal,
+  parseDecimal,
   sha256,
   simulatePolicyChange,
 } from "@anari/policy-dsl";
@@ -175,6 +178,8 @@ export interface BuildAppOptions {
   requiredApprovals?: string[];
   /** HMAC secrets by webhook source name for POST /api/v1/webhooks/:source. */
   webhookSecrets?: Record<string, string>;
+  /** Require and reserve an approved budget pool for FORMAL calculations. */
+  enforceBudgetPools?: boolean;
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -417,6 +422,74 @@ export function buildApp(
       tenantId,
       requestId: approval.id,
       consumedBy,
+    });
+  }
+
+  async function preflightBudget(
+    request: FastifyRequest,
+    input: CreateCalculationRunInput,
+  ): Promise<void> {
+    if (!options.enforceBudgetPools || input.mode !== "FORMAL") return;
+    if (!input.budgetPoolId) {
+      throw new ConflictError(
+        "BUDGET_POOL_REQUIRED: FORMAL calculations require budgetPoolId",
+      );
+    }
+    const pool = await platformStore.getBudgetPool(
+      tenantOf(request),
+      input.budgetPoolId,
+    );
+    if (pool.cycleId !== input.cycleId) {
+      throw new ConflictError(
+        `BUDGET_POOL_CYCLE_MISMATCH: pool ${pool.id} belongs to ${pool.cycleId}`,
+      );
+    }
+    if (pool.status !== "APPROVED") {
+      throw new ConflictError(
+        `BUDGET_POOL_NOT_APPROVED: ${pool.status}`,
+      );
+    }
+    const policy = await storeFor(request).getPolicy(input.policyVersionId);
+    const base = (parseDecimal(input.order.grossProfit) *
+      parseDecimal(policy.poolRate) +
+      999_999n) / 1_000_000n;
+    const cap = parseDecimal(policy.poolCap);
+    const upper = base < cap ? base : cap;
+    const available =
+      parseDecimal(pool.approvedAmount) -
+      parseDecimal(pool.committedAmount);
+    if (available < upper) {
+      throw new ConflictError(
+        `BUDGET_POOL_EXHAUSTED: available ${formatDecimal(
+          available,
+        )} < required upper bound ${formatDecimal(upper)}`,
+      );
+    }
+  }
+
+  async function reserveRunBudget(
+    request: FastifyRequest,
+    input: CreateCalculationRunInput,
+    run: CalculationRun,
+  ): Promise<void> {
+    if (
+      !options.enforceBudgetPools ||
+      input.mode !== "FORMAL" ||
+      !input.budgetPoolId
+    ) {
+      return;
+    }
+    const total = run.lines.reduce(
+      (acc, line) => acc + parseDecimal(line.roundedAmount),
+      0n,
+    );
+    if (total <= 0n) return;
+    await platformStore.createBudgetAllocation({
+      tenantId: tenantOf(request),
+      poolId: input.budgetPoolId,
+      targetType: "CALCULATION_RUN",
+      targetId: run.id,
+      amount: formatDecimal(total),
     });
   }
 
@@ -2837,15 +2910,26 @@ export function buildApp(
       request,
       ...(body.mode === "FORMAL" ? ["finance"] : ["manager", "finance"]),
     );
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).createCalculationRun(body), request));
+    await preflightBudget(request, body);
+    const run = await storeFor(request).createCalculationRun(body);
+    await reserveRunBudget(request, body, run);
+    countEvent("calculation_created");
+    return reply.status(201).send(data(run, request));
   });
 
   app.post("/api/v1/calculation-runs:batch", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(createCalculationBatchSchema, request.body);
+    if (
+      options.enforceBudgetPools &&
+      body.runs.some((run) => run.mode === "FORMAL")
+    ) {
+      throw new ConflictError(
+        "BUDGET_ENFORCEMENT_BATCH_UNSUPPORTED: create formal runs individually when budget enforcement is enabled",
+      );
+    }
     const runs = await storeFor(request).createCalculationRunsBatch(body.runs);
+    countEvent("calculation_batch_created");
     return reply.status(201).send(data({ runs }, request));
   });
 

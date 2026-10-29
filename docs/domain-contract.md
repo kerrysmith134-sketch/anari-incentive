@@ -172,8 +172,8 @@ Additional application-level invariants:
 | `POST /evaluation-drafts` | cycle/person exist; manager | Evidence-bound DRAFT |
 | `POST /evaluation-drafts/:id/submit` | DRAFT | SUBMITTED |
 | `POST /evaluation-drafts/:id/decision` | SUBMITTED, reviewer ≠ person, rubric scores complete | APPROVED + versioned decision, or REJECTED |
-| `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution; a policy with `evaluation` requires approved, matching decisions | CALCULATED; FORMAL writes ledger |
-| `POST /calculation-runs:batch` | 1–50 runs, same per-run rules | All-or-nothing in one transaction; any blocked item rolls back runs and ledger |
+| `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution; a policy with `evaluation` requires approved, matching decisions; with `ENFORCE_BUDGET_POOLS`, FORMAL also requires an approved pool with headroom | CALCULATED; FORMAL writes ledger and reserves the run total against the pool |
+| `POST /calculation-runs:batch` | 1–50 runs, same per-run rules; formal batches rejected while `ENFORCE_BUDGET_POOLS` is on | All-or-nothing in one transaction; any blocked item rolls back runs and ledger |
 | `POST /calculation-runs/:id/approve` | CALCULATED; optional approval | APPROVED; a matching approved `CALCULATION_APPROVE` request is consumed |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed; optional approval | LOCKED; locks ledger; a matching approved `CALCULATION_LOCK` request is consumed |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |

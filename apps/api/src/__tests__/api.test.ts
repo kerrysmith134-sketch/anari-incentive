@@ -2570,6 +2570,107 @@ describe("ledger adjustments", () => {
   });
 });
 
+describe("budget enforcement for formal runs", () => {
+  it("requires an approved pool and blocks runs beyond the available budget", async () => {
+    const enforcedApp = buildApp(
+      appStore,
+      undefined,
+      undefined,
+      undefined,
+      { enforceBudgetPools: true },
+    );
+    const inject = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await enforcedApp.inject({
+        method,
+        url,
+        payload,
+      } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+    const pool = await inject("POST", "/api/v1/budget-pools", {
+      cycleId: CYCLE,
+      code: "ENFORCED",
+      name: "Enforced pool",
+      poolType: "STANDARD",
+      currency: "CNY",
+      approvedAmount: "6000",
+    });
+    expect(pool.status).toBe(201);
+    const poolId = pool.body.data.id as string;
+    await inject("POST", `/api/v1/budget-pools/${poolId}/approve`, {
+      approvedBy: ADJUDICATOR,
+    });
+
+    const firstPackage = await createAcceptedWorkPackage();
+    await createConfirmedClaim(firstPackage, OWNER);
+    await recordCompleteLegalGate();
+
+    const missingPool = await inject(
+      "POST",
+      "/api/v1/calculation-runs",
+      {
+        cycleId: CYCLE,
+        policyVersionId: REFERENCE_POLICY_ID,
+        mode: "FORMAL",
+        order: { id: "budget-1", grossProfit: "100000", currency: "CNY" },
+        participants: [
+          {
+            personId: OWNER,
+            workPackageId: firstPackage,
+            attributionWeight: "1",
+            role: "OWNER",
+          },
+        ],
+      },
+    );
+    expect(missingPool.status).toBe(409);
+    expect(missingPool.body.error.message).toContain("BUDGET_POOL_REQUIRED");
+
+    const firstRun = await inject("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      budgetPoolId: poolId,
+      order: { id: "budget-1", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: firstPackage,
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    });
+    expect(firstRun.status).toBe(201);
+    const pooled = await inject("GET", `/api/v1/budget-pools/${poolId}`);
+    expect(pooled.body.data.committedAmount).toBe("5000");
+
+    const secondPackage = await createAcceptedWorkPackage();
+    await createConfirmedClaim(secondPackage, OWNER);
+    const exhausted = await inject("POST", "/api/v1/calculation-runs", {
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      budgetPoolId: poolId,
+      order: { id: "budget-2", grossProfit: "100000", currency: "CNY" },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: secondPackage,
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    });
+    expect(exhausted.status).toBe(409);
+    expect(exhausted.body.error.message).toContain("BUDGET_POOL_EXHAUSTED");
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

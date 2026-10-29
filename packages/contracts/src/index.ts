@@ -644,6 +644,7 @@ export const createCalculationRunSchema = z.object({
   cycleId: uuidSchema,
   policyVersionId: z.string().min(1),
   mode: z.enum(["SHADOW", "FORMAL"]),
+  budgetPoolId: uuidSchema.optional(),
   order: z.object({
     id: z.string().min(1),
     grossProfit: decimal,
