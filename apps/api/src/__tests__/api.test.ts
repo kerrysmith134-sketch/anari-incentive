@@ -2893,6 +2893,33 @@ describe("observability", () => {
     expect(denied.json().error.message).toContain("APPROVAL_REQUIRED");
   });
 
+  it("enforces tenant-configured approvals", async () => {
+    const settings = await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requiredApprovals: ["POLICY_PUBLISH"] },
+    );
+    expect(settings.status).toBe(200);
+    expect(settings.body.data.settings.requiredApprovals).toContain(
+      "POLICY_PUBLISH",
+    );
+    const denied = await call("POST", "/api/v1/policy-versions", {
+      policy: {
+        code: "TENANT_GUARDED_POLICY",
+        version: 1,
+        currency: "CNY",
+        poolRate: "0.05",
+        poolCap: "1000",
+        rounding: "HALF_UP",
+        calculator: "SIMPLE_POOL",
+      },
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(denied.status).toBe(409);
+    expect(denied.body.error.message).toContain("APPROVAL_REQUIRED");
+  });
+
   it("renders business event counters", async () => {
     const created = await call("POST", "/api/v1/approval-requests", {
       actionType: "SETTLEMENT_LOCK",

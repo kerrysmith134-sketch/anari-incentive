@@ -905,6 +905,15 @@ export type CreatePlatformUserBody = z.infer<
   typeof createPlatformUserSchema
 >;
 
+export const updateTenantSettingsSchema = z
+  .object({
+    requiredApprovals: z.array(z.string().min(1)).optional(),
+  })
+  .passthrough();
+export type UpdateTenantSettingsBody = z.infer<
+  typeof updateTenantSettingsSchema
+>;
+
 export const addMembershipSchema = z.object({
   userId: uuidSchema,
   roleCodes: z.array(z.string().min(1)).min(1),

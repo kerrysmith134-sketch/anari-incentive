@@ -147,6 +147,7 @@ Additional application-level invariants:
 | Command | Preconditions | Effects |
 |---|---|---|
 | `POST /platform/tenants` | platform_admin | Creates an ACTIVE tenant |
+| `POST /platform/tenants/:id/settings` | platform_admin | Replaces tenant settings; `requiredApprovals` makes listed action types mandatory |
 | `POST /platform/users` | platform_admin | Creates a platform user |
 | `POST /platform/tenants/:id/memberships` | platform_admin, tenant/user exist | Upserts ACTIVE membership with role codes |
 | `POST /platform/tenants/:id/persons` | platform_admin, tenant exists | Creates a person; employee code unique per tenant, optional `userId` link |
@@ -194,7 +195,7 @@ Additional application-level invariants:
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
 
-Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`, `POLICY_PUBLISH`, `LEGAL_GATE`, `LEDGER_REVERSAL`, `LEDGER_ADJUSTMENT`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request. `REQUIRE_APPROVAL_FOR` makes selected action types mandatory; an unapproved guarded command then fails with `APPROVAL_REQUIRED`.
+Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`, `POLICY_PUBLISH`, `LEGAL_GATE`, `LEDGER_REVERSAL`, `LEDGER_ADJUSTMENT`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request. `REQUIRE_APPROVAL_FOR` and tenant settings `requiredApprovals` make selected action types mandatory; an unapproved guarded command then fails with `APPROVAL_REQUIRED`.
 | `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
 | `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
 | `POST /budget-pools` | finance, cycle exists | Creates a DRAFT pool with a decimal approved amount |

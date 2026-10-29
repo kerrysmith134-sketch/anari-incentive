@@ -25,6 +25,7 @@ import {
   createNotificationSchema,
   createNoticeSchema,
   createPlatformPersonSchema,
+  updateTenantSettingsSchema,
   createRepresentationSchema,
   createConsultationSchema,
   concludeConsultationSchema,
@@ -344,11 +345,25 @@ export function buildApp(
   const scopedRuntimes = new Map<string, AgentRuntime>();
   let readinessProbe: IncentiveStore | undefined;
 
-  function ensureApproval(
+  async function ensureApproval(
+    request: FastifyRequest,
     actionType: string,
     approvalRequestId?: string,
-  ): void {
-    if (requiredApprovals.has(actionType) && !approvalRequestId) {
+  ): Promise<void> {
+    if (approvalRequestId) return;
+    let required = requiredApprovals.has(actionType);
+    if (!required) {
+      try {
+        const tenant = await platformStore.getTenant(tenantOf(request));
+        const configured = tenant.settings?.requiredApprovals;
+        required =
+          Array.isArray(configured) && configured.includes(actionType);
+      } catch {
+        // A platform tenant may not exist in memory-only setups; the
+        // environment-level configuration still applies.
+      }
+    }
+    if (required) {
       throw new ConflictError(`APPROVAL_REQUIRED: ${actionType}`);
     }
   }
@@ -874,6 +889,18 @@ export function buildApp(
     return data(await platformStore.listTenants(), request);
   });
 
+  app.post("/api/v1/platform/tenants/:id/settings", async (request) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(updateTenantSettingsSchema, request.body);
+    return data(
+      await platformStore.updateTenantSettings({
+        tenantId: idOf(request),
+        settings: body,
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/platform/users", async (request, reply) => {
     requireRoles(request, "platform_admin");
     const body = parse(createPlatformUserSchema, request.body);
@@ -1025,7 +1052,7 @@ export function buildApp(
   app.post("/api/v1/policy-versions", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(publishPolicySchema, request.body);
-    ensureApproval("POLICY_PUBLISH", body.approvalRequestId);
+    await ensureApproval(request, "POLICY_PUBLISH", body.approvalRequestId);
     if (body.approvalRequestId) {
       if (!body.policyVersionId) {
         throw new ConflictError(
@@ -1468,7 +1495,7 @@ export function buildApp(
     const body = parse(recordLegalGateSchema, request.body);
     const policyVersionId = idOf(request);
     const tenantId = tenantOf(request);
-    ensureApproval("LEGAL_GATE", body.approvalRequestId);
+    await ensureApproval(request, "LEGAL_GATE", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2843,7 +2870,7 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(adjustLedgerEntrySchema, request.body);
-    ensureApproval("LEDGER_ADJUSTMENT", body.approvalRequestId);
+    await ensureApproval(request, "LEDGER_ADJUSTMENT", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2981,7 +3008,7 @@ export function buildApp(
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
     requireRoles(request, "finance");
     const body = parse(approveCalculationRunSchema, request.body ?? {});
-    ensureApproval("CALCULATION_APPROVE", body.approvalRequestId);
+    await ensureApproval(request, "CALCULATION_APPROVE", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2998,7 +3025,7 @@ export function buildApp(
   app.post("/api/v1/calculation-runs/:id/lock", async (request) => {
     requireRoles(request, "finance");
     const body = parse(lockCalculationRunSchema, request.body);
-    ensureApproval("CALCULATION_LOCK", body.approvalRequestId);
+    await ensureApproval(request, "CALCULATION_LOCK", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -3080,7 +3107,7 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/reverse", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(reverseLedgerEntrySchema, request.body);
-    ensureApproval("LEDGER_REVERSAL", body.approvalRequestId);
+    await ensureApproval(request, "LEDGER_REVERSAL", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -3149,7 +3176,7 @@ export function buildApp(
         body.command === "APPROVE"
           ? "SETTLEMENT_APPROVE"
           : "SETTLEMENT_LOCK";
-      ensureApproval(actionType, body.approvalRequestId);
+      await ensureApproval(request, actionType, body.approvalRequestId);
       if (body.approvalRequestId) {
         await consumeApprovalForAction(request, {
           approvalRequestId: body.approvalRequestId,

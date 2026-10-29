@@ -3886,6 +3886,34 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/platform/tenants/{id}/settings:
+    post:
+      tags: [Platform]
+      summary: Replace tenant settings
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantSettings"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/platform/users:
     get:
       tags: [Platform]
@@ -5670,6 +5698,15 @@ components:
           type: string
           minLength: 3
           maxLength: 3
+
+    UpdateTenantSettings:
+      type: object
+      properties:
+        requiredApprovals:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
 
     CreatePlatformUser:
       type: object

@@ -58,6 +58,11 @@ export interface PlatformStore {
     defaultCurrency?: string;
   }): Promise<PlatformTenant>;
   listTenants(): Promise<PlatformTenant[]>;
+  getTenant(tenantId: string): Promise<PlatformTenant>;
+  updateTenantSettings(input: {
+    tenantId: string;
+    settings: Record<string, unknown>;
+  }): Promise<PlatformTenant>;
   createUser(input: {
     authSubject: string;
     displayName: string;
@@ -671,6 +676,7 @@ export class MemoryPlatformStore implements PlatformStore {
       status: "ACTIVE",
       defaultTimezone: "UTC",
       defaultCurrency: "CNY",
+      settings: {},
       createdAt,
     });
     for (const person of demo.persons ?? []) {
@@ -701,6 +707,7 @@ export class MemoryPlatformStore implements PlatformStore {
       status: "ACTIVE",
       defaultTimezone: input.defaultTimezone ?? "UTC",
       defaultCurrency: input.defaultCurrency ?? "CNY",
+      settings: {},
       createdAt: now(),
     };
     this.tenants.set(tenant.id, tenant);
@@ -711,6 +718,21 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.tenants.values()].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
     );
+  }
+
+  async getTenant(tenantId: string): Promise<PlatformTenant> {
+    const tenant = this.tenants.get(tenantId);
+    if (!tenant) notFound("Tenant", tenantId);
+    return tenant;
+  }
+
+  async updateTenantSettings(input: {
+    tenantId: string;
+    settings: Record<string, unknown>;
+  }): Promise<PlatformTenant> {
+    const tenant = await this.getTenant(input.tenantId);
+    tenant.settings = input.settings;
+    return tenant;
   }
 
   async createUser(input: {
@@ -3038,6 +3060,29 @@ export class PgPlatformStore implements PlatformStore {
       "SELECT * FROM tenants ORDER BY created_at DESC",
     );
     return rows.map((row) => this.mapTenant(row));
+  }
+
+  async getTenant(tenantId: string): Promise<PlatformTenant> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM tenants WHERE id=$1",
+      [tenantId],
+    );
+    if (!rows[0]) notFound("Tenant", tenantId);
+    return this.mapTenant(rows[0]);
+  }
+
+  async updateTenantSettings(input: {
+    tenantId: string;
+    settings: Record<string, unknown>;
+  }): Promise<PlatformTenant> {
+    const { rows } = await this.pool.query(
+      `UPDATE tenants SET settings=$2, updated_at=now()
+        WHERE id=$1
+        RETURNING *`,
+      [input.tenantId, input.settings],
+    );
+    if (!rows[0]) notFound("Tenant", input.tenantId);
+    return this.mapTenant(rows[0]);
   }
 
   async createUser(input: {
@@ -5924,6 +5969,7 @@ export class PgPlatformStore implements PlatformStore {
       status: row.status,
       defaultTimezone: row.default_timezone,
       defaultCurrency: String(row.default_currency).trim(),
+      settings: row.settings ?? {},
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

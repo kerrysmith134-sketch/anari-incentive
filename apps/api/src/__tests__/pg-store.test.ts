@@ -1176,6 +1176,16 @@ describePg("PgStore vertical slice", () => {
     expect(
       (await platform.listTenants()).some((candidate) => candidate.id === tenant.id),
     ).toBe(true);
+    const configured = await platform.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { requiredApprovals: ["SETTLEMENT_LOCK"] },
+    });
+    expect(configured.settings).toEqual({
+      requiredApprovals: ["SETTLEMENT_LOCK"],
+    });
+    expect((await platform.getTenant(tenant.id)).settings).toEqual({
+      requiredApprovals: ["SETTLEMENT_LOCK"],
+    });
     const memberships = await platform.listMemberships(tenant.id);
     expect(memberships).toHaveLength(1);
     expect(memberships[0]!.userDisplayName).toBe("PG Tenant Admin");

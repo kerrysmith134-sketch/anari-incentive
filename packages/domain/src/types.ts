@@ -775,6 +775,8 @@ export interface PlatformTenant {
   status: string;
   defaultTimezone: string;
   defaultCurrency: string;
+  /** Tenant-level settings, e.g. `{ requiredApprovals: [...] }`. */
+  settings?: Record<string, unknown>;
   createdAt: string;
 }
 
