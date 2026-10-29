@@ -309,6 +309,96 @@
     </section>
 
     <section class="card">
+      <h2>法律门禁与 DPIA</h2>
+      <div class="grid">
+        <div>
+          <label>政策版本</label>
+          <select id="legalGatePolicy"></select>
+        </div>
+        <div>
+          <label>民主程序引用</label>
+          <input id="legalDemocratic" value="works-council-2026" />
+        </div>
+        <div>
+          <label>员工告知引用</label>
+          <input id="legalNotice" value="notice-2026" />
+        </div>
+        <div>
+          <label>DPIA 引用</label>
+          <input id="legalDpia" value="dpia-2026" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>最低工资已核对</label>
+          <select id="legalMinimumWage">
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        </div>
+        <div>
+          <label>政策已批准</label>
+          <select id="legalPolicyApproved">
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        </div>
+        <div>
+          <label>记录人 ID</label>
+          <input id="legalRecordedBy" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div>
+          <label>审批请求 ID（可选）</label>
+          <input id="legalGateApproval" placeholder="APPROVAL_REQUEST_ID" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="recordLegalGate">记录法律门禁</button>
+      </div>
+      <div class="status" id="legalGateStatus"></div>
+      <pre id="legalGateResult" hidden></pre>
+
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <label>DPIA 类型</label>
+          <select id="dpiaType">
+            <option value="DPIA">DPIA</option>
+            <option value="PIPIA">PIPIA</option>
+          </select>
+        </div>
+        <div>
+          <label>范围</label>
+          <input id="dpiaScope" value="Performance and incentive calculation" />
+        </div>
+        <div>
+          <label>批准人 ID</label>
+          <input id="dpiaApprover" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createDpia" style="width:100%">创建 DPIA</button>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>风险摘要（JSON）</label>
+          <input id="dpiaRisk" value='{"level":"medium"}' />
+        </div>
+        <div>
+          <label>缓解摘要（JSON）</label>
+          <input id="dpiaMitigation" value='{"access":"role-gated"}' />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="refreshDpias" style="width:100%">刷新 DPIA</button>
+        </div>
+      </div>
+      <div class="status" id="dpiaStatus"></div>
+      <table>
+        <thead><tr><th>类型</th><th>范围</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="dpiaRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>批量计算</h2>
       <div class="grid">
         <div>
@@ -2027,6 +2117,7 @@ order-batch-2,80000</textarea>
         $("batchPolicy").innerHTML = options;
         $("noticePolicy").innerHTML = '<option value="">不关联</option>' + options;
         $("consultationPolicy").innerHTML = options;
+        $("legalGatePolicy").innerHTML = options;
         if (versions.length > 1) $("diffTarget").selectedIndex = 1;
         setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
@@ -2250,6 +2341,84 @@ order-batch-2,80000</textarea>
       }
     }
 
+    async function recordLegalGate() {
+      try {
+        const policyVersionId = $("legalGatePolicy").value;
+        if (!policyVersionId) throw new Error("请选择政策版本");
+        const gate = await api(
+          `/api/v1/policy-versions/${policyVersionId}/legal-gate`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              democraticProcedureRef:
+                $("legalDemocratic").value.trim() || undefined,
+              employeeNoticeRef: $("legalNotice").value.trim() || undefined,
+              dataProtectionAssessmentRef:
+                $("legalDpia").value.trim() || undefined,
+              minimumWageChecked: $("legalMinimumWage").value === "true",
+              policyApproved: $("legalPolicyApproved").value === "true",
+              recordedBy: $("legalRecordedBy").value.trim(),
+              approvalRequestId:
+                $("legalGateApproval").value.trim() || undefined,
+            }),
+          },
+        );
+        $("legalGateResult").hidden = false;
+        $("legalGateResult").textContent = JSON.stringify(gate, null, 2);
+        setStatus("legalGateStatus", "法律门禁已记录", "ok");
+      } catch (error) {
+        setStatus("legalGateStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadDpias() {
+      try {
+        const dpias = await api("/api/v1/dpia-records");
+        $("dpiaRows").innerHTML = dpias.map((dpia) => `<tr>
+          <td>${escapeHtml(dpia.assessmentType)}</td>
+          <td>${escapeHtml(dpia.scope)}</td>
+          <td><span class="pill">${escapeHtml(dpia.status)}</span></td>
+          <td>${dpia.status === "DRAFT" ? `<button data-approve-dpia="${dpia.id}">批准</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus("dpiaStatus", `共 ${dpias.length} 条评估`, "ok");
+      } catch (error) {
+        setStatus("dpiaStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createDpia() {
+      try {
+        await api("/api/v1/dpia-records", {
+          method: "POST",
+          body: JSON.stringify({
+            assessmentType: $("dpiaType").value,
+            scope: $("dpiaScope").value.trim(),
+            riskSummary: jsonValue("dpiaRisk", {}),
+            mitigationSummary: jsonValue("dpiaMitigation", {}),
+          }),
+        });
+        setStatus("dpiaStatus", "DPIA 已创建", "ok");
+        await loadDpias();
+      } catch (error) {
+        setStatus("dpiaStatus", String(error.message), "bad");
+      }
+    }
+
+    async function approveDpia(dpiaId) {
+      try {
+        await api(`/api/v1/dpia-records/${dpiaId}/approve`, {
+          method: "POST",
+          body: JSON.stringify({
+            approvedBy: $("dpiaApprover").value.trim(),
+          }),
+        });
+        setStatus("dpiaStatus", "DPIA 已批准", "ok");
+        await loadDpias();
+      } catch (error) {
+        setStatus("dpiaStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadLedger() {
       try {
         const entries = await api("/api/v1/ledger");
@@ -2427,6 +2596,13 @@ order-batch-2,80000</textarea>
       if (!button) return;
       concludeConsultation(button.dataset.consultation);
     });
+    $("recordLegalGate").addEventListener("click", recordLegalGate);
+    $("createDpia").addEventListener("click", createDpia);
+    $("refreshDpias").addEventListener("click", loadDpias);
+    $("dpiaRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-approve-dpia]");
+      if (button) approveDpia(button.dataset.approveDpia);
+    });
     $("notices").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notice]");
       if (!button) return;
@@ -2505,6 +2681,7 @@ order-batch-2,80000</textarea>
     loadNotices();
     loadRepresentations();
     loadConsultations();
+    loadDpias();
     loadTasks();
     loadSettlements();
     loadLedger();

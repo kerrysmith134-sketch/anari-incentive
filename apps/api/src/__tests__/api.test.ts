@@ -3347,6 +3347,8 @@ describe("admin view", () => {
     expect(response.body).toContain("平台租户");
     expect(response.body).toContain("保存租户设置");
     expect(response.body).toContain("/api/v1/platform/tenants/");
+    expect(response.body).toContain("法律门禁与 DPIA");
+    expect(response.body).toContain("/api/v1/dpia-records");
   });
 
   it("serves the governance operations page", async () => {
