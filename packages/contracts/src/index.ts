@@ -421,6 +421,32 @@ export type CreateMetricDefinitionBody = z.infer<
   typeof createMetricDefinitionSchema
 >;
 
+export const createDeliverableSchema = z.object({
+  title: z.string().min(1),
+  deliverableType: z.string().min(1),
+  ownerPersonId: uuidSchema,
+  dueAt: z.string().datetime().optional(),
+});
+export type CreateDeliverableBody = z.infer<typeof createDeliverableSchema>;
+
+export const submitDeliverableSchema = z.object({
+  artifactRef: z.string().min(1).optional(),
+  contentHash: z.string().min(1).optional(),
+});
+export type SubmitDeliverableBody = z.infer<
+  typeof submitDeliverableSchema
+>;
+
+export const recordDeliverableAcceptanceSchema = z.object({
+  decision: z.enum(["ACCEPT", "REJECT", "ACCEPT_WITH_ISSUES"]),
+  reviewerPersonId: uuidSchema,
+  criteriaResults: z.record(z.unknown()).default({}),
+  comments: z.string().optional(),
+});
+export type RecordDeliverableAcceptanceBody = z.infer<
+  typeof recordDeliverableAcceptanceSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

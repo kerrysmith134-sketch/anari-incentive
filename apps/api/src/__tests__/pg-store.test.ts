@@ -1919,6 +1919,58 @@ describePg("PgStore vertical slice", () => {
     expect(retiredMetric.active).toBe(false);
   });
 
+  it("records deliverables and acceptance evidence", async () => {
+    const platform = new PgPlatformStore(pool);
+    const workPackageId = await acceptedWorkPackage();
+    const deliverable = await platform.createDeliverable({
+      tenantId: DEMO_TENANT_ID,
+      workPackageId,
+      title: "PG acceptance certificate",
+      deliverableType: "DOCUMENT",
+      ownerPersonId: OWNER,
+    });
+    expect(deliverable.status).toBe("DRAFT");
+    await expect(
+      platform.recordDeliverableAcceptance({
+        tenantId: DEMO_TENANT_ID,
+        deliverableId: deliverable.id,
+        decision: "ACCEPT",
+        reviewerPersonId: MEMBER,
+        criteriaResults: {},
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const submitted = await platform.submitDeliverable({
+      tenantId: DEMO_TENANT_ID,
+      deliverableId: deliverable.id,
+      artifactRef: "pg://acceptance-certificate",
+    });
+    expect(submitted.status).toBe("SUBMITTED");
+    await expect(
+      platform.recordDeliverableAcceptance({
+        tenantId: DEMO_TENANT_ID,
+        deliverableId: deliverable.id,
+        decision: "ACCEPT",
+        reviewerPersonId: OWNER,
+        criteriaResults: {},
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const acceptance = await platform.recordDeliverableAcceptance({
+      tenantId: DEMO_TENANT_ID,
+      deliverableId: deliverable.id,
+      decision: "ACCEPT",
+      reviewerPersonId: MEMBER,
+      criteriaResults: { complete: true },
+      comments: "Accepted",
+    });
+    expect(acceptance.decision).toBe("ACCEPT");
+    expect(
+      await platform.listDeliverableAcceptances(
+        DEMO_TENANT_ID,
+        deliverable.id,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
 import type {
+  Acceptance,
   ApprovalDecision,
   ApprovalRequest,
   ApprovalRiskTier,
@@ -11,6 +12,7 @@ import type {
   CashGateInput,
   ConsultationOutcome,
   ConsultationType,
+  Deliverable,
   DpiaAssessmentType,
   DpiaRecord,
   DsarRequest,
@@ -409,6 +411,37 @@ export interface PlatformStore {
     tenantId: string;
     metricId: string;
   }): Promise<MetricDefinition>;
+  createDeliverable(input: {
+    tenantId: string;
+    workPackageId: string;
+    title: string;
+    deliverableType: string;
+    ownerPersonId: string;
+    dueAt?: string;
+  }): Promise<Deliverable>;
+  listDeliverables(
+    tenantId: string,
+    workPackageId?: string,
+  ): Promise<Deliverable[]>;
+  getDeliverable(tenantId: string, deliverableId: string): Promise<Deliverable>;
+  submitDeliverable(input: {
+    tenantId: string;
+    deliverableId: string;
+    artifactRef?: string;
+    contentHash?: string;
+  }): Promise<Deliverable>;
+  recordDeliverableAcceptance(input: {
+    tenantId: string;
+    deliverableId: string;
+    decision: Acceptance["decision"];
+    reviewerPersonId: string;
+    criteriaResults: Record<string, unknown>;
+    comments?: string;
+  }): Promise<Acceptance>;
+  listDeliverableAcceptances(
+    tenantId: string,
+    deliverableId: string,
+  ): Promise<Acceptance[]>;
 }
 
 function now(): string {
@@ -448,6 +481,8 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly policyTestCases = new Map<string, PolicyTestCase>();
   private readonly policyNotices = new Map<string, PolicyNotice>();
   private readonly metricDefinitions = new Map<string, MetricDefinition>();
+  private readonly deliverables = new Map<string, Deliverable>();
+  private readonly acceptances = new Map<string, Acceptance>();
 
   constructor(
     options: {
@@ -2108,6 +2143,145 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     metric.active = false;
     return metric;
+  }
+
+  async createDeliverable(input: {
+    tenantId: string;
+    workPackageId: string;
+    title: string;
+    deliverableType: string;
+    ownerPersonId: string;
+    dueAt?: string;
+  }): Promise<Deliverable> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const owner = this.persons.get(input.ownerPersonId);
+    if (!owner || owner.tenantId !== input.tenantId) {
+      notFound("Person", input.ownerPersonId);
+    }
+    const timestamp = now();
+    const deliverable: Deliverable = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      workPackageId: input.workPackageId,
+      title: input.title,
+      deliverableType: input.deliverableType,
+      ownerPersonId: input.ownerPersonId,
+      dueAt: input.dueAt,
+      status: "DRAFT",
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.deliverables.set(deliverable.id, deliverable);
+    return deliverable;
+  }
+
+  async listDeliverables(
+    tenantId: string,
+    workPackageId?: string,
+  ): Promise<Deliverable[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.deliverables.values()]
+      .filter(
+        (deliverable) =>
+          deliverable.tenantId === tenantId &&
+          (!workPackageId ||
+            deliverable.workPackageId === workPackageId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getDeliverable(
+    tenantId: string,
+    deliverableId: string,
+  ): Promise<Deliverable> {
+    const deliverable = this.deliverables.get(deliverableId);
+    if (!deliverable || deliverable.tenantId !== tenantId) {
+      notFound("Deliverable", deliverableId);
+    }
+    return deliverable;
+  }
+
+  async submitDeliverable(input: {
+    tenantId: string;
+    deliverableId: string;
+    artifactRef?: string;
+    contentHash?: string;
+  }): Promise<Deliverable> {
+    const deliverable = await this.getDeliverable(
+      input.tenantId,
+      input.deliverableId,
+    );
+    if (
+      deliverable.status !== "DRAFT" &&
+      deliverable.status !== "REJECTED"
+    ) {
+      throw new ConflictError(
+        `deliverable ${deliverable.id} is ${deliverable.status}`,
+      );
+    }
+    if (deliverable.status === "REJECTED") deliverable.version += 1;
+    deliverable.status = "SUBMITTED";
+    deliverable.submittedAt = now();
+    deliverable.updatedAt = deliverable.submittedAt;
+    if (input.artifactRef) deliverable.artifactRef = input.artifactRef;
+    if (input.contentHash) deliverable.contentHash = input.contentHash;
+    return deliverable;
+  }
+
+  async recordDeliverableAcceptance(input: {
+    tenantId: string;
+    deliverableId: string;
+    decision: Acceptance["decision"];
+    reviewerPersonId: string;
+    criteriaResults: Record<string, unknown>;
+    comments?: string;
+  }): Promise<Acceptance> {
+    const deliverable = await this.getDeliverable(
+      input.tenantId,
+      input.deliverableId,
+    );
+    if (deliverable.status !== "SUBMITTED") {
+      throw new ConflictError(
+        `deliverable ${deliverable.id} is ${deliverable.status}`,
+      );
+    }
+    if (input.reviewerPersonId === deliverable.ownerPersonId) {
+      throw new ConflictError(
+        "SEPARATION_OF_DUTIES: the deliverable owner cannot accept it",
+      );
+    }
+    const reviewer = this.persons.get(input.reviewerPersonId);
+    if (!reviewer || reviewer.tenantId !== input.tenantId) {
+      notFound("Person", input.reviewerPersonId);
+    }
+    const timestamp = now();
+    const acceptance: Acceptance = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      deliverableId: deliverable.id,
+      decision: input.decision,
+      reviewerPersonId: input.reviewerPersonId,
+      criteriaResults: input.criteriaResults,
+      comments: input.comments,
+      decidedAt: timestamp,
+      createdAt: timestamp,
+    };
+    this.acceptances.set(acceptance.id, acceptance);
+    deliverable.status =
+      input.decision === "REJECT" ? "REJECTED" : "ACCEPTED";
+    deliverable.updatedAt = timestamp;
+    return acceptance;
+  }
+
+  async listDeliverableAcceptances(
+    tenantId: string,
+    deliverableId: string,
+  ): Promise<Acceptance[]> {
+    await this.getDeliverable(tenantId, deliverableId);
+    return [...this.acceptances.values()]
+      .filter((acceptance) => acceptance.deliverableId === deliverableId)
+      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
   }
 
   private assertUserNotLinked(
@@ -4195,6 +4369,195 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapMetricDefinition(rows[0]);
   }
 
+  async createDeliverable(input: {
+    tenantId: string;
+    workPackageId: string;
+    title: string;
+    deliverableType: string;
+    ownerPersonId: string;
+    dueAt?: string;
+  }): Promise<Deliverable> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO deliverables
+          (id, tenant_id, work_package_id, title, deliverable_type,
+           owner_person_id, due_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.workPackageId,
+          input.title,
+          input.deliverableType,
+          input.ownerPersonId,
+          input.dueAt ?? null,
+        ],
+      );
+      return this.mapDeliverable(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("work package or owner not found");
+      }
+      throw error;
+    }
+  }
+
+  async listDeliverables(
+    tenantId: string,
+    workPackageId?: string,
+  ): Promise<Deliverable[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM deliverables WHERE tenant_id=$1";
+    if (workPackageId) {
+      params.push(workPackageId);
+      sql += " AND work_package_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapDeliverable(row));
+  }
+
+  async getDeliverable(
+    tenantId: string,
+    deliverableId: string,
+  ): Promise<Deliverable> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM deliverables WHERE tenant_id=$1 AND id=$2",
+      [tenantId, deliverableId],
+    );
+    if (!rows[0]) notFound("Deliverable", deliverableId);
+    return this.mapDeliverable(rows[0]);
+  }
+
+  async submitDeliverable(input: {
+    tenantId: string;
+    deliverableId: string;
+    artifactRef?: string;
+    contentHash?: string;
+  }): Promise<Deliverable> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM deliverables
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.deliverableId],
+      );
+      if (!rows[0]) notFound("Deliverable", input.deliverableId);
+      const deliverable = this.mapDeliverable(rows[0]);
+      if (
+        deliverable.status !== "DRAFT" &&
+        deliverable.status !== "REJECTED"
+      ) {
+        throw new ConflictError(
+          `deliverable ${deliverable.id} is ${deliverable.status}`,
+        );
+      }
+      const version =
+        deliverable.status === "REJECTED"
+          ? deliverable.version + 1
+          : deliverable.version;
+      const { rows: updated } = await client.query(
+        `UPDATE deliverables
+            SET status='SUBMITTED', submitted_at=now(), version=$3,
+                artifact_ref=COALESCE($4, artifact_ref),
+                content_hash=COALESCE($5, content_hash),
+                updated_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.deliverableId,
+          version,
+          input.artifactRef ?? null,
+          input.contentHash ?? null,
+        ],
+      );
+      return this.mapDeliverable(updated[0]);
+    });
+  }
+
+  async recordDeliverableAcceptance(input: {
+    tenantId: string;
+    deliverableId: string;
+    decision: Acceptance["decision"];
+    reviewerPersonId: string;
+    criteriaResults: Record<string, unknown>;
+    comments?: string;
+  }): Promise<Acceptance> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM deliverables
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.deliverableId],
+      );
+      if (!rows[0]) notFound("Deliverable", input.deliverableId);
+      const deliverable = this.mapDeliverable(rows[0]);
+      if (deliverable.status !== "SUBMITTED") {
+        throw new ConflictError(
+          `deliverable ${deliverable.id} is ${deliverable.status}`,
+        );
+      }
+      if (input.reviewerPersonId === deliverable.ownerPersonId) {
+        throw new ConflictError(
+          "SEPARATION_OF_DUTIES: the deliverable owner cannot accept it",
+        );
+      }
+      try {
+        const { rows: acceptances } = await client.query(
+          `INSERT INTO acceptances
+            (id, tenant_id, deliverable_id, decision, reviewer_person_id,
+             criteria_results, comments)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [
+            randomUUID(),
+            input.tenantId,
+            deliverable.id,
+            input.decision,
+            input.reviewerPersonId,
+            input.criteriaResults,
+            input.comments ?? null,
+          ],
+        );
+        await client.query(
+          `UPDATE deliverables
+              SET status=$3, updated_at=now()
+            WHERE tenant_id=$1 AND id=$2`,
+          [
+            input.tenantId,
+            deliverable.id,
+            input.decision === "REJECT" ? "REJECTED" : "ACCEPTED",
+          ],
+        );
+        return this.mapAcceptance(acceptances[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(
+            `Person ${input.reviewerPersonId} not found`,
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
+  async listDeliverableAcceptances(
+    tenantId: string,
+    deliverableId: string,
+  ): Promise<Acceptance[]> {
+    await this.getDeliverable(tenantId, deliverableId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM acceptances
+        WHERE tenant_id=$1 AND deliverable_id=$2
+        ORDER BY decided_at DESC`,
+      [tenantId, deliverableId],
+    );
+    return rows.map((row) => this.mapAcceptance(row));
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -4590,6 +4953,40 @@ export class PgPlatformStore implements PlatformStore {
       active: row.active,
       effectiveFrom: isoDate(row.effective_from) ?? "",
       effectiveTo: isoDate(row.effective_to),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapDeliverable(row: QueryResultRow): Deliverable {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      workPackageId: row.work_package_id,
+      title: row.title,
+      deliverableType: row.deliverable_type,
+      ownerPersonId: row.owner_person_id,
+      dueAt: iso(row.due_at),
+      status: row.status,
+      artifactRef: row.artifact_ref ?? undefined,
+      contentHash: row.content_hash ?? undefined,
+      submittedAt: iso(row.submitted_at),
+      version: Number(row.version),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapAcceptance(row: QueryResultRow): Acceptance {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      deliverableId: row.deliverable_id,
+      decision: row.decision,
+      reviewerPersonId: row.reviewer_person_id,
+      criteriaResults: row.criteria_results ?? {},
+      comments: row.comments ?? undefined,
+      decidedAt: iso(row.decided_at) ?? new Date().toISOString(),
+      supersedesId: row.supersedes_id ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

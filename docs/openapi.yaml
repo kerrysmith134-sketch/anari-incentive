@@ -1909,6 +1909,130 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/work-packages/{id}/deliverables:
+    get:
+      tags: [Work packages]
+      summary: List deliverables for a work package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Deliverables
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Work packages]
+      summary: Create a deliverable
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeliverable"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/deliverables/{id}/submit:
+    post:
+      tags: [Work packages]
+      summary: Submit a deliverable
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitDeliverable"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/deliverables/{id}/acceptance:
+    post:
+      tags: [Work packages]
+      summary: Record a deliverable acceptance decision
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordDeliverableAcceptance"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/deliverables/{id}/acceptances:
+    get:
+      tags: [Work packages]
+      summary: List deliverable acceptances
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Acceptances
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -4233,6 +4357,43 @@ components:
         effectiveTo:
           type: string
           format: date
+
+    CreateDeliverable:
+      type: object
+      required: [title, deliverableType, ownerPersonId]
+      properties:
+        title:
+          type: string
+        deliverableType:
+          type: string
+        ownerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        dueAt:
+          type: string
+          format: date-time
+
+    SubmitDeliverable:
+      type: object
+      properties:
+        artifactRef:
+          type: string
+        contentHash:
+          type: string
+
+    RecordDeliverableAcceptance:
+      type: object
+      required: [decision, reviewerPersonId]
+      properties:
+        decision:
+          type: string
+          enum: [ACCEPT, REJECT, ACCEPT_WITH_ISSUES]
+        reviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        criteriaResults:
+          type: object
+          additionalProperties: true
+        comments:
+          type: string
 
     CalculationOrder:
       type: object

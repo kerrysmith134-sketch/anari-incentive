@@ -51,6 +51,9 @@ import {
   createPolicyTestCaseSchema,
   createPolicyNoticeSchema,
   createMetricDefinitionSchema,
+  createDeliverableSchema,
+  submitDeliverableSchema,
+  recordDeliverableAcceptanceSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -2183,6 +2186,76 @@ export function buildApp(
         tenantId: tenantOf(request),
         metricId: idOf(request),
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/work-packages/:id/deliverables", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createDeliverableSchema, request.body);
+    await storeFor(request).getWorkPackage(idOf(request));
+    return reply.status(201).send(
+      data(
+        await platformStore.createDeliverable({
+          tenantId: tenantOf(request),
+          workPackageId: idOf(request),
+          title: body.title,
+          deliverableType: body.deliverableType,
+          ownerPersonId: body.ownerPersonId,
+          dueAt: body.dueAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/work-packages/:id/deliverables", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listDeliverables(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/deliverables/:id/submit", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(submitDeliverableSchema, request.body ?? {});
+    return data(
+      await platformStore.submitDeliverable({
+        tenantId: tenantOf(request),
+        deliverableId: idOf(request),
+        artifactRef: body.artifactRef,
+        contentHash: body.contentHash,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/deliverables/:id/acceptance", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(recordDeliverableAcceptanceSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.recordDeliverableAcceptance({
+          tenantId: tenantOf(request),
+          deliverableId: idOf(request),
+          decision: body.decision,
+          reviewerPersonId: body.reviewerPersonId,
+          criteriaResults: body.criteriaResults ?? {},
+          comments: body.comments,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/deliverables/:id/acceptances", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listDeliverableAcceptances(
+        tenantOf(request),
+        idOf(request),
+      ),
       request,
     );
   });

@@ -2018,6 +2018,103 @@ describe("policy governance", () => {
   });
 });
 
+describe("deliverables and acceptance", () => {
+  it("submits deliverables and records acceptance with separation of duties", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+
+    const created = await call(
+      "POST",
+      `/api/v1/work-packages/${workPackageId}/deliverables`,
+      {
+        title: "Signed acceptance certificate",
+        deliverableType: "DOCUMENT",
+        ownerPersonId: OWNER,
+      },
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    expect(created.body.data.version).toBe(1);
+    const deliverableId = created.body.data.id as string;
+
+    const submitted = await call(
+      "POST",
+      `/api/v1/deliverables/${deliverableId}/submit`,
+      { artifactRef: "s3://docs/certificate.pdf" },
+    );
+    expect(submitted.status).toBe(200);
+    expect(submitted.body.data.status).toBe("SUBMITTED");
+    expect(submitted.body.data.submittedAt).toBeTruthy();
+
+    const selfReview = await call(
+      "POST",
+      `/api/v1/deliverables/${deliverableId}/acceptance`,
+      {
+        decision: "ACCEPT",
+        reviewerPersonId: OWNER,
+      },
+    );
+    expect(selfReview.status).toBe(409);
+
+    const accepted = await call(
+      "POST",
+      `/api/v1/deliverables/${deliverableId}/acceptance`,
+      {
+        decision: "ACCEPT_WITH_ISSUES",
+        reviewerPersonId: MEMBER,
+        criteriaResults: { completeness: "PASS", format: "ISSUE" },
+        comments: "One page needs a signature",
+      },
+    );
+    expect(accepted.status).toBe(201);
+    expect(accepted.body.data.decision).toBe("ACCEPT_WITH_ISSUES");
+
+    const deliverable = await call(
+      "GET",
+      `/api/v1/work-packages/${workPackageId}/deliverables`,
+    );
+    expect(deliverable.body.data).toHaveLength(1);
+    expect(deliverable.body.data[0].status).toBe("ACCEPTED");
+
+    const acceptances = await call(
+      "GET",
+      `/api/v1/deliverables/${deliverableId}/acceptances`,
+    );
+    expect(acceptances.body.data).toHaveLength(1);
+
+    const second = await call(
+      "POST",
+      `/api/v1/work-packages/${workPackageId}/deliverables`,
+      {
+        title: "Delivery photo",
+        deliverableType: "PHOTO",
+        ownerPersonId: OWNER,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/deliverables/${second.body.data.id}/submit`,
+    );
+    const rejected = await call(
+      "POST",
+      `/api/v1/deliverables/${second.body.data.id}/acceptance`,
+      {
+        decision: "REJECT",
+        reviewerPersonId: MEMBER,
+        comments: "Photo is unreadable",
+      },
+    );
+    expect(rejected.status).toBe(201);
+    const resubmitted = await call(
+      "POST",
+      `/api/v1/deliverables/${second.body.data.id}/submit`,
+      { artifactRef: "s3://docs/photo-2.jpg" },
+    );
+    expect(resubmitted.status).toBe(200);
+    expect(resubmitted.body.data.version).toBe(2);
+    expect(resubmitted.body.data.status).toBe("SUBMITTED");
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

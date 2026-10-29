@@ -500,6 +500,40 @@ export interface MetricDefinition {
   createdAt: string;
 }
 
+export type DeliverableStatus = "DRAFT" | "SUBMITTED" | "ACCEPTED" | "REJECTED";
+
+export interface Deliverable {
+  id: UUID;
+  tenantId: UUID;
+  workPackageId: UUID;
+  title: string;
+  deliverableType: string;
+  ownerPersonId: UUID;
+  dueAt?: string;
+  status: DeliverableStatus;
+  artifactRef?: string;
+  contentHash?: string;
+  submittedAt?: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AcceptanceDecision = "ACCEPT" | "REJECT" | "ACCEPT_WITH_ISSUES";
+
+export interface Acceptance {
+  id: UUID;
+  tenantId: UUID;
+  deliverableId: UUID;
+  decision: AcceptanceDecision;
+  reviewerPersonId: UUID;
+  criteriaResults: Record<string, unknown>;
+  comments?: string;
+  decidedAt: string;
+  supersedesId?: UUID;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

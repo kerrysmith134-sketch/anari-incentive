@@ -208,6 +208,9 @@ Additional application-level invariants:
 | `POST /policy-notices` | admin, policy and notice exist, unique link | Links a notice to a policy version with an audience |
 | `POST /metric-definitions` | admin, code+version unique | Creates an ACTIVE versioned metric with effective dates |
 | `POST /metric-definitions/:id/retire` | admin, ACTIVE | Sets the metric inactive |
+| `POST /work-packages/:id/deliverables` | manager/finance, package and owner exist | Creates a DRAFT deliverable (version 1) |
+| `POST /deliverables/:id/submit` | manager/finance, DRAFT or REJECTED | SUBMITTED with artifact reference; a rejected deliverable becomes a new version |
+| `POST /deliverables/:id/acceptance` | manager/finance, SUBMITTED, reviewer ≠ owner | Records acceptance evidence and sets ACCEPTED or REJECTED |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
