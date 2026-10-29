@@ -75,10 +75,11 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 
 - AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
-- Production CRM/ERP/Feishu connectors (generic CSV/HTTP connectors and an ingestion API exist; provider-specific OAuth and webhook signatures are pending);
+- Production CRM/ERP/Feishu connectors (generic CSV/HTTP connectors, an ingestion API, a connection/sync registry and a webhook inbox exist; provider-specific OAuth clients and signature verification adapters are pending);
 - Metrics/tracing export to an external observability backend;
 - Field-level policy for future sensitive fields (calculation lines/traces and order economics are redacted for employees; evidence reads are role-gated);
-- Multi-tenant self-service, billing, tenant onboarding;
+- Self-service tenant onboarding, billing and subscription management (platform-admin onboarding exists);
+- Automated retention deletion (retention rules and a cutoff/eligibility report exist; disposal remains a controlled external operation);
 - Equity/option ledger;
 - Bounty marketplace, strategic/A-class pool automation;
 - Full project management, HRIS, payroll;
@@ -434,3 +435,4 @@ See `docs/PRD_V4.1_评审修订版.md` §11 for Go/No-Go and kill criteria.
 - First design-partner pack: [`examples/verticals/charging-equipment-sales/`](examples/verticals/charging-equipment-sales/)
 - Domain contract: [`docs/domain-contract.md`](docs/domain-contract.md)
 - ADRs: [`docs/adr/`](docs/adr/)
+- Governance store and approval consumption: [`docs/adr/ADR-005-platform-governance-store.md`](docs/adr/ADR-005-platform-governance-store.md)

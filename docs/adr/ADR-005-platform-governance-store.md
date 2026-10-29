@@ -1,0 +1,20 @@
+# ADR-005: Platform governance store and approval consumption
+
+- **Status**: Accepted
+- **Date**: 2026-10-29
+- **Context**: The platform grew beyond tenant onboarding to include people and org data, legal-gate evidence (notices, consultations, DPIA), DSARs, retention rules, approval requests, budgets and cash gates, policy change governance, deliverables, AI/model records, integrations/webhooks and ledger adjustments. These records are tenant-scoped, must work in both the memory demo and PostgreSQL, and the review required explicit approval consumption rather than advisory approvals.
+- **Decision**:
+  - `PlatformStore` is the tenant governance/master-data store: tenants, users, memberships, persons, org structure, notices, consultations, DPIA, DSAR, retention, approvals, settlement export evidence, budgets/cash gates/financial facts, policy governance, deliverables, AI/model/workflow records, integrations and inboxes. `IncentiveStore` remains the work-package/attribution/evaluation/calculation/ledger/settlement domain.
+  - Every platform record carries `tenant_id`; every read and write scopes by tenant. The memory and PostgreSQL implementations expose the same interface and behaviour; PostgreSQL adds foreign keys, unique constraints and transactions where the invariant is structural.
+  - Memory mode seeds a demo tenant and its three demo people so the employee/admin pages and legal-gate evidence work locally. Tests that need isolation construct their own empty store.
+  - Legal-gate references can be free text or ids. `employeeNoticeId` requires complete acknowledgement coverage over ACTIVE people (declines do not count); `democraticProcedureId` requires a concluded consultation for the same policy version; `dataProtectionAssessmentId` requires an APPROVED DPIA. Free-text refs remain accepted for externally recorded evidence.
+  - Approval requests are consumed by the guarded command, not merely recorded: calculation approve/lock (`CALCULATION_APPROVE`/`CALCULATION_LOCK`), settlement approve/lock (`SETTLEMENT_APPROVE`/`SETTLEMENT_LOCK`), policy publication (`POLICY_PUBLISH`) and ledger reversal/adjustment (`LEDGER_REVERSAL`/`LEDGER_ADJUSTMENT`). The command validates action type, target type/id and APPROVED status, then consumes the request with the last approver before acting. Consumption is one-time; a failed action burns the approval and requires a new request.
+  - Approval consumption is opt-in per command via `approvalRequestId`. Commands without it keep their existing behaviour, so the control can be tightened per tenant/command without a data migration.
+  - Budgets and financial facts are recording and allocation controls: allocations cannot exceed the approved pool and releasing restores committed amounts. They are not yet enforced inside calculation creation; that remains a policy decision.
+  - Retention is report-only: the report exposes cutoff dates and legal-hold eligibility, but no automated deletion. Disposal is an external, reviewed operation.
+- **Consequences**:
+  - `PlatformStore` is broader than "platform admin"; its boundary is tenant governance data, not the incentive domain.
+  - Memory/PostgreSQL parity must be maintained together; API tests exercise memory and PostgreSQL integration tests exercise the real constraints.
+  - The default memory app is not an empty platform: it carries the demo tenant and people. Tests that assert isolation must pass an empty store.
+  - Making approvals mandatory for a command, or enforcing budget pools during calculations, are separate policy changes with migration/backfill implications.
+  - Cross-tenant reads return not found and list methods stay scoped; this is covered by a PostgreSQL isolation test.
