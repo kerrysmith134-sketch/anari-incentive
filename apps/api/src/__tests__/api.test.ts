@@ -3118,6 +3118,8 @@ describe("admin view", () => {
     expect(response.body).toContain("批量计算");
     expect(response.body).toContain("批量认定");
     expect(response.body).toContain("平台租户");
+    expect(response.body).toContain("保存租户设置");
+    expect(response.body).toContain("/api/v1/platform/tenants/");
   });
 
   it("serves the governance operations page", async () => {

@@ -541,6 +541,25 @@ order-batch-2,80000</textarea>
         <thead><tr><th>租户</th><th>Slug</th><th>状态</th></tr></thead>
         <tbody id="platformTenants"></tbody>
       </table>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>租户设置</label>
+          <select id="settingsTenant"></select>
+        </div>
+        <div>
+          <label>强制审批动作（逗号分隔）</label>
+          <input
+            id="tenantRequiredApprovals"
+            placeholder="POLICY_PUBLISH,LEGAL_GATE"
+          />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="saveTenantSettings" style="width:100%">
+            保存租户设置
+          </button>
+        </div>
+      </div>
+      <div class="status" id="tenantSettingsStatus"></div>
       <table>
         <thead>
         <tr><th>员工编号</th><th>姓名</th><th>状态</th><th>关联用户</th><th>直属上级</th></tr>
@@ -875,6 +894,7 @@ order-batch-2,80000</textarea>
   <script>
     const $ = (id) => document.getElementById(id);
     const owner = "00000000-0000-4000-8000-000000000003";
+    let platformTenantCache = [];
 
     function setStatus(id, text, kind = "") {
       const el = $(id);
@@ -1007,12 +1027,50 @@ order-batch-2,80000</textarea>
       }[char]));
     }
 
+    function tenantSettingsFor(tenantId) {
+      const tenant = platformTenantCache.find(
+        (candidate) => candidate.id === tenantId,
+      );
+      return (tenant && tenant.settings) || {};
+    }
+
+    function syncTenantSettingsInputs() {
+      const settings = tenantSettingsFor($("settingsTenant").value);
+      const required = Array.isArray(settings.requiredApprovals)
+        ? settings.requiredApprovals
+        : [];
+      $("tenantRequiredApprovals").value = required.join(",");
+    }
+
+    async function saveTenantSettings() {
+      try {
+        const tenantId = $("settingsTenant").value;
+        if (!tenantId) throw new Error("请选择租户");
+        const requiredApprovals = $("tenantRequiredApprovals")
+          .value.split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        await api(`/api/v1/platform/tenants/${tenantId}/settings`, {
+          method: "POST",
+          body: JSON.stringify({
+            ...tenantSettingsFor(tenantId),
+            requiredApprovals,
+          }),
+        });
+        setStatus("tenantSettingsStatus", "租户设置已保存", "ok");
+        await loadPlatformData();
+      } catch (error) {
+        setStatus("tenantSettingsStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadPlatformData() {
       try {
         const [tenants, users] = await Promise.all([
           api("/api/v1/platform/tenants"),
           api("/api/v1/platform/users"),
         ]);
+        platformTenantCache = tenants;
         $("platformTenants").innerHTML = tenants.map((tenant) => `<tr>
           <td>${escapeHtml(tenant.name)}</td>
           <td class="mono">${escapeHtml(tenant.slug)}</td>
@@ -1022,6 +1080,11 @@ order-batch-2,80000</textarea>
           (tenant) =>
             `<option value="${tenant.id}">${escapeHtml(tenant.name)}</option>`,
         ).join("");
+        $("settingsTenant").innerHTML = tenants.map(
+          (tenant) =>
+            `<option value="${tenant.id}">${escapeHtml(tenant.name)}</option>`,
+        ).join("");
+        syncTenantSettingsInputs();
         $("membershipUser").innerHTML = users.map(
           (user) =>
             `<option value="${user.id}">${escapeHtml(user.displayName)}</option>`,
@@ -2329,6 +2392,8 @@ order-batch-2,80000</textarea>
     $("runPolicyDiff").addEventListener("click", runPolicyDiff);
     $("runBatch").addEventListener("click", runBatchCalculation);
     $("createTenant").addEventListener("click", createTenant);
+    $("settingsTenant").addEventListener("change", syncTenantSettingsInputs);
+    $("saveTenantSettings").addEventListener("click", saveTenantSettings);
     $("createPlatformUser").addEventListener("click", createPlatformUser);
     $("addMembership").addEventListener("click", addMembership);
     $("createPerson").addEventListener("click", createPerson);
