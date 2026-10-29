@@ -182,6 +182,8 @@ Additional application-level invariants:
 | `POST /employee-representations` | admin | Creates an ACTIVE representation body |
 | `POST /policy-consultations` | admin, policy version exists | Records a consultation; outcome defaults to `PENDING` |
 | `POST /policy-consultations/:id/conclude` | admin, consultation is `PENDING` | Sets `endedAt`, outcome, minutes and feedback; re-conclusion is rejected |
+| `POST /dpia-records` | admin | Creates a DRAFT DPIA/PIPIA with scope and risk/mitigation summaries |
+| `POST /dpia-records/:id/approve` | admin, approver exists, not already approved | Marks the assessment APPROVED with approver and timestamp |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
@@ -238,6 +240,8 @@ Missing any of these blocks the run with `CALCULATION_BLOCKED`. A `SHADOW` run m
 `employeeNoticeRef` can be supplied directly or derived by passing `employeeNoticeId`. A referenced notice must exist in the tenant, must not belong to a different policy version, and — when `acknowledgement_required` is true — every ACTIVE person in the tenant must have acknowledged it; otherwise the gate is rejected with `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE`. A `DECLINE` is recorded but does not satisfy the requirement. Coverage counts only `employment_status='ACTIVE'` people.
 
 `democraticProcedureRef` can likewise be supplied directly or derived by passing `democraticProcedureId`. A referenced consultation must belong to the same policy version and must be concluded (`ended_at` set and outcome not `PENDING`); otherwise the gate is rejected with `CONSULTATION_POLICY_MISMATCH` or `CONSULTATION_NOT_CONCLUDED`. The outcome itself is recorded evidence; `NO_AGREEMENT` is a valid concluded outcome.
+
+`dataProtectionAssessmentRef` can be supplied directly or derived by passing `dataProtectionAssessmentId`. A referenced DPIA/PIPIA must exist and be `APPROVED`; otherwise the gate is rejected with `DPIA_NOT_APPROVED`.
 
 ### Employee confirmation
 

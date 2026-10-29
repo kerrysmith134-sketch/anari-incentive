@@ -3,6 +3,8 @@ import type { Pool, QueryResultRow } from "pg";
 import type {
   ConsultationOutcome,
   ConsultationType,
+  DpiaAssessmentType,
+  DpiaRecord,
   EmployeeNotice,
   EmployeeRepresentation,
   NoticeAcknowledgementOverview,
@@ -140,6 +142,20 @@ export interface PlatformStore {
     minutesRef?: string;
     feedbackSummary?: string;
   }): Promise<PolicyConsultation>;
+  createDpia(input: {
+    tenantId: string;
+    assessmentType: DpiaAssessmentType;
+    scope: string;
+    riskSummary?: Record<string, unknown>;
+    mitigationSummary?: Record<string, unknown>;
+  }): Promise<DpiaRecord>;
+  listDpias(tenantId: string): Promise<DpiaRecord[]>;
+  getDpia(tenantId: string, dpiaId: string): Promise<DpiaRecord>;
+  approveDpia(input: {
+    tenantId: string;
+    dpiaId: string;
+    approvedBy: string;
+  }): Promise<DpiaRecord>;
 }
 
 function now(): string {
@@ -161,6 +177,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly acknowledgements = new Map<string, PolicyAcknowledgement>();
   private readonly representations = new Map<string, EmployeeRepresentation>();
   private readonly consultations = new Map<string, PolicyConsultation>();
+  private readonly dpias = new Map<string, DpiaRecord>();
 
   constructor(
     options: {
@@ -754,6 +771,60 @@ export class MemoryPlatformStore implements PlatformStore {
     consultation.feedbackSummary =
       input.feedbackSummary ?? consultation.feedbackSummary;
     return consultation;
+  }
+
+  async createDpia(input: {
+    tenantId: string;
+    assessmentType: DpiaAssessmentType;
+    scope: string;
+    riskSummary?: Record<string, unknown>;
+    mitigationSummary?: Record<string, unknown>;
+  }): Promise<DpiaRecord> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const dpia: DpiaRecord = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      assessmentType: input.assessmentType,
+      scope: input.scope,
+      status: "DRAFT",
+      riskSummary: input.riskSummary ?? {},
+      mitigationSummary: input.mitigationSummary ?? {},
+      createdAt: now(),
+    };
+    this.dpias.set(dpia.id, dpia);
+    return dpia;
+  }
+
+  async listDpias(tenantId: string): Promise<DpiaRecord[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.dpias.values()]
+      .filter((dpia) => dpia.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getDpia(tenantId: string, dpiaId: string): Promise<DpiaRecord> {
+    const dpia = this.dpias.get(dpiaId);
+    if (!dpia || dpia.tenantId !== tenantId) notFound("DpiaRecord", dpiaId);
+    return dpia;
+  }
+
+  async approveDpia(input: {
+    tenantId: string;
+    dpiaId: string;
+    approvedBy: string;
+  }): Promise<DpiaRecord> {
+    const dpia = await this.getDpia(input.tenantId, input.dpiaId);
+    if (dpia.status === "APPROVED") {
+      throw new ConflictError(`DPIA ${dpia.id} is already approved`);
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    dpia.status = "APPROVED";
+    dpia.approvedBy = input.approvedBy;
+    dpia.approvedAt = now();
+    return dpia;
   }
 
   private assertUserNotLinked(
@@ -1488,6 +1559,84 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapConsultation(rows[0]);
   }
 
+  async createDpia(input: {
+    tenantId: string;
+    assessmentType: DpiaAssessmentType;
+    scope: string;
+    riskSummary?: Record<string, unknown>;
+    mitigationSummary?: Record<string, unknown>;
+  }): Promise<DpiaRecord> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO dpia_records
+          (id, tenant_id, assessment_type, scope, risk_summary,
+           mitigation_summary)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.assessmentType,
+          input.scope,
+          input.riskSummary ?? {},
+          input.mitigationSummary ?? {},
+        ],
+      );
+      return this.mapDpia(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listDpias(tenantId: string): Promise<DpiaRecord[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM dpia_records
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapDpia(row));
+  }
+
+  async getDpia(tenantId: string, dpiaId: string): Promise<DpiaRecord> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM dpia_records WHERE tenant_id=$1 AND id=$2",
+      [tenantId, dpiaId],
+    );
+    if (!rows[0]) notFound("DpiaRecord", dpiaId);
+    return this.mapDpia(rows[0]);
+  }
+
+  async approveDpia(input: {
+    tenantId: string;
+    dpiaId: string;
+    approvedBy: string;
+  }): Promise<DpiaRecord> {
+    const dpia = await this.getDpia(input.tenantId, input.dpiaId);
+    if (dpia.status === "APPROVED") {
+      throw new ConflictError(`DPIA ${dpia.id} is already approved`);
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `UPDATE dpia_records
+            SET status='APPROVED', approved_by=$3, approved_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.dpiaId, input.approvedBy],
+      );
+      return this.mapDpia(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.approvedBy} not found`);
+      }
+      throw error;
+    }
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -1625,6 +1774,21 @@ export class PgPlatformStore implements PlatformStore {
       minutesRef: row.minutes_ref ?? undefined,
       feedbackSummary: row.feedback_summary ?? undefined,
       outcome: row.outcome,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapDpia(row: QueryResultRow): DpiaRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      assessmentType: row.assessment_type,
+      scope: row.scope,
+      status: row.status,
+      riskSummary: row.risk_summary ?? {},
+      mitigationSummary: row.mitigation_summary ?? {},
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

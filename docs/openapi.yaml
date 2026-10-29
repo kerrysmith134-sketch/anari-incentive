@@ -733,6 +733,96 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/dpia-records:
+    get:
+      tags: [Compliance]
+      summary: List DPIA/PIPIA records
+      responses:
+        "200":
+          description: Assessments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Create a draft DPIA/PIPIA record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDpia"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/dpia-records/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read a DPIA/PIPIA record
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/dpia-records/{id}/approve:
+    post:
+      tags: [Compliance]
+      summary: Approve a DPIA/PIPIA record
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveDpia"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -2514,6 +2604,10 @@ components:
           description: When supplied, coverage must be complete if the notice requires acknowledgement; the notice id becomes the employeeNoticeRef.
         dataProtectionAssessmentRef:
           type: string
+        dataProtectionAssessmentId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the DPIA must be APPROVED; the assessment id becomes the dataProtectionAssessmentRef.
         minimumWageChecked:
           type: boolean
         policyApproved:
@@ -2611,6 +2705,29 @@ components:
           type: string
         feedbackSummary:
           type: string
+
+    CreateDpia:
+      type: object
+      required: [assessmentType, scope]
+      properties:
+        assessmentType:
+          type: string
+          enum: [DPIA, PIPIA]
+        scope:
+          type: string
+        riskSummary:
+          type: object
+          additionalProperties: true
+        mitigationSummary:
+          type: object
+          additionalProperties: true
+
+    ApproveDpia:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CalculationOrder:
       type: object

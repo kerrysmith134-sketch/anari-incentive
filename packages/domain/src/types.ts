@@ -277,6 +277,24 @@ export interface PolicyConsultation {
   createdAt: string;
 }
 
+export type DpiaAssessmentType = "DPIA" | "PIPIA";
+
+export type DpiaStatus = "DRAFT" | "APPROVED" | "REJECTED";
+
+/** Data-protection impact assessment (DPIA/PIPIA). */
+export interface DpiaRecord {
+  id: UUID;
+  tenantId: UUID;
+  assessmentType: DpiaAssessmentType;
+  scope: string;
+  status: DpiaStatus;
+  riskSummary: Record<string, unknown>;
+  mitigationSummary: Record<string, unknown>;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

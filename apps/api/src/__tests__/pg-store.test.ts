@@ -1388,6 +1388,37 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("records and approves DPIA documents", async () => {
+    const platform = new PgPlatformStore(pool);
+    const dpia = await platform.createDpia({
+      tenantId: DEMO_TENANT_ID,
+      assessmentType: "DPIA",
+      scope: "PG incentive and evidence processing",
+      riskSummary: { automationBias: "human review required" },
+    });
+    expect(dpia.status).toBe("DRAFT");
+    expect(
+      (await platform.listDpias(DEMO_TENANT_ID)).some(
+        (candidate) => candidate.id === dpia.id,
+      ),
+    ).toBe(true);
+    const approved = await platform.approveDpia({
+      tenantId: DEMO_TENANT_ID,
+      dpiaId: dpia.id,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(approved.status).toBe("APPROVED");
+    expect(approved.approvedBy).toBe(ADJUDICATOR);
+    expect(approved.approvedAt).toBeTruthy();
+    await expect(
+      platform.approveDpia({
+        tenantId: DEMO_TENANT_ID,
+        dpiaId: dpia.id,
+        approvedBy: ADJUDICATOR,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

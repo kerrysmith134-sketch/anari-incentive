@@ -27,6 +27,8 @@ import {
   createRepresentationSchema,
   createConsultationSchema,
   concludeConsultationSchema,
+  createDpiaSchema,
+  approveDpiaSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1227,12 +1229,26 @@ export function buildApp(
       }
       employeeNoticeRef = employeeNoticeRef ?? notice.id;
     }
+    let dataProtectionAssessmentRef = body.dataProtectionAssessmentRef;
+    if (body.dataProtectionAssessmentId) {
+      const dpia = await platformStore.getDpia(
+        tenantId,
+        body.dataProtectionAssessmentId,
+      );
+      if (dpia.status !== "APPROVED") {
+        throw new ConflictError(
+          `DPIA_NOT_APPROVED: DPIA ${dpia.id} is ${dpia.status}`,
+        );
+      }
+      dataProtectionAssessmentRef =
+        dataProtectionAssessmentRef ?? dpia.id;
+    }
     return data(
       await storeFor(request).recordLegalGate({
         policyVersionId,
         democraticProcedureRef,
         employeeNoticeRef,
-        dataProtectionAssessmentRef: body.dataProtectionAssessmentRef,
+        dataProtectionAssessmentRef,
         minimumWageChecked: body.minimumWageChecked,
         policyApproved: body.policyApproved,
         recordedBy: body.recordedBy,
@@ -1388,6 +1404,49 @@ export function buildApp(
         outcome: body.outcome,
         minutesRef: body.minutesRef,
         feedbackSummary: body.feedbackSummary,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/dpia-records", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createDpiaSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createDpia({
+          tenantId: tenantOf(request),
+          assessmentType: body.assessmentType,
+          scope: body.scope,
+          riskSummary: body.riskSummary,
+          mitigationSummary: body.mitigationSummary,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/dpia-records", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await platformStore.listDpias(tenantOf(request)), request);
+  });
+
+  app.get("/api/v1/dpia-records/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getDpia(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/dpia-records/:id/approve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(approveDpiaSchema, request.body);
+    return data(
+      await platformStore.approveDpia({
+        tenantId: tenantOf(request),
+        dpiaId: idOf(request),
+        approvedBy: body.approvedBy,
       }),
       request,
     );

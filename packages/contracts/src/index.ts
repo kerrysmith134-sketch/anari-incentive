@@ -106,6 +106,7 @@ export const recordLegalGateSchema = z.object({
   employeeNoticeRef: z.string().min(1).optional(),
   employeeNoticeId: uuidSchema.optional(),
   dataProtectionAssessmentRef: z.string().min(1).optional(),
+  dataProtectionAssessmentId: uuidSchema.optional(),
   minimumWageChecked: z.boolean(),
   policyApproved: z.boolean(),
   recordedBy: uuidSchema,
@@ -204,6 +205,19 @@ export const concludeConsultationSchema = z.object({
 export type ConcludeConsultationBody = z.infer<
   typeof concludeConsultationSchema
 >;
+
+export const createDpiaSchema = z.object({
+  assessmentType: z.enum(["DPIA", "PIPIA"]),
+  scope: z.string().min(1),
+  riskSummary: z.record(z.unknown()).optional(),
+  mitigationSummary: z.record(z.unknown()).optional(),
+});
+export type CreateDpiaBody = z.infer<typeof createDpiaSchema>;
+
+export const approveDpiaSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveDpiaBody = z.infer<typeof approveDpiaSchema>;
 
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,

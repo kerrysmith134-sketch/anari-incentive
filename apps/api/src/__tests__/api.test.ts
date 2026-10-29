@@ -1076,6 +1076,97 @@ describe("employee representation and policy consultations", () => {
   });
 });
 
+describe("DPIA records", () => {
+  it("requires an approved assessment when the legal gate references one", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "DPIA tenant",
+      slug: `dpia-${Date.now()}`,
+    });
+    const approver = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "DPO-001",
+      displayName: "Data Protection Officer",
+    });
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "dpia-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const adminCall = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const created = await adminCall("POST", "/api/v1/dpia-records", {
+      assessmentType: "DPIA",
+      scope: "Incentive calculation and evidence processing",
+      riskSummary: { automationBias: "mitigated by human review" },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    const dpiaId = created.body.data.id as string;
+
+    const list = await adminCall("GET", "/api/v1/dpia-records");
+    expect(list.body.data).toHaveLength(1);
+    const detail = await adminCall("GET", `/api/v1/dpia-records/${dpiaId}`);
+    expect(detail.body.data.scope).toContain("Incentive");
+
+    const gateBody = {
+      dataProtectionAssessmentId: dpiaId,
+      democraticProcedureRef: "external-consultation",
+      employeeNoticeRef: "external-notice",
+      minimumWageChecked: true,
+      policyApproved: true,
+      recordedBy: approver.id,
+    };
+    const earlyGate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(earlyGate.status).toBe(409);
+
+    const approved = await adminCall(
+      "POST",
+      `/api/v1/dpia-records/${dpiaId}/approve`,
+      { approvedBy: approver.id },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    expect(approved.body.data.approvedAt).toBeTruthy();
+
+    const reapprove = await adminCall(
+      "POST",
+      `/api/v1/dpia-records/${dpiaId}/approve`,
+      { approvedBy: approver.id },
+    );
+    expect(reapprove.status).toBe(409);
+
+    const gate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(gate.status).toBe(200);
+    expect(gate.body.data.dataProtectionAssessmentRef).toBe(dpiaId);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {
