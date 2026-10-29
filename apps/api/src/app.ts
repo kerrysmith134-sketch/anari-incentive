@@ -41,6 +41,11 @@ import {
   consumeApprovalRequestSchema,
   recordSettlementExportSchema,
   acknowledgeSettlementExportSchema,
+  createBudgetPoolSchema,
+  approveBudgetPoolSchema,
+  createBudgetAllocationSchema,
+  createCashGateInputSchema,
+  createFinancialFactSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1799,6 +1804,169 @@ export function buildApp(
         exportId: idOf(request),
         externalReference: body.externalReference,
         acknowledgedAt: body.acknowledgedAt,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/budget-pools", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createBudgetPoolSchema, request.body);
+    await storeFor(request).getEvaluationCycle(body.cycleId);
+    return reply.status(201).send(
+      data(
+        await platformStore.createBudgetPool({
+          tenantId: tenantOf(request),
+          cycleId: body.cycleId,
+          code: body.code,
+          name: body.name,
+          poolType: body.poolType,
+          currency: body.currency,
+          approvedAmount: body.approvedAmount,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/budget-pools", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { cycleId?: string };
+    return data(
+      await platformStore.listBudgetPools(
+        tenantOf(request),
+        query.cycleId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/budget-pools/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getBudgetPool(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/budget-pools/:id/approve", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(approveBudgetPoolSchema, request.body);
+    return data(
+      await platformStore.approveBudgetPool({
+        tenantId: tenantOf(request),
+        poolId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/budget-pools/:id/allocations", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createBudgetAllocationSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createBudgetAllocation({
+          tenantId: tenantOf(request),
+          poolId: idOf(request),
+          targetType: body.targetType,
+          targetId: body.targetId,
+          amount: body.amount,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/budget-pools/:id/allocations", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listBudgetAllocations(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/budget-allocations/:id/release", async (request) => {
+    requireRoles(request, "finance");
+    return data(
+      await platformStore.releaseBudgetAllocation({
+        tenantId: tenantOf(request),
+        allocationId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/cash-gate-inputs", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createCashGateInputSchema, request.body);
+    await storeFor(request).getEvaluationCycle(body.cycleId);
+    return reply.status(201).send(
+      data(
+        await platformStore.createCashGateInput({
+          tenantId: tenantOf(request),
+          cycleId: body.cycleId,
+          asOfDate: body.asOfDate,
+          safetyReserveMonths: body.safetyReserveMonths,
+          thirteenWeekForecastRef: body.thirteenWeekForecastRef,
+          passesGate: body.passesGate,
+          approvedBy: body.approvedBy,
+          approvedAt: body.approvedAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/cash-gate-inputs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { cycleId?: string };
+    return data(
+      await platformStore.listCashGateInputs(
+        tenantOf(request),
+        query.cycleId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/financial-facts", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createFinancialFactSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createFinancialFact({
+          tenantId: tenantOf(request),
+          sourceSystem: body.sourceSystem,
+          sourceRecordId: body.sourceRecordId,
+          factType: body.factType,
+          periodStart: body.periodStart,
+          periodEnd: body.periodEnd,
+          amount: body.amount,
+          currency: body.currency,
+          qualityStatus: body.qualityStatus ?? "UNVERIFIED",
+          sourceUpdatedAt: body.sourceUpdatedAt,
+          payload: body.payload ?? {},
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/financial-facts", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      factType?: string;
+      sourceSystem?: string;
+    };
+    return data(
+      await platformStore.listFinancialFacts(tenantOf(request), {
+        factType: query.factType,
+        sourceSystem: query.sourceSystem,
       }),
       request,
     );

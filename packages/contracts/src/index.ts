@@ -290,6 +290,69 @@ export type ConsumeApprovalRequestBody = z.infer<
   typeof consumeApprovalRequestSchema
 >;
 
+export const createBudgetPoolSchema = z.object({
+  cycleId: uuidSchema,
+  code: z.string().min(1),
+  name: z.string().min(1),
+  poolType: z.string().min(1),
+  currency: z.string().length(3),
+  approvedAmount: decimal,
+});
+export type CreateBudgetPoolBody = z.infer<typeof createBudgetPoolSchema>;
+
+export const approveBudgetPoolSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveBudgetPoolBody = z.infer<typeof approveBudgetPoolSchema>;
+
+export const createBudgetAllocationSchema = z.object({
+  targetType: z.string().min(1),
+  targetId: uuidSchema,
+  amount: decimal,
+});
+export type CreateBudgetAllocationBody = z.infer<
+  typeof createBudgetAllocationSchema
+>;
+
+export const createCashGateInputSchema = z.object({
+  cycleId: uuidSchema,
+  asOfDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)"),
+  safetyReserveMonths: decimal,
+  thirteenWeekForecastRef: z.string().min(1),
+  passesGate: z.boolean(),
+  approvedBy: uuidSchema,
+  approvedAt: z.string().datetime().optional(),
+});
+export type CreateCashGateInputBody = z.infer<
+  typeof createCashGateInputSchema
+>;
+
+export const createFinancialFactSchema = z.object({
+  sourceSystem: z.string().min(1),
+  sourceRecordId: z.string().min(1),
+  factType: z.string().min(1),
+  periodStart: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
+    .optional(),
+  periodEnd: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
+    .optional(),
+  amount: decimal,
+  currency: z.string().length(3),
+  qualityStatus: z
+    .enum(["VALID", "MISSING", "STALE", "CONFLICTED", "UNVERIFIED", "INVALID"])
+    .default("UNVERIFIED"),
+  sourceUpdatedAt: z.string().datetime().optional(),
+  payload: z.record(z.unknown()).default({}),
+});
+export type CreateFinancialFactBody = z.infer<
+  typeof createFinancialFactSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

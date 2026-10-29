@@ -371,6 +371,69 @@ export interface ApprovalDecision {
   authContext: Record<string, unknown>;
 }
 
+export type BudgetPoolStatus = "DRAFT" | "APPROVED" | "CLOSED";
+
+export interface BudgetPool {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  code: string;
+  name: string;
+  poolType: string;
+  currency: string;
+  approvedAmount: DecimalString;
+  committedAmount: DecimalString;
+  status: BudgetPoolStatus;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  allocations?: BudgetAllocation[];
+}
+
+export type BudgetAllocationStatus = "RESERVED" | "RELEASED";
+
+export interface BudgetAllocation {
+  id: UUID;
+  tenantId: UUID;
+  budgetPoolId: UUID;
+  targetType: string;
+  targetId: UUID;
+  amount: DecimalString;
+  status: BudgetAllocationStatus;
+  createdAt: string;
+}
+
+export interface CashGateInput {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  asOfDate: string;
+  safetyReserveMonths: DecimalString;
+  thirteenWeekForecastRef: string;
+  passesGate: boolean;
+  approvedBy: UUID;
+  approvedAt: string;
+  createdAt: string;
+}
+
+export interface FinancialFact {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  sourceRecordId: string;
+  factType: string;
+  periodStart?: string;
+  periodEnd?: string;
+  amount: DecimalString;
+  currency: string;
+  qualityStatus: EvidenceQualityStatus;
+  sourceUpdatedAt?: string;
+  ingestedAt: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

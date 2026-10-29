@@ -32,6 +32,7 @@ tags:
   - name: Confirmations
   - name: Compliance
   - name: Approvals
+  - name: Budget
   - name: Ledger
   - name: Appeals
   - name: Evidence
@@ -1301,6 +1302,271 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/StateConflict"
+
+  /api/v1/budget-pools:
+    get:
+      tags: [Budget]
+      summary: List budget pools
+      parameters:
+        - name: cycleId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Budget pools
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Budget]
+      summary: Create a draft budget pool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBudgetPool"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/budget-pools/{id}:
+    get:
+      tags: [Budget]
+      summary: Read a budget pool with allocations
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Budget pool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/budget-pools/{id}/approve:
+    post:
+      tags: [Budget]
+      summary: Approve a draft budget pool
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveBudgetPool"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/budget-pools/{id}/allocations:
+    get:
+      tags: [Budget]
+      summary: List allocations for a budget pool
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Allocations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Budget]
+      summary: Reserve budget against a target
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBudgetAllocation"
+      responses:
+        "201":
+          description: Reserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/budget-allocations/{id}/release:
+    post:
+      tags: [Budget]
+      summary: Release a reserved allocation
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/cash-gate-inputs:
+    get:
+      tags: [Budget]
+      summary: List cash-gate inputs
+      parameters:
+        - name: cycleId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Cash-gate inputs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Budget]
+      summary: Record a cash-gate input for a cycle date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCashGateInput"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-facts:
+    get:
+      tags: [Budget]
+      summary: List financial facts
+      parameters:
+        - name: factType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sourceSystem
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Financial facts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Budget]
+      summary: Ingest or correct a financial fact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFinancialFact"
+      responses:
+        "201":
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/calculation-runs:batch:
     post:
@@ -3444,6 +3710,98 @@ components:
       properties:
         consumedBy:
           $ref: "#/components/schemas/Uuid"
+
+    CreateBudgetPool:
+      type: object
+      required: [cycleId, code, name, poolType, currency, approvedAmount]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+        name:
+          type: string
+        poolType:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        approvedAmount:
+          type: string
+
+    ApproveBudgetPool:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CreateBudgetAllocation:
+      type: object
+      required: [targetType, targetId, amount]
+      properties:
+        targetType:
+          type: string
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        amount:
+          type: string
+
+    CreateCashGateInput:
+      type: object
+      required:
+        [cycleId, asOfDate, safetyReserveMonths, thirteenWeekForecastRef, passesGate, approvedBy]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        asOfDate:
+          type: string
+          format: date
+        safetyReserveMonths:
+          type: string
+        thirteenWeekForecastRef:
+          type: string
+        passesGate:
+          type: boolean
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+        approvedAt:
+          type: string
+          format: date-time
+
+    CreateFinancialFact:
+      type: object
+      required: [sourceSystem, sourceRecordId, factType, amount, currency]
+      properties:
+        sourceSystem:
+          type: string
+        sourceRecordId:
+          type: string
+        factType:
+          type: string
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        amount:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        qualityStatus:
+          type: string
+          enum: [VALID, MISSING, STALE, CONFLICTED, UNVERIFIED, INVALID]
+          default: UNVERIFIED
+        sourceUpdatedAt:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
 
     CalculationOrder:
       type: object

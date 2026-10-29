@@ -194,6 +194,12 @@ Additional application-level invariants:
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
 | `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
 | `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
+| `POST /budget-pools` | finance, cycle exists | Creates a DRAFT pool with a decimal approved amount |
+| `POST /budget-pools/:id/approve` | finance, DRAFT | APPROVED; allocations become allowed |
+| `POST /budget-pools/:id/allocations` | finance, pool APPROVED, committed + amount ≤ approved | Reserves an allocation and increments committed |
+| `POST /budget-allocations/:id/release` | finance, allocation RESERVED | RELEASED and the committed amount is restored |
+| `POST /cash-gate-inputs` | finance, cycle exists, unique cycle/date | Records reserve months, forecast reference and pass/fail |
+| `POST /financial-facts` | finance, tenant exists | Upserts by `(sourceSystem, sourceRecordId, factType)` with a quality status |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

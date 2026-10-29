@@ -1673,6 +1673,133 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("enforces budget pool approval, allocation limits and cash gates", async () => {
+    const platform = new PgPlatformStore(pool);
+    const tenant = await platform.createTenant({
+      name: "PG budget tenant",
+      slug: `pg-budget-${Date.now()}`,
+    });
+    const tenantStore = new PgStore(pool, tenant.id);
+    const cycle = await tenantStore.createEvaluationCycle({
+      name: "PG budget cycle",
+      cycleType: "MONTHLY",
+      startsAt: "2026-01-01T00:00:00.000Z",
+      endsAt: "2026-01-31T23:59:59.000Z",
+      timezone: "UTC",
+    });
+    const approver = await platform.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "B-001",
+      displayName: "Budget Approver",
+    });
+    const budgetPool = await platform.createBudgetPool({
+      tenantId: tenant.id,
+      cycleId: cycle.id,
+      code: "CORE",
+      name: "Core pool",
+      poolType: "STANDARD",
+      currency: "CNY",
+      approvedAmount: "10000",
+    });
+    expect(budgetPool.status).toBe("DRAFT");
+    await expect(
+      platform.createBudgetAllocation({
+        tenantId: tenant.id,
+        poolId: budgetPool.id,
+        targetType: "WORK_PACKAGE",
+        targetId: "00000000-0000-4000-8000-000000000010",
+        amount: "1000",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    await platform.approveBudgetPool({
+      tenantId: tenant.id,
+      poolId: budgetPool.id,
+      approvedBy: approver.id,
+    });
+    const allocation = await platform.createBudgetAllocation({
+      tenantId: tenant.id,
+      poolId: budgetPool.id,
+      targetType: "WORK_PACKAGE",
+      targetId: "00000000-0000-4000-8000-000000000010",
+      amount: "6000",
+    });
+    expect(allocation.amount).toBe("6000");
+    await expect(
+      platform.createBudgetAllocation({
+        tenantId: tenant.id,
+        poolId: budgetPool.id,
+        targetType: "WORK_PACKAGE",
+        targetId: "00000000-0000-4000-8000-000000000011",
+        amount: "5000",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const pooled = await platform.getBudgetPool(tenant.id, budgetPool.id);
+    expect(pooled.committedAmount).toBe("6000");
+    expect(pooled.allocations).toHaveLength(1);
+    await platform.releaseBudgetAllocation({
+      tenantId: tenant.id,
+      allocationId: allocation.id,
+    });
+    expect(
+      (await platform.getBudgetPool(tenant.id, budgetPool.id))
+        .committedAmount,
+    ).toBe("0");
+
+    const gate = await platform.createCashGateInput({
+      tenantId: tenant.id,
+      cycleId: cycle.id,
+      asOfDate: "2026-01-15",
+      safetyReserveMonths: "3.5",
+      thirteenWeekForecastRef: "pg-forecast",
+      passesGate: true,
+      approvedBy: approver.id,
+    });
+    expect(gate.passesGate).toBe(true);
+    await expect(
+      platform.createCashGateInput({
+        tenantId: tenant.id,
+        cycleId: cycle.id,
+        asOfDate: "2026-01-15",
+        safetyReserveMonths: "4",
+        thirteenWeekForecastRef: "pg-forecast-2",
+        passesGate: false,
+        approvedBy: approver.id,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      await platform.listCashGateInputs(tenant.id, cycle.id),
+    ).toHaveLength(1);
+
+    const fact = await platform.createFinancialFact({
+      tenantId: tenant.id,
+      sourceSystem: "ERP",
+      sourceRecordId: "INV-1",
+      factType: "INVOICE_AMOUNT",
+      amount: "12000",
+      currency: "CNY",
+      qualityStatus: "UNVERIFIED",
+      payload: { invoice: "INV-1" },
+    });
+    const factReplay = await platform.createFinancialFact({
+      tenantId: tenant.id,
+      sourceSystem: "ERP",
+      sourceRecordId: "INV-1",
+      factType: "INVOICE_AMOUNT",
+      amount: "13000",
+      currency: "CNY",
+      qualityStatus: "VALID",
+      payload: { invoice: "INV-1", corrected: true },
+    });
+    expect(factReplay.id).toBe(fact.id);
+    expect(factReplay.amount).toBe("13000");
+    expect(
+      await platform.listFinancialFacts(tenant.id, {
+        factType: "INVOICE_AMOUNT",
+      }),
+    ).toHaveLength(1);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

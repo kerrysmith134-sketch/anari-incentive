@@ -1693,6 +1693,155 @@ describe("approval requests", () => {
   });
 });
 
+describe("budget pools and cash gates", () => {
+  it("enforces approval, allocation limits and cash-gate uniqueness", async () => {
+    const created = await call("POST", "/api/v1/budget-pools", {
+      cycleId: CYCLE,
+      code: "CORE",
+      name: "Core incentive pool",
+      poolType: "STANDARD",
+      currency: "CNY",
+      approvedAmount: "10000",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    expect(created.body.data.committedAmount).toBe("0");
+    const poolId = created.body.data.id as string;
+
+    const duplicate = await call("POST", "/api/v1/budget-pools", {
+      cycleId: CYCLE,
+      code: "CORE",
+      name: "Duplicate",
+      poolType: "STANDARD",
+      currency: "CNY",
+      approvedAmount: "1",
+    });
+    expect(duplicate.status).toBe(409);
+
+    const earlyAllocation = await call(
+      "POST",
+      `/api/v1/budget-pools/${poolId}/allocations`,
+      {
+        targetType: "WORK_PACKAGE",
+        targetId: "00000000-0000-4000-8000-000000000010",
+        amount: "1000",
+      },
+    );
+    expect(earlyAllocation.status).toBe(409);
+
+    const approved = await call(
+      "POST",
+      `/api/v1/budget-pools/${poolId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+
+    const allocation = await call(
+      "POST",
+      `/api/v1/budget-pools/${poolId}/allocations`,
+      {
+        targetType: "WORK_PACKAGE",
+        targetId: "00000000-0000-4000-8000-000000000010",
+        amount: "6000",
+      },
+    );
+    expect(allocation.status).toBe(201);
+    expect(allocation.body.data.amount).toBe("6000");
+    const allocationId = allocation.body.data.id as string;
+
+    const pool = await call("GET", `/api/v1/budget-pools/${poolId}`);
+    expect(pool.body.data.committedAmount).toBe("6000");
+    expect(pool.body.data.allocations).toHaveLength(1);
+
+    const overBudget = await call(
+      "POST",
+      `/api/v1/budget-pools/${poolId}/allocations`,
+      {
+        targetType: "WORK_PACKAGE",
+        targetId: "00000000-0000-4000-8000-000000000011",
+        amount: "5000",
+      },
+    );
+    expect(overBudget.status).toBe(409);
+    expect(overBudget.body.error.message).toContain("BUDGET_EXCEEDED");
+
+    const released = await call(
+      "POST",
+      `/api/v1/budget-allocations/${allocationId}/release`,
+    );
+    expect(released.status).toBe(200);
+    expect(released.body.data.status).toBe("RELEASED");
+    const afterRelease = await call(
+      "GET",
+      `/api/v1/budget-pools/${poolId}`,
+    );
+    expect(afterRelease.body.data.committedAmount).toBe("0");
+
+    const gate = await call("POST", "/api/v1/cash-gate-inputs", {
+      cycleId: CYCLE,
+      asOfDate: "2026-10-31",
+      safetyReserveMonths: "3.5",
+      thirteenWeekForecastRef: "forecast-1",
+      passesGate: true,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(gate.status).toBe(201);
+    expect(gate.body.data.passesGate).toBe(true);
+
+    const duplicateGate = await call("POST", "/api/v1/cash-gate-inputs", {
+      cycleId: CYCLE,
+      asOfDate: "2026-10-31",
+      safetyReserveMonths: "4",
+      thirteenWeekForecastRef: "forecast-2",
+      passesGate: false,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(duplicateGate.status).toBe(409);
+    const gates = await call(
+      "GET",
+      `/api/v1/cash-gate-inputs?cycleId=${CYCLE}`,
+    );
+    expect(gates.body.data).toHaveLength(1);
+
+    const fact = await call("POST", "/api/v1/financial-facts", {
+      sourceSystem: "ERP",
+      sourceRecordId: "INV-1",
+      factType: "INVOICE_AMOUNT",
+      periodStart: "2026-01-01",
+      periodEnd: "2026-01-31",
+      amount: "12000",
+      currency: "CNY",
+      payload: { invoice: "INV-1" },
+    });
+    expect(fact.status).toBe(201);
+    expect(fact.body.data.amount).toBe("12000");
+
+    const factReplay = await call("POST", "/api/v1/financial-facts", {
+      sourceSystem: "ERP",
+      sourceRecordId: "INV-1",
+      factType: "INVOICE_AMOUNT",
+      periodStart: "2026-01-01",
+      periodEnd: "2026-01-31",
+      amount: "13000",
+      currency: "CNY",
+      qualityStatus: "VALID",
+      payload: { invoice: "INV-1", corrected: true },
+    });
+    expect(factReplay.status).toBe(201);
+    expect(factReplay.body.data.id).toBe(fact.body.data.id);
+    expect(factReplay.body.data.amount).toBe("13000");
+    expect(factReplay.body.data.qualityStatus).toBe("VALID");
+
+    const listedFacts = await call(
+      "GET",
+      "/api/v1/financial-facts?factType=INVOICE_AMOUNT",
+    );
+    expect(listedFacts.body.data).toHaveLength(1);
+    expect(listedFacts.body.data[0].amount).toBe("13000");
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

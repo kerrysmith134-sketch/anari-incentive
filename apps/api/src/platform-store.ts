@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
 import type {
   ApprovalDecision,
   ApprovalRequest,
   ApprovalRiskTier,
   ApprovalStatus,
+  BudgetAllocation,
+  BudgetPool,
+  CashGateInput,
   ConsultationOutcome,
   ConsultationType,
   DpiaAssessmentType,
@@ -13,6 +17,7 @@ import type {
   DsarRequestType,
   EmployeeNotice,
   EmployeeRepresentation,
+  FinancialFact,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -258,6 +263,68 @@ export interface PlatformStore {
     externalReference: string;
     acknowledgedAt?: string;
   }): Promise<SettlementAcknowledgement>;
+  createBudgetPool(input: {
+    tenantId: string;
+    cycleId: string;
+    code: string;
+    name: string;
+    poolType: string;
+    currency: string;
+    approvedAmount: string;
+  }): Promise<BudgetPool>;
+  listBudgetPools(tenantId: string, cycleId?: string): Promise<BudgetPool[]>;
+  getBudgetPool(tenantId: string, poolId: string): Promise<BudgetPool>;
+  approveBudgetPool(input: {
+    tenantId: string;
+    poolId: string;
+    approvedBy: string;
+  }): Promise<BudgetPool>;
+  createBudgetAllocation(input: {
+    tenantId: string;
+    poolId: string;
+    targetType: string;
+    targetId: string;
+    amount: string;
+  }): Promise<BudgetAllocation>;
+  listBudgetAllocations(
+    tenantId: string,
+    poolId: string,
+  ): Promise<BudgetAllocation[]>;
+  releaseBudgetAllocation(input: {
+    tenantId: string;
+    allocationId: string;
+  }): Promise<BudgetAllocation>;
+  createCashGateInput(input: {
+    tenantId: string;
+    cycleId: string;
+    asOfDate: string;
+    safetyReserveMonths: string;
+    thirteenWeekForecastRef: string;
+    passesGate: boolean;
+    approvedBy: string;
+    approvedAt?: string;
+  }): Promise<CashGateInput>;
+  listCashGateInputs(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<CashGateInput[]>;
+  createFinancialFact(input: {
+    tenantId: string;
+    sourceSystem: string;
+    sourceRecordId: string;
+    factType: string;
+    periodStart?: string;
+    periodEnd?: string;
+    amount: string;
+    currency: string;
+    qualityStatus: FinancialFact["qualityStatus"];
+    sourceUpdatedAt?: string;
+    payload: Record<string, unknown>;
+  }): Promise<FinancialFact>;
+  listFinancialFacts(
+    tenantId: string,
+    filter?: { factType?: string; sourceSystem?: string },
+  ): Promise<FinancialFact[]>;
 }
 
 function now(): string {
@@ -289,6 +356,10 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     SettlementAcknowledgement
   >();
+  private readonly budgetPools = new Map<string, BudgetPool>();
+  private readonly budgetAllocations = new Map<string, BudgetAllocation>();
+  private readonly cashGateInputs = new Map<string, CashGateInput>();
+  private readonly financialFacts = new Map<string, FinancialFact>();
 
   constructor(
     options: {
@@ -1326,6 +1397,303 @@ export class MemoryPlatformStore implements PlatformStore {
     return acknowledgement;
   }
 
+  async createBudgetPool(input: {
+    tenantId: string;
+    cycleId: string;
+    code: string;
+    name: string;
+    poolType: string;
+    currency: string;
+    approvedAmount: string;
+  }): Promise<BudgetPool> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.budgetPools.values()].some(
+        (pool) =>
+          pool.tenantId === input.tenantId &&
+          pool.cycleId === input.cycleId &&
+          pool.code === input.code,
+      )
+    ) {
+      throw new ConflictError(
+        `budget pool ${input.code} already exists for the cycle`,
+      );
+    }
+    const approved = money(input.approvedAmount);
+    if (approved < 0n) {
+      throw new ConflictError("approvedAmount must not be negative");
+    }
+    const timestamp = now();
+    const pool: BudgetPool = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      cycleId: input.cycleId,
+      code: input.code,
+      name: input.name,
+      poolType: input.poolType,
+      currency: input.currency,
+      approvedAmount: formatDecimal(approved),
+      committedAmount: "0",
+      status: "DRAFT",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.budgetPools.set(pool.id, pool);
+    return pool;
+  }
+
+  async listBudgetPools(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<BudgetPool[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.budgetPools.values()]
+      .filter(
+        (pool) =>
+          pool.tenantId === tenantId &&
+          (!cycleId || pool.cycleId === cycleId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getBudgetPool(tenantId: string, poolId: string): Promise<BudgetPool> {
+    const pool = this.budgetPools.get(poolId);
+    if (!pool || pool.tenantId !== tenantId) {
+      notFound("BudgetPool", poolId);
+    }
+    return {
+      ...pool,
+      allocations: [...this.budgetAllocations.values()].filter(
+        (allocation) => allocation.budgetPoolId === pool.id,
+      ),
+    };
+  }
+
+  async approveBudgetPool(input: {
+    tenantId: string;
+    poolId: string;
+    approvedBy: string;
+  }): Promise<BudgetPool> {
+    const pool = this.budgetPools.get(input.poolId);
+    if (!pool || pool.tenantId !== input.tenantId) {
+      notFound("BudgetPool", input.poolId);
+    }
+    if (pool.status !== "DRAFT") {
+      throw new ConflictError(`budget pool ${pool.id} is ${pool.status}`);
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    pool.status = "APPROVED";
+    pool.approvedBy = input.approvedBy;
+    pool.approvedAt = now();
+    pool.updatedAt = pool.approvedAt;
+    return pool;
+  }
+
+  async createBudgetAllocation(input: {
+    tenantId: string;
+    poolId: string;
+    targetType: string;
+    targetId: string;
+    amount: string;
+  }): Promise<BudgetAllocation> {
+    const pool = this.budgetPools.get(input.poolId);
+    if (!pool || pool.tenantId !== input.tenantId) {
+      notFound("BudgetPool", input.poolId);
+    }
+    if (pool.status !== "APPROVED") {
+      throw new ConflictError(`budget pool ${pool.id} is ${pool.status}`);
+    }
+    const amount = money(input.amount);
+    if (amount <= 0n) {
+      throw new ConflictError("allocation amount must be positive");
+    }
+    const committed = money(pool.committedAmount);
+    const approved = money(pool.approvedAmount);
+    if (committed + amount > approved) {
+      throw new ConflictError(
+        `BUDGET_EXCEEDED: committed ${formatDecimal(committed)} + ${formatDecimal(amount)} > ${pool.approvedAmount}`,
+      );
+    }
+    const allocation: BudgetAllocation = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      budgetPoolId: pool.id,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      amount: formatDecimal(amount),
+      status: "RESERVED",
+      createdAt: now(),
+    };
+    this.budgetAllocations.set(allocation.id, allocation);
+    pool.committedAmount = formatDecimal(committed + amount);
+    pool.updatedAt = now();
+    return allocation;
+  }
+
+  async listBudgetAllocations(
+    tenantId: string,
+    poolId: string,
+  ): Promise<BudgetAllocation[]> {
+    const pool = this.budgetPools.get(poolId);
+    if (!pool || pool.tenantId !== tenantId) {
+      notFound("BudgetPool", poolId);
+    }
+    return [...this.budgetAllocations.values()]
+      .filter((allocation) => allocation.budgetPoolId === pool.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async releaseBudgetAllocation(input: {
+    tenantId: string;
+    allocationId: string;
+  }): Promise<BudgetAllocation> {
+    const allocation = this.budgetAllocations.get(input.allocationId);
+    if (!allocation || allocation.tenantId !== input.tenantId) {
+      notFound("BudgetAllocation", input.allocationId);
+    }
+    if (allocation.status !== "RESERVED") {
+      throw new ConflictError(
+        `budget allocation ${allocation.id} is ${allocation.status}`,
+      );
+    }
+    const pool = this.budgetPools.get(allocation.budgetPoolId);
+    if (!pool) notFound("BudgetPool", allocation.budgetPoolId);
+    const committed = money(pool.committedAmount);
+    const amount = money(allocation.amount);
+    if (committed < amount) {
+      throw new ConflictError("BUDGET_LEDGER_INCONSISTENT");
+    }
+    allocation.status = "RELEASED";
+    pool.committedAmount = formatDecimal(committed - amount);
+    pool.updatedAt = now();
+    return allocation;
+  }
+
+  async createCashGateInput(input: {
+    tenantId: string;
+    cycleId: string;
+    asOfDate: string;
+    safetyReserveMonths: string;
+    thirteenWeekForecastRef: string;
+    passesGate: boolean;
+    approvedBy: string;
+    approvedAt?: string;
+  }): Promise<CashGateInput> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.cashGateInputs.values()].some(
+        (gate) =>
+          gate.tenantId === input.tenantId &&
+          gate.cycleId === input.cycleId &&
+          gate.asOfDate === input.asOfDate,
+      )
+    ) {
+      throw new ConflictError(
+        `cash gate for ${input.asOfDate} already exists for the cycle`,
+      );
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    const gate: CashGateInput = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      cycleId: input.cycleId,
+      asOfDate: input.asOfDate,
+      safetyReserveMonths: formatDecimal(
+        money(input.safetyReserveMonths),
+      ),
+      thirteenWeekForecastRef: input.thirteenWeekForecastRef,
+      passesGate: input.passesGate,
+      approvedBy: input.approvedBy,
+      approvedAt: input.approvedAt ?? now(),
+      createdAt: now(),
+    };
+    this.cashGateInputs.set(gate.id, gate);
+    return gate;
+  }
+
+  async listCashGateInputs(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<CashGateInput[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.cashGateInputs.values()]
+      .filter(
+        (gate) =>
+          gate.tenantId === tenantId &&
+          (!cycleId || gate.cycleId === cycleId),
+      )
+      .sort((a, b) => b.asOfDate.localeCompare(a.asOfDate));
+  }
+
+  async createFinancialFact(input: {
+    tenantId: string;
+    sourceSystem: string;
+    sourceRecordId: string;
+    factType: string;
+    periodStart?: string;
+    periodEnd?: string;
+    amount: string;
+    currency: string;
+    qualityStatus: FinancialFact["qualityStatus"];
+    sourceUpdatedAt?: string;
+    payload: Record<string, unknown>;
+  }): Promise<FinancialFact> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const key = [
+      input.tenantId,
+      input.sourceSystem,
+      input.sourceRecordId,
+      input.factType,
+    ].join(":");
+    const existing = this.financialFacts.get(key);
+    const timestamp = now();
+    const fact: FinancialFact = existing ?? {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      sourceSystem: input.sourceSystem,
+      sourceRecordId: input.sourceRecordId,
+      factType: input.factType,
+      amount: formatDecimal(money(input.amount)),
+      currency: input.currency,
+      qualityStatus: input.qualityStatus,
+      ingestedAt: timestamp,
+      payload: input.payload,
+      createdAt: timestamp,
+    };
+    fact.periodStart = input.periodStart;
+    fact.periodEnd = input.periodEnd;
+    fact.amount = formatDecimal(money(input.amount));
+    fact.currency = input.currency;
+    fact.qualityStatus = input.qualityStatus;
+    fact.sourceUpdatedAt = input.sourceUpdatedAt;
+    fact.ingestedAt = timestamp;
+    fact.payload = input.payload;
+    this.financialFacts.set(key, fact);
+    return fact;
+  }
+
+  async listFinancialFacts(
+    tenantId: string,
+    filter?: { factType?: string; sourceSystem?: string },
+  ): Promise<FinancialFact[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.financialFacts.values()]
+      .filter(
+        (fact) =>
+          fact.tenantId === tenantId &&
+          (!filter?.factType || fact.factType === filter.factType) &&
+          (!filter?.sourceSystem ||
+            fact.sourceSystem === filter.sourceSystem),
+      )
+      .sort((a, b) => b.ingestedAt.localeCompare(a.ingestedAt));
+  }
+
   private assertUserNotLinked(
     tenantId: string,
     userId: string,
@@ -1364,6 +1732,14 @@ function decimalText(value: string | null): string | undefined {
   return text.includes(".")
     ? text.replace(/0+$/, "").replace(/\.$/, "")
     : text;
+}
+
+function money(value: string): bigint {
+  try {
+    return parseDecimal(value);
+  } catch {
+    throw new ConflictError(`invalid amount ${value}`);
+  }
 }
 
 export class PgPlatformStore implements PlatformStore {
@@ -2660,6 +3036,361 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createBudgetPool(input: {
+    tenantId: string;
+    cycleId: string;
+    code: string;
+    name: string;
+    poolType: string;
+    currency: string;
+    approvedAmount: string;
+  }): Promise<BudgetPool> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO budget_pools
+          (id, tenant_id, cycle_id, code, name, pool_type, currency,
+           approved_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.cycleId,
+          input.code,
+          input.name,
+          input.poolType,
+          input.currency,
+          input.approvedAmount,
+        ],
+      );
+      return this.mapBudgetPool(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `budget pool ${input.code} already exists for the cycle`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`Cycle ${input.cycleId} not found`);
+      }
+      if (code === "23514") {
+        throw new ConflictError("approvedAmount must not be negative");
+      }
+      throw error;
+    }
+  }
+
+  async listBudgetPools(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<BudgetPool[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM budget_pools WHERE tenant_id=$1";
+    if (cycleId) {
+      params.push(cycleId);
+      sql += " AND cycle_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapBudgetPool(row));
+  }
+
+  async getBudgetPool(tenantId: string, poolId: string): Promise<BudgetPool> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM budget_pools WHERE tenant_id=$1 AND id=$2",
+      [tenantId, poolId],
+    );
+    if (!rows[0]) notFound("BudgetPool", poolId);
+    return {
+      ...this.mapBudgetPool(rows[0]),
+      allocations: await this.listBudgetAllocations(tenantId, poolId),
+    };
+  }
+
+  async approveBudgetPool(input: {
+    tenantId: string;
+    poolId: string;
+    approvedBy: string;
+  }): Promise<BudgetPool> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM budget_pools
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.poolId],
+      );
+      if (!rows[0]) notFound("BudgetPool", input.poolId);
+      const pool = this.mapBudgetPool(rows[0]);
+      if (pool.status !== "DRAFT") {
+        throw new ConflictError(`budget pool ${pool.id} is ${pool.status}`);
+      }
+      try {
+        const { rows: updated } = await client.query(
+          `UPDATE budget_pools
+              SET status='APPROVED', approved_by=$3, approved_at=now(),
+                  updated_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [input.tenantId, input.poolId, input.approvedBy],
+        );
+        return this.mapBudgetPool(updated[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${input.approvedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async createBudgetAllocation(input: {
+    tenantId: string;
+    poolId: string;
+    targetType: string;
+    targetId: string;
+    amount: string;
+  }): Promise<BudgetAllocation> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM budget_pools
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.poolId],
+      );
+      if (!rows[0]) notFound("BudgetPool", input.poolId);
+      const pool = this.mapBudgetPool(rows[0]);
+      if (pool.status !== "APPROVED") {
+        throw new ConflictError(`budget pool ${pool.id} is ${pool.status}`);
+      }
+      const amount = money(input.amount);
+      if (amount <= 0n) {
+        throw new ConflictError("allocation amount must be positive");
+      }
+      const committed = money(pool.committedAmount);
+      if (committed + amount > money(pool.approvedAmount)) {
+        throw new ConflictError(
+          `BUDGET_EXCEEDED: committed ${formatDecimal(committed)} + ${formatDecimal(amount)} > ${pool.approvedAmount}`,
+        );
+      }
+      const { rows: allocations } = await client.query(
+        `INSERT INTO budget_allocations
+          (id, tenant_id, budget_pool_id, target_type, target_id, amount)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          pool.id,
+          input.targetType,
+          input.targetId,
+          formatDecimal(amount),
+        ],
+      );
+      await client.query(
+        `UPDATE budget_pools
+            SET committed_amount=$3, updated_at=now()
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, pool.id, formatDecimal(committed + amount)],
+      );
+      return this.mapBudgetAllocation(allocations[0]);
+    });
+  }
+
+  async listBudgetAllocations(
+    tenantId: string,
+    poolId: string,
+  ): Promise<BudgetAllocation[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM budget_allocations
+        WHERE tenant_id=$1 AND budget_pool_id=$2
+        ORDER BY created_at DESC`,
+      [tenantId, poolId],
+    );
+    return rows.map((row) => this.mapBudgetAllocation(row));
+  }
+
+  async releaseBudgetAllocation(input: {
+    tenantId: string;
+    allocationId: string;
+  }): Promise<BudgetAllocation> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM budget_allocations
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.allocationId],
+      );
+      if (!rows[0]) notFound("BudgetAllocation", input.allocationId);
+      const allocation = this.mapBudgetAllocation(rows[0]);
+      if (allocation.status !== "RESERVED") {
+        throw new ConflictError(
+          `budget allocation ${allocation.id} is ${allocation.status}`,
+        );
+      }
+      const { rows: pools } = await client.query(
+        `SELECT * FROM budget_pools
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, allocation.budgetPoolId],
+      );
+      if (!pools[0]) notFound("BudgetPool", allocation.budgetPoolId);
+      const pool = this.mapBudgetPool(pools[0]);
+      const committed = money(pool.committedAmount);
+      const amount = money(allocation.amount);
+      if (committed < amount) {
+        throw new ConflictError("BUDGET_LEDGER_INCONSISTENT");
+      }
+      await client.query(
+        `UPDATE budget_allocations SET status='RELEASED'
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, allocation.id],
+      );
+      await client.query(
+        `UPDATE budget_pools
+            SET committed_amount=$3, updated_at=now()
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, pool.id, formatDecimal(committed - amount)],
+      );
+      return { ...allocation, status: "RELEASED" };
+    });
+  }
+
+  async createCashGateInput(input: {
+    tenantId: string;
+    cycleId: string;
+    asOfDate: string;
+    safetyReserveMonths: string;
+    thirteenWeekForecastRef: string;
+    passesGate: boolean;
+    approvedBy: string;
+    approvedAt?: string;
+  }): Promise<CashGateInput> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO cash_gate_inputs
+          (id, tenant_id, cycle_id, as_of_date, safety_reserve_months,
+           thirteen_week_forecast_ref, passes_gate, approved_by, approved_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, now()))
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.cycleId,
+          input.asOfDate,
+          input.safetyReserveMonths,
+          input.thirteenWeekForecastRef,
+          input.passesGate,
+          input.approvedBy,
+          input.approvedAt ?? null,
+        ],
+      );
+      return this.mapCashGateInput(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `cash gate for ${input.asOfDate} already exists for the cycle`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError("cycle or approving person not found");
+      }
+      throw error;
+    }
+  }
+
+  async listCashGateInputs(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<CashGateInput[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM cash_gate_inputs WHERE tenant_id=$1";
+    if (cycleId) {
+      params.push(cycleId);
+      sql += " AND cycle_id=$2";
+    }
+    sql += " ORDER BY as_of_date DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapCashGateInput(row));
+  }
+
+  async createFinancialFact(input: {
+    tenantId: string;
+    sourceSystem: string;
+    sourceRecordId: string;
+    factType: string;
+    periodStart?: string;
+    periodEnd?: string;
+    amount: string;
+    currency: string;
+    qualityStatus: FinancialFact["qualityStatus"];
+    sourceUpdatedAt?: string;
+    payload: Record<string, unknown>;
+  }): Promise<FinancialFact> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO financial_facts
+          (id, tenant_id, source_system, source_record_id, fact_type,
+           period_start, period_end, amount, currency, quality_status,
+           source_updated_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
+         DO UPDATE SET period_start=EXCLUDED.period_start,
+                       period_end=EXCLUDED.period_end,
+                       amount=EXCLUDED.amount,
+                       currency=EXCLUDED.currency,
+                       quality_status=EXCLUDED.quality_status,
+                       source_updated_at=EXCLUDED.source_updated_at,
+                       ingested_at=now(),
+                       payload=EXCLUDED.payload
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.sourceSystem,
+          input.sourceRecordId,
+          input.factType,
+          input.periodStart ?? null,
+          input.periodEnd ?? null,
+          input.amount,
+          input.currency,
+          input.qualityStatus,
+          input.sourceUpdatedAt ?? null,
+          input.payload,
+        ],
+      );
+      return this.mapFinancialFact(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listFinancialFacts(
+    tenantId: string,
+    filter?: { factType?: string; sourceSystem?: string },
+  ): Promise<FinancialFact[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM financial_facts WHERE tenant_id=$1";
+    if (filter?.factType) {
+      params.push(filter.factType);
+      sql += ` AND fact_type=$${params.length}`;
+    }
+    if (filter?.sourceSystem) {
+      params.push(filter.sourceSystem);
+      sql += ` AND source_system=$${params.length}`;
+    }
+    sql += " ORDER BY ingested_at DESC, created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapFinancialFact(row));
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -2923,6 +3654,74 @@ export class PgPlatformStore implements PlatformStore {
       acknowledgedAt:
         iso(row.acknowledged_at) ?? new Date().toISOString(),
       payloadHash: row.payload_hash,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapBudgetPool(row: QueryResultRow): BudgetPool {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      code: row.code,
+      name: row.name,
+      poolType: row.pool_type,
+      currency: String(row.currency).trim(),
+      approvedAmount: decimalText(String(row.approved_amount)) ?? "0",
+      committedAmount:
+        decimalText(String(row.committed_amount)) ?? "0",
+      status: row.status,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapBudgetAllocation(row: QueryResultRow): BudgetAllocation {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      budgetPoolId: row.budget_pool_id,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      amount: decimalText(String(row.amount)) ?? "0",
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapCashGateInput(row: QueryResultRow): CashGateInput {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      asOfDate: isoDate(row.as_of_date) ?? "",
+      safetyReserveMonths:
+        decimalText(String(row.safety_reserve_months)) ?? "0",
+      thirteenWeekForecastRef: row.thirteen_week_forecast_ref,
+      passesGate: row.passes_gate,
+      approvedBy: row.approved_by,
+      approvedAt: iso(row.approved_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapFinancialFact(row: QueryResultRow): FinancialFact {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      sourceRecordId: row.source_record_id,
+      factType: row.fact_type,
+      periodStart: isoDate(row.period_start),
+      periodEnd: isoDate(row.period_end),
+      amount: decimalText(String(row.amount)) ?? "0",
+      currency: String(row.currency).trim(),
+      qualityStatus: row.quality_status,
+      sourceUpdatedAt: iso(row.source_updated_at),
+      ingestedAt: iso(row.ingested_at) ?? new Date().toISOString(),
+      payload: row.payload ?? {},
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
