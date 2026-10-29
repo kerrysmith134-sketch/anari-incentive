@@ -3373,6 +3373,68 @@ describe("admin view", () => {
 });
 
 describe("vertical slice", () => {
+  it("rejects stale work-package command versions", async () => {
+    const created = await call("POST", "/api/v1/work-packages", {
+      title: "Versioned delivery",
+      objective: "Check optimistic concurrency",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Delivery",
+        },
+        {
+          personId: MEMBER,
+          responsibilityCode: "CONTRIBUTOR",
+          expectedOutput: "Review",
+        },
+      ],
+      acceptanceCriteria: ["Accepted"],
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id as string;
+    expect(
+      (
+        await call("POST", `/api/v1/work-packages/${id}/commit`, {
+          expectedVersion: 1,
+        })
+      ).status,
+    ).toBe(200);
+    const staleStart = await call(
+      "POST",
+      `/api/v1/work-packages/${id}/start`,
+      { expectedVersion: 1 },
+    );
+    expect(staleStart.status).toBe(409);
+    expect(
+      (
+        await call("POST", `/api/v1/work-packages/${id}/start`, {
+          expectedVersion: 2,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call("POST", `/api/v1/work-packages/${id}/submit`, {
+          expectedVersion: 3,
+        })
+      ).status,
+    ).toBe(200);
+    const staleAccept = await call(
+      "POST",
+      `/api/v1/work-packages/${id}/accept`,
+      { reviewerPersonId: MEMBER, expectedVersion: 3 },
+    );
+    expect(staleAccept.status).toBe(409);
+    const accepted = await call(
+      "POST",
+      `/api/v1/work-packages/${id}/accept`,
+      { reviewerPersonId: MEMBER, expectedVersion: 4 },
+    );
+    expect(accepted.status).toBe(200);
+  });
+
   it("runs work package -> claim -> attribution -> shadow calculation", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);

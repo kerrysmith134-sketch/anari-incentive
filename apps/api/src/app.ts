@@ -83,6 +83,7 @@ import {
   createSettlementBatchSchema,
   decideEvaluationDraftSchema,
   createWorkPackageSchema,
+  workPackageCommandSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
   linkPersonUserSchema,
@@ -1986,19 +1987,37 @@ export function buildApp(
     );
   });
 
-  app.post("/api/v1/work-packages/:id/start", async (request) =>
-    data(await storeFor(request).startWorkPackage(idOf(request)), request),
-  );
+  app.post("/api/v1/work-packages/:id/start", async (request) => {
+    const body = parse(workPackageCommandSchema, request.body ?? {});
+    return data(
+      await storeFor(request).startWorkPackage(
+        idOf(request),
+        body.expectedVersion,
+      ),
+      request,
+    );
+  });
 
-  app.post("/api/v1/work-packages/:id/submit", async (request) =>
-    data(await storeFor(request).submitWorkPackage(idOf(request)), request),
-  );
+  app.post("/api/v1/work-packages/:id/submit", async (request) => {
+    const body = parse(workPackageCommandSchema, request.body ?? {});
+    return data(
+      await storeFor(request).submitWorkPackage(
+        idOf(request),
+        body.expectedVersion,
+      ),
+      request,
+    );
+  });
 
   app.post("/api/v1/work-packages/:id/accept", async (request) => {
     requireRoles(request, "manager");
     const body = parse(acceptWorkPackageSchema, request.body);
     return data(
-      await storeFor(request).acceptWorkPackage(idOf(request), body.reviewerPersonId),
+      await storeFor(request).acceptWorkPackage(
+        idOf(request),
+        body.reviewerPersonId,
+        body.expectedVersion,
+      ),
       request,
     );
   });
@@ -2028,6 +2047,7 @@ export function buildApp(
         idOf(request),
         body.reviewerPersonId,
         body.reason,
+        body.expectedVersion,
       ),
       request,
     );

@@ -199,6 +199,16 @@ paths:
       summary: Start an active work package
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 1
       responses:
         "200":
           description: Started
@@ -217,6 +227,16 @@ paths:
       summary: Submit a work package for acceptance
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 1
       responses:
         "200":
           description: Submitted
@@ -247,6 +267,9 @@ paths:
                   $ref: "#/components/schemas/Uuid"
                 comments:
                   type: string
+                expectedVersion:
+                  type: integer
+                  minimum: 1
       responses:
         "200":
           description: Accepted
@@ -278,6 +301,9 @@ paths:
                 reason:
                   type: string
                   minLength: 3
+                expectedVersion:
+                  type: integer
+                  minimum: 1
       responses:
         "200":
           description: Rejected

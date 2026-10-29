@@ -32,8 +32,16 @@ export type CommitWorkPackageInput = z.infer<typeof commitWorkPackageSchema>;
 export const acceptWorkPackageSchema = z.object({
   reviewerPersonId: uuidSchema,
   comments: z.string().optional(),
+  expectedVersion: z.number().int().positive().optional(),
 });
 export type AcceptWorkPackageInput = z.infer<typeof acceptWorkPackageSchema>;
+
+export const workPackageCommandSchema = z.object({
+  expectedVersion: z.number().int().positive().optional(),
+});
+export type WorkPackageCommandInput = z.infer<
+  typeof workPackageCommandSchema
+>;
 
 export const acceptWorkPackagesBatchSchema = z.object({
   items: z
@@ -53,6 +61,7 @@ export type AcceptWorkPackagesBatchInput = z.infer<
 export const rejectWorkPackageSchema = z.object({
   reviewerPersonId: uuidSchema,
   reason: z.string().min(3),
+  expectedVersion: z.number().int().positive().optional(),
 });
 export type RejectWorkPackageInput = z.infer<typeof rejectWorkPackageSchema>;
 

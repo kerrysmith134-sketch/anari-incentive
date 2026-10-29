@@ -424,8 +424,26 @@ export class Store implements IncentiveStore {
     );
   }
 
-  async startWorkPackage(id: string): Promise<WorkPackage> {
+  private assertWorkPackageVersion(
+    workPackage: WorkPackage,
+    expectedVersion?: number,
+  ): void {
+    if (
+      expectedVersion !== undefined &&
+      workPackage.version !== expectedVersion
+    ) {
+      throw new ConflictError(
+        `expected version ${expectedVersion}, actual ${workPackage.version}`,
+      );
+    }
+  }
+
+  async startWorkPackage(
+    id: string,
+    expectedVersion?: number,
+  ): Promise<WorkPackage> {
     const workPackage = await this.getWorkPackage(id);
+    this.assertWorkPackageVersion(workPackage, expectedVersion);
     assertTransition(
       workPackageTransitions,
       "WorkPackage",
@@ -438,8 +456,12 @@ export class Store implements IncentiveStore {
     return workPackage;
   }
 
-  async submitWorkPackage(id: string): Promise<WorkPackage> {
+  async submitWorkPackage(
+    id: string,
+    expectedVersion?: number,
+  ): Promise<WorkPackage> {
     const workPackage = await this.getWorkPackage(id);
+    this.assertWorkPackageVersion(workPackage, expectedVersion);
     assertTransition(
       workPackageTransitions,
       "WorkPackage",
@@ -455,8 +477,10 @@ export class Store implements IncentiveStore {
   async acceptWorkPackage(
     id: string,
     reviewerPersonId: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     const workPackage = await this.getWorkPackage(id);
+    this.assertWorkPackageVersion(workPackage, expectedVersion);
     if (reviewerPersonId === workPackage.ownerPersonId) {
       throw new ConflictError(
         "the work-package owner cannot accept their own delivery",
@@ -504,8 +528,10 @@ export class Store implements IncentiveStore {
     id: string,
     reviewerPersonId: string,
     reason: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     const workPackage = await this.getWorkPackage(id);
+    this.assertWorkPackageVersion(workPackage, expectedVersion);
     if (reviewerPersonId === workPackage.ownerPersonId) {
       throw new ConflictError(
         "the work-package owner cannot reject their own delivery",

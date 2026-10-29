@@ -159,11 +159,11 @@ Additional application-level invariants:
 | `POST /work-packages` | — | Creates DRAFT |
 | `POST /work-packages/:id/commit` | DRAFT, expectedVersion | Freezes snapshot, COMMITTED |
 | `GET /work-packages/:id/versions` | owner/member or manager/finance | Lists immutable commitment snapshots |
-| `POST /work-packages/:id/start` | COMMITTED | IN_PROGRESS |
-| `POST /work-packages/:id/submit` | IN_PROGRESS | SUBMITTED |
-| `POST /work-packages/:id/accept` | SUBMITTED, reviewer ≠ owner | ACCEPTED |
+| `POST /work-packages/:id/start` | COMMITTED, optional expectedVersion | IN_PROGRESS |
+| `POST /work-packages/:id/submit` | IN_PROGRESS, optional expectedVersion | SUBMITTED |
+| `POST /work-packages/:id/accept` | SUBMITTED, reviewer ≠ owner, optional expectedVersion | ACCEPTED |
 | `POST /work-packages:accept-batch` | 1–50 submitted packages, each reviewer ≠ owner | All-or-nothing ACCEPTED |
-| `POST /work-packages/:id/reject` | SUBMITTED, reviewer ≠ owner | REJECTED |
+| `POST /work-packages/:id/reject` | SUBMITTED, reviewer ≠ owner, optional expectedVersion | REJECTED |
 | `POST /contribution-claims` | WorkPackage ACCEPTED + snapshot | DRAFT claim |
 | `POST /contribution-claims/:id/submit` | DRAFT | SUBMITTED |
 | `POST /attribution-decisions` | Claim SUBMITTED/UNDER_REVIEW, adjudicator ≠ claimant | Decision + claim status |

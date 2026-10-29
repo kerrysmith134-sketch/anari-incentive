@@ -430,20 +430,32 @@ export class PgStore implements IncentiveStore {
     });
   }
 
-  async startWorkPackage(id: string): Promise<WorkPackage> {
-    return this.transitionWorkPackage(id, "IN_PROGRESS");
+  async startWorkPackage(
+    id: string,
+    expectedVersion?: number,
+  ): Promise<WorkPackage> {
+    return this.transitionWorkPackage(id, "IN_PROGRESS", expectedVersion);
   }
 
-  async submitWorkPackage(id: string): Promise<WorkPackage> {
-    return this.transitionWorkPackage(id, "SUBMITTED");
+  async submitWorkPackage(
+    id: string,
+    expectedVersion?: number,
+  ): Promise<WorkPackage> {
+    return this.transitionWorkPackage(id, "SUBMITTED", expectedVersion);
   }
 
   async acceptWorkPackage(
     id: string,
     reviewerPersonId: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     return this.tx((client) =>
-      this.acceptWorkPackageInTx(client, id, reviewerPersonId),
+      this.acceptWorkPackageInTx(
+        client,
+        id,
+        reviewerPersonId,
+        expectedVersion,
+      ),
     );
   }
 
@@ -469,8 +481,10 @@ export class PgStore implements IncentiveStore {
     client: PoolClient,
     id: string,
     reviewerPersonId: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     const current = await this.loadWorkPackage(client, id);
+    this.assertWorkPackageVersion(current, expectedVersion);
     if (reviewerPersonId === current.ownerPersonId) {
       throw new ConflictError(
         "the work-package owner cannot accept their own delivery",
@@ -495,9 +509,11 @@ export class PgStore implements IncentiveStore {
     id: string,
     reviewerPersonId: string,
     reason: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     return this.tx(async (client) => {
       const current = await this.loadWorkPackage(client, id);
+      this.assertWorkPackageVersion(current, expectedVersion);
       if (reviewerPersonId === current.ownerPersonId) {
         throw new ConflictError(
           "the work-package owner cannot reject their own delivery",
@@ -3552,12 +3568,28 @@ export class PgStore implements IncentiveStore {
     };
   }
 
+  private assertWorkPackageVersion(
+    workPackage: WorkPackage,
+    expectedVersion?: number,
+  ): void {
+    if (
+      expectedVersion !== undefined &&
+      workPackage.version !== expectedVersion
+    ) {
+      throw new ConflictError(
+        `expected version ${expectedVersion}, actual ${workPackage.version}`,
+      );
+    }
+  }
+
   private async transitionWorkPackage(
     id: string,
     target: "IN_PROGRESS" | "SUBMITTED",
+    expectedVersion?: number,
   ): Promise<WorkPackage> {
     return this.tx(async (client) => {
       const current = await this.loadWorkPackage(client, id);
+      this.assertWorkPackageVersion(current, expectedVersion);
       assertTransition(
         workPackageTransitions,
         "WorkPackage",

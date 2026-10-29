@@ -81,9 +81,13 @@ export interface IncentiveStore {
   listWorkPackages(): Promise<WorkPackage[]>;
   commitWorkPackage(id: string, expectedVersion: number): Promise<WorkPackage>;
   listWorkPackageVersions(id: string): Promise<CommitmentSnapshot[]>;
-  startWorkPackage(id: string): Promise<WorkPackage>;
-  submitWorkPackage(id: string): Promise<WorkPackage>;
-  acceptWorkPackage(id: string, reviewerPersonId: string): Promise<WorkPackage>;
+  startWorkPackage(id: string, expectedVersion?: number): Promise<WorkPackage>;
+  submitWorkPackage(id: string, expectedVersion?: number): Promise<WorkPackage>;
+  acceptWorkPackage(
+    id: string,
+    reviewerPersonId: string,
+    expectedVersion?: number,
+  ): Promise<WorkPackage>;
   acceptWorkPackagesBatch(
     items: Array<{ id: string; reviewerPersonId: string }>,
   ): Promise<WorkPackage[]>;
@@ -91,6 +95,7 @@ export interface IncentiveStore {
     id: string,
     reviewerPersonId: string,
     reason: string,
+    expectedVersion?: number,
   ): Promise<WorkPackage>;
 
   createClaim(input: CreateContributionClaimInput): Promise<ContributionClaim>;
