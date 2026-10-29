@@ -393,6 +393,13 @@ export interface PlatformStore {
     tenantId: string,
     testCaseId: string,
   ): Promise<PolicyTestCase>;
+  recordPolicyTestCaseRun(input: {
+    tenantId: string;
+    testCaseId: string;
+    passed: boolean;
+    resultHash?: string;
+    runAt?: string;
+  }): Promise<PolicyTestCase>;
   retirePolicyTestCase(input: {
     tenantId: string;
     testCaseId: string;
@@ -2191,6 +2198,23 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!testCase || testCase.tenantId !== tenantId) {
       notFound("PolicyTestCase", testCaseId);
     }
+    return testCase;
+  }
+
+  async recordPolicyTestCaseRun(input: {
+    tenantId: string;
+    testCaseId: string;
+    passed: boolean;
+    resultHash?: string;
+    runAt?: string;
+  }): Promise<PolicyTestCase> {
+    const testCase = await this.getPolicyTestCase(
+      input.tenantId,
+      input.testCaseId,
+    );
+    testCase.lastRunAt = input.runAt ?? new Date().toISOString();
+    testCase.lastRunPassed = input.passed;
+    testCase.lastRunResultHash = input.resultHash;
     return testCase;
   }
 
@@ -4899,6 +4923,30 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapPolicyTestCase(rows[0]);
   }
 
+  async recordPolicyTestCaseRun(input: {
+    tenantId: string;
+    testCaseId: string;
+    passed: boolean;
+    resultHash?: string;
+    runAt?: string;
+  }): Promise<PolicyTestCase> {
+    const { rows } = await this.pool.query(
+      `UPDATE policy_test_cases
+          SET last_run_at=$3, last_run_passed=$4, last_run_result_hash=$5
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.testCaseId,
+        input.runAt ?? new Date().toISOString(),
+        input.passed,
+        input.resultHash ?? null,
+      ],
+    );
+    if (!rows[0]) notFound("PolicyTestCase", input.testCaseId);
+    return this.mapPolicyTestCase(rows[0]);
+  }
+
   async retirePolicyTestCase(input: {
     tenantId: string;
     testCaseId: string;
@@ -6331,6 +6379,10 @@ export class PgPlatformStore implements PlatformStore {
       expectedOutput: row.expected_output ?? {},
       category: row.category,
       status: row.status,
+      lastRunAt: iso(row.last_run_at),
+      lastRunPassed:
+        row.last_run_passed === null ? undefined : row.last_run_passed,
+      lastRunResultHash: row.last_run_result_hash ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

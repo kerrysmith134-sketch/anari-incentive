@@ -1898,6 +1898,15 @@ describePg("PgStore vertical slice", () => {
     );
     expect(loadedCase.caseCode).toBe(caseCode);
     expect(loadedCase.expectedOutput).toEqual({ roundedAmount: "5000" });
+    const recordedRun = await platform.recordPolicyTestCaseRun({
+      tenantId: DEMO_TENANT_ID,
+      testCaseId: testCase.id,
+      passed: true,
+      resultHash: "sha256:test-case-run",
+    });
+    expect(recordedRun.lastRunPassed).toBe(true);
+    expect(recordedRun.lastRunAt).toBeTruthy();
+    expect(recordedRun.lastRunResultHash).toBe("sha256:test-case-run");
     await expect(
       platform.createPolicyTestCase({
         tenantId: DEMO_TENANT_ID,

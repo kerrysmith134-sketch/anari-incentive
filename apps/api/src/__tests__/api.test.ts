@@ -4925,6 +4925,20 @@ describe("vertical slice", () => {
     expect(unsupportedRun.body.data.unsupportedExpectationKeys).toEqual([
       "roundedAmount",
     ]);
+
+    const stored = await call(
+      "GET",
+      `/api/v1/policy-test-cases?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    const passingCase = (
+      stored.body.data as Array<{
+        caseCode: string;
+        lastRunPassed?: boolean;
+        lastRunResultHash?: string;
+      }>
+    ).find((testCase) => testCase.caseCode === "RUN-CASE-1");
+    expect(passingCase?.lastRunPassed).toBe(true);
+    expect(passingCase?.lastRunResultHash).toMatch(/^sha256:/);
   });
 
   it("runs all active policy test cases as a suite", async () => {
@@ -4980,6 +4994,25 @@ describe("vertical slice", () => {
     expect(suite.body.data.retiredCount).toBe(1);
     expect(suite.body.data.passed).toBe(false);
     expect(suite.body.data.results).toHaveLength(2);
+
+    const cases = await call(
+      "GET",
+      `/api/v1/policy-test-cases?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    const byCode = new Map<
+      string,
+      { lastRunAt?: string; lastRunPassed?: boolean }
+    >(
+      (cases.body.data as Array<{
+        caseCode: string;
+        lastRunAt?: string;
+        lastRunPassed?: boolean;
+      }>).map((testCase) => [testCase.caseCode, testCase]),
+    );
+    expect(byCode.get("SUITE-PASS")?.lastRunPassed).toBe(true);
+    expect(byCode.get("SUITE-PASS")?.lastRunAt).toBeTruthy();
+    expect(byCode.get("SUITE-FAIL")?.lastRunPassed).toBe(false);
+    expect(byCode.get("SUITE-RETIRED")?.lastRunAt).toBeUndefined();
 
     const empty = await call(
       "POST",

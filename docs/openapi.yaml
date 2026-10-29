@@ -1796,7 +1796,8 @@ paths:
         Executes the stored calculation input against the policy version bound
         to the case and compares any supplied `pool`, `poolRounded`,
         `resultHash` or `lines` expectations. Unsupported expectation keys,
-        calculation blockers or value differences make `passed` false.
+        calculation blockers or value differences make `passed` false. The
+        latest result is recorded on the case.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:

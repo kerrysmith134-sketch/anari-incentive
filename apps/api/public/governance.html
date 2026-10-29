@@ -279,7 +279,7 @@
       <div class="status" id="caseStatus"></div>
       <pre id="caseResult" hidden></pre>
       <table>
-        <thead><tr><th>编码</th><th>分类</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>编码</th><th>分类</th><th>状态</th><th>最近结果</th><th>操作</th></tr></thead>
         <tbody id="caseRows"></tbody>
       </table>
 
@@ -912,6 +912,7 @@
           <td class="mono">${escapeHtml(item.caseCode)}</td>
           <td>${escapeHtml(item.category)}</td>
           <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.lastRunAt ? `${escapeHtml(item.lastRunAt)}<br><span class="pill">${item.lastRunPassed ? "PASS" : "FAIL"}</span>` : "—"}</td>
           <td>
             <button data-run-case="${item.id}">运行</button>
             ${item.status === "ACTIVE" ? `<button data-retire-case="${item.id}">停用</button>` : ""}
@@ -950,6 +951,7 @@
         );
         $("caseResult").hidden = false;
         $("caseResult").textContent = JSON.stringify(result, null, 2);
+        await loadCases();
         setStatus(
           "caseStatus",
           result.passed
@@ -975,6 +977,7 @@
         );
         $("caseResult").hidden = false;
         $("caseResult").textContent = JSON.stringify(suite, null, 2);
+        await loadCases();
         setStatus(
           "caseStatus",
           suite.passed

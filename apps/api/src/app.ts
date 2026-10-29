@@ -2506,7 +2506,14 @@ export function buildApp(
     const policy = await storeFor(request).getPolicy(
       testCase.policyVersionId,
     );
-    return data(runPolicyTestCase(testCase, policy), request);
+    const result = runPolicyTestCase(testCase, policy);
+    await platformStore.recordPolicyTestCaseRun({
+      tenantId: tenantOf(request),
+      testCaseId: testCase.id,
+      passed: result.passed,
+      resultHash: result.resultHash,
+    });
+    return data(result, request);
   });
 
   app.post("/api/v1/policy-versions/:id/test-runs", async (request) => {
@@ -2522,6 +2529,16 @@ export function buildApp(
     );
     const results = active.map((testCase) =>
       runPolicyTestCase(testCase, policy),
+    );
+    await Promise.all(
+      results.map((result) =>
+        platformStore.recordPolicyTestCaseRun({
+          tenantId: tenantOf(request),
+          testCaseId: result.testCaseId,
+          passed: result.passed,
+          resultHash: result.resultHash,
+        }),
+      ),
     );
     const passedCount = results.filter((result) => result.passed).length;
     const suite: PolicyTestSuiteResult = {

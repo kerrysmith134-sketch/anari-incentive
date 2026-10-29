@@ -471,6 +471,9 @@ export interface PolicyTestCase {
   expectedOutput: Record<string, unknown>;
   category: PolicyTestCaseCategory;
   status: PolicyTestCaseStatus;
+  lastRunAt?: string;
+  lastRunPassed?: boolean;
+  lastRunResultHash?: string;
   createdAt: string;
 }
 
