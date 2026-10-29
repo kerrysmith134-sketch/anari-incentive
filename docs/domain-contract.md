@@ -225,6 +225,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
 | `POST /webhook-inbox` | integration | Idempotent receive by source and message id |
 | `POST /webhook-inbox/:id/process` | integration, unprocessed | Marks PROCESSED/FAILED once with an optional error code |
+| `POST /webhooks/:source` | integration, source secret configured | Verifies the HMAC over the raw body (optional timestamp within 300s) and records the inbox message idempotently |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

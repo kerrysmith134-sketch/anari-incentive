@@ -2680,6 +2680,58 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/webhooks/{source}:
+    post:
+      tags: [Ingestion]
+      summary: Receive a signed provider webhook into the inbox
+      description: |
+        Verifies `x-signature-256` over the exact raw body with the source's
+        HMAC secret (`WEBHOOK_SECRET_<SOURCE>`). When `x-timestamp` is present
+        it is included in the signed content and must be within 300 seconds.
+      parameters:
+        - name: source
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-signature-256
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: x-timestamp
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-message-id
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Accepted into the inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]

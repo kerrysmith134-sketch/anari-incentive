@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -103,6 +104,7 @@ import {
   type CalculationRun,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
+import { verifyWebhookSignature } from "@anari/connectors";
 import {
   AuthError,
   DevHeaderAuthenticator,
@@ -171,6 +173,8 @@ export type AgentRuntimeFactory = (
 export interface BuildAppOptions {
   /** Action types that must carry a matching approvalRequestId. */
   requiredApprovals?: string[];
+  /** HMAC secrets by webhook source name for POST /api/v1/webhooks/:source. */
+  webhookSecrets?: Record<string, string>;
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -415,6 +419,17 @@ export function buildApp(
       consumedBy,
     });
   }
+
+  app.addHook("preParsing", async (request, _reply, payload) => {
+    if (!request.url.startsWith("/api/v1/webhooks/")) return payload;
+    const chunks: Buffer[] = [];
+    for await (const chunk of payload) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const raw = Buffer.concat(chunks);
+    (request as FastifyRequest & { rawBody?: Buffer }).rawBody = raw;
+    return Readable.from(raw);
+  });
 
   app.addHook("preHandler", async (request, reply) => {
     if (!request.url.startsWith("/api/v1")) return;
@@ -2691,6 +2706,42 @@ export function buildApp(
         : "webhook_failed",
     );
     return data(processed, request);
+  });
+
+  app.post("/api/v1/webhooks/:source", async (request, reply) => {
+    requireRoles(request, "integration");
+    const source = paramOf(request, "source");
+    const secret = options.webhookSecrets?.[source];
+    if (!secret) {
+      throw new NotFoundError(`Webhook source ${source} is not configured`);
+    }
+    const raw =
+      (request as FastifyRequest & { rawBody?: Buffer }).rawBody ??
+      Buffer.alloc(0);
+    const timestamp = request.headers["x-timestamp"] as string | undefined;
+    const valid = verifyWebhookSignature({
+      secret,
+      payload: raw,
+      signature: request.headers["x-signature-256"] as string | undefined,
+      timestamp,
+      toleranceSeconds: timestamp ? 300 : undefined,
+    });
+    if (!valid) {
+      throw new ConflictError("WEBHOOK_SIGNATURE_INVALID");
+    }
+    const payload = (request.body ?? {}) as { messageId?: string };
+    const messageId =
+      (request.headers["x-message-id"] as string | undefined) ??
+      payload.messageId ??
+      sha256(raw.toString("utf8"));
+    const webhook = await platformStore.receiveWebhook({
+      tenantId: tenantOf(request),
+      sourceSystem: source,
+      messageId,
+      payloadHash: sha256(raw.toString("utf8")),
+    });
+    countEvent("webhook_received");
+    return reply.status(202).send(data(webhook, request));
   });
 
   app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {

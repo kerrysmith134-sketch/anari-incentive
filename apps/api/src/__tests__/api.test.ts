@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { AuthError, type Authenticator } from "@anari/auth";
+import { computeWebhookSignature } from "@anari/connectors";
 import { buildApp } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
@@ -2391,6 +2392,69 @@ describe("integrations", () => {
       "/api/v1/inbox-messages?consumerName=worker",
     );
     expect(inboxMessages.body.data).toHaveLength(1);
+  });
+
+  it("accepts signed provider webhooks into the inbox", async () => {
+    const signedApp = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      { webhookSecrets: { crm: "top-secret" } },
+    );
+    const payload = JSON.stringify({
+      messageId: "crm-msg-1",
+      event: "order.updated",
+    });
+    const signature = computeWebhookSignature({
+      secret: "top-secret",
+      payload,
+    });
+    const accepted = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/crm",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-256": signature,
+      },
+      payload,
+    } as never);
+    expect(accepted.statusCode).toBe(202);
+    expect(accepted.json().data.sourceSystem).toBe("crm");
+    expect(accepted.json().data.status).toBe("RECEIVED");
+
+    const replay = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/crm",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-256": signature,
+      },
+      payload,
+    } as never);
+    expect(replay.json().data.id).toBe(accepted.json().data.id);
+
+    const invalid = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/crm",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-256": "sha256=invalid",
+      },
+      payload,
+    } as never);
+    expect(invalid.statusCode).toBe(409);
+    expect(invalid.json().error.message).toContain(
+      "WEBHOOK_SIGNATURE_INVALID",
+    );
+
+    const unknown = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/webhooks/unknown",
+      headers: { "content-type": "application/json" },
+      payload,
+    } as never);
+    expect(unknown.statusCode).toBe(404);
   });
 });
 

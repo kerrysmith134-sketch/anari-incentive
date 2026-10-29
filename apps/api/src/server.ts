@@ -103,6 +103,17 @@ const app = buildApp(
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
+    webhookSecrets: Object.fromEntries(
+      Object.entries(process.env)
+        .filter(
+          ([key, value]) =>
+            key.startsWith("WEBHOOK_SECRET_") && Boolean(value),
+        )
+        .map(([key, value]) => [
+          key.slice("WEBHOOK_SECRET_".length).toLowerCase(),
+          value as string,
+        ]),
+    ),
   },
 );
 
