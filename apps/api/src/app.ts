@@ -1652,6 +1652,29 @@ export function buildApp(
     );
   });
 
+  app.get("/api/v1/retention-policies/report", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const policies = await platformStore.listRetentionPolicies(
+      tenantOf(request),
+    );
+    const today = new Date();
+    return data(
+      {
+        generatedAt: today.toISOString(),
+        policies: policies.map((policy) => {
+          const cutoff = new Date(today);
+          cutoff.setUTCMonth(cutoff.getUTCMonth() - policy.retentionMonths);
+          return {
+            ...policy,
+            cutoffDate: cutoff.toISOString().slice(0, 10),
+            eligibleForDisposal: !policy.legalHold,
+          };
+        }),
+      },
+      request,
+    );
+  });
+
   app.post("/api/v1/retention-policies/:id/legal-hold", async (request) => {
     requireRoles(request, "admin");
     const body = parse(setRetentionLegalHoldSchema, request.body);

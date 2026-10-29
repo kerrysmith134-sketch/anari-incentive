@@ -189,6 +189,7 @@ Additional application-level invariants:
 | `POST /dsar-requests/:id/resolve` | admin, DSAR is OPEN | Sets RESOLVED/REJECTED with a resolution reference and timestamp; re-resolution is rejected |
 | `POST /retention-policies` | admin, category unique per tenant | Creates a retention rule with months, legal basis and legal hold |
 | `POST /retention-policies/:id/legal-hold` | admin, policy exists | Sets or clears the legal hold |
+| `GET /retention-policies/report` | manager/finance | Returns cutoff dates and disposal eligibility; legal holds are never eligible |
 | `POST /approval-requests` | manager/finance; idempotency key | Creates PENDING with payload hash, risk tier and required approvals; replay with a different payload conflicts |
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |

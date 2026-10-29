@@ -46,7 +46,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request; referencing a notice id requires complete acknowledgement coverage, referencing a consultation id requires a concluded consultation for that policy version, and referencing a DPIA id requires an approved assessment |
 | Employee notices | Published notices (policy/pay plan/AI use/data processing) with per-person acknowledgement or decline, coverage summary, and a legal-gate link that blocks formal work until required acknowledgements are complete |
 | Policy consultation | Employee representation bodies (works council/union/representative/all employees) and policy-version consultations with type, minutes, feedback and outcome; a legal gate can reference a concluded consultation |
-| Data protection | DPIA/PIPIA records with scope, risk/mitigation summaries and approval; a legal gate can reference an approved assessment; DSAR requests (access/correction/deletion/explanation/objection) are employee-scoped and resolved by admin; retention policies define months and legal hold per data category |
+| Data protection | DPIA/PIPIA records with scope, risk/mitigation summaries and approval; a legal gate can reference an approved assessment; DSAR requests (access/correction/deletion/explanation/objection) are employee-scoped and resolved by admin; retention policies define months and legal hold per data category, with a report exposing cutoff dates and disposal eligibility |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
 | Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
 | Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS; the API resolves a store and agent runtime per authenticated tenant |
@@ -242,6 +242,7 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST | `/api/v1/recalculation-requests/:id/reject` | Reject a recalculation request |
 | POST | `/api/v1/recalculation-requests/:id/complete` | Complete with a new calculation run |
 | POST/GET | `/api/v1/retention-policies` | Create/list data-retention policies |
+| GET | `/api/v1/retention-policies/report` | Retention cutoff and disposal-eligibility report |
 | POST | `/api/v1/retention-policies/:id/legal-hold` | Set/clear a legal hold |
 | POST/GET | `/api/v1/approval-requests` | Create/list approval requests |
 | GET | `/api/v1/approval-requests/:id` | Read an approval request |

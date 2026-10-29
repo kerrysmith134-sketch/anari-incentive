@@ -1440,6 +1440,17 @@ describe("retention policies", () => {
     expect(policies.body.data).toHaveLength(1);
     expect(policies.body.data[0].retentionMonths).toBe(24);
 
+    const report = await call(
+      "GET",
+      "/api/v1/retention-policies/report",
+    );
+    expect(report.status).toBe(200);
+    expect(report.body.data.policies).toHaveLength(1);
+    expect(report.body.data.policies[0].cutoffDate).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(report.body.data.policies[0].eligibleForDisposal).toBe(true);
+
     const held = await call(
       "POST",
       `/api/v1/retention-policies/${policyId}/legal-hold`,
@@ -1447,6 +1458,12 @@ describe("retention policies", () => {
     );
     expect(held.status).toBe(200);
     expect(held.body.data.legalHold).toBe(true);
+
+    const heldReport = await call(
+      "GET",
+      "/api/v1/retention-policies/report",
+    );
+    expect(heldReport.body.data.policies[0].eligibleForDisposal).toBe(false);
 
     const missing = await call(
       "POST",

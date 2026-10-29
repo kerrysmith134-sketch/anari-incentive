@@ -2541,6 +2541,22 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/retention-policies/report:
+    get:
+      tags: [Compliance]
+      summary: Report retention cutoffs and legal-hold eligibility
+      responses:
+        "200":
+          description: Retention report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
