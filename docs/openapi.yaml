@@ -5973,6 +5973,9 @@ components:
           additionalProperties: true
         assignedTo:
           $ref: "#/components/schemas/Uuid"
+        dueAt:
+          type: string
+          format: date-time
 
     DataQualityCommand:
       type: object
@@ -5980,7 +5983,7 @@ components:
       properties:
         command:
           type: string
-          enum: [ASSIGN, START, RESOLVE, WAIVE, REOPEN]
+          enum: [ASSIGN, START, RESOLVE, WAIVE, REOPEN, ESCALATE]
         assignedTo:
           $ref: "#/components/schemas/Uuid"
         actorPersonId:

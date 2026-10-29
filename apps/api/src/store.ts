@@ -1353,6 +1353,7 @@ export class Store implements IncentiveStore {
     severity: "INFO" | "WARNING" | "BLOCKING";
     details?: Record<string, unknown>;
     assignedTo?: string;
+    dueAt?: string;
   }): Promise<DataQualityIssue> {
     const timestamp = now();
     const issue: DataQualityIssue = {
@@ -1365,6 +1366,7 @@ export class Store implements IncentiveStore {
       status: input.assignedTo ? "ASSIGNED" : "OPEN",
       assignedTo: input.assignedTo,
       details: input.details ?? {},
+      dueAt: input.dueAt,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -1389,7 +1391,13 @@ export class Store implements IncentiveStore {
   async commandDataQualityIssue(
     id: string,
     input: {
-      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      command:
+        | "ASSIGN"
+        | "START"
+        | "RESOLVE"
+        | "WAIVE"
+        | "REOPEN"
+        | "ESCALATE";
       assignedTo?: string;
       actorPersonId?: string;
       reason?: string;
@@ -1403,12 +1411,14 @@ export class Store implements IncentiveStore {
       WAIVE: "WAIVED_WITH_APPROVAL",
       REOPEN: "REOPENED",
     } as const;
-    assertTransition(
-      dataQualityIssueTransitions,
-      "DataQualityIssue",
-      issue.status,
-      target[input.command],
-    );
+    if (input.command !== "ESCALATE") {
+      assertTransition(
+        dataQualityIssueTransitions,
+        "DataQualityIssue",
+        issue.status,
+        target[input.command],
+      );
+    }
     const timestamp = now();
     switch (input.command) {
       case "ASSIGN":
@@ -1436,6 +1446,16 @@ export class Store implements IncentiveStore {
       case "REOPEN":
         issue.status = "REOPENED";
         issue.resolvedAt = undefined;
+        break;
+      case "ESCALATE":
+        if (
+          issue.status === "RESOLVED" ||
+          issue.status === "WAIVED_WITH_APPROVAL"
+        ) {
+          throw new ConflictError("DQ_ISSUE_CLOSED");
+        }
+        issue.escalatedAt = timestamp;
+        issue.escalationReason = input.reason ?? "ESCALATED";
         break;
     }
     issue.updatedAt = timestamp;

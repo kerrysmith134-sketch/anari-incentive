@@ -1720,13 +1720,14 @@ export class PgStore implements IncentiveStore {
     severity: "INFO" | "WARNING" | "BLOCKING";
     details?: Record<string, unknown>;
     assignedTo?: string;
+    dueAt?: string;
   }): Promise<DataQualityIssue> {
     return this.tx(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO data_quality_issues
           (id, tenant_id, object_type, object_id, issue_code, severity,
-           status, details, assigned_to)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           status, details, assigned_to, due_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING *`,
         [
           randomUUID(),
@@ -1738,6 +1739,7 @@ export class PgStore implements IncentiveStore {
           input.assignedTo ? "ASSIGNED" : "OPEN",
           JSON.stringify(input.details ?? {}),
           input.assignedTo ?? null,
+          input.dueAt ?? null,
         ],
       );
       const issue = this.mapDataQualityIssue(rows[0]);
@@ -1778,7 +1780,13 @@ export class PgStore implements IncentiveStore {
   async commandDataQualityIssue(
     id: string,
     input: {
-      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      command:
+        | "ASSIGN"
+        | "START"
+        | "RESOLVE"
+        | "WAIVE"
+        | "REOPEN"
+        | "ESCALATE";
       assignedTo?: string;
       actorPersonId?: string;
       reason?: string;
@@ -1793,12 +1801,14 @@ export class PgStore implements IncentiveStore {
         WAIVE: "WAIVED_WITH_APPROVAL",
         REOPEN: "REOPENED",
       } as const;
-      assertTransition(
-        dataQualityIssueTransitions,
-        "DataQualityIssue",
-        issue.status,
-        target[input.command],
-      );
+      if (input.command !== "ESCALATE") {
+        assertTransition(
+          dataQualityIssueTransitions,
+          "DataQualityIssue",
+          issue.status,
+          target[input.command],
+        );
+      }
       switch (input.command) {
         case "ASSIGN":
           if (!input.assignedTo) {
@@ -1847,6 +1857,21 @@ export class PgStore implements IncentiveStore {
             [this.tenantId, id],
           );
           break;
+        case "ESCALATE":
+          if (
+            issue.status === "RESOLVED" ||
+            issue.status === "WAIVED_WITH_APPROVAL"
+          ) {
+            throw new ConflictError("DQ_ISSUE_CLOSED");
+          }
+          await client.query(
+            `UPDATE data_quality_issues
+                SET escalated_at=now(), escalation_reason=$1,
+                    updated_at=now()
+              WHERE tenant_id=$2 AND id=$3`,
+            [input.reason ?? "ESCALATED", this.tenantId, id],
+          );
+          break;
       }
       const updated = await this.loadDataQualityIssue(client, id);
       await this.appendAudit(client, {
@@ -1889,6 +1914,9 @@ export class PgStore implements IncentiveStore {
       status: row.status,
       assignedTo: row.assigned_to ?? undefined,
       details: asJson<Record<string, unknown>>(row.details, {}),
+      dueAt: iso(row.due_at),
+      escalatedAt: iso(row.escalated_at),
+      escalationReason: row.escalation_reason ?? undefined,
       waiverReason: row.waiver_reason ?? undefined,
       waivedBy: row.waived_by ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),

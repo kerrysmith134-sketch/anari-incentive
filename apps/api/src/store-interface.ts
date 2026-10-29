@@ -275,6 +275,7 @@ export interface IncentiveStore {
     severity: "INFO" | "WARNING" | "BLOCKING";
     details?: Record<string, unknown>;
     assignedTo?: string;
+    dueAt?: string;
   }): Promise<DataQualityIssue>;
   getDataQualityIssue(id: string): Promise<DataQualityIssue>;
   listDataQualityIssues(filter?: {
@@ -283,7 +284,13 @@ export interface IncentiveStore {
   commandDataQualityIssue(
     id: string,
     input: {
-      command: "ASSIGN" | "START" | "RESOLVE" | "WAIVE" | "REOPEN";
+      command:
+        | "ASSIGN"
+        | "START"
+        | "RESOLVE"
+        | "WAIVE"
+        | "REOPEN"
+        | "ESCALATE";
       assignedTo?: string;
       actorPersonId?: string;
       reason?: string;

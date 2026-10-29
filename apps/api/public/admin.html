@@ -972,7 +972,11 @@ order-batch-2,80000</textarea>
           <input id="dqAssignee" value="00000000-0000-4000-8000-000000000003" />
         </div>
         <div>
-          <label>豁免理由</label>
+          <label>处理截止（ISO，可选）</label>
+          <input id="dqDueAt" placeholder="2026-12-31T00:00:00Z" />
+        </div>
+        <div>
+          <label>豁免/升级理由</label>
           <input id="dqWaiverReason" value="Accepted by finance" />
         </div>
         <div style="display:flex;align-items:flex-end">
@@ -982,7 +986,7 @@ order-batch-2,80000</textarea>
       <div class="status" id="dqStatus"></div>
       <table>
         <thead>
-        <tr><th>编码</th><th>对象</th><th>严重度</th><th>状态</th><th>操作</th></tr>
+        <tr><th>编码</th><th>对象</th><th>严重度</th><th>状态</th><th>截止</th><th>操作</th></tr>
         </thead>
         <tbody id="dqIssues"></tbody>
       </table>
@@ -2033,6 +2037,7 @@ order-batch-2,80000</textarea>
             <td class="mono">${escapeHtml(issue.objectType)} ${escapeHtml(issue.objectId.slice(0, 8))}</td>
             <td>${escapeHtml(issue.severity)}</td>
             <td><span class="pill">${escapeHtml(issue.status)}</span></td>
+            <td>${issue.dueAt ? escapeHtml(issue.dueAt) : "—"}${issue.escalatedAt ? '<br><span class="pill">ESCALATED</span>' : ""}</td>
             <td>${actions || "—"}</td>
           </tr>`;
         }).join("");
@@ -2044,12 +2049,12 @@ order-batch-2,80000</textarea>
 
     function dqActions(status) {
       switch (status) {
-        case "OPEN": return ["ASSIGN", "RESOLVE", "WAIVE"];
-        case "ASSIGNED": return ["START", "WAIVE"];
-        case "IN_PROGRESS": return ["RESOLVE", "WAIVE"];
+        case "OPEN": return ["ASSIGN", "RESOLVE", "WAIVE", "ESCALATE"];
+        case "ASSIGNED": return ["START", "WAIVE", "ESCALATE"];
+        case "IN_PROGRESS": return ["RESOLVE", "WAIVE", "ESCALATE"];
         case "RESOLVED": return ["REOPEN"];
         case "WAIVED_WITH_APPROVAL": return ["REOPEN"];
-        case "REOPENED": return ["ASSIGN", "START"];
+        case "REOPENED": return ["ASSIGN", "START", "ESCALATE"];
         default: return [];
       }
     }
@@ -2064,6 +2069,7 @@ order-batch-2,80000</textarea>
             issueCode: $("dqIssueCode").value.trim(),
             severity: $("dqSeverity").value,
             details: {},
+            dueAt: $("dqDueAt").value.trim() || undefined,
           }),
         });
         setStatus("dqStatus", "问题已创建", "ok");

@@ -808,8 +808,12 @@ describePg("PgStore vertical slice", () => {
       issueCode: "EVIDENCE_MISSING",
       severity: "WARNING",
       details: { missing: ["DELIVERY_RECORD"] },
+      dueAt: "2026-12-31T00:00:00Z",
     });
     expect(issue.status).toBe("OPEN");
+    expect(issue.dueAt).toBe(
+      new Date("2026-12-31T00:00:00Z").toISOString(),
+    );
 
     expect(
       (
@@ -819,6 +823,13 @@ describePg("PgStore vertical slice", () => {
         })
       ).status,
     ).toBe("ASSIGNED");
+    const escalated = await store.commandDataQualityIssue(issue.id, {
+      command: "ESCALATE",
+      reason: "SLA exceeded",
+    });
+    expect(escalated.status).toBe("ASSIGNED");
+    expect(escalated.escalatedAt).toBeTruthy();
+    expect(escalated.escalationReason).toBe("SLA exceeded");
     expect(
       (
         await store.commandDataQualityIssue(issue.id, {

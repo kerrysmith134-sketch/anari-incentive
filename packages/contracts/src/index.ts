@@ -996,13 +996,21 @@ export const createDataQualityIssueSchema = z.object({
   severity: z.enum(["INFO", "WARNING", "BLOCKING"]),
   details: z.record(z.unknown()).optional(),
   assignedTo: uuidSchema.optional(),
+  dueAt: z.string().datetime().optional(),
 });
 export type CreateDataQualityIssueBody = z.infer<
   typeof createDataQualityIssueSchema
 >;
 
 export const dataQualityCommandSchema = z.object({
-  command: z.enum(["ASSIGN", "START", "RESOLVE", "WAIVE", "REOPEN"]),
+  command: z.enum([
+    "ASSIGN",
+    "START",
+    "RESOLVE",
+    "WAIVE",
+    "REOPEN",
+    "ESCALATE",
+  ]),
   assignedTo: uuidSchema.optional(),
   actorPersonId: uuidSchema.optional(),
   reason: z.string().optional(),

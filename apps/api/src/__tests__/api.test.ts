@@ -4201,9 +4201,11 @@ describe("vertical slice", () => {
       issueCode: "EVIDENCE_MISSING",
       severity: "WARNING",
       details: { missing: ["DELIVERY_RECORD"] },
+      dueAt: "2026-12-31T00:00:00Z",
     });
     expect(created.status).toBe(201);
     expect(created.body.data.status).toBe("OPEN");
+    expect(created.body.data.dueAt).toBe("2026-12-31T00:00:00Z");
     const issueId = created.body.data.id as string;
 
     const assigned = await call(
@@ -4213,6 +4215,18 @@ describe("vertical slice", () => {
     );
     expect(assigned.body.data.status).toBe("ASSIGNED");
     expect(assigned.body.data.assignedTo).toBe(ADJUDICATOR);
+
+    const escalated = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "ESCALATE", reason: "Past the remediation SLA" },
+    );
+    expect(escalated.status).toBe(200);
+    expect(escalated.body.data.status).toBe("ASSIGNED");
+    expect(escalated.body.data.escalatedAt).toBeTruthy();
+    expect(escalated.body.data.escalationReason).toBe(
+      "Past the remediation SLA",
+    );
 
     const started = await call(
       "POST",
@@ -4241,6 +4255,13 @@ describe("vertical slice", () => {
     expect(waived.body.data.waiverReason).toBe(
       "Evidence will arrive next cycle",
     );
+    const escalateClosed = await call(
+      "POST",
+      `/api/v1/data-quality-issues/${issueId}/commands`,
+      { command: "ESCALATE", reason: "Should fail" },
+    );
+    expect(escalateClosed.status).toBe(409);
+    expect(escalateClosed.body.error.message).toContain("DQ_ISSUE_CLOSED");
 
     const reopened = await call(
       "POST",
