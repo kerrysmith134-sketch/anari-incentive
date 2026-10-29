@@ -205,7 +205,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /cash-gate-inputs` | finance, cycle exists, unique cycle/date | Records reserve months, forecast reference and pass/fail |
 | `POST /financial-facts` | finance, tenant exists | Upserts by `(sourceSystem, sourceRecordId, factType)` with a quality status |
 | `POST /rule-change-orders` | admin, target policy version exists | Creates a DRAFT order with impact simulation |
-| `POST /rule-change-orders/:id/approve\|reject` | admin, DRAFT, requester ≠ approver | Sets APPROVED or REJECTED with approver and timestamp |
+| `POST /rule-change-orders/:id/approve\|reject` | admin, DRAFT, requester ≠ approver; when tenant `requirePolicyTestsBeforeApproval` is true, approval runs the target policy's ACTIVE suite and rejects an empty or failing suite | Sets APPROVED or REJECTED with approver and timestamp |
 | `POST /rule-change-orders/:id/publicize` | admin, APPROVED | Sets PUBLICIZED and `publicizedAt` |
 | `POST /policy-test-cases` | admin, policy exists, case code unique per version | Creates an ACTIVE test case |
 | `POST /policy-test-cases/:id/retire` | admin, ACTIVE | Sets RETIRED |

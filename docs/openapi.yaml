@@ -1644,6 +1644,7 @@ paths:
     post:
       tags: [Policy]
       summary: Approve a rule change order
+      description: When tenant settings require policy tests before approval, all ACTIVE test cases for the target policy version must pass.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:

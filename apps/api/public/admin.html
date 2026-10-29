@@ -553,6 +553,14 @@ order-batch-2,80000</textarea>
             placeholder="POLICY_PUBLISH,LEGAL_GATE"
           />
         </div>
+        <div>
+          <label>政策变更审批前运行测试</label>
+          <input
+            type="checkbox"
+            id="tenantRequirePolicyTests"
+            style="width:auto"
+          />
+        </div>
         <div style="display:flex;align-items:flex-end">
           <button class="primary" id="saveTenantSettings" style="width:100%">
             保存租户设置
@@ -1040,6 +1048,8 @@ order-batch-2,80000</textarea>
         ? settings.requiredApprovals
         : [];
       $("tenantRequiredApprovals").value = required.join(",");
+      $("tenantRequirePolicyTests").checked =
+        settings.requirePolicyTestsBeforeApproval === true;
     }
 
     async function saveTenantSettings() {
@@ -1055,6 +1065,8 @@ order-batch-2,80000</textarea>
           body: JSON.stringify({
             ...tenantSettingsFor(tenantId),
             requiredApprovals,
+            requirePolicyTestsBeforeApproval:
+              $("tenantRequirePolicyTests").checked,
           }),
         });
         setStatus("tenantSettingsStatus", "租户设置已保存", "ok");

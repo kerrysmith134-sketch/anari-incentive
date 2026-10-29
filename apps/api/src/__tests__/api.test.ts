@@ -2070,6 +2070,91 @@ describe("policy governance", () => {
     );
     expect(reRetireMetric.status).toBe(409);
   });
+
+  it("requires a passing test suite before change approval when configured", async () => {
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requirePolicyTestsBeforeApproval: true },
+    );
+    const order = await call("POST", "/api/v1/rule-change-orders", {
+      policyCode: "GENERIC_CONTRIBUTION_V1",
+      toPolicyVersionId: REFERENCE_POLICY_ID,
+      changeType: "POOL_RATE",
+      reason: "Test-gated change",
+      impactSimulation: { affectedPeople: 1 },
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      requestedBy: ADJUDICATOR,
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.data.id as string;
+    const input = {
+      cycleId: CYCLE,
+      order: {
+        id: "gate-order-1",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: "00000000-0000-4000-8000-000000000010",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+
+    const noCases = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(noCases.status).toBe(409);
+    expect(noCases.body.error.message).toContain("POLICY_TESTS_REQUIRED");
+
+    const failing = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "GATE-FAIL",
+      input,
+      expectedOutput: { poolRounded: "5001" },
+      category: "BOUNDARY",
+    });
+    const failedApproval = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(failedApproval.status).toBe(409);
+    expect(failedApproval.body.error.message).toContain(
+      "POLICY_TESTS_FAILED: GATE-FAIL",
+    );
+
+    await call(
+      "POST",
+      `/api/v1/policy-test-cases/${failing.body.data.id}/retire`,
+    );
+    await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "GATE-PASS",
+      input,
+      expectedOutput: { poolRounded: "5000" },
+      category: "NORMAL",
+    });
+    const approved = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+
+    const history = await call(
+      "GET",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/test-runs`,
+    );
+    expect(history.body.data.length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe("deliverables and acceptance", () => {

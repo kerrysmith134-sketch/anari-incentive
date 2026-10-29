@@ -498,6 +498,86 @@ export function buildApp(
     });
   }
 
+  async function runPolicyTestSuiteFor(
+    request: FastifyRequest,
+    policyVersionId: string,
+  ): Promise<PolicyTestSuiteResult> {
+    const policy = await storeFor(request).getPolicy(policyVersionId);
+    const cases = await platformStore.listPolicyTestCases(
+      tenantOf(request),
+      policyVersionId,
+    );
+    const active = cases.filter(
+      (testCase) => testCase.status === "ACTIVE",
+    );
+    const results = active.map((testCase) =>
+      runPolicyTestCase(testCase, policy),
+    );
+    await Promise.all(
+      results.map((result) =>
+        platformStore.recordPolicyTestCaseRun({
+          tenantId: tenantOf(request),
+          testCaseId: result.testCaseId,
+          passed: result.passed,
+          resultHash: result.resultHash,
+        }),
+      ),
+    );
+    const passedCount = results.filter((result) => result.passed).length;
+    const run = await platformStore.recordPolicyTestRun({
+      tenantId: tenantOf(request),
+      policyVersionId,
+      runAt: new Date().toISOString(),
+      total: active.length,
+      passedCount,
+      failedCount: active.length - passedCount,
+      retiredCount: cases.length - active.length,
+      passed: active.length > 0 && passedCount === active.length,
+      resultsHash: sha256(results),
+      results,
+    });
+    countEvent("policy_test_suite_run");
+    countEvent(
+      run.passed ? "policy_test_suite_passed" : "policy_test_suite_failed",
+    );
+    return {
+      runId: run.id,
+      runAt: run.runAt,
+      policyVersionId: run.policyVersionId,
+      total: run.total,
+      passedCount: run.passedCount,
+      failedCount: run.failedCount,
+      retiredCount: run.retiredCount,
+      passed: run.passed,
+      results: run.results,
+    };
+  }
+
+  async function requirePolicyTestsBeforeApproval(
+    request: FastifyRequest,
+    policyVersionId: string,
+  ): Promise<void> {
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    if (tenant.settings?.requirePolicyTestsBeforeApproval !== true) {
+      return;
+    }
+    const suite = await runPolicyTestSuiteFor(request, policyVersionId);
+    if (suite.total === 0) {
+      throw new ConflictError(
+        "POLICY_TESTS_REQUIRED: no ACTIVE test cases for the target policy version",
+      );
+    }
+    if (!suite.passed) {
+      const failed = suite.results
+        .filter((result) => !result.passed)
+        .map((result) => result.caseCode)
+        .join(", ");
+      throw new ConflictError(
+        `POLICY_TESTS_FAILED: ${failed || "suite did not pass"}`,
+      );
+    }
+  }
+
   async function preflightBudget(
     request: FastifyRequest,
     input: CreateCalculationRunInput,
@@ -2789,6 +2869,16 @@ export function buildApp(
   app.post("/api/v1/rule-change-orders/:id/approve", async (request) => {
     requireRoles(request, "admin");
     const body = parse(reviewRuleChangeOrderSchema, request.body);
+    const order = await platformStore.getRuleChangeOrder(
+      tenantOf(request),
+      idOf(request),
+    );
+    if (order.status === "DRAFT") {
+      await requirePolicyTestsBeforeApproval(
+        request,
+        order.toPolicyVersionId,
+      );
+    }
     return data(
       await platformStore.approveRuleChangeOrder({
         tenantId: tenantOf(request),
@@ -2888,58 +2978,10 @@ export function buildApp(
 
   app.post("/api/v1/policy-versions/:id/test-runs", async (request) => {
     requireRoles(request, "manager", "finance");
-    const policyVersionId = idOf(request);
-    const policy = await storeFor(request).getPolicy(policyVersionId);
-    const cases = await platformStore.listPolicyTestCases(
-      tenantOf(request),
-      policyVersionId,
+    return data(
+      await runPolicyTestSuiteFor(request, idOf(request)),
+      request,
     );
-    const active = cases.filter(
-      (testCase) => testCase.status === "ACTIVE",
-    );
-    const results = active.map((testCase) =>
-      runPolicyTestCase(testCase, policy),
-    );
-    await Promise.all(
-      results.map((result) =>
-        platformStore.recordPolicyTestCaseRun({
-          tenantId: tenantOf(request),
-          testCaseId: result.testCaseId,
-          passed: result.passed,
-          resultHash: result.resultHash,
-        }),
-      ),
-    );
-    const passedCount = results.filter((result) => result.passed).length;
-    const runAt = new Date().toISOString();
-    const run = await platformStore.recordPolicyTestRun({
-      tenantId: tenantOf(request),
-      policyVersionId,
-      runAt,
-      total: active.length,
-      passedCount,
-      failedCount: active.length - passedCount,
-      retiredCount: cases.length - active.length,
-      passed: active.length > 0 && passedCount === active.length,
-      resultsHash: sha256(results),
-      results,
-    });
-    countEvent("policy_test_suite_run");
-    countEvent(
-      run.passed ? "policy_test_suite_passed" : "policy_test_suite_failed",
-    );
-    const suite: PolicyTestSuiteResult = {
-      runId: run.id,
-      runAt: run.runAt,
-      policyVersionId: run.policyVersionId,
-      total: run.total,
-      passedCount: run.passedCount,
-      failedCount: run.failedCount,
-      retiredCount: run.retiredCount,
-      passed: run.passed,
-      results: run.results,
-    };
-    return data(suite, request);
   });
 
   app.get("/api/v1/policy-versions/:id/test-runs", async (request) => {
