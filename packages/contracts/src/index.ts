@@ -353,6 +353,47 @@ export type CreateFinancialFactBody = z.infer<
   typeof createFinancialFactSchema
 >;
 
+export const createRuleChangeOrderSchema = z.object({
+  policyCode: z.string().min(1),
+  fromPolicyVersionId: uuidSchema.optional(),
+  toPolicyVersionId: uuidSchema,
+  changeType: z.string().min(1),
+  reason: z.string().min(3),
+  impactSimulation: z.record(z.unknown()).default({}),
+  effectiveFrom: z.string().datetime(),
+  requestedBy: uuidSchema,
+});
+export type CreateRuleChangeOrderBody = z.infer<
+  typeof createRuleChangeOrderSchema
+>;
+
+export const reviewRuleChangeOrderSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ReviewRuleChangeOrderBody = z.infer<
+  typeof reviewRuleChangeOrderSchema
+>;
+
+export const createPolicyTestCaseSchema = z.object({
+  policyVersionId: uuidSchema,
+  caseCode: z.string().min(1),
+  input: z.record(z.unknown()),
+  expectedOutput: z.record(z.unknown()),
+  category: z.enum(["NORMAL", "BOUNDARY", "EXCEPTION", "HISTORICAL"]),
+});
+export type CreatePolicyTestCaseBody = z.infer<
+  typeof createPolicyTestCaseSchema
+>;
+
+export const createPolicyNoticeSchema = z.object({
+  policyVersionId: uuidSchema,
+  noticeId: uuidSchema,
+  audience: z.record(z.unknown()).default({}),
+});
+export type CreatePolicyNoticeBody = z.infer<
+  typeof createPolicyNoticeSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

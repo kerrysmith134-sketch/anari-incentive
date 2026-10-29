@@ -1800,6 +1800,97 @@ describePg("PgStore vertical slice", () => {
     ).toHaveLength(1);
   });
 
+  it("records rule change orders, policy test cases and notice links", async () => {
+    const platform = new PgPlatformStore(pool);
+    const order = await platform.createRuleChangeOrder({
+      tenantId: DEMO_TENANT_ID,
+      policyCode: "GENERIC_CONTRIBUTION_V1",
+      toPolicyVersionId: REFERENCE_POLICY_ID,
+      changeType: "POOL_RATE",
+      reason: "PG rule change approval",
+      impactSimulation: { affectedPeople: 2 },
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      requestedBy: OWNER,
+    });
+    expect(order.status).toBe("DRAFT");
+    await expect(
+      platform.approveRuleChangeOrder({
+        tenantId: DEMO_TENANT_ID,
+        orderId: order.id,
+        approvedBy: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const approved = await platform.approveRuleChangeOrder({
+      tenantId: DEMO_TENANT_ID,
+      orderId: order.id,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(approved.status).toBe("APPROVED");
+    const publicized = await platform.publicizeRuleChangeOrder({
+      tenantId: DEMO_TENANT_ID,
+      orderId: order.id,
+    });
+    expect(publicized.status).toBe("PUBLICIZED");
+
+    const caseCode = `PG-CASE-${Date.now()}`;
+    const testCase = await platform.createPolicyTestCase({
+      tenantId: DEMO_TENANT_ID,
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode,
+      input: { grossProfit: "100000" },
+      expectedOutput: { roundedAmount: "5000" },
+      category: "NORMAL",
+    });
+    expect(testCase.status).toBe("ACTIVE");
+    await expect(
+      platform.createPolicyTestCase({
+        tenantId: DEMO_TENANT_ID,
+        policyVersionId: REFERENCE_POLICY_ID,
+        caseCode,
+        input: {},
+        expectedOutput: {},
+        category: "BOUNDARY",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const retired = await platform.retirePolicyTestCase({
+      tenantId: DEMO_TENANT_ID,
+      testCaseId: testCase.id,
+    });
+    expect(retired.status).toBe("RETIRED");
+
+    const notice = await platform.createNotice({
+      tenantId: DEMO_TENANT_ID,
+      noticeType: "POLICY",
+      title: `PG policy notice ${Date.now()}`,
+      bodyRef: "pg-policy-notice",
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      acknowledgementRequired: false,
+    });
+    const link = await platform.createPolicyNotice({
+      tenantId: DEMO_TENANT_ID,
+      policyVersionId: REFERENCE_POLICY_ID,
+      noticeId: notice.id,
+      audience: { group: "all" },
+    });
+    expect(link.noticeId).toBe(notice.id);
+    await expect(
+      platform.createPolicyNotice({
+        tenantId: DEMO_TENANT_ID,
+        policyVersionId: REFERENCE_POLICY_ID,
+        noticeId: notice.id,
+        audience: {},
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (
+        await platform.listPolicyNotices(
+          DEMO_TENANT_ID,
+          REFERENCE_POLICY_ID,
+        )
+      ).some((candidate) => candidate.id === link.id),
+    ).toBe(true);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

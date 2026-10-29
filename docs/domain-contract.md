@@ -200,6 +200,12 @@ Additional application-level invariants:
 | `POST /budget-allocations/:id/release` | finance, allocation RESERVED | RELEASED and the committed amount is restored |
 | `POST /cash-gate-inputs` | finance, cycle exists, unique cycle/date | Records reserve months, forecast reference and pass/fail |
 | `POST /financial-facts` | finance, tenant exists | Upserts by `(sourceSystem, sourceRecordId, factType)` with a quality status |
+| `POST /rule-change-orders` | admin, target policy version exists | Creates a DRAFT order with impact simulation |
+| `POST /rule-change-orders/:id/approve\|reject` | admin, DRAFT, requester ≠ approver | Sets APPROVED or REJECTED with approver and timestamp |
+| `POST /rule-change-orders/:id/publicize` | admin, APPROVED | Sets PUBLICIZED and `publicizedAt` |
+| `POST /policy-test-cases` | admin, policy exists, case code unique per version | Creates an ACTIVE test case |
+| `POST /policy-test-cases/:id/retire` | admin, ACTIVE | Sets RETIRED |
+| `POST /policy-notices` | admin, policy and notice exist, unique link | Links a notice to a policy version with an audience |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

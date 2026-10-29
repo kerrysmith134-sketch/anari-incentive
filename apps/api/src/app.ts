@@ -46,6 +46,10 @@ import {
   createBudgetAllocationSchema,
   createCashGateInputSchema,
   createFinancialFactSchema,
+  createRuleChangeOrderSchema,
+  reviewRuleChangeOrderSchema,
+  createPolicyTestCaseSchema,
+  createPolicyNoticeSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1968,6 +1972,169 @@ export function buildApp(
         factType: query.factType,
         sourceSystem: query.sourceSystem,
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/rule-change-orders", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createRuleChangeOrderSchema, request.body);
+    const store = storeFor(request);
+    await store.getPolicy(body.toPolicyVersionId);
+    if (body.fromPolicyVersionId) {
+      await store.getPolicy(body.fromPolicyVersionId);
+    }
+    return reply.status(201).send(
+      data(
+        await platformStore.createRuleChangeOrder({
+          tenantId: tenantOf(request),
+          policyCode: body.policyCode,
+          fromPolicyVersionId: body.fromPolicyVersionId,
+          toPolicyVersionId: body.toPolicyVersionId,
+          changeType: body.changeType,
+          reason: body.reason,
+          impactSimulation: body.impactSimulation ?? {},
+          effectiveFrom: body.effectiveFrom,
+          requestedBy: body.requestedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/rule-change-orders", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { policyCode?: string; status?: string };
+    return data(
+      await platformStore.listRuleChangeOrders(tenantOf(request), {
+        policyCode: query.policyCode,
+        status: query.status as
+          | "DRAFT"
+          | "APPROVED"
+          | "PUBLICIZED"
+          | "REJECTED"
+          | undefined,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/rule-change-orders/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getRuleChangeOrder(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/rule-change-orders/:id/approve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(reviewRuleChangeOrderSchema, request.body);
+    return data(
+      await platformStore.approveRuleChangeOrder({
+        tenantId: tenantOf(request),
+        orderId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/rule-change-orders/:id/reject", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(reviewRuleChangeOrderSchema, request.body);
+    return data(
+      await platformStore.rejectRuleChangeOrder({
+        tenantId: tenantOf(request),
+        orderId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/rule-change-orders/:id/publicize", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.publicizeRuleChangeOrder({
+        tenantId: tenantOf(request),
+        orderId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-test-cases", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createPolicyTestCaseSchema, request.body);
+    await storeFor(request).getPolicy(body.policyVersionId);
+    return reply.status(201).send(
+      data(
+        await platformStore.createPolicyTestCase({
+          tenantId: tenantOf(request),
+          policyVersionId: body.policyVersionId,
+          caseCode: body.caseCode,
+          input: body.input,
+          expectedOutput: body.expectedOutput,
+          category: body.category,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/policy-test-cases", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { policyVersionId?: string };
+    return data(
+      await platformStore.listPolicyTestCases(
+        tenantOf(request),
+        query.policyVersionId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-test-cases/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retirePolicyTestCase({
+        tenantId: tenantOf(request),
+        testCaseId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-notices", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createPolicyNoticeSchema, request.body);
+    await storeFor(request).getPolicy(body.policyVersionId);
+    await platformStore.getNotice(tenantOf(request), body.noticeId);
+    return reply.status(201).send(
+      data(
+        await platformStore.createPolicyNotice({
+          tenantId: tenantOf(request),
+          policyVersionId: body.policyVersionId,
+          noticeId: body.noticeId,
+          audience: body.audience ?? {},
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/policy-notices", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { policyVersionId?: string };
+    return data(
+      await platformStore.listPolicyNotices(
+        tenantOf(request),
+        query.policyVersionId,
+      ),
       request,
     );
   });

@@ -29,8 +29,11 @@ import type {
   PlatformUser,
   PolicyAcknowledgement,
   PolicyConsultation,
+  PolicyNotice,
+  PolicyTestCase,
   RepresentationBodyType,
   RetentionPolicy,
+  RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
 } from "@anari/domain";
@@ -325,6 +328,65 @@ export interface PlatformStore {
     tenantId: string,
     filter?: { factType?: string; sourceSystem?: string },
   ): Promise<FinancialFact[]>;
+  createRuleChangeOrder(input: {
+    tenantId: string;
+    policyCode: string;
+    fromPolicyVersionId?: string;
+    toPolicyVersionId: string;
+    changeType: string;
+    reason: string;
+    impactSimulation: Record<string, unknown>;
+    effectiveFrom: string;
+    requestedBy: string;
+  }): Promise<RuleChangeOrder>;
+  listRuleChangeOrders(
+    tenantId: string,
+    filter?: { policyCode?: string; status?: RuleChangeOrder["status"] },
+  ): Promise<RuleChangeOrder[]>;
+  getRuleChangeOrder(
+    tenantId: string,
+    orderId: string,
+  ): Promise<RuleChangeOrder>;
+  approveRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder>;
+  rejectRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder>;
+  publicizeRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+  }): Promise<RuleChangeOrder>;
+  createPolicyTestCase(input: {
+    tenantId: string;
+    policyVersionId: string;
+    caseCode: string;
+    input: Record<string, unknown>;
+    expectedOutput: Record<string, unknown>;
+    category: PolicyTestCase["category"];
+  }): Promise<PolicyTestCase>;
+  listPolicyTestCases(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyTestCase[]>;
+  retirePolicyTestCase(input: {
+    tenantId: string;
+    testCaseId: string;
+  }): Promise<PolicyTestCase>;
+  createPolicyNotice(input: {
+    tenantId: string;
+    policyVersionId: string;
+    noticeId: string;
+    audience: Record<string, unknown>;
+  }): Promise<PolicyNotice>;
+  listPolicyNotices(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyNotice[]>;
 }
 
 function now(): string {
@@ -360,6 +422,9 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly budgetAllocations = new Map<string, BudgetAllocation>();
   private readonly cashGateInputs = new Map<string, CashGateInput>();
   private readonly financialFacts = new Map<string, FinancialFact>();
+  private readonly ruleChangeOrders = new Map<string, RuleChangeOrder>();
+  private readonly policyTestCases = new Map<string, PolicyTestCase>();
+  private readonly policyNotices = new Map<string, PolicyNotice>();
 
   constructor(
     options: {
@@ -1692,6 +1757,246 @@ export class MemoryPlatformStore implements PlatformStore {
             fact.sourceSystem === filter.sourceSystem),
       )
       .sort((a, b) => b.ingestedAt.localeCompare(a.ingestedAt));
+  }
+
+  async createRuleChangeOrder(input: {
+    tenantId: string;
+    policyCode: string;
+    fromPolicyVersionId?: string;
+    toPolicyVersionId: string;
+    changeType: string;
+    reason: string;
+    impactSimulation: Record<string, unknown>;
+    effectiveFrom: string;
+    requestedBy: string;
+  }): Promise<RuleChangeOrder> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const requester = this.persons.get(input.requestedBy);
+    if (!requester || requester.tenantId !== input.tenantId) {
+      notFound("Person", input.requestedBy);
+    }
+    const order: RuleChangeOrder = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      policyCode: input.policyCode,
+      fromPolicyVersionId: input.fromPolicyVersionId,
+      toPolicyVersionId: input.toPolicyVersionId,
+      changeType: input.changeType,
+      reason: input.reason,
+      impactSimulation: input.impactSimulation,
+      status: "DRAFT",
+      requestedBy: input.requestedBy,
+      effectiveFrom: input.effectiveFrom,
+      createdAt: now(),
+    };
+    this.ruleChangeOrders.set(order.id, order);
+    return order;
+  }
+
+  async listRuleChangeOrders(
+    tenantId: string,
+    filter?: { policyCode?: string; status?: RuleChangeOrder["status"] },
+  ): Promise<RuleChangeOrder[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.ruleChangeOrders.values()]
+      .filter(
+        (order) =>
+          order.tenantId === tenantId &&
+          (!filter?.policyCode || order.policyCode === filter.policyCode) &&
+          (!filter?.status || order.status === filter.status),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getRuleChangeOrder(
+    tenantId: string,
+    orderId: string,
+  ): Promise<RuleChangeOrder> {
+    const order = this.ruleChangeOrders.get(orderId);
+    if (!order || order.tenantId !== tenantId) {
+      notFound("RuleChangeOrder", orderId);
+    }
+    return order;
+  }
+
+  async approveRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder> {
+    const order = await this.getRuleChangeOrder(
+      input.tenantId,
+      input.orderId,
+    );
+    if (order.status !== "DRAFT") {
+      throw new ConflictError(`rule change order ${order.id} is ${order.status}`);
+    }
+    if (order.requestedBy === input.approvedBy) {
+      throw new ConflictError(
+        "SEPARATION_OF_DUTIES: the requester cannot approve their own change",
+      );
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    order.status = "APPROVED";
+    order.approvedBy = input.approvedBy;
+    order.approvedAt = now();
+    return order;
+  }
+
+  async rejectRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder> {
+    const order = await this.getRuleChangeOrder(
+      input.tenantId,
+      input.orderId,
+    );
+    if (order.status !== "DRAFT") {
+      throw new ConflictError(`rule change order ${order.id} is ${order.status}`);
+    }
+    if (order.requestedBy === input.approvedBy) {
+      throw new ConflictError(
+        "SEPARATION_OF_DUTIES: the requester cannot reject their own change",
+      );
+    }
+    order.status = "REJECTED";
+    order.approvedBy = input.approvedBy;
+    order.approvedAt = now();
+    return order;
+  }
+
+  async publicizeRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+  }): Promise<RuleChangeOrder> {
+    const order = await this.getRuleChangeOrder(
+      input.tenantId,
+      input.orderId,
+    );
+    if (order.status !== "APPROVED") {
+      throw new ConflictError(`rule change order ${order.id} is ${order.status}`);
+    }
+    order.status = "PUBLICIZED";
+    order.publicizedAt = now();
+    return order;
+  }
+
+  async createPolicyTestCase(input: {
+    tenantId: string;
+    policyVersionId: string;
+    caseCode: string;
+    input: Record<string, unknown>;
+    expectedOutput: Record<string, unknown>;
+    category: PolicyTestCase["category"];
+  }): Promise<PolicyTestCase> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.policyTestCases.values()].some(
+        (testCase) =>
+          testCase.tenantId === input.tenantId &&
+          testCase.policyVersionId === input.policyVersionId &&
+          testCase.caseCode === input.caseCode,
+      )
+    ) {
+      throw new ConflictError(
+        `test case ${input.caseCode} already exists for the policy version`,
+      );
+    }
+    const testCase: PolicyTestCase = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      policyVersionId: input.policyVersionId,
+      caseCode: input.caseCode,
+      input: input.input,
+      expectedOutput: input.expectedOutput,
+      category: input.category,
+      status: "ACTIVE",
+      createdAt: now(),
+    };
+    this.policyTestCases.set(testCase.id, testCase);
+    return testCase;
+  }
+
+  async listPolicyTestCases(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyTestCase[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.policyTestCases.values()]
+      .filter(
+        (testCase) =>
+          testCase.tenantId === tenantId &&
+          (!policyVersionId ||
+            testCase.policyVersionId === policyVersionId),
+      )
+      .sort((a, b) => a.caseCode.localeCompare(b.caseCode));
+  }
+
+  async retirePolicyTestCase(input: {
+    tenantId: string;
+    testCaseId: string;
+  }): Promise<PolicyTestCase> {
+    const testCase = this.policyTestCases.get(input.testCaseId);
+    if (!testCase || testCase.tenantId !== input.tenantId) {
+      notFound("PolicyTestCase", input.testCaseId);
+    }
+    if (testCase.status !== "ACTIVE") {
+      throw new ConflictError(
+        `policy test case ${testCase.id} is ${testCase.status}`,
+      );
+    }
+    testCase.status = "RETIRED";
+    return testCase;
+  }
+
+  async createPolicyNotice(input: {
+    tenantId: string;
+    policyVersionId: string;
+    noticeId: string;
+    audience: Record<string, unknown>;
+  }): Promise<PolicyNotice> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.policyNotices.values()].some(
+        (link) =>
+          link.tenantId === input.tenantId &&
+          link.policyVersionId === input.policyVersionId &&
+          link.noticeId === input.noticeId,
+      )
+    ) {
+      throw new ConflictError(
+        "policy notice link already exists for this policy version",
+      );
+    }
+    const link: PolicyNotice = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      policyVersionId: input.policyVersionId,
+      noticeId: input.noticeId,
+      audience: input.audience,
+      createdAt: now(),
+    };
+    this.policyNotices.set(link.id, link);
+    return link;
+  }
+
+  async listPolicyNotices(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyNotice[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.policyNotices.values()]
+      .filter(
+        (link) =>
+          link.tenantId === tenantId &&
+          (!policyVersionId ||
+            link.policyVersionId === policyVersionId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   private assertUserNotLinked(
@@ -3391,6 +3696,295 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapFinancialFact(row));
   }
 
+  async createRuleChangeOrder(input: {
+    tenantId: string;
+    policyCode: string;
+    fromPolicyVersionId?: string;
+    toPolicyVersionId: string;
+    changeType: string;
+    reason: string;
+    impactSimulation: Record<string, unknown>;
+    effectiveFrom: string;
+    requestedBy: string;
+  }): Promise<RuleChangeOrder> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO rule_change_orders
+          (id, tenant_id, policy_code, from_policy_version_id,
+           to_policy_version_id, change_type, reason, impact_simulation,
+           effective_from, requested_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.policyCode,
+          input.fromPolicyVersionId ?? null,
+          input.toPolicyVersionId,
+          input.changeType,
+          input.reason,
+          input.impactSimulation,
+          input.effectiveFrom,
+          input.requestedBy,
+        ],
+      );
+      return this.mapRuleChangeOrder(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("policy version or requester not found");
+      }
+      throw error;
+    }
+  }
+
+  async listRuleChangeOrders(
+    tenantId: string,
+    filter?: { policyCode?: string; status?: RuleChangeOrder["status"] },
+  ): Promise<RuleChangeOrder[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM rule_change_orders WHERE tenant_id=$1";
+    if (filter?.policyCode) {
+      params.push(filter.policyCode);
+      sql += ` AND policy_code=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapRuleChangeOrder(row));
+  }
+
+  async getRuleChangeOrder(
+    tenantId: string,
+    orderId: string,
+  ): Promise<RuleChangeOrder> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM rule_change_orders WHERE tenant_id=$1 AND id=$2",
+      [tenantId, orderId],
+    );
+    if (!rows[0]) notFound("RuleChangeOrder", orderId);
+    return this.mapRuleChangeOrder(rows[0]);
+  }
+
+  async approveRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder> {
+    return this.decideRuleChangeOrder(input, "APPROVED");
+  }
+
+  async rejectRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+    approvedBy: string;
+  }): Promise<RuleChangeOrder> {
+    return this.decideRuleChangeOrder(input, "REJECTED");
+  }
+
+  async publicizeRuleChangeOrder(input: {
+    tenantId: string;
+    orderId: string;
+  }): Promise<RuleChangeOrder> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM rule_change_orders
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.orderId],
+      );
+      if (!rows[0]) notFound("RuleChangeOrder", input.orderId);
+      const order = this.mapRuleChangeOrder(rows[0]);
+      if (order.status !== "APPROVED") {
+        throw new ConflictError(
+          `rule change order ${order.id} is ${order.status}`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE rule_change_orders
+            SET status='PUBLICIZED', publicized_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.orderId],
+      );
+      return this.mapRuleChangeOrder(updated[0]);
+    });
+  }
+
+  async createPolicyTestCase(input: {
+    tenantId: string;
+    policyVersionId: string;
+    caseCode: string;
+    input: Record<string, unknown>;
+    expectedOutput: Record<string, unknown>;
+    category: PolicyTestCase["category"];
+  }): Promise<PolicyTestCase> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO policy_test_cases
+          (id, tenant_id, policy_version_id, case_code, input,
+           expected_output, category)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.policyVersionId,
+          input.caseCode,
+          input.input,
+          input.expectedOutput,
+          input.category,
+        ],
+      );
+      return this.mapPolicyTestCase(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `test case ${input.caseCode} already exists for the policy version`,
+        );
+      }
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Policy version ${input.policyVersionId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listPolicyTestCases(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyTestCase[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM policy_test_cases WHERE tenant_id=$1";
+    if (policyVersionId) {
+      params.push(policyVersionId);
+      sql += " AND policy_version_id=$2";
+    }
+    sql += " ORDER BY case_code";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapPolicyTestCase(row));
+  }
+
+  async retirePolicyTestCase(input: {
+    tenantId: string;
+    testCaseId: string;
+  }): Promise<PolicyTestCase> {
+    const { rows } = await this.pool.query(
+      `UPDATE policy_test_cases SET status='RETIRED'
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.testCaseId],
+    );
+    if (!rows[0]) {
+      const { rows: existing } = await this.pool.query(
+        "SELECT * FROM policy_test_cases WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.testCaseId],
+      );
+      if (!existing[0]) notFound("PolicyTestCase", input.testCaseId);
+      throw new ConflictError(
+        `policy test case ${input.testCaseId} is ${existing[0].status}`,
+      );
+    }
+    return this.mapPolicyTestCase(rows[0]);
+  }
+
+  async createPolicyNotice(input: {
+    tenantId: string;
+    policyVersionId: string;
+    noticeId: string;
+    audience: Record<string, unknown>;
+  }): Promise<PolicyNotice> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO policy_notices
+          (id, tenant_id, policy_version_id, notice_id, audience)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.policyVersionId,
+          input.noticeId,
+          input.audience,
+        ],
+      );
+      return this.mapPolicyNotice(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          "policy notice link already exists for this policy version",
+        );
+      }
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("policy version or notice not found");
+      }
+      throw error;
+    }
+  }
+
+  async listPolicyNotices(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyNotice[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM policy_notices WHERE tenant_id=$1";
+    if (policyVersionId) {
+      params.push(policyVersionId);
+      sql += " AND policy_version_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapPolicyNotice(row));
+  }
+
+  private async decideRuleChangeOrder(
+    input: { tenantId: string; orderId: string; approvedBy: string },
+    status: "APPROVED" | "REJECTED",
+  ): Promise<RuleChangeOrder> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM rule_change_orders
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.orderId],
+      );
+      if (!rows[0]) notFound("RuleChangeOrder", input.orderId);
+      const order = this.mapRuleChangeOrder(rows[0]);
+      if (order.status !== "DRAFT") {
+        throw new ConflictError(
+          `rule change order ${order.id} is ${order.status}`,
+        );
+      }
+      if (order.requestedBy === input.approvedBy) {
+        throw new ConflictError(
+          "SEPARATION_OF_DUTIES: the requester cannot decide their own change",
+        );
+      }
+      try {
+        const { rows: updated } = await client.query(
+          `UPDATE rule_change_orders
+              SET status=$3, approved_by=$4, approved_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [input.tenantId, input.orderId, status, input.approvedBy],
+        );
+        return this.mapRuleChangeOrder(updated[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${input.approvedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -3722,6 +4316,51 @@ export class PgPlatformStore implements PlatformStore {
       sourceUpdatedAt: iso(row.source_updated_at),
       ingestedAt: iso(row.ingested_at) ?? new Date().toISOString(),
       payload: row.payload ?? {},
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapRuleChangeOrder(row: QueryResultRow): RuleChangeOrder {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      policyCode: row.policy_code,
+      fromPolicyVersionId: row.from_policy_version_id ?? undefined,
+      toPolicyVersionId: row.to_policy_version_id,
+      changeType: row.change_type,
+      reason: row.reason,
+      impactSimulation: row.impact_simulation ?? {},
+      status: row.status,
+      requestedBy: row.requested_by,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      publicizedAt: iso(row.publicized_at),
+      effectiveFrom: iso(row.effective_from) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapPolicyTestCase(row: QueryResultRow): PolicyTestCase {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      policyVersionId: row.policy_version_id,
+      caseCode: row.case_code,
+      input: row.input ?? {},
+      expectedOutput: row.expected_output ?? {},
+      category: row.category,
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapPolicyNotice(row: QueryResultRow): PolicyNotice {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      policyVersionId: row.policy_version_id,
+      noticeId: row.notice_id,
+      audience: row.audience ?? {},
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

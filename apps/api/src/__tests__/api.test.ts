@@ -1842,6 +1842,139 @@ describe("budget pools and cash gates", () => {
   });
 });
 
+describe("policy governance", () => {
+  it("runs rule change orders, test cases and notice links", async () => {
+    const order = await call("POST", "/api/v1/rule-change-orders", {
+      policyCode: "GENERIC_CONTRIBUTION_V1",
+      toPolicyVersionId: CHARGING_POLICY_ID,
+      changeType: "POOL_RATE",
+      reason: "Align the pool with the approved plan",
+      impactSimulation: { affectedPeople: 3 },
+      effectiveFrom: "2026-11-01T00:00:00.000Z",
+      requestedBy: ADJUDICATOR,
+    });
+    expect(order.status).toBe(201);
+    expect(order.body.data.status).toBe("DRAFT");
+    const orderId = order.body.data.id as string;
+
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(selfApproval.status).toBe(409);
+
+    const approved = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+
+    const publicized = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${orderId}/publicize`,
+    );
+    expect(publicized.status).toBe(200);
+    expect(publicized.body.data.status).toBe("PUBLICIZED");
+    expect(publicized.body.data.publicizedAt).toBeTruthy();
+
+    const rejectedOrder = await call(
+      "POST",
+      "/api/v1/rule-change-orders",
+      {
+        policyCode: "GENERIC_CONTRIBUTION_V1",
+        toPolicyVersionId: REFERENCE_POLICY_ID,
+        changeType: "POOL_CAP",
+        reason: "Rejected change",
+        effectiveFrom: "2026-12-01T00:00:00.000Z",
+        requestedBy: ADJUDICATOR,
+      },
+    );
+    const rejected = await call(
+      "POST",
+      `/api/v1/rule-change-orders/${rejectedOrder.body.data.id}/reject`,
+      { approvedBy: OWNER },
+    );
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.data.status).toBe("REJECTED");
+
+    const listedOrders = await call(
+      "GET",
+      "/api/v1/rule-change-orders?status=PUBLICIZED",
+    );
+    expect(listedOrders.body.data).toHaveLength(1);
+
+    const testCase = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "CASE-1",
+      input: { grossProfit: "100000", weight: "1" },
+      expectedOutput: { roundedAmount: "5000" },
+      category: "NORMAL",
+    });
+    expect(testCase.status).toBe(201);
+    expect(testCase.body.data.status).toBe("ACTIVE");
+    const testCaseId = testCase.body.data.id as string;
+
+    const duplicateCase = await call(
+      "POST",
+      "/api/v1/policy-test-cases",
+      {
+        policyVersionId: REFERENCE_POLICY_ID,
+        caseCode: "CASE-1",
+        input: {},
+        expectedOutput: {},
+        category: "BOUNDARY",
+      },
+    );
+    expect(duplicateCase.status).toBe(409);
+
+    const cases = await call(
+      "GET",
+      `/api/v1/policy-test-cases?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(cases.body.data).toHaveLength(1);
+
+    const retired = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${testCaseId}/retire`,
+    );
+    expect(retired.status).toBe(200);
+    expect(retired.body.data.status).toBe("RETIRED");
+    const reRetire = await call(
+      "POST",
+      `/api/v1/policy-test-cases/${testCaseId}/retire`,
+    );
+    expect(reRetire.status).toBe(409);
+
+    const notice = await call("POST", "/api/v1/notices", {
+      noticeType: "POLICY",
+      title: "Rule change notice",
+      bodyRef: "rule-change-notice",
+      effectiveFrom: "2026-11-01T00:00:00.000Z",
+    });
+    expect(notice.status).toBe(201);
+    const link = await call("POST", "/api/v1/policy-notices", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      noticeId: notice.body.data.id,
+      audience: { group: "all" },
+    });
+    expect(link.status).toBe(201);
+    const duplicateLink = await call("POST", "/api/v1/policy-notices", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      noticeId: notice.body.data.id,
+    });
+    expect(duplicateLink.status).toBe(409);
+    const links = await call(
+      "GET",
+      `/api/v1/policy-notices?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(links.body.data).toHaveLength(1);
+    expect(links.body.data[0].audience).toEqual({ group: "all" });
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

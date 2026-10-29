@@ -434,6 +434,55 @@ export interface FinancialFact {
   createdAt: string;
 }
 
+export type RuleChangeStatus = "DRAFT" | "APPROVED" | "PUBLICIZED" | "REJECTED";
+
+export interface RuleChangeOrder {
+  id: UUID;
+  tenantId: UUID;
+  policyCode: string;
+  fromPolicyVersionId?: UUID;
+  toPolicyVersionId: UUID;
+  changeType: string;
+  reason: string;
+  impactSimulation: Record<string, unknown>;
+  status: RuleChangeStatus;
+  requestedBy: UUID;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  publicizedAt?: string;
+  effectiveFrom: string;
+  createdAt: string;
+}
+
+export type PolicyTestCaseCategory =
+  | "NORMAL"
+  | "BOUNDARY"
+  | "EXCEPTION"
+  | "HISTORICAL";
+
+export type PolicyTestCaseStatus = "ACTIVE" | "RETIRED";
+
+export interface PolicyTestCase {
+  id: UUID;
+  tenantId: UUID;
+  policyVersionId: UUID;
+  caseCode: string;
+  input: Record<string, unknown>;
+  expectedOutput: Record<string, unknown>;
+  category: PolicyTestCaseCategory;
+  status: PolicyTestCaseStatus;
+  createdAt: string;
+}
+
+export interface PolicyNotice {
+  id: UUID;
+  tenantId: UUID;
+  policyVersionId: UUID;
+  noticeId: UUID;
+  audience: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

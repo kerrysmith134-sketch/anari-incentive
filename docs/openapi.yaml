@@ -1568,6 +1568,274 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/rule-change-orders:
+    get:
+      tags: [Policy]
+      summary: List rule change orders
+      parameters:
+        - name: policyCode
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [DRAFT, APPROVED, PUBLICIZED, REJECTED]
+      responses:
+        "200":
+          description: Rule change orders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Policy]
+      summary: Create a rule change order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuleChangeOrder"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/rule-change-orders/{id}:
+    get:
+      tags: [Policy]
+      summary: Read a rule change order
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Rule change order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/rule-change-orders/{id}/approve:
+    post:
+      tags: [Policy]
+      summary: Approve a rule change order
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRuleChangeOrder"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/rule-change-orders/{id}/reject:
+    post:
+      tags: [Policy]
+      summary: Reject a rule change order
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRuleChangeOrder"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/rule-change-orders/{id}/publicize:
+    post:
+      tags: [Policy]
+      summary: Publicize an approved rule change order
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Publicized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/policy-test-cases:
+    get:
+      tags: [Policy]
+      summary: List policy test cases
+      parameters:
+        - name: policyVersionId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Test cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Policy]
+      summary: Create a policy test case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyTestCase"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/policy-test-cases/{id}/retire:
+    post:
+      tags: [Policy]
+      summary: Retire a policy test case
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/policy-notices:
+    get:
+      tags: [Policy]
+      summary: List policy-notice links
+      parameters:
+        - name: policyVersionId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Policy]
+      summary: Link a notice to a policy version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyNotice"
+      responses:
+        "201":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -3800,6 +4068,67 @@ components:
           type: string
           format: date-time
         payload:
+          type: object
+          additionalProperties: true
+
+    CreateRuleChangeOrder:
+      type: object
+      required:
+        [policyCode, toPolicyVersionId, changeType, reason, effectiveFrom, requestedBy]
+      properties:
+        policyCode:
+          type: string
+        fromPolicyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        toPolicyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        changeType:
+          type: string
+        reason:
+          type: string
+        impactSimulation:
+          type: object
+          additionalProperties: true
+        effectiveFrom:
+          type: string
+          format: date-time
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ReviewRuleChangeOrder:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CreatePolicyTestCase:
+      type: object
+      required: [policyVersionId, caseCode, input, expectedOutput, category]
+      properties:
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        caseCode:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        expectedOutput:
+          type: object
+          additionalProperties: true
+        category:
+          type: string
+          enum: [NORMAL, BOUNDARY, EXCEPTION, HISTORICAL]
+
+    CreatePolicyNotice:
+      type: object
+      required: [policyVersionId, noticeId]
+      properties:
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        noticeId:
+          $ref: "#/components/schemas/Uuid"
+        audience:
           type: object
           additionalProperties: true
 
