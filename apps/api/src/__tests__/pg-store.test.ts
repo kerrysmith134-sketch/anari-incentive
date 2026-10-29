@@ -1451,6 +1451,76 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("records, approves and completes recalculation requests", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const { decision } = await confirmedClaim(workPackageId, OWNER);
+    await completeGate();
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: {
+        id: "pg-recalculation-order",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    });
+
+    const request = await store.createRecalculationRequest({
+      targetType: "ATTRIBUTION",
+      targetId: decision.id,
+      reasonCode: "ATTRIBUTION_ERROR",
+      explanation: "Recheck after the evidence correction",
+      requestedBy: OWNER,
+    });
+    expect(request.status).toBe("OPEN");
+    expect(
+      (
+        await store.listRecalculationRequests({ status: "OPEN" })
+      ).some((candidate) => candidate.id === request.id),
+    ).toBe(true);
+    expect((await store.getRecalculationRequest(request.id)).targetId).toBe(
+      decision.id,
+    );
+
+    const approved = await store.approveRecalculationRequest(
+      request.id,
+      ADJUDICATOR,
+    );
+    expect(approved.status).toBe("APPROVED");
+    await expect(
+      store.approveRecalculationRequest(request.id, ADJUDICATOR),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const completed = await store.completeRecalculationRequest(
+      request.id,
+      run.id,
+    );
+    expect(completed.status).toBe("COMPLETED");
+    expect(completed.newCalculationRunId).toBe(run.id);
+
+    const rejectedRequest = await store.createRecalculationRequest({
+      targetType: "ATTRIBUTION",
+      targetId: decision.id,
+      reasonCode: "DUPLICATE",
+      explanation: "Duplicate request should be rejected",
+      requestedBy: OWNER,
+    });
+    const rejected = await store.rejectRecalculationRequest(
+      rejectedRequest.id,
+      ADJUDICATOR,
+    );
+    expect(rejected.status).toBe("REJECTED");
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

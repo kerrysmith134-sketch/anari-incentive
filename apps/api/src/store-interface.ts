@@ -23,6 +23,9 @@ import type {
   PolicyVersionSummary,
   PublishPolicyInput,
   PublishedPolicy,
+  RecalculationRequest,
+  RecalculationStatus,
+  RecalculationTargetType,
   Rubric,
   SettlementBatch,
   SettlementCommandInput,
@@ -139,6 +142,31 @@ export interface IncentiveStore {
   triageAppeal(id: string, reviewerPersonId: string): Promise<AppealCase>;
   reviewAppeal(id: string): Promise<AppealCase>;
   resolveAppeal(id: string, input: ResolveAppealInput): Promise<AppealCase>;
+
+  createRecalculationRequest(input: {
+    targetType: RecalculationTargetType;
+    targetId: string;
+    reasonCode: string;
+    explanation: string;
+    requestedBy: string;
+  }): Promise<RecalculationRequest>;
+  getRecalculationRequest(id: string): Promise<RecalculationRequest>;
+  listRecalculationRequests(filter?: {
+    status?: RecalculationStatus;
+    targetType?: RecalculationTargetType;
+  }): Promise<RecalculationRequest[]>;
+  approveRecalculationRequest(
+    id: string,
+    approvedBy: string,
+  ): Promise<RecalculationRequest>;
+  rejectRecalculationRequest(
+    id: string,
+    reviewedBy: string,
+  ): Promise<RecalculationRequest>;
+  completeRecalculationRequest(
+    id: string,
+    newCalculationRunId: string,
+  ): Promise<RecalculationRequest>;
 
   listLedger(tenantId?: string): Promise<AmountLedgerEntry[]>;
   verifyLedger(tenantId?: string): Promise<boolean>;

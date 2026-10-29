@@ -31,6 +31,9 @@ import {
   approveDpiaSchema,
   createDsarSchema,
   resolveDsarSchema,
+  createRecalculationRequestSchema,
+  reviewRecalculationRequestSchema,
+  completeRecalculationRequestSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -207,6 +210,36 @@ function personFilter(request: FastifyRequest): string | undefined {
     );
   }
   return person;
+}
+
+/** Recalculation targets must exist before a request can be recorded. */
+async function assertRecalculationTarget(
+  store: IncentiveStore,
+  targetType: "EVIDENCE" | "ATTRIBUTION" | "EVALUATION" | "LEDGER",
+  targetId: string,
+): Promise<void> {
+  if (targetType === "EVIDENCE") {
+    const nodes = await store.listEvidence();
+    if (!nodes.some((node) => node.id === targetId)) {
+      throw new NotFoundError(`EvidenceNode ${targetId} not found`);
+    }
+    return;
+  }
+  if (targetType === "ATTRIBUTION") {
+    const decisions = await store.listDecisions();
+    if (!decisions.some((decision) => decision.id === targetId)) {
+      throw new NotFoundError(`AttributionDecision ${targetId} not found`);
+    }
+    return;
+  }
+  if (targetType === "EVALUATION") {
+    await store.getEvaluationDecision(targetId);
+    return;
+  }
+  const entries = await store.listLedger();
+  if (!entries.some((entry) => entry.id === targetId)) {
+    throw new NotFoundError(`LedgerEntry ${targetId} not found`);
+  }
 }
 
 export function buildApp(
@@ -1817,6 +1850,91 @@ export function buildApp(
       sourceId: appeal.id,
     });
     return data(appeal, request);
+  });
+
+  app.post("/api/v1/recalculation-requests", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createRecalculationRequestSchema, request.body);
+    const store = storeFor(request);
+    await assertRecalculationTarget(
+      store,
+      body.targetType,
+      body.targetId,
+    );
+    return reply
+      .status(201)
+      .send(data(await store.createRecalculationRequest(body), request));
+  });
+
+  app.get("/api/v1/recalculation-requests", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      status?: string;
+      targetType?: string;
+    };
+    return data(
+      await storeFor(request).listRecalculationRequests({
+        status: query.status as
+          | "OPEN"
+          | "APPROVED"
+          | "REJECTED"
+          | "COMPLETED"
+          | undefined,
+        targetType: query.targetType as
+          | "EVIDENCE"
+          | "ATTRIBUTION"
+          | "EVALUATION"
+          | "LEDGER"
+          | undefined,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/recalculation-requests/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).getRecalculationRequest(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/recalculation-requests/:id/approve", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(reviewRecalculationRequestSchema, request.body);
+    return data(
+      await storeFor(request).approveRecalculationRequest(
+        idOf(request),
+        body.approvedBy,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/recalculation-requests/:id/reject", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(reviewRecalculationRequestSchema, request.body);
+    return data(
+      await storeFor(request).rejectRecalculationRequest(
+        idOf(request),
+        body.approvedBy,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/recalculation-requests/:id/complete", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(completeRecalculationRequestSchema, request.body);
+    const store = storeFor(request);
+    await store.getRun(body.newCalculationRunId);
+    return data(
+      await store.completeRecalculationRequest(
+        idOf(request),
+        body.newCalculationRunId,
+      ),
+      request,
+    );
   });
 
   return app;

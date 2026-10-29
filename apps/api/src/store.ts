@@ -35,6 +35,7 @@ import {
   type PolicyVersionSummary,
   type PublishPolicyInput,
   type PublishedPolicy,
+  type RecalculationRequest,
   type Rubric,
   type SettlementBatch,
   type SettlementCommandInput,
@@ -144,6 +145,7 @@ export class Store implements IncentiveStore {
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
   private readonly appeals = new Map<string, AppealCase>();
+  private readonly recalculations = new Map<string, RecalculationRequest>();
   private readonly legalGates = new Map<string, LegalGateRecord>();
   private readonly confirmations = new Map<string, EmployeeConfirmation>();
   private readonly evidence = new Map<string, EvidenceNode>();
@@ -1111,6 +1113,94 @@ export class Store implements IncentiveStore {
       appeal.status = "CLOSED";
     }
     return appeal;
+  }
+
+  async createRecalculationRequest(input: {
+    targetType: "EVIDENCE" | "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+    targetId: string;
+    reasonCode: string;
+    explanation: string;
+    requestedBy: string;
+  }): Promise<RecalculationRequest> {
+    const request: RecalculationRequest = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      reasonCode: input.reasonCode,
+      explanation: input.explanation,
+      requestedBy: input.requestedBy,
+      status: "OPEN",
+      createdAt: now(),
+    };
+    this.recalculations.set(request.id, request);
+    return request;
+  }
+
+  async getRecalculationRequest(id: string): Promise<RecalculationRequest> {
+    const request = this.recalculations.get(id);
+    if (!request) notFound("RecalculationRequest", id);
+    return request;
+  }
+
+  async listRecalculationRequests(filter?: {
+    status?: "OPEN" | "APPROVED" | "REJECTED" | "COMPLETED";
+    targetType?: "EVIDENCE" | "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+  }): Promise<RecalculationRequest[]> {
+    return [...this.recalculations.values()]
+      .filter(
+        (request) =>
+          (!filter?.status || request.status === filter.status) &&
+          (!filter?.targetType || request.targetType === filter.targetType),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async approveRecalculationRequest(
+    id: string,
+    approvedBy: string,
+  ): Promise<RecalculationRequest> {
+    const request = await this.getRecalculationRequest(id);
+    if (request.status !== "OPEN") {
+      throw new ConflictError(
+        `recalculation request ${id} is ${request.status}`,
+      );
+    }
+    request.status = "APPROVED";
+    request.approvedBy = approvedBy;
+    request.approvedAt = now();
+    return request;
+  }
+
+  async rejectRecalculationRequest(
+    id: string,
+    reviewedBy: string,
+  ): Promise<RecalculationRequest> {
+    const request = await this.getRecalculationRequest(id);
+    if (request.status !== "OPEN") {
+      throw new ConflictError(
+        `recalculation request ${id} is ${request.status}`,
+      );
+    }
+    request.status = "REJECTED";
+    request.approvedBy = reviewedBy;
+    request.approvedAt = now();
+    return request;
+  }
+
+  async completeRecalculationRequest(
+    id: string,
+    newCalculationRunId: string,
+  ): Promise<RecalculationRequest> {
+    const request = await this.getRecalculationRequest(id);
+    if (request.status !== "APPROVED") {
+      throw new ConflictError(
+        `recalculation request ${id} is ${request.status}`,
+      );
+    }
+    request.status = "COMPLETED";
+    request.newCalculationRunId = newCalculationRunId;
+    return request;
   }
 
   async createNotification(input: {

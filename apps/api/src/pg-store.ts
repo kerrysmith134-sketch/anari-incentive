@@ -36,6 +36,7 @@ import {
   type PolicyVersionSummary,
   type PublishPolicyInput,
   type PublishedPolicy,
+  type RecalculationRequest,
   type Rubric,
   type SettlementBatch,
   type SettlementCommandInput,
@@ -1437,6 +1438,158 @@ export class PgStore implements IncentiveStore {
         ],
       );
       return this.loadAppeal(client, id);
+    });
+  }
+
+  async createRecalculationRequest(input: {
+    targetType: "EVIDENCE" | "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+    targetId: string;
+    reasonCode: string;
+    explanation: string;
+    requestedBy: string;
+  }): Promise<RecalculationRequest> {
+    return this.tx(async (client) => {
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO recalculation_requests
+            (id, tenant_id, target_type, target_id, reason_code,
+             explanation, requested_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [
+            randomUUID(),
+            this.tenantId,
+            input.targetType,
+            input.targetId,
+            input.reasonCode,
+            input.explanation,
+            input.requestedBy,
+          ],
+        );
+        return this.mapRecalculationRequest(rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${input.requestedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async getRecalculationRequest(id: string): Promise<RecalculationRequest> {
+    return this.tx(async (client) =>
+      this.loadRecalculationRequest(client, id),
+    );
+  }
+
+  async listRecalculationRequests(filter?: {
+    status?: "OPEN" | "APPROVED" | "REJECTED" | "COMPLETED";
+    targetType?: "EVIDENCE" | "ATTRIBUTION" | "EVALUATION" | "LEDGER";
+  }): Promise<RecalculationRequest[]> {
+    return this.tx(async (client) => {
+      const params: string[] = [this.tenantId];
+      let sql =
+        "SELECT * FROM recalculation_requests WHERE tenant_id=$1";
+      if (filter?.status) {
+        params.push(filter.status);
+        sql += ` AND status=$${params.length}`;
+      }
+      if (filter?.targetType) {
+        params.push(filter.targetType);
+        sql += ` AND target_type=$${params.length}`;
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await client.query(sql, params);
+      return rows.map((row) => this.mapRecalculationRequest(row));
+    });
+  }
+
+  async approveRecalculationRequest(
+    id: string,
+    approvedBy: string,
+  ): Promise<RecalculationRequest> {
+    return this.tx(async (client) => {
+      const request = await this.loadRecalculationRequest(client, id);
+      if (request.status !== "OPEN") {
+        throw new ConflictError(
+          `recalculation request ${id} is ${request.status}`,
+        );
+      }
+      try {
+        const { rows } = await client.query(
+          `UPDATE recalculation_requests
+              SET status='APPROVED', approved_by=$3, approved_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [this.tenantId, id, approvedBy],
+        );
+        return this.mapRecalculationRequest(rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${approvedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async rejectRecalculationRequest(
+    id: string,
+    reviewedBy: string,
+  ): Promise<RecalculationRequest> {
+    return this.tx(async (client) => {
+      const request = await this.loadRecalculationRequest(client, id);
+      if (request.status !== "OPEN") {
+        throw new ConflictError(
+          `recalculation request ${id} is ${request.status}`,
+        );
+      }
+      try {
+        const { rows } = await client.query(
+          `UPDATE recalculation_requests
+              SET status='REJECTED', approved_by=$3, approved_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [this.tenantId, id, reviewedBy],
+        );
+        return this.mapRecalculationRequest(rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(`Person ${reviewedBy} not found`);
+        }
+        throw error;
+      }
+    });
+  }
+
+  async completeRecalculationRequest(
+    id: string,
+    newCalculationRunId: string,
+  ): Promise<RecalculationRequest> {
+    return this.tx(async (client) => {
+      const request = await this.loadRecalculationRequest(client, id);
+      if (request.status !== "APPROVED") {
+        throw new ConflictError(
+          `recalculation request ${id} is ${request.status}`,
+        );
+      }
+      try {
+        const { rows } = await client.query(
+          `UPDATE recalculation_requests
+              SET status='COMPLETED', new_calculation_run_id=$3
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [this.tenantId, id, newCalculationRunId],
+        );
+        return this.mapRecalculationRequest(rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(
+            `CalculationRun ${newCalculationRunId} not found`,
+          );
+        }
+        throw error;
+      }
     });
   }
 
@@ -3042,6 +3195,35 @@ export class PgStore implements IncentiveStore {
       resolution: row.resolution ?? undefined,
       createdAt: iso(row.created_at)!,
       resolvedAt: iso(row.resolved_at),
+    };
+  }
+
+  private async loadRecalculationRequest(
+    client: PoolClient,
+    id: string,
+  ): Promise<RecalculationRequest> {
+    const { rows } = await client.query(
+      "SELECT * FROM recalculation_requests WHERE tenant_id=$1 AND id=$2",
+      [this.tenantId, id],
+    );
+    if (!rows[0]) notFound("RecalculationRequest", id);
+    return this.mapRecalculationRequest(rows[0]);
+  }
+
+  private mapRecalculationRequest(row: QueryResultRow): RecalculationRequest {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      reasonCode: row.reason_code,
+      explanation: row.explanation,
+      requestedBy: row.requested_by,
+      status: row.status,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      newCalculationRunId: row.new_calculation_run_id ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

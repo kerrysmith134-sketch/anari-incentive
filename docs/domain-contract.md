@@ -102,6 +102,7 @@ Rules:
 - The reviewer cannot be the original decision-maker.
 - The original decision and ledger history are preserved.
 - A changed outcome creates a new decision/calculation; it does not overwrite history.
+- A `CHANGE` resolution leaves the appeal at `RECALCULATION_REQUIRED`; a recalculation request records the approved target and the resulting calculation run (`OPEN → APPROVED/REJECTED → COMPLETED`).
 
 ### DataQualityIssue
 
@@ -197,6 +198,10 @@ Additional application-level invariants:
 | `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |
 | `POST /appeals/:id/review` | TRIAGED | UNDER_REVIEW |
 | `POST /appeals/:id/resolve` | UNDER_REVIEW, reviewer ≠ appellant | CLOSED or RECALCULATION_REQUIRED |
+| `POST /recalculation-requests` | manager/finance; target exists | Creates an OPEN request for EVIDENCE/ATTRIBUTION/EVALUATION/LEDGER |
+| `POST /recalculation-requests/:id/approve` | finance, request is OPEN | APPROVED with approver and timestamp |
+| `POST /recalculation-requests/:id/reject` | finance, request is OPEN | REJECTED with reviewer and timestamp |
+| `POST /recalculation-requests/:id/complete` | finance, request is APPROVED, run exists | COMPLETED and linked to the new calculation run |
 | `POST /agent-tasks` | idempotency key | Queues an agent task |
 | `POST /agent-tasks/:id/run` | task QUEUED | Observe → plan → low-risk actions; T2/T3 wait for approval |
 | `POST /agent-tasks/:id/approve` | action PENDING_APPROVAL, different approver | Executes the action, writes audit |

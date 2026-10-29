@@ -611,6 +611,34 @@ export interface AppealCase {
   resolvedAt?: string;
 }
 
+export type RecalculationTargetType =
+  | "EVIDENCE"
+  | "ATTRIBUTION"
+  | "EVALUATION"
+  | "LEDGER";
+
+export type RecalculationStatus =
+  | "OPEN"
+  | "APPROVED"
+  | "REJECTED"
+  | "COMPLETED";
+
+/** A request to recalculate after an evidence/attribution/evaluation fix. */
+export interface RecalculationRequest {
+  id: UUID;
+  tenantId: UUID;
+  targetType: RecalculationTargetType;
+  targetId: UUID;
+  reasonCode: string;
+  explanation: string;
+  requestedBy: UUID;
+  status: RecalculationStatus;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  newCalculationRunId?: UUID;
+  createdAt: string;
+}
+
 export interface SettlementLine {
   id: UUID;
   tenantId: UUID;

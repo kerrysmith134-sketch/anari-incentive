@@ -1297,6 +1297,98 @@ describe("DSAR requests", () => {
   });
 });
 
+describe("recalculation requests", () => {
+  it("validates targets, approves, completes and rejects requests", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const { decisionId } = await createConfirmedClaim(
+      workPackageId,
+      OWNER,
+    );
+    const { decisionId: secondDecisionId } = await createConfirmedClaim(
+      workPackageId,
+      MEMBER,
+    );
+    await recordCompleteLegalGate();
+    const run = await formalRun(workPackageId);
+    expect(run.status).toBe(201);
+    const runId = run.body.data.id as string;
+
+    const invalid = await call("POST", "/api/v1/recalculation-requests", {
+      targetType: "ATTRIBUTION",
+      targetId: "00000000-0000-4000-8000-0000000000ff",
+      reasonCode: "BAD_TARGET",
+      explanation: "This attribution decision does not exist",
+      requestedBy: ADJUDICATOR,
+    });
+    expect(invalid.status).toBe(404);
+
+    const created = await call("POST", "/api/v1/recalculation-requests", {
+      targetType: "ATTRIBUTION",
+      targetId: decisionId,
+      reasonCode: "ATTRIBUTION_ERROR",
+      explanation: "The adjudicator missed the delivery evidence",
+      requestedBy: ADJUDICATOR,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("OPEN");
+    const requestId = created.body.data.id as string;
+
+    const open = await call(
+      "GET",
+      "/api/v1/recalculation-requests?status=OPEN&targetType=ATTRIBUTION",
+    );
+    expect(open.body.data).toHaveLength(1);
+    expect(open.body.data[0].id).toBe(requestId);
+
+    const approved = await call(
+      "POST",
+      `/api/v1/recalculation-requests/${requestId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    expect(approved.body.data.approvedAt).toBeTruthy();
+
+    const reapprove = await call(
+      "POST",
+      `/api/v1/recalculation-requests/${requestId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(reapprove.status).toBe(409);
+
+    const completed = await call(
+      "POST",
+      `/api/v1/recalculation-requests/${requestId}/complete`,
+      { newCalculationRunId: runId },
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.data.status).toBe("COMPLETED");
+    expect(completed.body.data.newCalculationRunId).toBe(runId);
+
+    const second = await call("POST", "/api/v1/recalculation-requests", {
+      targetType: "ATTRIBUTION",
+      targetId: secondDecisionId,
+      reasonCode: "ATTRIBUTION_ERROR",
+      explanation: "The second decision also needs review",
+      requestedBy: ADJUDICATOR,
+    });
+    const rejected = await call(
+      "POST",
+      `/api/v1/recalculation-requests/${second.body.data.id}/reject`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.data.status).toBe("REJECTED");
+
+    const approveRejected = await call(
+      "POST",
+      `/api/v1/recalculation-requests/${second.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approveRejected.status).toBe(409);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

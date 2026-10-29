@@ -265,6 +265,31 @@ export const resolveAppealSchema = z.object({
 });
 export type ResolveAppealBody = z.infer<typeof resolveAppealSchema>;
 
+export const createRecalculationRequestSchema = z.object({
+  targetType: z.enum(["EVIDENCE", "ATTRIBUTION", "EVALUATION", "LEDGER"]),
+  targetId: uuidSchema,
+  reasonCode: z.string().min(1),
+  explanation: z.string().min(3),
+  requestedBy: uuidSchema,
+});
+export type CreateRecalculationRequestBody = z.infer<
+  typeof createRecalculationRequestSchema
+>;
+
+export const reviewRecalculationRequestSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ReviewRecalculationRequestBody = z.infer<
+  typeof reviewRecalculationRequestSchema
+>;
+
+export const completeRecalculationRequestSchema = z.object({
+  newCalculationRunId: uuidSchema,
+});
+export type CompleteRecalculationRequestBody = z.infer<
+  typeof completeRecalculationRequestSchema
+>;
+
 export const createCalculationRunSchema = z.object({
   cycleId: uuidSchema,
   policyVersionId: z.string().min(1),

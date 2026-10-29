@@ -919,6 +919,163 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/recalculation-requests:
+    get:
+      tags: [Calculation]
+      summary: List recalculation requests
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [OPEN, APPROVED, REJECTED, COMPLETED]
+        - name: targetType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [EVIDENCE, ATTRIBUTION, EVALUATION, LEDGER]
+      responses:
+        "200":
+          description: Recalculation requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Calculation]
+      summary: Create a recalculation request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecalculationRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/recalculation-requests/{id}:
+    get:
+      tags: [Calculation]
+      summary: Read a recalculation request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Recalculation request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/recalculation-requests/{id}/approve:
+    post:
+      tags: [Calculation]
+      summary: Approve a recalculation request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRecalculationRequest"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/recalculation-requests/{id}/reject:
+    post:
+      tags: [Calculation]
+      summary: Reject a recalculation request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRecalculationRequest"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/recalculation-requests/{id}/complete:
+    post:
+      tags: [Calculation]
+      summary: Complete a recalculation request with a new calculation run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteRecalculationRequest"
+      responses:
+        "200":
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -2847,6 +3004,36 @@ components:
           enum: [RESOLVED, REJECTED]
         resolutionRef:
           type: string
+
+    CreateRecalculationRequest:
+      type: object
+      required: [targetType, targetId, reasonCode, explanation, requestedBy]
+      properties:
+        targetType:
+          type: string
+          enum: [EVIDENCE, ATTRIBUTION, EVALUATION, LEDGER]
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        reasonCode:
+          type: string
+        explanation:
+          type: string
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ReviewRecalculationRequest:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CompleteRecalculationRequest:
+      type: object
+      required: [newCalculationRunId]
+      properties:
+        newCalculationRunId:
+          $ref: "#/components/schemas/Uuid"
 
     CalculationOrder:
       type: object
