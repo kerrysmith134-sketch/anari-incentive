@@ -138,6 +138,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
+import { FixedWindowRateLimiter } from "./rate-limit.js";
 import type { SpanRecorder } from "./tracing.js";
 import {
   MemoryPlatformStore,
@@ -198,6 +199,12 @@ export interface BuildAppOptions {
   enforceBudgetPools?: boolean;
   /** Optional trace recorder; the server wires an OTLP exporter. */
   tracer?: SpanRecorder;
+  /** Optional per-tenant/IP request limit for /api/v1 routes. */
+  rateLimit?: {
+    limit: number;
+    windowMs?: number;
+    now?: () => number;
+  };
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -352,6 +359,13 @@ export function buildApp(
       : false,
   });
   const metrics = new ApiMetrics();
+  const limiter = options.rateLimit
+    ? new FixedWindowRateLimiter(
+        options.rateLimit.limit,
+        options.rateLimit.windowMs,
+        options.rateLimit.now,
+      )
+    : undefined;
   const requiredApprovals = new Set(options.requiredApprovals ?? []);
   const scopedStores = new Map<string, IncentiveStore>();
   const scopedRuntimes = new Map<string, AgentRuntime>();
@@ -566,6 +580,21 @@ export function buildApp(
         });
       }
       throw error;
+    }
+    if (!limiter) return;
+    const context = request.authContext;
+    const actor = context?.personId ?? context?.userId ?? request.ip;
+    const decision = limiter.check(
+      `${context?.tenantId ?? "unknown"}:${actor}`,
+    );
+    reply.header("x-ratelimit-limit", String(options.rateLimit?.limit ?? 0));
+    reply.header("x-ratelimit-remaining", String(decision.remaining));
+    if (!decision.allowed) {
+      reply.header("retry-after", String(decision.retryAfterSeconds));
+      return reply.status(429).send({
+        ...errorBody("RATE_LIMITED", "too many requests"),
+        meta: { correlation_id: request.id },
+      });
     }
   });
 

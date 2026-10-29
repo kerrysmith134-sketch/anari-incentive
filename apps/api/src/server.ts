@@ -117,6 +117,12 @@ const tracer = otlpEndpoint
     })
   : undefined;
 
+const rateLimitPerMinute = Number(process.env.RATE_LIMIT_PER_MINUTE ?? "0");
+const rateLimit =
+  Number.isInteger(rateLimitPerMinute) && rateLimitPerMinute > 0
+    ? { limit: rateLimitPerMinute }
+    : undefined;
+
 const app = buildApp(
   resolveStore,
   createRuntime,
@@ -152,6 +158,7 @@ const app = buildApp(
     ),
     enforceBudgetPools: process.env.ENFORCE_BUDGET_POOLS === "true",
     tracer,
+    rateLimit,
   },
 );
 
