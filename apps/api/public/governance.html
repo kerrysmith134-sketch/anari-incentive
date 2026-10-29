@@ -219,6 +219,27 @@
         <thead><tr><th>周期</th><th>日期</th><th>储备月数</th><th>是否通过</th></tr></thead>
         <tbody id="gateRows"></tbody>
       </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>财务事实来源系统</label><input id="factSource" value="ERP" /></div>
+        <div><label>来源记录 ID</label><input id="factRecord" value="INV-1" /></div>
+        <div><label>事实类型</label><input id="factType" value="INVOICE_AMOUNT" /></div>
+        <div><label>金额</label><input id="factAmount" value="12000" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>币种</label><input id="factCurrency" value="CNY" /></div>
+        <div><label>质量状态</label><select id="factQuality"><option>UNVERIFIED</option><option>VALID</option><option>STALE</option><option>CONFLICTED</option><option>INVALID</option></select></div>
+        <div><label>周期开始</label><input id="factFrom" value="2026-01-01" /></div>
+        <div><label>周期结束</label><input id="factTo" value="2026-01-31" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createFact">写入财务事实</button>
+        <button id="refreshFacts">刷新财务事实</button>
+      </div>
+      <table>
+        <thead><tr><th>类型</th><th>来源</th><th>金额</th><th>质量</th></tr></thead>
+        <tbody id="factRows"></tbody>
+      </table>
     </section>
 
     <section class="card">
@@ -275,6 +296,20 @@
       <table>
         <thead><tr><th>编码</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="metricRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>关联政策版本</label><select id="noticePolicy"></select></div>
+        <div><label>员工告知</label><select id="noticeLinkNotice"></select></div>
+        <div><label>受众（JSON）</label><input id="noticeAudience" value='{"group":"all"}' /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="linkNotice" style="width:100%">关联告知</button></div>
+      </div>
+      <div class="actions">
+        <button id="refreshNoticeLinks">刷新告知关联</button>
+      </div>
+      <table>
+        <thead><tr><th>政策版本</th><th>告知</th><th>受众</th></tr></thead>
+        <tbody id="noticeLinkRows"></tbody>
       </table>
     </section>
 
@@ -382,12 +417,33 @@
     </section>
 
     <section class="card">
+      <h2>结算导出证据</h2>
+      <div class="grid">
+        <div><label>结算批次 ID</label><input id="exportBatch" placeholder="UUID" /></div>
+        <div><label>导出人 ID</label><input id="exportBy" value="00000000-0000-4000-8000-000000000003" /></div>
+        <div><label>导出引用（可选）</label><input id="exportRef" value="settlement-export-ui" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="recordExport" style="width:100%">记录导出证据</button></div>
+      </div>
+      <div class="actions">
+        <button id="refreshExports">刷新导出</button>
+      </div>
+      <div class="status" id="exportStatus"></div>
+      <table>
+        <thead><tr><th>引用</th><th>哈希</th><th>回执</th><th>操作</th></tr></thead>
+        <tbody id="exportRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>账本调整</h2>
       <div class="grid">
         <div><label>原始账本条目</label><select id="adjustmentEntry"></select></div>
         <div><label>金额</label><input id="adjustmentAmount" value="-1000" /></div>
         <div><label>原因码</label><input id="adjustmentReason" value="EVIDENCE_CORRECTION" /></div>
         <div><label>批准人 ID</label><input id="adjustmentApprover" value="00000000-0000-4000-8000-000000000003" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>审批请求 ID（可选）</label><input id="adjustmentApproval" placeholder="APPROVAL_REQUEST_ID" /></div>
       </div>
       <label style="margin-top:10px">说明</label>
       <input id="adjustmentExplanation" value="Corrected after the evidence review" />
@@ -405,8 +461,26 @@
 
     <section class="card">
       <h2>AI 与工作流记录</h2>
+      <div class="grid">
+        <div><label>评测类型</label><input id="evaluationType" value="IRR" /></div>
+        <div><label>模型名</label><input id="evaluationModel" value="claude" /></div>
+        <div><label>提示词版本</label><input id="evaluationPrompt" value="v1" /></div>
+        <div><label>数据集引用</label><input id="evaluationDataset" value="gold-set-1" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>样本量</label><input id="evaluationSample" value="50" /></div>
+        <div><label>是否通过</label><select id="evaluationPassed"><option value="true">是</option><option value="false">否</option></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createEvaluation" style="width:100%">记录模型评测</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshAi" style="width:100%">刷新 AI 记录</button></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>Agent 任务 ID</label><input id="workflowTask" placeholder="UUID" /></div>
+        <div><label>工作流名称</label><input id="workflowName" value="evidence-gap" /></div>
+        <div><label>版本</label><input id="workflowVersion" value="v1" /></div>
+        <div><label>状态</label><input id="workflowStatus" value="RUNNING" /></div>
+      </div>
       <div class="actions">
-        <button id="refreshAi">刷新 AI 记录</button>
+        <button id="createWorkflow">记录工作流</button>
       </div>
       <div class="status" id="aiStatus"></div>
       <table>
@@ -469,6 +543,49 @@
       ).join("");
       $("changeTargetPolicy").innerHTML = options;
       $("casePolicy").innerHTML = options;
+      $("noticePolicy").innerHTML = options;
+    }
+
+    async function loadNoticeOptions() {
+      try {
+        const notices = await api("/api/v1/notices");
+        $("noticeLinkNotice").innerHTML = notices.map(
+          (notice) =>
+            `<option value="${notice.id}">${escapeHtml(notice.title)}</option>`,
+        ).join("");
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadNoticeLinks() {
+      try {
+        const links = await api("/api/v1/policy-notices");
+        $("noticeLinkRows").innerHTML = links.map((link) => `<tr>
+          <td class="mono">${escapeHtml(link.policyVersionId.slice(0, 8))}</td>
+          <td class="mono">${escapeHtml(link.noticeId.slice(0, 8))}</td>
+          <td>${escapeHtml(JSON.stringify(link.audience))}</td>
+        </tr>`).join("");
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function linkNotice() {
+      try {
+        await api("/api/v1/policy-notices", {
+          method: "POST",
+          body: JSON.stringify({
+            policyVersionId: $("noticePolicy").value,
+            noticeId: $("noticeLinkNotice").value,
+            audience: jsonValue("noticeAudience", {}),
+          }),
+        });
+        setStatus("changeStatus", "政策告知已关联", "ok");
+        await loadNoticeLinks();
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
     }
 
     async function loadApprovals() {
@@ -689,6 +806,44 @@
         });
         setStatus("gateStatus", "现金门禁已记录", "ok");
         await loadGates();
+      } catch (error) {
+        setStatus("gateStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadFacts() {
+      try {
+        const facts = await api("/api/v1/financial-facts");
+        $("factRows").innerHTML = facts.map((fact) => `<tr>
+          <td>${escapeHtml(fact.factType)}</td>
+          <td>${escapeHtml(fact.sourceSystem)}/${escapeHtml(fact.sourceRecordId)}</td>
+          <td class="mono">${escapeHtml(fact.amount)} ${escapeHtml(fact.currency)}</td>
+          <td><span class="pill">${escapeHtml(fact.qualityStatus)}</span></td>
+        </tr>`).join("");
+        setStatus("gateStatus", `共 ${facts.length} 条财务事实`, "ok");
+      } catch (error) {
+        setStatus("gateStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createFact() {
+      try {
+        await api("/api/v1/financial-facts", {
+          method: "POST",
+          body: JSON.stringify({
+            sourceSystem: $("factSource").value.trim(),
+            sourceRecordId: $("factRecord").value.trim(),
+            factType: $("factType").value.trim(),
+            amount: $("factAmount").value.trim(),
+            currency: $("factCurrency").value.trim(),
+            qualityStatus: $("factQuality").value,
+            periodStart: $("factFrom").value.trim() || undefined,
+            periodEnd: $("factTo").value.trim() || undefined,
+            payload: {},
+          }),
+        });
+        setStatus("gateStatus", "财务事实已写入", "ok");
+        await loadFacts();
       } catch (error) {
         setStatus("gateStatus", String(error.message), "bad");
       }
@@ -1203,6 +1358,64 @@
       }
     }
 
+    async function loadExports() {
+      const batchId = $("exportBatch").value.trim();
+      if (!batchId) {
+        setStatus("exportStatus", "请填写结算批次 ID", "warn");
+        return;
+      }
+      try {
+        const exports = await api(
+          `/api/v1/settlement-exports?batchId=${encodeURIComponent(batchId)}`,
+        );
+        $("exportRows").innerHTML = exports.map((item) => `<tr>
+          <td class="mono">${escapeHtml(item.exportRef)}</td>
+          <td class="mono">${escapeHtml(item.exportHash.slice(0, 18))}…</td>
+          <td>${escapeHtml(item.acknowledgementRef || "—")}</td>
+          <td>${item.acknowledgedAt ? "—" : `<button data-ack-export="${item.id}">回执</button>`}</td>
+        </tr>`).join("");
+        setStatus("exportStatus", `共 ${exports.length} 条导出证据`, "ok");
+      } catch (error) {
+        setStatus("exportStatus", String(error.message), "bad");
+      }
+    }
+
+    async function recordExport() {
+      const batchId = $("exportBatch").value.trim();
+      if (!batchId) {
+        setStatus("exportStatus", "请填写结算批次 ID", "warn");
+        return;
+      }
+      try {
+        await api(`/api/v1/settlement-batches/${batchId}/exports`, {
+          method: "POST",
+          body: JSON.stringify({
+            exportedBy: $("exportBy").value.trim(),
+            exportRef: $("exportRef").value.trim() || undefined,
+          }),
+        });
+        setStatus("exportStatus", "导出证据已记录", "ok");
+        await loadExports();
+      } catch (error) {
+        setStatus("exportStatus", String(error.message), "bad");
+      }
+    }
+
+    async function acknowledgeExport(id) {
+      const reference = window.prompt("外部回执引用", `receipt-${Date.now()}`);
+      if (!reference) return;
+      try {
+        await api(`/api/v1/settlement-exports/${id}/acknowledge`, {
+          method: "POST",
+          body: JSON.stringify({ externalReference: reference }),
+        });
+        setStatus("exportStatus", "导出回执已记录", "ok");
+        await loadExports();
+      } catch (error) {
+        setStatus("exportStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadLedgerEntries() {
       try {
         const entries = await api("/api/v1/ledger");
@@ -1243,6 +1456,8 @@
               explanation: $("adjustmentExplanation").value.trim(),
               approvedBy: $("adjustmentApprover").value.trim(),
               idempotencyKey: `adjustment-${Date.now()}`,
+              approvalRequestId:
+                $("adjustmentApproval").value.trim() || undefined,
             }),
           },
         );
@@ -1251,6 +1466,77 @@
         await loadAdjustments();
       } catch (error) {
         setStatus("adjustmentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createEvaluation() {
+      try {
+        await api("/api/v1/model-evaluation-runs", {
+          method: "POST",
+          body: JSON.stringify({
+            evaluationType: $("evaluationType").value.trim(),
+            modelProvider: "anthropic",
+            modelName: $("evaluationModel").value.trim(),
+            promptVersion: $("evaluationPrompt").value.trim(),
+            datasetRef: $("evaluationDataset").value.trim(),
+            sampleSize: Number($("evaluationSample").value),
+            metrics: {},
+            subgroupMetrics: {},
+            passed: $("evaluationPassed").value === "true",
+            blockers: [],
+          }),
+        });
+        setStatus("aiStatus", "模型评测已记录", "ok");
+        await loadAi();
+      } catch (error) {
+        setStatus("aiStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createWorkflow() {
+      try {
+        await api("/api/v1/workflow-runs", {
+          method: "POST",
+          body: JSON.stringify({
+            agentTaskId: $("workflowTask").value.trim(),
+            workflowName: $("workflowName").value.trim(),
+            workflowVersion: $("workflowVersion").value.trim(),
+            status: $("workflowStatus").value.trim(),
+            state: {},
+          }),
+        });
+        setStatus("aiStatus", "工作流已记录", "ok");
+        await loadAi();
+      } catch (error) {
+        setStatus("aiStatus", String(error.message), "bad");
+      }
+    }
+
+    async function acceptSuggestion(id) {
+      try {
+        await api(`/api/v1/ai-suggestion-logs/${id}/accept`, {
+          method: "POST",
+          body: JSON.stringify({ acceptedBy: approver }),
+        });
+        setStatus("aiStatus", "建议已接受", "ok");
+        await loadAi();
+      } catch (error) {
+        setStatus("aiStatus", String(error.message), "bad");
+      }
+    }
+
+    async function finishWorkflow(id) {
+      const status = window.prompt("工作流结束状态", "SUCCEEDED");
+      if (!status) return;
+      try {
+        await api(`/api/v1/workflow-runs/${id}/finish`, {
+          method: "POST",
+          body: JSON.stringify({ status }),
+        });
+        setStatus("aiStatus", "工作流已完成", "ok");
+        await loadAi();
+      } catch (error) {
+        setStatus("aiStatus", String(error.message), "bad");
       }
     }
 
@@ -1265,7 +1551,7 @@
           <td>${escapeHtml(item.suggestionType)}</td>
           <td>${escapeHtml(item.modelName || "—")}</td>
           <td>${escapeHtml(item.validationStatus)}</td>
-          <td>${item.acceptedAt ? "是" : "否"}</td>
+          <td>${item.acceptedAt ? "是" : `<button data-accept-suggestion="${item.id}">接受</button>`}</td>
         </tr>`).join("");
         $("evaluationRows").innerHTML = evaluations.map((item) => `<tr>
           <td>${escapeHtml(item.evaluationType)}</td>
@@ -1277,7 +1563,7 @@
           <td>${escapeHtml(item.workflowName)}</td>
           <td>${escapeHtml(item.workflowVersion)}</td>
           <td><span class="pill">${escapeHtml(item.status)}</span></td>
-          <td>${escapeHtml(item.currentStep || "—")}</td>
+          <td>${escapeHtml(item.currentStep || "—")} ${item.finishedAt ? "" : `<button data-finish-workflow="${item.id}">完成</button>`}</td>
         </tr>`).join("");
         setStatus(
           "aiStatus",
@@ -1323,6 +1609,8 @@
     });
     $("createGate").addEventListener("click", createGate);
     $("refreshGates").addEventListener("click", loadGates);
+    $("createFact").addEventListener("click", createFact);
+    $("refreshFacts").addEventListener("click", loadFacts);
 
     $("createChange").addEventListener("click", createChange);
     $("refreshChanges").addEventListener("click", loadChanges);
@@ -1354,6 +1642,8 @@
       const retire = event.target.closest("button[data-retire-metric]");
       if (retire) retireMetric(retire.dataset.retireMetric);
     });
+    $("linkNotice").addEventListener("click", linkNotice);
+    $("refreshNoticeLinks").addEventListener("click", loadNoticeLinks);
 
     $("createDeliverable").addEventListener("click", createDeliverable);
     $("loadDeliverables").addEventListener("click", loadDeliverables);
@@ -1414,17 +1704,38 @@
     $("adjustLedger").addEventListener("click", adjustLedger);
     $("refreshAdjustments").addEventListener("click", loadAdjustments);
     $("refreshLedgerEntries").addEventListener("click", loadLedgerEntries);
+
+    $("recordExport").addEventListener("click", recordExport);
+    $("refreshExports").addEventListener("click", loadExports);
+    $("exportRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-ack-export]");
+      if (button) acknowledgeExport(button.dataset.ackExport);
+    });
+
+    $("createEvaluation").addEventListener("click", createEvaluation);
+    $("createWorkflow").addEventListener("click", createWorkflow);
+    $("suggestionRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-accept-suggestion]");
+      if (button) acceptSuggestion(button.dataset.acceptSuggestion);
+    });
+    $("workflowRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-finish-workflow]");
+      if (button) finishWorkflow(button.dataset.finishWorkflow);
+    });
     $("refreshAi").addEventListener("click", loadAi);
 
     (async () => {
       await loadPolicyOptions();
+      await loadNoticeOptions();
       await Promise.all([
         loadApprovals(),
         loadPools(),
         loadGates(),
+        loadFacts(),
         loadChanges(),
         loadCases(),
         loadMetrics(),
+        loadNoticeLinks(),
         loadDsars(),
         loadRetention(),
         loadConnections(),
