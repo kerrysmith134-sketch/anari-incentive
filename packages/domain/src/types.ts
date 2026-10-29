@@ -634,6 +634,12 @@ export interface OperationsCoverageReport {
     approved: number;
     consumed: number;
   };
+  dataQuality: {
+    total: number;
+    open: number;
+    overdue: number;
+    escalated: number;
+  };
   dsars: {
     total: number;
     open: number;

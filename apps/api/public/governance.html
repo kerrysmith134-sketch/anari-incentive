@@ -1735,7 +1735,7 @@
         $("coverageResult").textContent = JSON.stringify(report, null, 2);
         setStatus(
           "coverageStatus",
-          `证据覆盖率 ${Math.round(report.workPackages.evidenceCoverageRate * 100)}%，待验收交付物 ${report.deliverables.pendingAcceptance}，待审批 ${report.approvals.pending}`,
+          `证据覆盖率 ${Math.round(report.workPackages.evidenceCoverageRate * 100)}%，待验收交付物 ${report.deliverables.pendingAcceptance}，待审批 ${report.approvals.pending}，逾期数据质量 ${report.dataQuality.overdue}`,
           "ok",
         );
       } catch (error) {

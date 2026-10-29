@@ -1717,15 +1717,23 @@ export function buildApp(
     requireRoles(request, "manager", "finance");
     const tenantId = tenantOf(request);
     const store = storeFor(request);
-    const [workPackages, claims, evidence, deliverables, approvals, dsars] =
-      await Promise.all([
-        store.listWorkPackages(),
-        store.listClaims(),
-        store.listEvidence(),
-        platformStore.listDeliverables(tenantId),
-        platformStore.listApprovalRequests(tenantId),
-        platformStore.listDsars(tenantId),
-      ]);
+    const [
+      workPackages,
+      claims,
+      evidence,
+      deliverables,
+      approvals,
+      dsars,
+      dataQualityIssues,
+    ] = await Promise.all([
+      store.listWorkPackages(),
+      store.listClaims(),
+      store.listEvidence(),
+      platformStore.listDeliverables(tenantId),
+      platformStore.listApprovalRequests(tenantId),
+      platformStore.listDsars(tenantId),
+      store.listDataQualityIssues(),
+    ]);
     const acceptedPackages = workPackages.filter(
       (workPackage) => workPackage.status === "ACCEPTED",
     );
@@ -1754,6 +1762,20 @@ export function buildApp(
           "REJECTED",
           "WITHDRAWN",
         ].includes(claim.status),
+    ).length;
+    const openDataQualityIssues = dataQualityIssues.filter(
+      (issue) =>
+        issue.status !== "RESOLVED" &&
+        issue.status !== "WAIVED_WITH_APPROVAL",
+    );
+    const nowMs = Date.now();
+    const overdueDataQualityIssues = openDataQualityIssues.filter(
+      (issue) =>
+        Boolean(issue.dueAt) &&
+        new Date(issue.dueAt as string).getTime() < nowMs,
+    ).length;
+    const escalatedDataQualityIssues = dataQualityIssues.filter(
+      (issue) => Boolean(issue.escalatedAt),
     ).length;
     const report: OperationsCoverageReport = {
       generatedAt: new Date().toISOString(),
@@ -1796,6 +1818,12 @@ export function buildApp(
         consumed: approvals.filter((approval) =>
           Boolean(approval.consumedAt),
         ).length,
+      },
+      dataQuality: {
+        total: dataQualityIssues.length,
+        open: openDataQualityIssues.length,
+        overdue: overdueDataQualityIssues,
+        escalated: escalatedDataQualityIssues,
       },
       dsars: {
         total: dsars.length,

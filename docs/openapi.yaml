@@ -3597,7 +3597,8 @@ paths:
       description: |
         Tenant-wide counts for accepted work packages with work-package
         evidence, claim confirmation, deliverables awaiting acceptance,
-        approval requests and DSARs. Ratios are between 0 and 1.
+        approval requests, data-quality open/overdue/escalated issues and
+        DSARs. Ratios are between 0 and 1.
       responses:
         "200":
           description: Operations coverage report

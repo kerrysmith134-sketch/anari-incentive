@@ -5471,6 +5471,13 @@ describe("vertical slice", () => {
       sourceSystem: "TEST",
       normalizedPayload: { delivered: true },
     });
+    await call("POST", "/api/v1/data-quality-issues", {
+      objectType: "WORK_PACKAGE",
+      objectId: workPackageId,
+      issueCode: "EVIDENCE_STALE",
+      severity: "WARNING",
+      dueAt: "2020-01-01T00:00:00Z",
+    });
     const after = await call(
       "GET",
       "/api/v1/reports/operations-coverage",
@@ -5479,6 +5486,12 @@ describe("vertical slice", () => {
     expect(after.body.data.evidence.workPackage).toBe(1);
     expect(after.body.data.workPackages.withEvidence).toBe(1);
     expect(after.body.data.workPackages.evidenceCoverageRate).toBe(1);
+    expect(after.body.data.dataQuality).toEqual({
+      total: 1,
+      open: 1,
+      overdue: 1,
+      escalated: 0,
+    });
   });
 
   it("runs a proactive agent scan across the tenant", async () => {
