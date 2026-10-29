@@ -4927,6 +4927,69 @@ describe("vertical slice", () => {
     ]);
   });
 
+  it("runs all active policy test cases as a suite", async () => {
+    const input = {
+      cycleId: CYCLE,
+      order: {
+        id: "suite-order-1",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: "00000000-0000-4000-8000-000000000010",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+    const createCase = (caseCode: string, expectedOutput: object) =>
+      call("POST", "/api/v1/policy-test-cases", {
+        policyVersionId: REFERENCE_POLICY_ID,
+        caseCode,
+        input,
+        expectedOutput,
+        category: "NORMAL",
+      });
+    const passing = await createCase("SUITE-PASS", { poolRounded: "5000" });
+    expect(passing.status).toBe(201);
+    const failing = await createCase("SUITE-FAIL", { poolRounded: "5001" });
+    expect(failing.status).toBe(201);
+    const retired = await createCase("SUITE-RETIRED", {
+      poolRounded: "5001",
+    });
+    expect(retired.status).toBe(201);
+    expect(
+      (
+        await call(
+          "POST",
+          `/api/v1/policy-test-cases/${retired.body.data.id}/retire`,
+        )
+      ).status,
+    ).toBe(200);
+
+    const suite = await call(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/test-runs`,
+    );
+    expect(suite.status).toBe(200);
+    expect(suite.body.data.total).toBe(2);
+    expect(suite.body.data.passedCount).toBe(1);
+    expect(suite.body.data.failedCount).toBe(1);
+    expect(suite.body.data.retiredCount).toBe(1);
+    expect(suite.body.data.passed).toBe(false);
+    expect(suite.body.data.results).toHaveLength(2);
+
+    const empty = await call(
+      "POST",
+      `/api/v1/policy-versions/${CHARGING_POLICY_ID}/test-runs`,
+    );
+    expect(empty.status).toBe(200);
+    expect(empty.body.data.total).toBe(0);
+    expect(empty.body.data.passed).toBe(false);
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

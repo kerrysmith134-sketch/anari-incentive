@@ -274,6 +274,7 @@
         <div><label>输入（JSON，计算请求）</label><textarea id="caseInput">{"cycleId":"00000000-0000-4000-8000-000000000020","order":{"id":"order-test-1","grossProfit":"100000","currency":"CNY"},"participants":[{"personId":"00000000-0000-4000-8000-000000000001","workPackageId":"00000000-0000-4000-8000-000000000010","attributionWeight":"1","role":"OWNER"}]}</textarea></div>
         <div><label>期望输出（JSON）</label><textarea id="caseExpected">{"pool":"5000","poolRounded":"5000"}</textarea></div>
         <div style="display:flex;align-items:flex-end"><button id="refreshCases" style="width:100%">刷新用例</button></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="runAllCases" style="width:100%">运行全部用例</button></div>
       </div>
       <div class="status" id="caseStatus"></div>
       <pre id="caseResult" hidden></pre>
@@ -955,6 +956,31 @@
             ? "测试用例通过"
             : `测试未通过：差异 ${result.differences.length}，阻断 ${result.blockers.length}`,
           result.passed ? "ok" : "bad",
+        );
+      } catch (error) {
+        setStatus("caseStatus", String(error.message), "bad");
+      }
+    }
+
+    async function runAllCases() {
+      const policyVersionId = $("casePolicy").value;
+      if (!policyVersionId) {
+        setStatus("caseStatus", "请选择政策版本", "bad");
+        return;
+      }
+      try {
+        const suite = await api(
+          `/api/v1/policy-versions/${policyVersionId}/test-runs`,
+          { method: "POST" },
+        );
+        $("caseResult").hidden = false;
+        $("caseResult").textContent = JSON.stringify(suite, null, 2);
+        setStatus(
+          "caseStatus",
+          suite.passed
+            ? `全部通过（${suite.passedCount}/${suite.total}）`
+            : `未通过（${suite.failedCount}/${suite.total}），停用 ${suite.retiredCount}`,
+          suite.passed ? "ok" : "bad",
         );
       } catch (error) {
         setStatus("caseStatus", String(error.message), "bad");
@@ -1656,6 +1682,7 @@
     });
     $("createCase").addEventListener("click", createCase);
     $("refreshCases").addEventListener("click", loadCases);
+    $("runAllCases").addEventListener("click", runAllCases);
     $("caseRows").addEventListener("click", (event) => {
       const run = event.target.closest("button[data-run-case]");
       if (run) {

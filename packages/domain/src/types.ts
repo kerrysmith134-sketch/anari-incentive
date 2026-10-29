@@ -493,6 +493,16 @@ export interface PolicyTestCaseRunResult {
   resultHash?: string;
 }
 
+export interface PolicyTestSuiteResult {
+  policyVersionId: UUID;
+  total: number;
+  passedCount: number;
+  failedCount: number;
+  retiredCount: number;
+  passed: boolean;
+  results: PolicyTestCaseRunResult[];
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

@@ -107,6 +107,7 @@ import {
   InvariantViolationError,
   type CalculationRun,
   type PolicyRollbackResult,
+  type PolicyTestSuiteResult,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
@@ -2506,6 +2507,34 @@ export function buildApp(
       testCase.policyVersionId,
     );
     return data(runPolicyTestCase(testCase, policy), request);
+  });
+
+  app.post("/api/v1/policy-versions/:id/test-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const policyVersionId = idOf(request);
+    const policy = await storeFor(request).getPolicy(policyVersionId);
+    const cases = await platformStore.listPolicyTestCases(
+      tenantOf(request),
+      policyVersionId,
+    );
+    const active = cases.filter(
+      (testCase) => testCase.status === "ACTIVE",
+    );
+    const results = active.map((testCase) =>
+      runPolicyTestCase(testCase, policy),
+    );
+    const passedCount = results.filter((result) => result.passed).length;
+    const suite: PolicyTestSuiteResult = {
+      policyVersionId,
+      total: active.length,
+      passedCount,
+      failedCount: active.length - passedCount,
+      retiredCount: cases.length - active.length,
+      passed:
+        active.length > 0 && passedCount === active.length,
+      results,
+    };
+    return data(suite, request);
   });
 
   app.post("/api/v1/policy-notices", async (request, reply) => {

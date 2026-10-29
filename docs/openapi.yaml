@@ -4315,6 +4315,31 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/policy-versions/{id}/test-runs:
+    post:
+      tags: [Policy]
+      summary: Run all active test cases for a policy version
+      description: |
+        Executes every ACTIVE golden case bound to the policy version and
+        returns the individual results plus pass/fail counts. A suite with no
+        active cases is not considered passed. Retired cases are counted but
+        not executed.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Test suite result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/policy-simulations:
     post:
       tags: [Policy]
