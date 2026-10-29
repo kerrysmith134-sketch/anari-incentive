@@ -1,4 +1,5 @@
 import type {
+  AdjustmentRecord,
   AmountLedgerEntry,
   AppealCase,
   AuditEvent,
@@ -178,6 +179,17 @@ export interface IncentiveStore {
       approvedBy: string;
     },
   ): Promise<AmountLedgerEntry>;
+  adjustLedgerEntry(
+    id: string,
+    input: {
+      amount: string;
+      reasonCode: string;
+      explanation: string;
+      approvedBy: string;
+      idempotencyKey: string;
+    },
+  ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }>;
+  listAdjustmentRecords(): Promise<AdjustmentRecord[]>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
   verifyAuditChain(): Promise<boolean>;
 

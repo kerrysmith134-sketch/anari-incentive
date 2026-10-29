@@ -13,6 +13,7 @@ import {
   settlementBatchTransitions,
   workPackageTransitions,
   type AmountLedgerEntry,
+  type AdjustmentRecord,
   type AppealCase,
   type AuditEvent,
   type AttributionDecision,
@@ -146,6 +147,7 @@ export class Store implements IncentiveStore {
   private readonly runs = new Map<string, CalculationRun>();
   private readonly appeals = new Map<string, AppealCase>();
   private readonly recalculations = new Map<string, RecalculationRequest>();
+  private readonly adjustmentRecords = new Map<string, AdjustmentRecord>();
   private readonly legalGates = new Map<string, LegalGateRecord>();
   private readonly confirmations = new Map<string, EmployeeConfirmation>();
   private readonly evidence = new Map<string, EvidenceNode>();
@@ -1905,6 +1907,78 @@ export class Store implements IncentiveStore {
       idempotencyKey: input.idempotencyKey,
     });
     return this.ledger.lock(reversal.id);
+  }
+
+  async adjustLedgerEntry(
+    id: string,
+    input: {
+      amount: string;
+      reasonCode: string;
+      explanation: string;
+      approvedBy: string;
+      idempotencyKey: string;
+    },
+  ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
+    const original = (await this.listLedger()).find((entry) => entry.id === id);
+    if (!original) notFound("LedgerEntry", id);
+    if (original.status !== "LOCKED") {
+      throw new ConflictError(
+        `LEDGER_NOT_LOCKED: ${id} is ${original.status}`,
+      );
+    }
+    let amount: bigint;
+    try {
+      amount = parseDecimal(input.amount);
+    } catch {
+      throw new ConflictError(`invalid adjustment amount ${input.amount}`);
+    }
+    if (amount === 0n) {
+      throw new ConflictError("adjustment amount must not be zero");
+    }
+    const existing = (await this.listLedger()).find(
+      (entry) =>
+        entry.idempotencyKey === input.idempotencyKey &&
+        entry.entryType === "ADJUSTMENT",
+    );
+    if (existing) {
+      const record = [...this.adjustmentRecords.values()].find(
+        (candidate) => candidate.adjustmentLedgerId === existing.id,
+      );
+      if (record) return { entry: existing, record };
+    }
+    const adjustment = this.ledger.append({
+      tenantId: original.tenantId,
+      personId: original.personId,
+      cycleId: original.cycleId,
+      calculationRunId: original.calculationRunId,
+      calculationLineId: original.calculationLineId,
+      entryType: "ADJUSTMENT",
+      amount: formatDecimal(amount),
+      currency: original.currency,
+      sourceEntryId: id,
+      idempotencyKey: input.idempotencyKey,
+    });
+    const entry = this.ledger.lock(adjustment.id);
+    const timestamp = now();
+    const record: AdjustmentRecord = {
+      id: randomUUID(),
+      tenantId: original.tenantId,
+      originalLedgerId: id,
+      adjustmentLedgerId: entry.id,
+      reasonCode: input.reasonCode,
+      explanation: input.explanation,
+      approvedBy: input.approvedBy,
+      approvedAt: timestamp,
+      createdAt: timestamp,
+    };
+    this.adjustmentRecords.set(record.id, record);
+    return { entry, record };
+  }
+
+  async listAdjustmentRecords(): Promise<AdjustmentRecord[]> {
+    return [...this.adjustmentRecords.values()].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
   }
 
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {

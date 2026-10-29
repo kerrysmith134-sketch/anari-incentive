@@ -2557,6 +2557,129 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/ledger/{id}/adjustments:
+    post:
+      tags: [Ledger]
+      summary: Append a locked adjustment linked to a ledger entry
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustLedgerEntry"
+      responses:
+        "201":
+          description: Adjustment entry and record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/adjustment-records:
+    get:
+      tags: [Ledger]
+      summary: List ledger adjustment records
+      responses:
+        "200":
+          description: Adjustment records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/inbox-messages:
+    get:
+      tags: [Ingestion]
+      summary: List consumer inbox messages
+      parameters:
+        - name: consumerName
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Inbox messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingestion]
+      summary: Receive an inbox message idempotently
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiveInboxMessage"
+      responses:
+        "201":
+          description: Received or replayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/inbox-messages/{id}/process:
+    post:
+      tags: [Ingestion]
+      summary: Mark a consumer inbox message processed
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessInboxMessage"
+      responses:
+        "200":
+          description: Processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -5094,6 +5217,40 @@ components:
         status:
           type: string
           enum: [PROCESSED, FAILED]
+        errorCode:
+          type: string
+
+    AdjustLedgerEntry:
+      type: object
+      required: [amount, reasonCode, explanation, approvedBy, idempotencyKey]
+      properties:
+        amount:
+          type: string
+        reasonCode:
+          type: string
+        explanation:
+          type: string
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+        idempotencyKey:
+          type: string
+
+    ReceiveInboxMessage:
+      type: object
+      required: [consumerName, messageId]
+      properties:
+        consumerName:
+          type: string
+        messageId:
+          type: string
+
+    ProcessInboxMessage:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [PROCESSED, FAILED, IGNORED]
         errorCode:
           type: string
 

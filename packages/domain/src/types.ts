@@ -633,6 +633,29 @@ export interface WebhookInboxMessage {
   errorCode?: string;
 }
 
+export interface AdjustmentRecord {
+  id: UUID;
+  tenantId: UUID;
+  originalLedgerId: UUID;
+  adjustmentLedgerId: UUID;
+  reasonCode: string;
+  explanation: string;
+  approvedBy: UUID;
+  approvedAt: string;
+  createdAt: string;
+}
+
+export interface InboxMessage {
+  id: UUID;
+  tenantId: UUID;
+  consumerName: string;
+  messageId: string;
+  receivedAt: string;
+  processedAt?: string;
+  status: string;
+  errorCode?: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

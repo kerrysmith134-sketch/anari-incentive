@@ -2158,6 +2158,115 @@ describePg("PgStore vertical slice", () => {
         errorCode: "DUPLICATE",
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const consumerName = `pg-worker-${Date.now()}`;
+    const inboxMessage = await platform.receiveInboxMessage({
+      tenantId: DEMO_TENANT_ID,
+      consumerName,
+      messageId: "inbox-1",
+    });
+    const inboxReplay = await platform.receiveInboxMessage({
+      tenantId: DEMO_TENANT_ID,
+      consumerName,
+      messageId: "inbox-1",
+    });
+    expect(inboxReplay.id).toBe(inboxMessage.id);
+    const processedInbox = await platform.processInboxMessage({
+      tenantId: DEMO_TENANT_ID,
+      inboxMessageId: inboxMessage.id,
+      status: "PROCESSED",
+    });
+    expect(processedInbox.processedAt).toBeTruthy();
+    await expect(
+      platform.processInboxMessage({
+        tenantId: DEMO_TENANT_ID,
+        inboxMessageId: inboxMessage.id,
+        status: "FAILED",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (
+        await platform.listInboxMessages(DEMO_TENANT_ID, {
+          consumerName,
+        })
+      ).length,
+    ).toBe(1);
+  });
+
+  it("appends a linked ledger adjustment", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    await confirmedClaim(workPackageId, OWNER);
+    await confirmedClaim(workPackageId, MEMBER);
+    await completeGate();
+    const run = await store.createCalculationRun({
+      cycleId: CYCLE,
+      policyVersionId: REFERENCE_POLICY_ID,
+      mode: "FORMAL",
+      order: {
+        id: "pg-adjustment-order",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId,
+          attributionWeight: "0.6",
+          role: "OWNER",
+        },
+        {
+          personId: MEMBER,
+          workPackageId,
+          attributionWeight: "0.4",
+          role: "CONTRIBUTOR",
+        },
+      ],
+    });
+    await store.recordConfirmation({
+      personId: OWNER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.recordConfirmation({
+      personId: MEMBER,
+      targetType: "CALCULATION",
+      targetId: run.id,
+      decision: "CONFIRMED",
+    });
+    await store.approveRun(run.id);
+    await store.lockRun(run.id, "LOCK_CALCULATION");
+
+    const original = (await store.listLedger()).find(
+      (entry) =>
+        entry.personId === OWNER && entry.entryType === "INCENTIVE",
+    );
+    expect(original).toBeTruthy();
+    const idempotencyKey = `pg-adjustment-${original!.id}`;
+    const adjusted = await store.adjustLedgerEntry(original!.id, {
+      amount: "-1000",
+      reasonCode: "EVIDENCE_CORRECTION",
+      explanation: "Corrected after evidence review",
+      approvedBy: ADJUDICATOR,
+      idempotencyKey,
+    });
+    expect(adjusted.entry.entryType).toBe("ADJUSTMENT");
+    expect(adjusted.entry.status).toBe("LOCKED");
+    expect(adjusted.entry.sourceEntryId).toBe(original!.id);
+    expect(adjusted.record.originalLedgerId).toBe(original!.id);
+    const replay = await store.adjustLedgerEntry(original!.id, {
+      amount: "-1000",
+      reasonCode: "EVIDENCE_CORRECTION",
+      explanation: "Corrected after evidence review",
+      approvedBy: ADJUDICATOR,
+      idempotencyKey,
+    });
+    expect(replay.entry.id).toBe(adjusted.entry.id);
+    expect(
+      (await store.listAdjustmentRecords()).some(
+        (record) => record.adjustmentLedgerId === adjusted.entry.id,
+      ),
+    ).toBe(true);
   });
 
   it("records applied migrations", async () => {

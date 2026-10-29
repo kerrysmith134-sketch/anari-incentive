@@ -250,6 +250,9 @@ Additional application-level invariants:
 | `POST /settlement-batches` | LOCKED ledger entries not in an active batch | DRAFT batch with one line per ledger entry |
 | `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV |
 | `POST /ledger/:id/reverse` | original LOCKED, finance | Appends a LOCKED negative REVERSAL linked to the original; idempotent by key |
+| `POST /ledger/:id/adjustments` | original LOCKED, finance | Appends a LOCKED ADJUSTMENT linked to the original and an adjustment record with reason/approver; idempotent by key |
+| `POST /inbox-messages` | integration | Idempotent receive by consumer name and message id |
+| `POST /inbox-messages/:id/process` | integration, unprocessed | Marks PROCESSED/FAILED/IGNORED once with an optional error code |
 
 ---
 

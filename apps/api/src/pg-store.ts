@@ -13,6 +13,7 @@ import {
   legalGateBlockers,
   settlementBatchTransitions,
   workPackageTransitions,
+  type AdjustmentRecord,
   type AmountLedgerEntry,
   type AppealCase,
   type AuditEvent,
@@ -2929,6 +2930,175 @@ export class PgStore implements IncentiveStore {
     });
   }
 
+  async adjustLedgerEntry(
+    id: string,
+    input: {
+      amount: string;
+      reasonCode: string;
+      explanation: string;
+      approvedBy: string;
+      idempotencyKey: string;
+    },
+  ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
+    return this.tx(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        [this.tenantId],
+      );
+      const { rows } = await client.query(
+        `SELECT * FROM amount_ledger
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [this.tenantId, id],
+      );
+      if (!rows[0]) notFound("LedgerEntry", id);
+      const original = rows[0];
+      if (original.status !== "LOCKED") {
+        throw new ConflictError(
+          `LEDGER_NOT_LOCKED: ${id} is ${original.status}`,
+        );
+      }
+      const existing = await client.query(
+        `SELECT * FROM amount_ledger
+          WHERE tenant_id=$1 AND idempotency_key=$2`,
+        [this.tenantId, input.idempotencyKey],
+      );
+      if (existing.rows[0]) {
+        const existingRecord = await client.query(
+          `SELECT * FROM adjustment_records
+            WHERE tenant_id=$1 AND adjustment_ledger_id=$2`,
+          [this.tenantId, existing.rows[0].id],
+        );
+        if (existingRecord.rows[0]) {
+          return {
+            entry: this.mapLedger(existing.rows[0]),
+            record: this.mapAdjustmentRecord(existingRecord.rows[0]),
+          };
+        }
+      }
+      const amount = normalizeAmount(input.amount);
+      let amountValue: bigint;
+      try {
+        amountValue = parseDecimal(input.amount);
+      } catch {
+        throw new ConflictError(
+          `invalid adjustment amount ${input.amount}`,
+        );
+      }
+      if (amountValue === 0n) {
+        throw new ConflictError("adjustment amount must not be zero");
+      }
+      const last = await client.query(
+        `SELECT entry_hash FROM amount_ledger
+          WHERE tenant_id=$1
+          ORDER BY ledger_seq DESC
+          LIMIT 1`,
+        [this.tenantId],
+      );
+      const prevHash = last.rows[0]?.entry_hash ?? "GENESIS";
+      const adjustmentId = randomUUID();
+      const recordId = randomUUID();
+      const createdAt = new Date().toISOString();
+      const currency = String(original.currency).trim();
+      const entryHash = hashLedgerEntry({
+        id: adjustmentId,
+        tenantId: this.tenantId,
+        personId: original.person_id,
+        cycleId: original.cycle_id,
+        calculationRunId: original.calculation_run_id,
+        calculationLineId: original.calculation_line_id ?? undefined,
+        entryType: "ADJUSTMENT",
+        amount,
+        currency,
+        sourceEntryId: id,
+        idempotencyKey: input.idempotencyKey,
+        prevHash,
+        createdAt,
+      });
+      try {
+        const inserted = await client.query(
+          `INSERT INTO amount_ledger
+            (id, tenant_id, person_id, cycle_id, calculation_run_id,
+             calculation_line_id, entry_type, amount, currency, status,
+             source_entry_id, idempotency_key, entry_hash, prev_hash,
+             created_at, locked_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'ADJUSTMENT',$7,$8,'LOCKED',$9,$10,$11,$12,$13,$13)
+           RETURNING *`,
+          [
+            adjustmentId,
+            this.tenantId,
+            original.person_id,
+            original.cycle_id,
+            original.calculation_run_id,
+            original.calculation_line_id,
+            amount,
+            currency,
+            id,
+            input.idempotencyKey,
+            entryHash,
+            prevHash,
+            createdAt,
+          ],
+        );
+        const recordRows = await client.query(
+          `INSERT INTO adjustment_records
+            (id, tenant_id, original_ledger_id, adjustment_ledger_id,
+             reason_code, explanation, approved_by, approved_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING *`,
+          [
+            recordId,
+            this.tenantId,
+            id,
+            adjustmentId,
+            input.reasonCode,
+            input.explanation,
+            input.approvedBy,
+            createdAt,
+          ],
+        );
+        await this.appendAudit(client, {
+          action: "LEDGER_ADJUSTMENT",
+          objectType: "AMOUNT_LEDGER",
+          objectId: adjustmentId,
+          actorType: "USER",
+          actorId: input.approvedBy,
+          afterHash: entryHash,
+          reason: input.reasonCode,
+        });
+        return {
+          entry: this.mapLedger(inserted.rows[0]),
+          record: this.mapAdjustmentRecord(recordRows.rows[0]),
+        };
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "23503") {
+          throw new NotFoundError(
+            "approving person or ledger entry not found",
+          );
+        }
+        if (code === "23505") {
+          throw new ConflictError(
+            `adjustment already exists for ledger entry ${id}`,
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
+  async listAdjustmentRecords(): Promise<AdjustmentRecord[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adjustment_records
+          WHERE tenant_id=$1
+          ORDER BY created_at DESC`,
+        [this.tenantId],
+      );
+      return rows.map((row) => this.mapAdjustmentRecord(row));
+    });
+  }
+
   async listLedger(tenantId = this.tenantId): Promise<AmountLedgerEntry[]> {
     return this.tx(async (client) => {
       const { rows } = await client.query(
@@ -3308,6 +3478,20 @@ export class PgStore implements IncentiveStore {
       prevHash: row.prev_hash,
       createdAt: iso(row.created_at)!,
       lockedAt: iso(row.locked_at),
+    };
+  }
+
+  private mapAdjustmentRecord(row: QueryResultRow): AdjustmentRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      originalLedgerId: row.original_ledger_id,
+      adjustmentLedgerId: row.adjustment_ledger_id,
+      reasonCode: row.reason_code,
+      explanation: row.explanation,
+      approvedBy: row.approved_by,
+      approvedAt: iso(row.approved_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

@@ -2357,6 +2357,121 @@ describe("integrations", () => {
       "/api/v1/webhook-inbox?status=PROCESSED",
     );
     expect(inbox.body.data).toHaveLength(1);
+
+    const consumerMessage = await call(
+      "POST",
+      "/api/v1/inbox-messages",
+      { consumerName: "worker", messageId: "inbox-1" },
+    );
+    expect(consumerMessage.status).toBe(201);
+    expect(consumerMessage.body.data.status).toBe("RECEIVED");
+    const consumerReplay = await call(
+      "POST",
+      "/api/v1/inbox-messages",
+      { consumerName: "worker", messageId: "inbox-1" },
+    );
+    expect(consumerReplay.body.data.id).toBe(
+      consumerMessage.body.data.id,
+    );
+    const consumerProcessed = await call(
+      "POST",
+      `/api/v1/inbox-messages/${consumerMessage.body.data.id}/process`,
+      { status: "PROCESSED" },
+    );
+    expect(consumerProcessed.status).toBe(200);
+    expect(consumerProcessed.body.data.processedAt).toBeTruthy();
+    const consumerReprocessed = await call(
+      "POST",
+      `/api/v1/inbox-messages/${consumerMessage.body.data.id}/process`,
+      { status: "FAILED", errorCode: "DUPLICATE" },
+    );
+    expect(consumerReprocessed.status).toBe(409);
+    const inboxMessages = await call(
+      "GET",
+      "/api/v1/inbox-messages?consumerName=worker",
+    );
+    expect(inboxMessages.body.data).toHaveLength(1);
+  });
+});
+
+describe("ledger adjustments", () => {
+  it("appends a locked adjustment linked to the original entry", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const formal = await formalRun(workPackageId);
+    const runId = formal.body.data.id as string;
+    await confirmCalculation(runId, OWNER);
+    await confirmCalculation(runId, MEMBER);
+    await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
+      confirmation: "LOCK_CALCULATION",
+    });
+
+    const ledger = await call("GET", "/api/v1/ledger");
+    const original = ledger.body.data.find(
+      (entry: { personId: string; entryType: string }) =>
+        entry.personId === OWNER && entry.entryType === "INCENTIVE",
+    );
+    expect(original).toBeTruthy();
+
+    const adjusted = await call(
+      "POST",
+      `/api/v1/ledger/${original.id}/adjustments`,
+      {
+        amount: "-1000",
+        reasonCode: "EVIDENCE_CORRECTION",
+        explanation: "Corrected after the evidence review",
+        approvedBy: ADJUDICATOR,
+        idempotencyKey: `adjustment-${original.id}`,
+      },
+    );
+    expect(adjusted.status).toBe(201);
+    expect(adjusted.body.data.entry.entryType).toBe("ADJUSTMENT");
+    expect(adjusted.body.data.entry.status).toBe("LOCKED");
+    expect(adjusted.body.data.entry.amount).toBe("-1000");
+    expect(adjusted.body.data.entry.sourceEntryId).toBe(original.id);
+    expect(adjusted.body.data.record.originalLedgerId).toBe(original.id);
+    expect(adjusted.body.data.record.reasonCode).toBe(
+      "EVIDENCE_CORRECTION",
+    );
+
+    const replay = await call(
+      "POST",
+      `/api/v1/ledger/${original.id}/adjustments`,
+      {
+        amount: "-1000",
+        reasonCode: "EVIDENCE_CORRECTION",
+        explanation: "Corrected after the evidence review",
+        approvedBy: ADJUDICATOR,
+        idempotencyKey: `adjustment-${original.id}`,
+      },
+    );
+    expect(replay.body.data.entry.id).toBe(
+      adjusted.body.data.entry.id,
+    );
+
+    const zero = await call(
+      "POST",
+      `/api/v1/ledger/${original.id}/adjustments`,
+      {
+        amount: "0",
+        reasonCode: "NOOP",
+        explanation: "Zero adjustment should fail",
+        approvedBy: ADJUDICATOR,
+        idempotencyKey: `adjustment-zero-${original.id}`,
+      },
+    );
+    expect(zero.status).toBe(409);
+
+    const records = await call("GET", "/api/v1/adjustment-records");
+    expect(
+      records.body.data.some(
+        (record: { adjustmentLedgerId: string }) =>
+          record.adjustmentLedgerId === adjusted.body.data.entry.id,
+      ),
+    ).toBe(true);
   });
 });
 

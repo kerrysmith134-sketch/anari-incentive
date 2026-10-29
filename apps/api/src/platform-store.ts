@@ -23,6 +23,7 @@ import type {
   ExternalIdentity,
   FinancialFact,
   IntegrationConnection,
+  InboxMessage,
   MetricDefinition,
   ModelEvaluationRun,
   NoticeAcknowledgementOverview,
@@ -577,6 +578,21 @@ export interface PlatformStore {
     status: "PROCESSED" | "FAILED";
     errorCode?: string;
   }): Promise<WebhookInboxMessage>;
+  receiveInboxMessage(input: {
+    tenantId: string;
+    consumerName: string;
+    messageId: string;
+  }): Promise<InboxMessage>;
+  listInboxMessages(
+    tenantId: string,
+    filter?: { consumerName?: string; status?: string },
+  ): Promise<InboxMessage[]>;
+  processInboxMessage(input: {
+    tenantId: string;
+    inboxMessageId: string;
+    status: "PROCESSED" | "FAILED" | "IGNORED";
+    errorCode?: string;
+  }): Promise<InboxMessage>;
 }
 
 function now(): string {
@@ -628,6 +644,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
+  private readonly inboxMessages = new Map<string, InboxMessage>();
 
   constructor(
     options: {
@@ -2864,6 +2881,70 @@ export class MemoryPlatformStore implements PlatformStore {
     if (message.processedAt) {
       throw new ConflictError(
         `webhook ${message.id} is already processed`,
+      );
+    }
+    message.status = input.status;
+    message.errorCode = input.errorCode;
+    message.processedAt = now();
+    return message;
+  }
+
+  async receiveInboxMessage(input: {
+    tenantId: string;
+    consumerName: string;
+    messageId: string;
+  }): Promise<InboxMessage> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const key = [
+      input.tenantId,
+      input.consumerName,
+      input.messageId,
+    ].join(":");
+    const existing = this.inboxMessages.get(key);
+    if (existing) return existing;
+    const message: InboxMessage = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      consumerName: input.consumerName,
+      messageId: input.messageId,
+      receivedAt: now(),
+      status: "RECEIVED",
+    };
+    this.inboxMessages.set(key, message);
+    return message;
+  }
+
+  async listInboxMessages(
+    tenantId: string,
+    filter?: { consumerName?: string; status?: string },
+  ): Promise<InboxMessage[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.inboxMessages.values()]
+      .filter(
+        (message) =>
+          message.tenantId === tenantId &&
+          (!filter?.consumerName ||
+            message.consumerName === filter.consumerName) &&
+          (!filter?.status || message.status === filter.status),
+      )
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+  }
+
+  async processInboxMessage(input: {
+    tenantId: string;
+    inboxMessageId: string;
+    status: "PROCESSED" | "FAILED" | "IGNORED";
+    errorCode?: string;
+  }): Promise<InboxMessage> {
+    const message = [...this.inboxMessages.values()].find(
+      (candidate) =>
+        candidate.id === input.inboxMessageId &&
+        candidate.tenantId === input.tenantId,
+    );
+    if (!message) notFound("InboxMessage", input.inboxMessageId);
+    if (message.processedAt) {
+      throw new ConflictError(
+        `inbox message ${message.id} is already processed`,
       );
     }
     message.status = input.status;
@@ -5723,6 +5804,93 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapWebhook(rows[0]);
   }
 
+  async receiveInboxMessage(input: {
+    tenantId: string;
+    consumerName: string;
+    messageId: string;
+  }): Promise<InboxMessage> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO inbox_messages (id, tenant_id, consumer_name, message_id)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (tenant_id, consumer_name, message_id) DO NOTHING
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.consumerName,
+          input.messageId,
+        ],
+      );
+      if (rows[0]) return this.mapInboxMessage(rows[0]);
+      const { rows: existing } = await this.pool.query(
+        `SELECT * FROM inbox_messages
+          WHERE tenant_id=$1 AND consumer_name=$2 AND message_id=$3`,
+        [input.tenantId, input.consumerName, input.messageId],
+      );
+      if (!existing[0]) {
+        throw new ConflictError("inbox message could not be recorded");
+      }
+      return this.mapInboxMessage(existing[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listInboxMessages(
+    tenantId: string,
+    filter?: { consumerName?: string; status?: string },
+  ): Promise<InboxMessage[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM inbox_messages WHERE tenant_id=$1";
+    if (filter?.consumerName) {
+      params.push(filter.consumerName);
+      sql += ` AND consumer_name=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY received_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapInboxMessage(row));
+  }
+
+  async processInboxMessage(input: {
+    tenantId: string;
+    inboxMessageId: string;
+    status: "PROCESSED" | "FAILED" | "IGNORED";
+    errorCode?: string;
+  }): Promise<InboxMessage> {
+    const { rows } = await this.pool.query(
+      `UPDATE inbox_messages
+          SET status=$3, error_code=$4, processed_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND processed_at IS NULL
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.inboxMessageId,
+        input.status,
+        input.errorCode ?? null,
+      ],
+    );
+    if (!rows[0]) {
+      const { rows: existing } = await this.pool.query(
+        "SELECT * FROM inbox_messages WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.inboxMessageId],
+      );
+      if (!existing[0]) notFound("InboxMessage", input.inboxMessageId);
+      throw new ConflictError(
+        `inbox message ${input.inboxMessageId} is already processed`,
+      );
+    }
+    return this.mapInboxMessage(rows[0]);
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -6264,6 +6432,19 @@ export class PgPlatformStore implements PlatformStore {
       sourceSystem: row.source_system,
       messageId: row.message_id,
       payloadHash: row.payload_hash,
+      receivedAt: iso(row.received_at) ?? new Date().toISOString(),
+      processedAt: iso(row.processed_at),
+      status: row.status,
+      errorCode: row.error_code ?? undefined,
+    };
+  }
+
+  private mapInboxMessage(row: QueryResultRow): InboxMessage {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      consumerName: row.consumer_name,
+      messageId: row.message_id,
       receivedAt: iso(row.received_at) ?? new Date().toISOString(),
       processedAt: iso(row.processed_at),
       status: row.status,

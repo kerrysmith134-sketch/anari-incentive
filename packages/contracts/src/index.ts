@@ -562,6 +562,31 @@ export const processWebhookSchema = z.object({
 });
 export type ProcessWebhookBody = z.infer<typeof processWebhookSchema>;
 
+export const adjustLedgerEntrySchema = z.object({
+  amount: decimal,
+  reasonCode: z.string().min(1),
+  explanation: z.string().min(3),
+  approvedBy: uuidSchema,
+  idempotencyKey: z.string().min(1),
+});
+export type AdjustLedgerEntryBody = z.infer<typeof adjustLedgerEntrySchema>;
+
+export const receiveInboxMessageSchema = z.object({
+  consumerName: z.string().min(1),
+  messageId: z.string().min(1),
+});
+export type ReceiveInboxMessageBody = z.infer<
+  typeof receiveInboxMessageSchema
+>;
+
+export const processInboxMessageSchema = z.object({
+  status: z.enum(["PROCESSED", "FAILED", "IGNORED"]),
+  errorCode: z.string().min(1).optional(),
+});
+export type ProcessInboxMessageBody = z.infer<
+  typeof processInboxMessageSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

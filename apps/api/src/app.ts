@@ -66,6 +66,9 @@ import {
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
   processWebhookSchema,
+  adjustLedgerEntrySchema,
+  receiveInboxMessageSchema,
+  processInboxMessageSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -2602,6 +2605,75 @@ export function buildApp(
       await platformStore.processWebhook({
         tenantId: tenantOf(request),
         webhookId: idOf(request),
+        status: body.status,
+        errorCode: body.errorCode,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(adjustLedgerEntrySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await storeFor(request).adjustLedgerEntry(idOf(request), {
+          amount: body.amount,
+          reasonCode: body.reasonCode,
+          explanation: body.explanation,
+          approvedBy: body.approvedBy,
+          idempotencyKey: body.idempotencyKey,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/adjustment-records", async (request) => {
+    requireRoles(request, "finance");
+    return data(
+      await storeFor(request).listAdjustmentRecords(),
+      request,
+    );
+  });
+
+  app.post("/api/v1/inbox-messages", async (request, reply) => {
+    requireRoles(request, "integration");
+    const body = parse(receiveInboxMessageSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.receiveInboxMessage({
+          tenantId: tenantOf(request),
+          consumerName: body.consumerName,
+          messageId: body.messageId,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/inbox-messages", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      consumerName?: string;
+      status?: string;
+    };
+    return data(
+      await platformStore.listInboxMessages(tenantOf(request), {
+        consumerName: query.consumerName,
+        status: query.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/inbox-messages/:id/process", async (request) => {
+    requireRoles(request, "integration");
+    const body = parse(processInboxMessageSchema, request.body);
+    return data(
+      await platformStore.processInboxMessage({
+        tenantId: tenantOf(request),
+        inboxMessageId: idOf(request),
         status: body.status,
         errorCode: body.errorCode,
       }),
