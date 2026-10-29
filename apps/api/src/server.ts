@@ -122,6 +122,11 @@ const rateLimit =
   Number.isInteger(rateLimitPerMinute) && rateLimitPerMinute > 0
     ? { limit: rateLimitPerMinute }
     : undefined;
+const bodyLimitBytes = Number(process.env.BODY_LIMIT_BYTES ?? "0");
+const bodyLimit =
+  Number.isInteger(bodyLimitBytes) && bodyLimitBytes > 0
+    ? bodyLimitBytes
+    : undefined;
 
 const app = buildApp(
   resolveStore,
@@ -159,6 +164,7 @@ const app = buildApp(
     enforceBudgetPools: process.env.ENFORCE_BUDGET_POOLS === "true",
     tracer,
     rateLimit,
+    bodyLimitBytes: bodyLimit,
   },
 );
 

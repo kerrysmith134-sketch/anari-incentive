@@ -232,6 +232,8 @@ export interface BuildAppOptions {
     windowMs?: number;
     now?: () => number;
   };
+  /** Maximum request body size in bytes. Defaults to 1 MiB. */
+  bodyLimitBytes?: number;
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -384,6 +386,7 @@ export function buildApp(
     logger: process.env.LOG_LEVEL
       ? { level: process.env.LOG_LEVEL }
       : false,
+    bodyLimit: options.bodyLimitBytes ?? 1_048_576,
   });
   const metrics = new ApiMetrics();
   const limiter = options.rateLimit
@@ -751,6 +754,15 @@ export function buildApp(
   });
 
   app.setErrorHandler((error, request, reply) => {
+    if ((error as { statusCode?: number }).statusCode === 413) {
+      return reply.status(413).send({
+        ...errorBody(
+          "PAYLOAD_TOO_LARGE",
+          "request body exceeds the configured limit",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
     if (error instanceof ZodError) {
       return reply.status(400).send({
         ...errorBody("VALIDATION_ERROR", "request validation failed", error.issues),
