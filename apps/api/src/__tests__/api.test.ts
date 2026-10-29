@@ -2223,6 +2223,126 @@ describe("AI suggestion logs and workflow runs", () => {
   });
 });
 
+describe("integrations", () => {
+  it("manages connections, sync runs, identity maps and the webhook inbox", async () => {
+    const connection = await call(
+      "POST",
+      "/api/v1/integration-connections",
+      {
+        provider: "hubspot",
+        connectionName: "CRM",
+        credentialRef: "vault://crm",
+        config: { region: "cn" },
+      },
+    );
+    expect(connection.status).toBe(201);
+    expect(connection.body.data.status).toBe("ACTIVE");
+    const connectionId = connection.body.data.id as string;
+
+    const paused = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/status`,
+      { status: "PAUSED" },
+    );
+    expect(paused.status).toBe(200);
+    expect(paused.body.data.status).toBe("PAUSED");
+
+    const syncRun = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/sync-runs`,
+      { status: "RUNNING", cursorBefore: { page: 1 } },
+    );
+    expect(syncRun.status).toBe(201);
+    expect(syncRun.body.data.startedAt).toBeTruthy();
+    const syncRunId = syncRun.body.data.id as string;
+
+    const finished = await call(
+      "POST",
+      `/api/v1/sync-runs/${syncRunId}/finish`,
+      {
+        status: "COMPLETED",
+        recordsSeen: 10,
+        recordsUpserted: 8,
+        cursorAfter: { page: 2 },
+      },
+    );
+    expect(finished.status).toBe(200);
+    expect(finished.body.data.recordsUpserted).toBe(8);
+    const refinished = await call(
+      "POST",
+      `/api/v1/sync-runs/${syncRunId}/finish`,
+      { status: "COMPLETED" },
+    );
+    expect(refinished.status).toBe(409);
+
+    const reloaded = await call(
+      "GET",
+      `/api/v1/integration-connections/${connectionId}`,
+    );
+    expect(reloaded.body.data.lastSyncAt).toBeTruthy();
+
+    const identity = await call(
+      "POST",
+      "/api/v1/external-identities",
+      {
+        sourceSystem: "hubspot",
+        externalId: "contact-1",
+        personId: OWNER,
+        objectType: "PERSON",
+      },
+    );
+    expect(identity.status).toBe(201);
+    const identityReplay = await call(
+      "POST",
+      "/api/v1/external-identities",
+      {
+        sourceSystem: "hubspot",
+        externalId: "contact-1",
+        objectType: "PERSON",
+      },
+    );
+    expect(identityReplay.body.data.id).toBe(identity.body.data.id);
+    const identities = await call(
+      "GET",
+      "/api/v1/external-identities?sourceSystem=hubspot",
+    );
+    expect(identities.body.data).toHaveLength(1);
+
+    const webhook = await call("POST", "/api/v1/webhook-inbox", {
+      sourceSystem: "hubspot",
+      messageId: "msg-1",
+      payloadHash: "sha256:webhook",
+    });
+    expect(webhook.status).toBe(201);
+    expect(webhook.body.data.status).toBe("RECEIVED");
+    const webhookReplay = await call("POST", "/api/v1/webhook-inbox", {
+      sourceSystem: "hubspot",
+      messageId: "msg-1",
+      payloadHash: "sha256:webhook",
+    });
+    expect(webhookReplay.body.data.id).toBe(webhook.body.data.id);
+
+    const processed = await call(
+      "POST",
+      `/api/v1/webhook-inbox/${webhook.body.data.id}/process`,
+      { status: "PROCESSED" },
+    );
+    expect(processed.status).toBe(200);
+    expect(processed.body.data.processedAt).toBeTruthy();
+    const reprocessed = await call(
+      "POST",
+      `/api/v1/webhook-inbox/${webhook.body.data.id}/process`,
+      { status: "FAILED", errorCode: "DUPLICATE" },
+    );
+    expect(reprocessed.status).toBe(409);
+    const inbox = await call(
+      "GET",
+      "/api/v1/webhook-inbox?status=PROCESSED",
+    );
+    expect(inbox.body.data).toHaveLength(1);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

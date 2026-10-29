@@ -59,6 +59,13 @@ import {
   createModelEvaluationRunSchema,
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
+  createIntegrationConnectionSchema,
+  setIntegrationConnectionStatusSchema,
+  createSyncRunSchema,
+  finishSyncRunSchema,
+  upsertExternalIdentitySchema,
+  receiveWebhookSchema,
+  processWebhookSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -2407,6 +2414,173 @@ export function buildApp(
         workflowRunId: idOf(request),
         status: body.status,
         currentStep: body.currentStep,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-connections", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createIntegrationConnectionSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createIntegrationConnection({
+          tenantId: tenantOf(request),
+          provider: body.provider,
+          connectionName: body.connectionName,
+          credentialRef: body.credentialRef,
+          config: body.config ?? {},
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/integration-connections", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listIntegrationConnections(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/integration-connections/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getIntegrationConnection(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-connections/:id/status", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(setIntegrationConnectionStatusSchema, request.body);
+    return data(
+      await platformStore.setIntegrationConnectionStatus({
+        tenantId: tenantOf(request),
+        connectionId: idOf(request),
+        status: body.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-connections/:id/sync-runs", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createSyncRunSchema, request.body ?? {});
+    return reply.status(201).send(
+      data(
+        await platformStore.createSyncRun({
+          tenantId: tenantOf(request),
+          connectionId: idOf(request),
+          status: body.status ?? "QUEUED",
+          cursorBefore: body.cursorBefore,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/integration-connections/:id/sync-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listSyncRuns(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/sync-runs/:id/finish", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(finishSyncRunSchema, request.body);
+    return data(
+      await platformStore.finishSyncRun({
+        tenantId: tenantOf(request),
+        syncRunId: idOf(request),
+        status: body.status,
+        recordsSeen: body.recordsSeen ?? 0,
+        recordsUpserted: body.recordsUpserted ?? 0,
+        cursorAfter: body.cursorAfter,
+        errorSummary: body.errorSummary,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/external-identities", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(upsertExternalIdentitySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.upsertExternalIdentity({
+          tenantId: tenantOf(request),
+          sourceSystem: body.sourceSystem,
+          externalId: body.externalId,
+          personId: body.personId,
+          objectType: body.objectType,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/external-identities", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      sourceSystem?: string;
+      objectType?: string;
+    };
+    return data(
+      await platformStore.listExternalIdentities(tenantOf(request), {
+        sourceSystem: query.sourceSystem,
+        objectType: query.objectType,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/webhook-inbox", async (request, reply) => {
+    requireRoles(request, "integration");
+    const body = parse(receiveWebhookSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.receiveWebhook({
+          tenantId: tenantOf(request),
+          sourceSystem: body.sourceSystem,
+          messageId: body.messageId,
+          payloadHash: body.payloadHash,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/webhook-inbox", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      status?: string;
+      sourceSystem?: string;
+    };
+    return data(
+      await platformStore.listWebhooks(tenantOf(request), {
+        status: query.status,
+        sourceSystem: query.sourceSystem,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/webhook-inbox/:id/process", async (request) => {
+    requireRoles(request, "integration");
+    const body = parse(processWebhookSchema, request.body);
+    return data(
+      await platformStore.processWebhook({
+        tenantId: tenantOf(request),
+        webhookId: idOf(request),
+        status: body.status,
+        errorCode: body.errorCode,
       }),
       request,
     );

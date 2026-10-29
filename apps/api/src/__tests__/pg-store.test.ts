@@ -2072,6 +2072,94 @@ describePg("PgStore vertical slice", () => {
     ).toBe(true);
   });
 
+  it("records integration connections, sync runs, identities and webhooks", async () => {
+    const platform = new PgPlatformStore(pool);
+    const connection = await platform.createIntegrationConnection({
+      tenantId: DEMO_TENANT_ID,
+      provider: "hubspot",
+      connectionName: `PG CRM ${Date.now()}`,
+      credentialRef: "vault://pg-crm",
+      config: { region: "cn" },
+    });
+    expect(connection.status).toBe("ACTIVE");
+
+    const run = await platform.createSyncRun({
+      tenantId: DEMO_TENANT_ID,
+      connectionId: connection.id,
+      status: "RUNNING",
+    });
+    const finished = await platform.finishSyncRun({
+      tenantId: DEMO_TENANT_ID,
+      syncRunId: run.id,
+      status: "COMPLETED",
+      recordsSeen: 10,
+      recordsUpserted: 8,
+      cursorAfter: { page: 2 },
+    });
+    expect(finished.recordsUpserted).toBe(8);
+    expect(finished.finishedAt).toBeTruthy();
+    await expect(
+      platform.finishSyncRun({
+        tenantId: DEMO_TENANT_ID,
+        syncRunId: run.id,
+        status: "COMPLETED",
+        recordsSeen: 0,
+        recordsUpserted: 0,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (await platform.getIntegrationConnection(DEMO_TENANT_ID, connection.id))
+        .lastSyncAt,
+    ).toBeTruthy();
+
+    const externalId = `pg-contact-${Date.now()}`;
+    const identity = await platform.upsertExternalIdentity({
+      tenantId: DEMO_TENANT_ID,
+      sourceSystem: "hubspot",
+      externalId,
+      personId: OWNER,
+      objectType: "PERSON",
+    });
+    expect(identity.personId).toBe(OWNER);
+    const replay = await platform.upsertExternalIdentity({
+      tenantId: DEMO_TENANT_ID,
+      sourceSystem: "hubspot",
+      externalId,
+      objectType: "PERSON",
+    });
+    expect(replay.id).toBe(identity.id);
+
+    const messageId = `pg-msg-${Date.now()}`;
+    const webhook = await platform.receiveWebhook({
+      tenantId: DEMO_TENANT_ID,
+      sourceSystem: "hubspot",
+      messageId,
+      payloadHash: "sha256:pg-webhook",
+    });
+    expect(webhook.status).toBe("RECEIVED");
+    const webhookReplay = await platform.receiveWebhook({
+      tenantId: DEMO_TENANT_ID,
+      sourceSystem: "hubspot",
+      messageId,
+      payloadHash: "sha256:pg-webhook",
+    });
+    expect(webhookReplay.id).toBe(webhook.id);
+    const processed = await platform.processWebhook({
+      tenantId: DEMO_TENANT_ID,
+      webhookId: webhook.id,
+      status: "PROCESSED",
+    });
+    expect(processed.processedAt).toBeTruthy();
+    await expect(
+      platform.processWebhook({
+        tenantId: DEMO_TENANT_ID,
+        webhookId: webhook.id,
+        status: "FAILED",
+        errorCode: "DUPLICATE",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

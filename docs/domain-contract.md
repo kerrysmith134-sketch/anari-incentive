@@ -216,6 +216,12 @@ Additional application-level invariants:
 | `POST /model-evaluation-runs` | manager/finance | Records metrics, subgroup metrics, pass/fail and blockers |
 | `POST /workflow-runs` | manager/finance, agent task exists | Records a workflow run with state |
 | `POST /workflow-runs/:id/finish` | manager/finance, not finished | Sets status, current step and `finishedAt` |
+| `POST /integration-connections` | admin | Creates an ACTIVE connection with a credential reference |
+| `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
+| `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
+| `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
+| `POST /webhook-inbox` | integration | Idempotent receive by source and message id |
+| `POST /webhook-inbox/:id/process` | integration, unprocessed | Marks PROCESSED/FAILED once with an optional error code |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

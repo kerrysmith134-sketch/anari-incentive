@@ -583,6 +583,56 @@ export interface WorkflowRun {
   createdAt: string;
 }
 
+export interface IntegrationConnection {
+  id: UUID;
+  tenantId: UUID;
+  provider: string;
+  connectionName: string;
+  credentialRef: string;
+  status: string;
+  config: Record<string, unknown>;
+  lastSyncAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SyncRun {
+  id: UUID;
+  tenantId: UUID;
+  connectionId: UUID;
+  status: string;
+  startedAt?: string;
+  finishedAt?: string;
+  cursorBefore?: Record<string, unknown>;
+  cursorAfter?: Record<string, unknown>;
+  recordsSeen: number;
+  recordsUpserted: number;
+  errorSummary?: string;
+  createdAt: string;
+}
+
+export interface ExternalIdentity {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  externalId: string;
+  personId?: UUID;
+  objectType: string;
+  createdAt: string;
+}
+
+export interface WebhookInboxMessage {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  messageId: string;
+  payloadHash: string;
+  receivedAt: string;
+  processedAt?: string;
+  status: string;
+  errorCode?: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

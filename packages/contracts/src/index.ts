@@ -507,6 +507,61 @@ export type FinishWorkflowRunBody = z.infer<
   typeof finishWorkflowRunSchema
 >;
 
+export const createIntegrationConnectionSchema = z.object({
+  provider: z.string().min(1),
+  connectionName: z.string().min(1),
+  credentialRef: z.string().min(1),
+  config: z.record(z.unknown()).default({}),
+});
+export type CreateIntegrationConnectionBody = z.infer<
+  typeof createIntegrationConnectionSchema
+>;
+
+export const setIntegrationConnectionStatusSchema = z.object({
+  status: z.string().min(1),
+});
+export type SetIntegrationConnectionStatusBody = z.infer<
+  typeof setIntegrationConnectionStatusSchema
+>;
+
+export const createSyncRunSchema = z.object({
+  status: z.string().min(1).default("QUEUED"),
+  cursorBefore: z.record(z.unknown()).optional(),
+});
+export type CreateSyncRunBody = z.infer<typeof createSyncRunSchema>;
+
+export const finishSyncRunSchema = z.object({
+  status: z.string().min(1),
+  recordsSeen: z.number().int().min(0).default(0),
+  recordsUpserted: z.number().int().min(0).default(0),
+  cursorAfter: z.record(z.unknown()).optional(),
+  errorSummary: z.string().optional(),
+});
+export type FinishSyncRunBody = z.infer<typeof finishSyncRunSchema>;
+
+export const upsertExternalIdentitySchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalId: z.string().min(1),
+  personId: uuidSchema.optional(),
+  objectType: z.string().min(1),
+});
+export type UpsertExternalIdentityBody = z.infer<
+  typeof upsertExternalIdentitySchema
+>;
+
+export const receiveWebhookSchema = z.object({
+  sourceSystem: z.string().min(1),
+  messageId: z.string().min(1),
+  payloadHash: z.string().min(1),
+});
+export type ReceiveWebhookBody = z.infer<typeof receiveWebhookSchema>;
+
+export const processWebhookSchema = z.object({
+  status: z.enum(["PROCESSED", "FAILED"]),
+  errorCode: z.string().min(1).optional(),
+});
+export type ProcessWebhookBody = z.infer<typeof processWebhookSchema>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

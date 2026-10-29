@@ -34,6 +34,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Ledger | Append-only, idempotent, lock, linked reversal (`POST /ledger/:id/reverse`), per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Batch operations | Work-package acceptance, attribution decisions and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
 | Batch calculation | `POST /calculation-runs:batch` validates and creates up to 50 runs in one transaction; any blocked item rolls back all runs and ledger entries |
+| Integrations | Connection registry (provider, credential reference, config, status), sync-run records with cursors/counts/error summary, external identity mapping by source/object, and an idempotent webhook inbox with processed/failed states |
 | AI governance | AI suggestion logs (prompt/model/input hash, validation status, one-time acceptance), model evaluation runs (metrics, subgroup metrics, pass/fail and blockers) and workflow-run records with finish lifecycle |
 | Deliverables | Work-package deliverables (DRAFT → SUBMITTED → ACCEPTED/REJECTED) with artifact reference and version; acceptance records criteria results and comments; the owner cannot accept their own deliverable; rejected deliverables can be resubmitted as a new version |
 | Policy governance | Rule change orders (DRAFT → APPROVED/REJECTED → PUBLICIZED, requester ≠ approver), versioned policy test cases (ACTIVE/RETIRED), policy-notice links with audience, and versioned metric definitions with effective dates and retirement |
@@ -59,7 +60,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **150 unit/API tests + 33 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, approval requests, settlement export/acknowledgement evidence, budget pools/allocations/cash gates, policy governance, metric definitions, deliverable acceptance, AI suggestions/model evaluations/workflow runs, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **151 unit/API tests + 34 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, approval requests, settlement export/acknowledgement evidence, budget pools/allocations/cash gates, policy governance, metric definitions, deliverable acceptance, AI suggestions/model evaluations/workflow runs, integration connections/sync runs/identity maps/webhook inbox, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## Operations
 
@@ -276,6 +277,14 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/model-evaluation-runs/:id` | Read a model evaluation |
 | POST/GET | `/api/v1/workflow-runs` | Record/list workflow runs |
 | POST | `/api/v1/workflow-runs/:id/finish` | Finish a workflow run |
+| POST/GET | `/api/v1/integration-connections` | Create/list integration connections |
+| GET | `/api/v1/integration-connections/:id` | Read a connection |
+| POST | `/api/v1/integration-connections/:id/status` | Set connection status |
+| POST/GET | `/api/v1/integration-connections/:id/sync-runs` | Create/list sync runs |
+| POST | `/api/v1/sync-runs/:id/finish` | Finish a sync run |
+| POST/GET | `/api/v1/external-identities` | Upsert/list external identity mappings |
+| POST/GET | `/api/v1/webhook-inbox` | Receive/list webhook inbox messages |
+| POST | `/api/v1/webhook-inbox/:id/process` | Mark a webhook processed/failed |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | POST | `/api/v1/calculation-runs:batch` | Up to 50 calculation runs in one atomic transaction |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |

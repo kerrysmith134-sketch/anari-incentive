@@ -20,7 +20,9 @@ import type {
   DsarRequestType,
   EmployeeNotice,
   EmployeeRepresentation,
+  ExternalIdentity,
   FinancialFact,
+  IntegrationConnection,
   MetricDefinition,
   ModelEvaluationRun,
   NoticeAcknowledgementOverview,
@@ -41,6 +43,8 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  SyncRun,
+  WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
@@ -508,6 +512,71 @@ export interface PlatformStore {
     status: string;
     currentStep?: string;
   }): Promise<WorkflowRun>;
+  createIntegrationConnection(input: {
+    tenantId: string;
+    provider: string;
+    connectionName: string;
+    credentialRef: string;
+    config: Record<string, unknown>;
+  }): Promise<IntegrationConnection>;
+  listIntegrationConnections(
+    tenantId: string,
+  ): Promise<IntegrationConnection[]>;
+  getIntegrationConnection(
+    tenantId: string,
+    connectionId: string,
+  ): Promise<IntegrationConnection>;
+  setIntegrationConnectionStatus(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+  }): Promise<IntegrationConnection>;
+  createSyncRun(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+    cursorBefore?: Record<string, unknown>;
+  }): Promise<SyncRun>;
+  listSyncRuns(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncRun[]>;
+  finishSyncRun(input: {
+    tenantId: string;
+    syncRunId: string;
+    status: string;
+    recordsSeen: number;
+    recordsUpserted: number;
+    cursorAfter?: Record<string, unknown>;
+    errorSummary?: string;
+  }): Promise<SyncRun>;
+  upsertExternalIdentity(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalId: string;
+    personId?: string;
+    objectType: string;
+  }): Promise<ExternalIdentity>;
+  listExternalIdentities(
+    tenantId: string,
+    filter?: { sourceSystem?: string; objectType?: string },
+  ): Promise<ExternalIdentity[]>;
+  receiveWebhook(input: {
+    tenantId: string;
+    sourceSystem: string;
+    messageId: string;
+    payloadHash: string;
+  }): Promise<WebhookInboxMessage>;
+  listWebhooks(
+    tenantId: string,
+    filter?: { status?: string; sourceSystem?: string },
+  ): Promise<WebhookInboxMessage[]>;
+  processWebhook(input: {
+    tenantId: string;
+    webhookId: string;
+    status: "PROCESSED" | "FAILED";
+    errorCode?: string;
+  }): Promise<WebhookInboxMessage>;
 }
 
 function now(): string {
@@ -552,6 +621,13 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly aiSuggestions = new Map<string, AiSuggestionLog>();
   private readonly modelEvaluationRuns = new Map<string, ModelEvaluationRun>();
   private readonly workflowRuns = new Map<string, WorkflowRun>();
+  private readonly integrationConnections = new Map<
+    string,
+    IntegrationConnection
+  >();
+  private readonly syncRuns = new Map<string, SyncRun>();
+  private readonly externalIdentities = new Map<string, ExternalIdentity>();
+  private readonly webhooks = new Map<string, WebhookInboxMessage>();
 
   constructor(
     options: {
@@ -2547,6 +2623,253 @@ export class MemoryPlatformStore implements PlatformStore {
     run.currentStep = input.currentStep ?? run.currentStep;
     run.finishedAt = now();
     return run;
+  }
+
+  async createIntegrationConnection(input: {
+    tenantId: string;
+    provider: string;
+    connectionName: string;
+    credentialRef: string;
+    config: Record<string, unknown>;
+  }): Promise<IntegrationConnection> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const timestamp = now();
+    const connection: IntegrationConnection = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      provider: input.provider,
+      connectionName: input.connectionName,
+      credentialRef: input.credentialRef,
+      status: "ACTIVE",
+      config: input.config,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.integrationConnections.set(connection.id, connection);
+    return connection;
+  }
+
+  async listIntegrationConnections(
+    tenantId: string,
+  ): Promise<IntegrationConnection[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.integrationConnections.values()]
+      .filter((connection) => connection.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getIntegrationConnection(
+    tenantId: string,
+    connectionId: string,
+  ): Promise<IntegrationConnection> {
+    const connection = this.integrationConnections.get(connectionId);
+    if (!connection || connection.tenantId !== tenantId) {
+      notFound("IntegrationConnection", connectionId);
+    }
+    return connection;
+  }
+
+  async setIntegrationConnectionStatus(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+  }): Promise<IntegrationConnection> {
+    const connection = await this.getIntegrationConnection(
+      input.tenantId,
+      input.connectionId,
+    );
+    connection.status = input.status;
+    connection.updatedAt = now();
+    return connection;
+  }
+
+  async createSyncRun(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+    cursorBefore?: Record<string, unknown>;
+  }): Promise<SyncRun> {
+    await this.getIntegrationConnection(input.tenantId, input.connectionId);
+    const timestamp = now();
+    const run: SyncRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      connectionId: input.connectionId,
+      status: input.status,
+      startedAt: input.status === "QUEUED" ? undefined : timestamp,
+      cursorBefore: input.cursorBefore,
+      recordsSeen: 0,
+      recordsUpserted: 0,
+      createdAt: timestamp,
+    };
+    this.syncRuns.set(run.id, run);
+    return run;
+  }
+
+  async listSyncRuns(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.syncRuns.values()]
+      .filter(
+        (run) =>
+          run.tenantId === tenantId &&
+          (!connectionId || run.connectionId === connectionId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async finishSyncRun(input: {
+    tenantId: string;
+    syncRunId: string;
+    status: string;
+    recordsSeen: number;
+    recordsUpserted: number;
+    cursorAfter?: Record<string, unknown>;
+    errorSummary?: string;
+  }): Promise<SyncRun> {
+    const run = this.syncRuns.get(input.syncRunId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("SyncRun", input.syncRunId);
+    }
+    if (run.finishedAt) {
+      throw new ConflictError(`sync run ${run.id} is already finished`);
+    }
+    const timestamp = now();
+    run.status = input.status;
+    run.recordsSeen = input.recordsSeen;
+    run.recordsUpserted = input.recordsUpserted;
+    run.cursorAfter = input.cursorAfter;
+    run.errorSummary = input.errorSummary;
+    run.finishedAt = timestamp;
+    const connection = this.integrationConnections.get(run.connectionId);
+    if (connection) {
+      connection.lastSyncAt = timestamp;
+      connection.updatedAt = timestamp;
+    }
+    return run;
+  }
+
+  async upsertExternalIdentity(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalId: string;
+    personId?: string;
+    objectType: string;
+  }): Promise<ExternalIdentity> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (input.personId) {
+      const person = this.persons.get(input.personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", input.personId);
+      }
+    }
+    const key = [
+      input.tenantId,
+      input.sourceSystem,
+      input.externalId,
+      input.objectType,
+    ].join(":");
+    const existing = this.externalIdentities.get(key);
+    if (existing) {
+      if (input.personId) existing.personId = input.personId;
+      return existing;
+    }
+    const identity: ExternalIdentity = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      sourceSystem: input.sourceSystem,
+      externalId: input.externalId,
+      personId: input.personId,
+      objectType: input.objectType,
+      createdAt: now(),
+    };
+    this.externalIdentities.set(key, identity);
+    return identity;
+  }
+
+  async listExternalIdentities(
+    tenantId: string,
+    filter?: { sourceSystem?: string; objectType?: string },
+  ): Promise<ExternalIdentity[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.externalIdentities.values()]
+      .filter(
+        (identity) =>
+          identity.tenantId === tenantId &&
+          (!filter?.sourceSystem ||
+            identity.sourceSystem === filter.sourceSystem) &&
+          (!filter?.objectType ||
+            identity.objectType === filter.objectType),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async receiveWebhook(input: {
+    tenantId: string;
+    sourceSystem: string;
+    messageId: string;
+    payloadHash: string;
+  }): Promise<WebhookInboxMessage> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const key = [
+      input.tenantId,
+      input.sourceSystem,
+      input.messageId,
+    ].join(":");
+    const existing = this.webhooks.get(key);
+    if (existing) return existing;
+    const message: WebhookInboxMessage = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      sourceSystem: input.sourceSystem,
+      messageId: input.messageId,
+      payloadHash: input.payloadHash,
+      receivedAt: now(),
+      status: "RECEIVED",
+    };
+    this.webhooks.set(key, message);
+    return message;
+  }
+
+  async listWebhooks(
+    tenantId: string,
+    filter?: { status?: string; sourceSystem?: string },
+  ): Promise<WebhookInboxMessage[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.webhooks.values()]
+      .filter(
+        (message) =>
+          message.tenantId === tenantId &&
+          (!filter?.status || message.status === filter.status) &&
+          (!filter?.sourceSystem ||
+            message.sourceSystem === filter.sourceSystem),
+      )
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+  }
+
+  async processWebhook(input: {
+    tenantId: string;
+    webhookId: string;
+    status: "PROCESSED" | "FAILED";
+    errorCode?: string;
+  }): Promise<WebhookInboxMessage> {
+    const message = [...this.webhooks.values()].find(
+      (candidate) =>
+        candidate.id === input.webhookId &&
+        candidate.tenantId === input.tenantId,
+    );
+    if (!message) notFound("WebhookInboxMessage", input.webhookId);
+    if (message.processedAt) {
+      throw new ConflictError(
+        `webhook ${message.id} is already processed`,
+      );
+    }
+    message.status = input.status;
+    message.errorCode = input.errorCode;
+    message.processedAt = now();
+    return message;
   }
 
   private assertUserNotLinked(
@@ -5087,6 +5410,319 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapWorkflowRun(rows[0]);
   }
 
+  async createIntegrationConnection(input: {
+    tenantId: string;
+    provider: string;
+    connectionName: string;
+    credentialRef: string;
+    config: Record<string, unknown>;
+  }): Promise<IntegrationConnection> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO integration_connections
+          (id, tenant_id, provider, connection_name, credential_ref, config)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.provider,
+          input.connectionName,
+          input.credentialRef,
+          input.config,
+        ],
+      );
+      return this.mapIntegrationConnection(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listIntegrationConnections(
+    tenantId: string,
+  ): Promise<IntegrationConnection[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM integration_connections
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapIntegrationConnection(row));
+  }
+
+  async getIntegrationConnection(
+    tenantId: string,
+    connectionId: string,
+  ): Promise<IntegrationConnection> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM integration_connections WHERE tenant_id=$1 AND id=$2",
+      [tenantId, connectionId],
+    );
+    if (!rows[0]) notFound("IntegrationConnection", connectionId);
+    return this.mapIntegrationConnection(rows[0]);
+  }
+
+  async setIntegrationConnectionStatus(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+  }): Promise<IntegrationConnection> {
+    const { rows } = await this.pool.query(
+      `UPDATE integration_connections
+          SET status=$3, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [input.tenantId, input.connectionId, input.status],
+    );
+    if (!rows[0]) notFound("IntegrationConnection", input.connectionId);
+    return this.mapIntegrationConnection(rows[0]);
+  }
+
+  async createSyncRun(input: {
+    tenantId: string;
+    connectionId: string;
+    status: string;
+    cursorBefore?: Record<string, unknown>;
+  }): Promise<SyncRun> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO sync_runs
+          (id, tenant_id, connection_id, status, started_at, cursor_before)
+         VALUES ($1,$2,$3,$4,
+                 CASE WHEN $4 = 'QUEUED' THEN NULL ELSE now() END, $5)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.connectionId,
+          input.status,
+          input.cursorBefore ?? null,
+        ],
+      );
+      return this.mapSyncRun(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Integration connection ${input.connectionId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listSyncRuns(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncRun[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM sync_runs WHERE tenant_id=$1";
+    if (connectionId) {
+      params.push(connectionId);
+      sql += " AND connection_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapSyncRun(row));
+  }
+
+  async finishSyncRun(input: {
+    tenantId: string;
+    syncRunId: string;
+    status: string;
+    recordsSeen: number;
+    recordsUpserted: number;
+    cursorAfter?: Record<string, unknown>;
+    errorSummary?: string;
+  }): Promise<SyncRun> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM sync_runs
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.syncRunId],
+      );
+      if (!rows[0]) notFound("SyncRun", input.syncRunId);
+      const run = this.mapSyncRun(rows[0]);
+      if (run.finishedAt) {
+        throw new ConflictError(`sync run ${run.id} is already finished`);
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE sync_runs
+            SET status=$3, records_seen=$4, records_upserted=$5,
+                cursor_after=COALESCE($6, cursor_after),
+                error_summary=$7, finished_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.syncRunId,
+          input.status,
+          input.recordsSeen,
+          input.recordsUpserted,
+          input.cursorAfter ?? null,
+          input.errorSummary ?? null,
+        ],
+      );
+      await client.query(
+        `UPDATE integration_connections
+            SET last_sync_at=now(), updated_at=now()
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, run.connectionId],
+      );
+      return this.mapSyncRun(updated[0]);
+    });
+  }
+
+  async upsertExternalIdentity(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalId: string;
+    personId?: string;
+    objectType: string;
+  }): Promise<ExternalIdentity> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO external_identity_map
+          (id, tenant_id, source_system, external_id, person_id, object_type)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (tenant_id, source_system, external_id, object_type)
+         DO UPDATE SET person_id=COALESCE(
+           EXCLUDED.person_id, external_identity_map.person_id
+         )
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.sourceSystem,
+          input.externalId,
+          input.personId ?? null,
+          input.objectType,
+        ],
+      );
+      return this.mapExternalIdentity(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("tenant or person not found");
+      }
+      throw error;
+    }
+  }
+
+  async listExternalIdentities(
+    tenantId: string,
+    filter?: { sourceSystem?: string; objectType?: string },
+  ): Promise<ExternalIdentity[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM external_identity_map WHERE tenant_id=$1";
+    if (filter?.sourceSystem) {
+      params.push(filter.sourceSystem);
+      sql += ` AND source_system=$${params.length}`;
+    }
+    if (filter?.objectType) {
+      params.push(filter.objectType);
+      sql += ` AND object_type=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapExternalIdentity(row));
+  }
+
+  async receiveWebhook(input: {
+    tenantId: string;
+    sourceSystem: string;
+    messageId: string;
+    payloadHash: string;
+  }): Promise<WebhookInboxMessage> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO webhook_inbox
+          (id, tenant_id, source_system, message_id, payload_hash)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (tenant_id, source_system, message_id) DO NOTHING
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.sourceSystem,
+          input.messageId,
+          input.payloadHash,
+        ],
+      );
+      if (rows[0]) return this.mapWebhook(rows[0]);
+      const { rows: existing } = await this.pool.query(
+        `SELECT * FROM webhook_inbox
+          WHERE tenant_id=$1 AND source_system=$2 AND message_id=$3`,
+        [input.tenantId, input.sourceSystem, input.messageId],
+      );
+      if (!existing[0]) {
+        throw new ConflictError("webhook message could not be recorded");
+      }
+      return this.mapWebhook(existing[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listWebhooks(
+    tenantId: string,
+    filter?: { status?: string; sourceSystem?: string },
+  ): Promise<WebhookInboxMessage[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM webhook_inbox WHERE tenant_id=$1";
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    if (filter?.sourceSystem) {
+      params.push(filter.sourceSystem);
+      sql += ` AND source_system=$${params.length}`;
+    }
+    sql += " ORDER BY received_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapWebhook(row));
+  }
+
+  async processWebhook(input: {
+    tenantId: string;
+    webhookId: string;
+    status: "PROCESSED" | "FAILED";
+    errorCode?: string;
+  }): Promise<WebhookInboxMessage> {
+    const { rows } = await this.pool.query(
+      `UPDATE webhook_inbox
+          SET status=$3, error_code=$4, processed_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND processed_at IS NULL
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.webhookId,
+        input.status,
+        input.errorCode ?? null,
+      ],
+    );
+    if (!rows[0]) {
+      const { rows: existing } = await this.pool.query(
+        "SELECT * FROM webhook_inbox WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.webhookId],
+      );
+      if (!existing[0]) notFound("WebhookInboxMessage", input.webhookId);
+      throw new ConflictError(
+        `webhook ${input.webhookId} is already processed`,
+      );
+    }
+    return this.mapWebhook(rows[0]);
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -5572,6 +6208,66 @@ export class PgPlatformStore implements PlatformStore {
       startedAt: iso(row.started_at) ?? new Date().toISOString(),
       finishedAt: iso(row.finished_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapIntegrationConnection(
+    row: QueryResultRow,
+  ): IntegrationConnection {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      provider: row.provider,
+      connectionName: row.connection_name,
+      credentialRef: row.credential_ref,
+      status: row.status,
+      config: row.config ?? {},
+      lastSyncAt: iso(row.last_sync_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapSyncRun(row: QueryResultRow): SyncRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      connectionId: row.connection_id,
+      status: row.status,
+      startedAt: iso(row.started_at),
+      finishedAt: iso(row.finished_at),
+      cursorBefore: row.cursor_before ?? undefined,
+      cursorAfter: row.cursor_after ?? undefined,
+      recordsSeen: Number(row.records_seen),
+      recordsUpserted: Number(row.records_upserted),
+      errorSummary: row.error_summary ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapExternalIdentity(row: QueryResultRow): ExternalIdentity {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      externalId: row.external_id,
+      personId: row.person_id ?? undefined,
+      objectType: row.object_type,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapWebhook(row: QueryResultRow): WebhookInboxMessage {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      messageId: row.message_id,
+      payloadHash: row.payload_hash,
+      receivedAt: iso(row.received_at) ?? new Date().toISOString(),
+      processedAt: iso(row.processed_at),
+      status: row.status,
+      errorCode: row.error_code ?? undefined,
     };
   }
 }

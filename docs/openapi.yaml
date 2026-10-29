@@ -2257,6 +2257,290 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/integration-connections:
+    get:
+      tags: [Ingestion]
+      summary: List integration connections
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingestion]
+      summary: Create an integration connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIntegrationConnection"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/integration-connections/{id}:
+    get:
+      tags: [Ingestion]
+      summary: Read an integration connection
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/integration-connections/{id}/status:
+    post:
+      tags: [Ingestion]
+      summary: Set an integration connection status
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetIntegrationConnectionStatus"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/integration-connections/{id}/sync-runs:
+    get:
+      tags: [Ingestion]
+      summary: List sync runs for a connection
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Sync runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingestion]
+      summary: Create a sync run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSyncRun"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/sync-runs/{id}/finish:
+    post:
+      tags: [Ingestion]
+      summary: Finish a sync run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinishSyncRun"
+      responses:
+        "200":
+          description: Finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/external-identities:
+    get:
+      tags: [Ingestion]
+      summary: List external identity mappings
+      parameters:
+        - name: sourceSystem
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: objectType
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Identity mappings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingestion]
+      summary: Upsert an external identity mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertExternalIdentity"
+      responses:
+        "201":
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/webhook-inbox:
+    get:
+      tags: [Ingestion]
+      summary: List webhook inbox messages
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sourceSystem
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingestion]
+      summary: Receive a webhook message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiveWebhook"
+      responses:
+        "201":
+          description: Received or replayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/webhook-inbox/{id}/process:
+    post:
+      tags: [Ingestion]
+      summary: Mark a webhook message processed or failed
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessWebhook"
+      responses:
+        "200":
+          description: Processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -4712,6 +4996,89 @@ components:
         status:
           type: string
         currentStep:
+          type: string
+
+    CreateIntegrationConnection:
+      type: object
+      required: [provider, connectionName, credentialRef]
+      properties:
+        provider:
+          type: string
+        connectionName:
+          type: string
+        credentialRef:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+
+    SetIntegrationConnectionStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    CreateSyncRun:
+      type: object
+      properties:
+        status:
+          type: string
+          default: QUEUED
+        cursorBefore:
+          type: object
+          additionalProperties: true
+
+    FinishSyncRun:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        recordsSeen:
+          type: integer
+          minimum: 0
+        recordsUpserted:
+          type: integer
+          minimum: 0
+        cursorAfter:
+          type: object
+          additionalProperties: true
+        errorSummary:
+          type: string
+
+    UpsertExternalIdentity:
+      type: object
+      required: [sourceSystem, externalId, objectType]
+      properties:
+        sourceSystem:
+          type: string
+        externalId:
+          type: string
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        objectType:
+          type: string
+
+    ReceiveWebhook:
+      type: object
+      required: [sourceSystem, messageId, payloadHash]
+      properties:
+        sourceSystem:
+          type: string
+        messageId:
+          type: string
+        payloadHash:
+          type: string
+
+    ProcessWebhook:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [PROCESSED, FAILED]
+        errorCode:
           type: string
 
     CalculationOrder:
