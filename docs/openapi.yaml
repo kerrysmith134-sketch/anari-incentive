@@ -4640,6 +4640,10 @@ components:
           type: boolean
         recordedBy:
           $ref: "#/components/schemas/Uuid"
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the approved LEGAL_GATE request for this policy version is consumed.
 
     CreateNotice:
       type: object

@@ -1,0 +1,1441 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>N-Perform 治理操作台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --ink: #16181d;
+      --muted: #5f6672;
+      --line: #e3e7ee;
+      --accent: #1d5cff;
+      --accent-ink: #ffffff;
+      --good: #0b7a53;
+      --warn: #a15c00;
+      --bad: #b42318;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --card: #171a21;
+        --ink: #f2f4f7;
+        --muted: #a7aebb;
+        --line: #2a2f3a;
+        --accent: #6d95ff;
+        --accent-ink: #0b1020;
+        --good: #6fd3a8;
+        --warn: #ffc46b;
+        --bad: #ff8a80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      padding: 32px 18px 64px;
+    }
+    main { max-width: 1180px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 0 0 14px; }
+    p.lede { color: var(--muted); margin: 0 0 24px; }
+    a { color: var(--accent); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } body { padding: 20px 14px 48px; } }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, select, button, textarea { font: inherit; }
+    input, select, textarea {
+      width: 100%;
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 10px;
+    }
+    textarea { min-height: 64px; }
+    button {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 9px;
+      padding: 8px 13px;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    button.danger { color: var(--bad); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 10px; white-space: pre-wrap; }
+    .status[data-kind="ok"] { color: var(--good); }
+    .status[data-kind="warn"] { color: var(--warn); }
+    .status[data-kind="bad"] { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+    pre {
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 300px;
+    }
+    .mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>N-Perform 治理操作台</h1>
+    <p class="lede">
+      审批、预算、政策变更、交付物、隐私与集成操作。开发用最小管理端；生产环境需 OIDC 认证与权限控制。
+      <a href="/admin">返回主管理端</a>
+    </p>
+
+    <section class="card">
+      <h2>审批请求</h2>
+      <div class="grid">
+        <div>
+          <label>动作类型</label>
+          <input id="approvalAction" value="SETTLEMENT_LOCK" />
+        </div>
+        <div>
+          <label>目标类型</label>
+          <input id="approvalTargetType" value="SETTLEMENT_BATCH" />
+        </div>
+        <div>
+          <label>目标 ID</label>
+          <input id="approvalTargetId" placeholder="UUID" />
+        </div>
+        <div>
+          <label>请求人 ID</label>
+          <input id="approvalRequester" value="00000000-0000-4000-8000-000000000001" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>风险等级</label>
+          <select id="approvalRisk">
+            <option value="T1">T1</option>
+            <option value="T2" selected>T2</option>
+            <option value="T3">T3</option>
+            <option value="T0">T0</option>
+          </select>
+        </div>
+        <div>
+          <label>所需批准数</label>
+          <input id="approvalRequired" value="1" />
+        </div>
+        <div>
+          <label>幂等键</label>
+          <input id="approvalKey" />
+        </div>
+        <div>
+          <label>处理人 ID</label>
+          <input id="approvalApprover" value="00000000-0000-4000-8000-000000000003" />
+        </div>
+      </div>
+      <label style="margin-top:10px">Payload (JSON)</label>
+      <textarea id="approvalPayload">{}</textarea>
+      <div class="actions">
+        <button class="primary" id="createApproval">创建审批</button>
+        <select id="approvalFilter" style="width:auto">
+          <option value="">全部状态</option>
+          <option value="PENDING">PENDING</option>
+          <option value="APPROVED">APPROVED</option>
+          <option value="REJECTED">REJECTED</option>
+          <option value="EXPIRED">EXPIRED</option>
+        </select>
+        <button id="refreshApprovals">刷新</button>
+      </div>
+      <div class="status" id="approvalStatus"></div>
+      <table>
+        <thead><tr><th>ID</th><th>动作/目标</th><th>状态</th><th>消费</th><th>操作</th></tr></thead>
+        <tbody id="approvalRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>预算池与现金门禁</h2>
+      <div class="grid">
+        <div><label>周期 ID</label><input id="poolCycle" value="00000000-0000-4000-8000-000000000020" /></div>
+        <div><label>编码</label><input id="poolCode" value="CORE" /></div>
+        <div><label>名称</label><input id="poolName" value="Core pool" /></div>
+        <div><label>类型</label><input id="poolType" value="STANDARD" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>币种</label><input id="poolCurrency" value="CNY" /></div>
+        <div><label>批准金额</label><input id="poolAmount" value="10000" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createPool" style="width:100%">创建预算池</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshPools" style="width:100%">刷新</button></div>
+      </div>
+      <div class="status" id="poolStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>状态</th><th>已批准/已占用</th><th>操作</th></tr></thead>
+        <tbody id="poolRows"></tbody>
+      </table>
+      <div class="grid" style="margin-top:12px">
+        <div><label>分配目标类型</label><input id="allocationTargetType" value="WORK_PACKAGE" /></div>
+        <div><label>分配目标 ID</label><input id="allocationTargetId" placeholder="UUID" /></div>
+        <div><label>金额</label><input id="allocationAmount" value="1000" /></div>
+        <div><label>预算池</label><select id="allocationPool"></select></div>
+      </div>
+      <div class="actions">
+        <button id="allocateBudget">新增分配</button>
+        <button id="loadAllocations">查看分配</button>
+      </div>
+      <table>
+        <thead><tr><th>目标</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="allocationRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>现金门禁日期</label><input id="gateDate" value="2026-10-31" /></div>
+        <div><label>安全储备月数</label><input id="gateMonths" value="3.5" /></div>
+        <div><label>13 周预测引用</label><input id="gateForecast" value="forecast-1" /></div>
+        <div><label>通过门禁</label><select id="gatePasses"><option value="true">是</option><option value="false">否</option></select></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>批准人 ID</label><input id="gateApprover" value="00000000-0000-4000-8000-000000000003" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createGate" style="width:100%">记录现金门禁</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshGates" style="width:100%">刷新门禁</button></div>
+      </div>
+      <div class="status" id="gateStatus"></div>
+      <table>
+        <thead><tr><th>周期</th><th>日期</th><th>储备月数</th><th>是否通过</th></tr></thead>
+        <tbody id="gateRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>政策变更、测试用例与指标</h2>
+      <div class="grid">
+        <div><label>政策编码</label><input id="changeCode" value="GENERIC_CONTRIBUTION_V1" /></div>
+        <div><label>目标政策版本</label><select id="changeTargetPolicy"></select></div>
+        <div><label>变更类型</label><input id="changeType" value="POOL_RATE" /></div>
+        <div><label>生效时间（ISO）</label><input id="changeEffective" value="2026-11-01T00:00:00Z" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>请求人 ID</label><input id="changeRequester" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>影响模拟（JSON）</label><input id="changeImpact" value="{}" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createChange" style="width:100%">创建变更单</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshChanges" style="width:100%">刷新</button></div>
+      </div>
+      <label style="margin-top:10px">变更原因</label>
+      <input id="changeReason" value="Align the pool with the approved plan" />
+      <div class="status" id="changeStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="changeRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>测试用例政策版本</label><select id="casePolicy"></select></div>
+        <div><label>用例编码</label><input id="caseCode" value="CASE-1" /></div>
+        <div><label>分类</label><select id="caseCategory"><option>NORMAL</option><option>BOUNDARY</option><option>EXCEPTION</option><option>HISTORICAL</option></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createCase" style="width:100%">创建用例</button></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>输入（JSON）</label><input id="caseInput" value='{"grossProfit":"100000"}' /></div>
+        <div><label>期望输出（JSON）</label><input id="caseExpected" value='{"roundedAmount":"5000"}' /></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshCases" style="width:100%">刷新用例</button></div>
+      </div>
+      <div class="status" id="caseStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>分类</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="caseRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>指标编码</label><input id="metricCode" value="GP_MARGIN" /></div>
+        <div><label>版本</label><input id="metricVersion" value="1" /></div>
+        <div><label>名称</label><input id="metricName" value="Gross profit margin" /></div>
+        <div><label>数据类型</label><input id="metricDataType" value="DECIMAL" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>生效日期</label><input id="metricEffectiveFrom" value="2026-01-01" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createMetric" style="width:100%">创建指标</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshMetrics" style="width:100%">刷新指标</button></div>
+      </div>
+      <div class="status" id="metricStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="metricRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>交付物与验收</h2>
+      <div class="grid">
+        <div><label>工作包 ID</label><input id="deliverablePackage" placeholder="UUID" /></div>
+        <div><label>标题</label><input id="deliverableTitle" value="Signed acceptance certificate" /></div>
+        <div><label>类型</label><input id="deliverableType" value="DOCUMENT" /></div>
+        <div><label>负责人 ID</label><input id="deliverableOwner" value="00000000-0000-4000-8000-000000000001" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>验收人 ID</label><input id="deliverableReviewer" value="00000000-0000-4000-8000-000000000002" /></div>
+        <div><label>验收决定</label><select id="deliverableDecision"><option>ACCEPT</option><option>ACCEPT_WITH_ISSUES</option><option>REJECT</option></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createDeliverable" style="width:100%">创建交付物</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="loadDeliverables" style="width:100%">加载交付物</button></div>
+      </div>
+      <div class="status" id="deliverableStatus"></div>
+      <table>
+        <thead><tr><th>标题</th><th>状态</th><th>版本</th><th>操作</th></tr></thead>
+        <tbody id="deliverableRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>数据主体请求与保留策略</h2>
+      <div class="actions">
+        <button id="refreshDsars">刷新 DSAR</button>
+        <button id="refreshRetention">刷新保留策略</button>
+        <button id="showRetentionReport">保留报告</button>
+      </div>
+      <div class="status" id="privacyStatus"></div>
+      <table>
+        <thead><tr><th>类型</th><th>人员</th><th>状态</th><th>提交</th><th>操作</th></tr></thead>
+        <tbody id="dsarRows"></tbody>
+      </table>
+      <div class="grid" style="margin-top:12px">
+        <div><label>数据类别</label><input id="retentionCategory" value="EVIDENCE" /></div>
+        <div><label>保留月数</label><input id="retentionMonths" value="24" /></div>
+        <div><label>法律依据</label><input id="retentionBasis" value="Employment contract" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createRetention" style="width:100%">创建保留策略</button></div>
+      </div>
+      <table>
+        <thead><tr><th>类别</th><th>月数</th><th>法定保留</th><th>操作</th></tr></thead>
+        <tbody id="retentionRows"></tbody>
+      </table>
+      <pre id="retentionReport" hidden></pre>
+    </section>
+
+    <section class="card">
+      <h2>集成与收件箱</h2>
+      <div class="grid">
+        <div><label>提供商</label><input id="connectionProvider" value="hubspot" /></div>
+        <div><label>连接名称</label><input id="connectionName" value="CRM" /></div>
+        <div><label>凭据引用</label><input id="connectionCredential" value="vault://crm" /></div>
+        <div><label>配置（JSON）</label><input id="connectionConfig" value="{}" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createConnection">创建连接</button>
+        <button id="refreshConnections">刷新连接</button>
+      </div>
+      <div class="status" id="integrationStatus"></div>
+      <table>
+        <thead><tr><th>名称</th><th>提供商</th><th>状态</th><th>最近同步</th><th>操作</th></tr></thead>
+        <tbody id="connectionRows"></tbody>
+      </table>
+      <div class="grid" style="margin-top:12px">
+        <div><label>同步连接</label><select id="syncConnection"></select></div>
+        <div><label>同步状态</label><input id="syncStatusValue" value="RUNNING" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createSyncRun" style="width:100%">创建同步运行</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="loadSyncRuns" style="width:100%">查看同步运行</button></div>
+      </div>
+      <table>
+        <thead><tr><th>状态</th><th>读取</th><th>写入</th><th>操作</th></tr></thead>
+        <tbody id="syncRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>外部系统</label><input id="identitySource" value="hubspot" /></div>
+        <div><label>外部 ID</label><input id="identityExternal" value="contact-1" /></div>
+        <div><label>人员 ID</label><input id="identityPerson" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>对象类型</label><input id="identityObject" value="PERSON" /></div>
+      </div>
+      <div class="actions">
+        <button id="upsertIdentity">写入身份映射</button>
+        <button id="refreshIdentities">刷新身份映射</button>
+      </div>
+      <table>
+        <thead><tr><th>来源</th><th>外部 ID</th><th>人员</th><th>对象</th></tr></thead>
+        <tbody id="identityRows"></tbody>
+      </table>
+
+      <div class="actions" style="margin-top:12px">
+        <button id="refreshWebhooks">刷新 Webhook 收件箱</button>
+        <button id="refreshInbox">刷新消费者收件箱</button>
+      </div>
+      <table>
+        <thead><tr><th>来源</th><th>消息</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="webhookRows"></tbody>
+      </table>
+      <table>
+        <thead><tr><th>消费者</th><th>消息</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="inboxRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>账本调整</h2>
+      <div class="grid">
+        <div><label>原始账本条目</label><select id="adjustmentEntry"></select></div>
+        <div><label>金额</label><input id="adjustmentAmount" value="-1000" /></div>
+        <div><label>原因码</label><input id="adjustmentReason" value="EVIDENCE_CORRECTION" /></div>
+        <div><label>批准人 ID</label><input id="adjustmentApprover" value="00000000-0000-4000-8000-000000000003" /></div>
+      </div>
+      <label style="margin-top:10px">说明</label>
+      <input id="adjustmentExplanation" value="Corrected after the evidence review" />
+      <div class="actions">
+        <button class="primary" id="adjustLedger">追加调整</button>
+        <button id="refreshAdjustments">刷新调整记录</button>
+        <button id="refreshLedgerEntries">刷新账本</button>
+      </div>
+      <div class="status" id="adjustmentStatus"></div>
+      <table>
+        <thead><tr><th>原始条目</th><th>调整条目</th><th>原因</th><th>批准人</th></tr></thead>
+        <tbody id="adjustmentRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>AI 与工作流记录</h2>
+      <div class="actions">
+        <button id="refreshAi">刷新 AI 记录</button>
+      </div>
+      <div class="status" id="aiStatus"></div>
+      <table>
+        <thead><tr><th>建议</th><th>模型</th><th>校验</th><th>接受</th></tr></thead>
+        <tbody id="suggestionRows"></tbody>
+      </table>
+      <table>
+        <thead><tr><th>评测</th><th>模型</th><th>样本</th><th>通过</th></tr></thead>
+        <tbody id="evaluationRows"></tbody>
+      </table>
+      <table>
+        <thead><tr><th>工作流</th><th>版本</th><th>状态</th><th>步骤</th></tr></thead>
+        <tbody id="workflowRows"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const owner = "00000000-0000-4000-8000-000000000001";
+    const approver = "00000000-0000-4000-8000-000000000003";
+    const cycle = "00000000-0000-4000-8000-000000000020";
+
+    function setStatus(id, text, kind = "") {
+      const el = $(id);
+      if (!el) return;
+      el.textContent = text;
+      el.dataset.kind = kind;
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { "content-type": "application/json" },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error?.message || `HTTP ${response.status}`);
+      }
+      return body.data;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[char]));
+    }
+
+    function jsonValue(id, fallback) {
+      const text = $(id).value.trim();
+      if (!text) return fallback;
+      return JSON.parse(text);
+    }
+
+    async function loadPolicyOptions() {
+      const versions = await api("/api/v1/policy-versions");
+      const options = versions.map(
+        (version) =>
+          `<option value="${version.policyVersionId}">${escapeHtml(version.code)} v${version.version}</option>`,
+      ).join("");
+      $("changeTargetPolicy").innerHTML = options;
+      $("casePolicy").innerHTML = options;
+    }
+
+    async function loadApprovals() {
+      try {
+        const filter = $("approvalFilter").value;
+        const approvals = await api(
+          `/api/v1/approval-requests${filter ? `?status=${filter}` : ""}`,
+        );
+        $("approvalRows").innerHTML = approvals.map((item) => `<tr>
+          <td class="mono">${escapeHtml(item.id.slice(0, 8))}</td>
+          <td>${escapeHtml(item.actionType)}<br><span class="mono">${escapeHtml(item.targetType)}/${escapeHtml(item.targetId.slice(0, 8))}</span></td>
+          <td><span class="pill">${escapeHtml(item.status)}</span> ${item.approvedCount}/${item.requiredApprovals}</td>
+          <td>${item.consumedAt ? "已消费" : "—"}</td>
+          <td>
+            ${item.status === "PENDING" ? `<button data-approve="${item.id}" data-hash="${escapeHtml(item.payloadHash)}">批准</button>` : ""}
+            ${item.status === "APPROVED" && !item.consumedAt ? `<button data-consume="${item.id}">消费</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus("approvalStatus", `共 ${approvals.length} 条审批请求`, "ok");
+      } catch (error) {
+        setStatus("approvalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createApproval() {
+      try {
+        await api("/api/v1/approval-requests", {
+          method: "POST",
+          body: JSON.stringify({
+            actionType: $("approvalAction").value.trim(),
+            targetType: $("approvalTargetType").value.trim(),
+            targetId: $("approvalTargetId").value.trim(),
+            requestedByType: "USER",
+            requestedById: $("approvalRequester").value.trim(),
+            riskTier: $("approvalRisk").value,
+            requiredApprovals: Number($("approvalRequired").value),
+            payload: jsonValue("approvalPayload", {}),
+            idempotencyKey: $("approvalKey").value.trim() ||
+              `approval-${Date.now()}`,
+          }),
+        });
+        setStatus("approvalStatus", "审批请求已创建", "ok");
+        await loadApprovals();
+      } catch (error) {
+        setStatus("approvalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function approveRequest(id, payloadHash) {
+      try {
+        await api(`/api/v1/approval-requests/${id}/decide`, {
+          method: "POST",
+          body: JSON.stringify({
+            decision: "APPROVE",
+            approverPersonId: $("approvalApprover").value.trim(),
+            payloadHash,
+          }),
+        });
+        setStatus("approvalStatus", "审批已记录", "ok");
+        await loadApprovals();
+      } catch (error) {
+        setStatus("approvalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function consumeRequest(id) {
+      try {
+        await api(`/api/v1/approval-requests/${id}/consume`, {
+          method: "POST",
+          body: JSON.stringify({
+            consumedBy: $("approvalApprover").value.trim(),
+          }),
+        });
+        setStatus("approvalStatus", "审批已消费", "ok");
+        await loadApprovals();
+      } catch (error) {
+        setStatus("approvalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadPools() {
+      try {
+        const pools = await api(
+          `/api/v1/budget-pools?cycleId=${encodeURIComponent($("poolCycle").value.trim())}`,
+        );
+        $("poolRows").innerHTML = pools.map((pool) => `<tr>
+          <td>${escapeHtml(pool.code)}</td>
+          <td><span class="pill">${escapeHtml(pool.status)}</span></td>
+          <td class="mono">${escapeHtml(pool.approvedAmount)} / ${escapeHtml(pool.committedAmount)}</td>
+          <td>
+            ${pool.status === "DRAFT" ? `<button data-approve-pool="${pool.id}">批准</button>` : ""}
+            <button data-view-allocations="${pool.id}">分配</button>
+          </td>
+        </tr>`).join("");
+        $("allocationPool").innerHTML = pools.map(
+          (pool) =>
+            `<option value="${pool.id}">${escapeHtml(pool.code)} (${escapeHtml(pool.status)})</option>`,
+        ).join("");
+        setStatus("poolStatus", `共 ${pools.length} 个预算池`, "ok");
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createPool() {
+      try {
+        await api("/api/v1/budget-pools", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId: $("poolCycle").value.trim(),
+            code: $("poolCode").value.trim(),
+            name: $("poolName").value.trim(),
+            poolType: $("poolType").value.trim(),
+            currency: $("poolCurrency").value.trim(),
+            approvedAmount: $("poolAmount").value.trim(),
+          }),
+        });
+        setStatus("poolStatus", "预算池已创建", "ok");
+        await loadPools();
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function approvePool(id) {
+      try {
+        await api(`/api/v1/budget-pools/${id}/approve`, {
+          method: "POST",
+          body: JSON.stringify({ approvedBy: approver }),
+        });
+        setStatus("poolStatus", "预算池已批准", "ok");
+        await loadPools();
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadAllocations(poolId) {
+      try {
+        const allocations = await api(
+          `/api/v1/budget-pools/${poolId}/allocations`,
+        );
+        $("allocationRows").innerHTML = allocations.map((item) => `<tr>
+          <td>${escapeHtml(item.targetType)}<br><span class="mono">${escapeHtml(item.targetId.slice(0, 8))}</span></td>
+          <td class="mono">${escapeHtml(item.amount)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.status === "RESERVED" ? `<button data-release="${item.id}">释放</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus("poolStatus", `共 ${allocations.length} 条分配`, "ok");
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function allocateBudget() {
+      try {
+        await api(
+          `/api/v1/budget-pools/${$("allocationPool").value}/allocations`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              targetType: $("allocationTargetType").value.trim(),
+              targetId: $("allocationTargetId").value.trim(),
+              amount: $("allocationAmount").value.trim(),
+            }),
+          },
+        );
+        setStatus("poolStatus", "预算分配已创建", "ok");
+        await loadPools();
+        await loadAllocations($("allocationPool").value);
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function releaseAllocation(id) {
+      try {
+        await api(`/api/v1/budget-allocations/${id}/release`, {
+          method: "POST",
+        });
+        setStatus("poolStatus", "预算分配已释放", "ok");
+        await loadPools();
+        await loadAllocations($("allocationPool").value);
+      } catch (error) {
+        setStatus("poolStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadGates() {
+      try {
+        const gates = await api(
+          `/api/v1/cash-gate-inputs?cycleId=${encodeURIComponent($("poolCycle").value.trim())}`,
+        );
+        $("gateRows").innerHTML = gates.map((gate) => `<tr>
+          <td class="mono">${escapeHtml(gate.cycleId.slice(0, 8))}</td>
+          <td>${escapeHtml(gate.asOfDate)}</td>
+          <td class="mono">${escapeHtml(gate.safetyReserveMonths)}</td>
+          <td>${gate.passesGate ? "是" : "否"}</td>
+        </tr>`).join("");
+        setStatus("gateStatus", `共 ${gates.length} 条门禁记录`, "ok");
+      } catch (error) {
+        setStatus("gateStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createGate() {
+      try {
+        await api("/api/v1/cash-gate-inputs", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId: $("poolCycle").value.trim(),
+            asOfDate: $("gateDate").value.trim(),
+            safetyReserveMonths: $("gateMonths").value.trim(),
+            thirteenWeekForecastRef: $("gateForecast").value.trim(),
+            passesGate: $("gatePasses").value === "true",
+            approvedBy: $("gateApprover").value.trim(),
+          }),
+        });
+        setStatus("gateStatus", "现金门禁已记录", "ok");
+        await loadGates();
+      } catch (error) {
+        setStatus("gateStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadChanges() {
+      try {
+        const changes = await api("/api/v1/rule-change-orders");
+        $("changeRows").innerHTML = changes.map((item) => `<tr>
+          <td>${escapeHtml(item.policyCode)}</td>
+          <td>${escapeHtml(item.changeType)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>
+            ${item.status === "DRAFT" ? `<button data-approve-change="${item.id}">批准</button><button data-reject-change="${item.id}">拒绝</button>` : ""}
+            ${item.status === "APPROVED" ? `<button data-publicize-change="${item.id}">公示</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus("changeStatus", `共 ${changes.length} 条变更单`, "ok");
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createChange() {
+      try {
+        await api("/api/v1/rule-change-orders", {
+          method: "POST",
+          body: JSON.stringify({
+            policyCode: $("changeCode").value.trim(),
+            toPolicyVersionId: $("changeTargetPolicy").value,
+            changeType: $("changeType").value.trim(),
+            reason: $("changeReason").value.trim(),
+            impactSimulation: jsonValue("changeImpact", {}),
+            effectiveFrom: $("changeEffective").value.trim(),
+            requestedBy: $("changeRequester").value.trim(),
+          }),
+        });
+        setStatus("changeStatus", "变更单已创建", "ok");
+        await loadChanges();
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function changeAction(id, action) {
+      try {
+        await api(`/api/v1/rule-change-orders/${id}/${action}`, {
+          method: "POST",
+          body: action === "publicize"
+            ? undefined
+            : JSON.stringify({ approvedBy: approver }),
+        });
+        setStatus("changeStatus", `变更单已${action}`, "ok");
+        await loadChanges();
+      } catch (error) {
+        setStatus("changeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadCases() {
+      try {
+        const cases = await api("/api/v1/policy-test-cases");
+        $("caseRows").innerHTML = cases.map((item) => `<tr>
+          <td class="mono">${escapeHtml(item.caseCode)}</td>
+          <td>${escapeHtml(item.category)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.status === "ACTIVE" ? `<button data-retire-case="${item.id}">停用</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus("caseStatus", `共 ${cases.length} 条测试用例`, "ok");
+      } catch (error) {
+        setStatus("caseStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createCase() {
+      try {
+        await api("/api/v1/policy-test-cases", {
+          method: "POST",
+          body: JSON.stringify({
+            policyVersionId: $("casePolicy").value,
+            caseCode: $("caseCode").value.trim(),
+            category: $("caseCategory").value,
+            input: jsonValue("caseInput", {}),
+            expectedOutput: jsonValue("caseExpected", {}),
+          }),
+        });
+        setStatus("caseStatus", "测试用例已创建", "ok");
+        await loadCases();
+      } catch (error) {
+        setStatus("caseStatus", String(error.message), "bad");
+      }
+    }
+
+    async function retireCase(id) {
+      try {
+        await api(`/api/v1/policy-test-cases/${id}/retire`, { method: "POST" });
+        setStatus("caseStatus", "测试用例已停用", "ok");
+        await loadCases();
+      } catch (error) {
+        setStatus("caseStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadMetrics() {
+      try {
+        const metrics = await api("/api/v1/metric-definitions");
+        $("metricRows").innerHTML = metrics.map((item) => `<tr>
+          <td>${escapeHtml(item.code)}</td>
+          <td>v${item.version}</td>
+          <td><span class="pill">${item.active ? "ACTIVE" : "RETIRED"}</span></td>
+          <td>${item.active ? `<button data-retire-metric="${item.id}">停用</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus("metricStatus", `共 ${metrics.length} 个指标`, "ok");
+      } catch (error) {
+        setStatus("metricStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createMetric() {
+      try {
+        await api("/api/v1/metric-definitions", {
+          method: "POST",
+          body: JSON.stringify({
+            code: $("metricCode").value.trim(),
+            version: Number($("metricVersion").value),
+            name: $("metricName").value.trim(),
+            dataType: $("metricDataType").value.trim(),
+            effectiveFrom: $("metricEffectiveFrom").value.trim(),
+          }),
+        });
+        setStatus("metricStatus", "指标已创建", "ok");
+        await loadMetrics();
+      } catch (error) {
+        setStatus("metricStatus", String(error.message), "bad");
+      }
+    }
+
+    async function retireMetric(id) {
+      try {
+        await api(`/api/v1/metric-definitions/${id}/retire`, {
+          method: "POST",
+        });
+        setStatus("metricStatus", "指标已停用", "ok");
+        await loadMetrics();
+      } catch (error) {
+        setStatus("metricStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadDeliverables() {
+      const workPackageId = $("deliverablePackage").value.trim();
+      if (!workPackageId) {
+        setStatus("deliverableStatus", "请填写工作包 ID", "warn");
+        return;
+      }
+      try {
+        const deliverables = await api(
+          `/api/v1/work-packages/${workPackageId}/deliverables`,
+        );
+        $("deliverableRows").innerHTML = deliverables.map((item) => `<tr>
+          <td>${escapeHtml(item.title)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.version}</td>
+          <td>
+            ${item.status === "DRAFT" || item.status === "REJECTED" ? `<button data-submit-deliverable="${item.id}">提交</button>` : ""}
+            ${item.status === "SUBMITTED" ? `<button data-accept-deliverable="${item.id}">验收</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus(
+          "deliverableStatus",
+          `共 ${deliverables.length} 个交付物`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("deliverableStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createDeliverable() {
+      try {
+        await api(
+          `/api/v1/work-packages/${$("deliverablePackage").value.trim()}/deliverables`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              title: $("deliverableTitle").value.trim(),
+              deliverableType: $("deliverableType").value.trim(),
+              ownerPersonId: $("deliverableOwner").value.trim(),
+            }),
+          },
+        );
+        setStatus("deliverableStatus", "交付物已创建", "ok");
+        await loadDeliverables();
+      } catch (error) {
+        setStatus("deliverableStatus", String(error.message), "bad");
+      }
+    }
+
+    async function deliverableAction(id, action) {
+      try {
+        if (action === "submit") {
+          await api(`/api/v1/deliverables/${id}/submit`, {
+            method: "POST",
+            body: JSON.stringify({ artifactRef: `ui://${Date.now()}` }),
+          });
+        } else {
+          await api(`/api/v1/deliverables/${id}/acceptance`, {
+            method: "POST",
+            body: JSON.stringify({
+              decision: $("deliverableDecision").value,
+              reviewerPersonId: $("deliverableReviewer").value.trim(),
+              criteriaResults: {},
+            }),
+          });
+        }
+        setStatus("deliverableStatus", "交付物状态已更新", "ok");
+        await loadDeliverables();
+      } catch (error) {
+        setStatus("deliverableStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadDsars() {
+      try {
+        const dsars = await api("/api/v1/dsar-requests");
+        $("dsarRows").innerHTML = dsars.map((item) => `<tr>
+          <td>${escapeHtml(item.requestType)}</td>
+          <td class="mono">${escapeHtml(item.personId.slice(0, 8))}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${escapeHtml(item.receivedAt)}</td>
+          <td>${item.status === "OPEN" ? `<button data-resolve-dsar="${item.id}">处理</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus("privacyStatus", `共 ${dsars.length} 条 DSAR`, "ok");
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function resolveDsar(id) {
+      const resolution = window.prompt("处理结果（RESOLVED / REJECTED）", "RESOLVED");
+      if (!resolution) return;
+      const resolutionRef = window.prompt("处理引用", `DSAR-${Date.now()}`);
+      if (!resolutionRef) return;
+      try {
+        await api(`/api/v1/dsar-requests/${id}/resolve`, {
+          method: "POST",
+          body: JSON.stringify({
+            resolution: resolution.toUpperCase(),
+            resolutionRef,
+          }),
+        });
+        setStatus("privacyStatus", "DSAR 已处理", "ok");
+        await loadDsars();
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadRetention() {
+      try {
+        const policies = await api("/api/v1/retention-policies");
+        $("retentionRows").innerHTML = policies.map((item) => `<tr>
+          <td>${escapeHtml(item.dataCategory)}</td>
+          <td>${item.retentionMonths}</td>
+          <td>${item.legalHold ? "是" : "否"}</td>
+          <td><button data-toggle-hold="${item.id}" data-hold="${item.legalHold}">${item.legalHold ? "解除" : "设置"}法定保留</button></td>
+        </tr>`).join("");
+        setStatus("privacyStatus", `共 ${policies.length} 条保留策略`, "ok");
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createRetention() {
+      try {
+        await api("/api/v1/retention-policies", {
+          method: "POST",
+          body: JSON.stringify({
+            dataCategory: $("retentionCategory").value.trim(),
+            retentionMonths: Number($("retentionMonths").value),
+            legalBasis: $("retentionBasis").value.trim(),
+          }),
+        });
+        setStatus("privacyStatus", "保留策略已创建", "ok");
+        await loadRetention();
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function toggleHold(id, current) {
+      try {
+        await api(`/api/v1/retention-policies/${id}/legal-hold`, {
+          method: "POST",
+          body: JSON.stringify({ legalHold: !current }),
+        });
+        setStatus("privacyStatus", "法定保留已更新", "ok");
+        await loadRetention();
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function showRetentionReport() {
+      try {
+        const report = await api("/api/v1/retention-policies/report");
+        const el = $("retentionReport");
+        el.hidden = false;
+        el.textContent = JSON.stringify(report, null, 2);
+        setStatus("privacyStatus", "保留报告已生成", "ok");
+      } catch (error) {
+        setStatus("privacyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadConnections() {
+      try {
+        const connections = await api("/api/v1/integration-connections");
+        $("connectionRows").innerHTML = connections.map((item) => `<tr>
+          <td>${escapeHtml(item.connectionName)}</td>
+          <td>${escapeHtml(item.provider)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${escapeHtml(item.lastSyncAt || "—")}</td>
+          <td><button data-toggle-connection="${item.id}" data-status="${escapeHtml(item.status)}">切换状态</button></td>
+        </tr>`).join("");
+        $("syncConnection").innerHTML = connections.map(
+          (item) =>
+            `<option value="${item.id}">${escapeHtml(item.connectionName)}</option>`,
+        ).join("");
+        setStatus(
+          "integrationStatus",
+          `共 ${connections.length} 个连接`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createConnection() {
+      try {
+        await api("/api/v1/integration-connections", {
+          method: "POST",
+          body: JSON.stringify({
+            provider: $("connectionProvider").value.trim(),
+            connectionName: $("connectionName").value.trim(),
+            credentialRef: $("connectionCredential").value.trim(),
+            config: jsonValue("connectionConfig", {}),
+          }),
+        });
+        setStatus("integrationStatus", "连接已创建", "ok");
+        await loadConnections();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function toggleConnection(id, current) {
+      try {
+        await api(`/api/v1/integration-connections/${id}/status`, {
+          method: "POST",
+          body: JSON.stringify({
+            status: current === "ACTIVE" ? "PAUSED" : "ACTIVE",
+          }),
+        });
+        setStatus("integrationStatus", "连接状态已更新", "ok");
+        await loadConnections();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createSyncRun() {
+      try {
+        await api(
+          `/api/v1/integration-connections/${$("syncConnection").value}/sync-runs`,
+          {
+            method: "POST",
+            body: JSON.stringify({ status: $("syncStatusValue").value.trim() }),
+          },
+        );
+        setStatus("integrationStatus", "同步运行已创建", "ok");
+        await loadSyncRuns();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadSyncRuns() {
+      try {
+        const runs = await api(
+          `/api/v1/integration-connections/${$("syncConnection").value}/sync-runs`,
+        );
+        $("syncRows").innerHTML = runs.map((run) => `<tr>
+          <td><span class="pill">${escapeHtml(run.status)}</span></td>
+          <td>${run.recordsSeen}</td>
+          <td>${run.recordsUpserted}</td>
+          <td>${run.finishedAt ? "—" : `<button data-finish-sync="${run.id}">完成</button>`}</td>
+        </tr>`).join("");
+        setStatus("integrationStatus", `共 ${runs.length} 次同步`, "ok");
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function finishSyncRun(id) {
+      const seen = Number(window.prompt("读取记录数", "0") || 0);
+      const upserted = Number(window.prompt("写入记录数", "0") || 0);
+      try {
+        await api(`/api/v1/sync-runs/${id}/finish`, {
+          method: "POST",
+          body: JSON.stringify({
+            status: "COMPLETED",
+            recordsSeen: seen,
+            recordsUpserted: upserted,
+          }),
+        });
+        setStatus("integrationStatus", "同步运行已完成", "ok");
+        await loadSyncRuns();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function upsertIdentity() {
+      try {
+        await api("/api/v1/external-identities", {
+          method: "POST",
+          body: JSON.stringify({
+            sourceSystem: $("identitySource").value.trim(),
+            externalId: $("identityExternal").value.trim(),
+            personId: $("identityPerson").value.trim() || undefined,
+            objectType: $("identityObject").value.trim(),
+          }),
+        });
+        setStatus("integrationStatus", "身份映射已写入", "ok");
+        await loadIdentities();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadIdentities() {
+      try {
+        const identities = await api("/api/v1/external-identities");
+        $("identityRows").innerHTML = identities.map((item) => `<tr>
+          <td>${escapeHtml(item.sourceSystem)}</td>
+          <td class="mono">${escapeHtml(item.externalId)}</td>
+          <td class="mono">${escapeHtml((item.personId || "—").slice(0, 8))}</td>
+          <td>${escapeHtml(item.objectType)}</td>
+        </tr>`).join("");
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadWebhooks() {
+      try {
+        const messages = await api("/api/v1/webhook-inbox");
+        $("webhookRows").innerHTML = messages.map((item) => `<tr>
+          <td>${escapeHtml(item.sourceSystem)}</td>
+          <td class="mono">${escapeHtml(item.messageId)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.processedAt ? "—" : `<button data-process-webhook="${item.id}">处理</button>`}</td>
+        </tr>`).join("");
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function processWebhook(id) {
+      const status = window.prompt("处理结果（PROCESSED / FAILED）", "PROCESSED");
+      if (!status) return;
+      try {
+        await api(`/api/v1/webhook-inbox/${id}/process`, {
+          method: "POST",
+          body: JSON.stringify({ status: status.toUpperCase() }),
+        });
+        setStatus("integrationStatus", "Webhook 已处理", "ok");
+        await loadWebhooks();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadInbox() {
+      try {
+        const messages = await api("/api/v1/inbox-messages");
+        $("inboxRows").innerHTML = messages.map((item) => `<tr>
+          <td>${escapeHtml(item.consumerName)}</td>
+          <td class="mono">${escapeHtml(item.messageId)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${item.processedAt ? "—" : `<button data-process-inbox="${item.id}">处理</button>`}</td>
+        </tr>`).join("");
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function processInbox(id) {
+      const status = window.prompt("处理结果（PROCESSED / FAILED / IGNORED）", "PROCESSED");
+      if (!status) return;
+      try {
+        await api(`/api/v1/inbox-messages/${id}/process`, {
+          method: "POST",
+          body: JSON.stringify({ status: status.toUpperCase() }),
+        });
+        setStatus("integrationStatus", "消费者消息已处理", "ok");
+        await loadInbox();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadLedgerEntries() {
+      try {
+        const entries = await api("/api/v1/ledger");
+        const options = entries.map(
+          (entry) =>
+            `<option value="${entry.id}">${escapeHtml(entry.entryType)} ${escapeHtml(entry.amount)} ${escapeHtml(entry.currency)} (${escapeHtml(entry.id.slice(0, 8))})</option>`,
+        ).join("");
+        $("adjustmentEntry").innerHTML = options;
+      } catch (error) {
+        setStatus("adjustmentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadAdjustments() {
+      try {
+        const records = await api("/api/v1/adjustment-records");
+        $("adjustmentRows").innerHTML = records.map((item) => `<tr>
+          <td class="mono">${escapeHtml(item.originalLedgerId.slice(0, 8))}</td>
+          <td class="mono">${escapeHtml(item.adjustmentLedgerId.slice(0, 8))}</td>
+          <td>${escapeHtml(item.reasonCode)}</td>
+          <td class="mono">${escapeHtml(item.approvedBy.slice(0, 8))}</td>
+        </tr>`).join("");
+        setStatus("adjustmentStatus", `共 ${records.length} 条调整记录`, "ok");
+      } catch (error) {
+        setStatus("adjustmentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function adjustLedger() {
+      try {
+        await api(
+          `/api/v1/ledger/${$("adjustmentEntry").value}/adjustments`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              amount: $("adjustmentAmount").value.trim(),
+              reasonCode: $("adjustmentReason").value.trim(),
+              explanation: $("adjustmentExplanation").value.trim(),
+              approvedBy: $("adjustmentApprover").value.trim(),
+              idempotencyKey: `adjustment-${Date.now()}`,
+            }),
+          },
+        );
+        setStatus("adjustmentStatus", "账本调整已追加", "ok");
+        await loadLedgerEntries();
+        await loadAdjustments();
+      } catch (error) {
+        setStatus("adjustmentStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadAi() {
+      try {
+        const [suggestions, evaluations, workflows] = await Promise.all([
+          api("/api/v1/ai-suggestion-logs"),
+          api("/api/v1/model-evaluation-runs"),
+          api("/api/v1/workflow-runs"),
+        ]);
+        $("suggestionRows").innerHTML = suggestions.map((item) => `<tr>
+          <td>${escapeHtml(item.suggestionType)}</td>
+          <td>${escapeHtml(item.modelName || "—")}</td>
+          <td>${escapeHtml(item.validationStatus)}</td>
+          <td>${item.acceptedAt ? "是" : "否"}</td>
+        </tr>`).join("");
+        $("evaluationRows").innerHTML = evaluations.map((item) => `<tr>
+          <td>${escapeHtml(item.evaluationType)}</td>
+          <td>${escapeHtml(item.modelName)}</td>
+          <td>${item.sampleSize}</td>
+          <td>${item.passed ? "是" : "否"}</td>
+        </tr>`).join("");
+        $("workflowRows").innerHTML = workflows.map((item) => `<tr>
+          <td>${escapeHtml(item.workflowName)}</td>
+          <td>${escapeHtml(item.workflowVersion)}</td>
+          <td><span class="pill">${escapeHtml(item.status)}</span></td>
+          <td>${escapeHtml(item.currentStep || "—")}</td>
+        </tr>`).join("");
+        setStatus(
+          "aiStatus",
+          `建议 ${suggestions.length}，评测 ${evaluations.length}，工作流 ${workflows.length}`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("aiStatus", String(error.message), "bad");
+      }
+    }
+
+    $("createApproval").addEventListener("click", createApproval);
+    $("refreshApprovals").addEventListener("click", loadApprovals);
+    $("approvalFilter").addEventListener("change", loadApprovals);
+    $("approvalRows").addEventListener("click", (event) => {
+      const approve = event.target.closest("button[data-approve]");
+      if (approve) {
+        approveRequest(approve.dataset.approve, approve.dataset.hash);
+        return;
+      }
+      const consume = event.target.closest("button[data-consume]");
+      if (consume) consumeRequest(consume.dataset.consume);
+    });
+
+    $("createPool").addEventListener("click", createPool);
+    $("refreshPools").addEventListener("click", loadPools);
+    $("poolRows").addEventListener("click", (event) => {
+      const approve = event.target.closest("button[data-approve-pool]");
+      if (approve) {
+        approvePool(approve.dataset.approvePool);
+        return;
+      }
+      const view = event.target.closest("button[data-view-allocations]");
+      if (view) loadAllocations(view.dataset.viewAllocations);
+    });
+    $("allocateBudget").addEventListener("click", allocateBudget);
+    $("loadAllocations").addEventListener("click", () =>
+      loadAllocations($("allocationPool").value),
+    );
+    $("allocationRows").addEventListener("click", (event) => {
+      const release = event.target.closest("button[data-release]");
+      if (release) releaseAllocation(release.dataset.release);
+    });
+    $("createGate").addEventListener("click", createGate);
+    $("refreshGates").addEventListener("click", loadGates);
+
+    $("createChange").addEventListener("click", createChange);
+    $("refreshChanges").addEventListener("click", loadChanges);
+    $("changeRows").addEventListener("click", (event) => {
+      const approve = event.target.closest("button[data-approve-change]");
+      if (approve) {
+        changeAction(approve.dataset.approveChange, "approve");
+        return;
+      }
+      const reject = event.target.closest("button[data-reject-change]");
+      if (reject) {
+        changeAction(reject.dataset.rejectChange, "reject");
+        return;
+      }
+      const publicize = event.target.closest("button[data-publicize-change]");
+      if (publicize) {
+        changeAction(publicize.dataset.publicizeChange, "publicize");
+      }
+    });
+    $("createCase").addEventListener("click", createCase);
+    $("refreshCases").addEventListener("click", loadCases);
+    $("caseRows").addEventListener("click", (event) => {
+      const retire = event.target.closest("button[data-retire-case]");
+      if (retire) retireCase(retire.dataset.retireCase);
+    });
+    $("createMetric").addEventListener("click", createMetric);
+    $("refreshMetrics").addEventListener("click", loadMetrics);
+    $("metricRows").addEventListener("click", (event) => {
+      const retire = event.target.closest("button[data-retire-metric]");
+      if (retire) retireMetric(retire.dataset.retireMetric);
+    });
+
+    $("createDeliverable").addEventListener("click", createDeliverable);
+    $("loadDeliverables").addEventListener("click", loadDeliverables);
+    $("deliverableRows").addEventListener("click", (event) => {
+      const submit = event.target.closest("button[data-submit-deliverable]");
+      if (submit) {
+        deliverableAction(submit.dataset.submitDeliverable, "submit");
+        return;
+      }
+      const accept = event.target.closest("button[data-accept-deliverable]");
+      if (accept) {
+        deliverableAction(accept.dataset.acceptDeliverable, "accept");
+      }
+    });
+
+    $("refreshDsars").addEventListener("click", loadDsars);
+    $("refreshRetention").addEventListener("click", loadRetention);
+    $("showRetentionReport").addEventListener("click", showRetentionReport);
+    $("createRetention").addEventListener("click", createRetention);
+    $("dsarRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-resolve-dsar]");
+      if (button) resolveDsar(button.dataset.resolveDsar);
+    });
+    $("retentionRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-toggle-hold]");
+      if (button) {
+        toggleHold(button.dataset.toggleHold, button.dataset.hold === "true");
+      }
+    });
+
+    $("createConnection").addEventListener("click", createConnection);
+    $("refreshConnections").addEventListener("click", loadConnections);
+    $("connectionRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-toggle-connection]");
+      if (button) {
+        toggleConnection(button.dataset.toggleConnection, button.dataset.status);
+      }
+    });
+    $("createSyncRun").addEventListener("click", createSyncRun);
+    $("loadSyncRuns").addEventListener("click", loadSyncRuns);
+    $("syncRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-finish-sync]");
+      if (button) finishSyncRun(button.dataset.finishSync);
+    });
+    $("upsertIdentity").addEventListener("click", upsertIdentity);
+    $("refreshIdentities").addEventListener("click", loadIdentities);
+    $("refreshWebhooks").addEventListener("click", loadWebhooks);
+    $("refreshInbox").addEventListener("click", loadInbox);
+    $("webhookRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-process-webhook]");
+      if (button) processWebhook(button.dataset.processWebhook);
+    });
+    $("inboxRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-process-inbox]");
+      if (button) processInbox(button.dataset.processInbox);
+    });
+
+    $("adjustLedger").addEventListener("click", adjustLedger);
+    $("refreshAdjustments").addEventListener("click", loadAdjustments);
+    $("refreshLedgerEntries").addEventListener("click", loadLedgerEntries);
+    $("refreshAi").addEventListener("click", loadAi);
+
+    (async () => {
+      await loadPolicyOptions();
+      await Promise.all([
+        loadApprovals(),
+        loadPools(),
+        loadGates(),
+        loadChanges(),
+        loadCases(),
+        loadMetrics(),
+        loadDsars(),
+        loadRetention(),
+        loadConnections(),
+        loadIdentities(),
+        loadWebhooks(),
+        loadInbox(),
+        loadLedgerEntries(),
+        loadAdjustments(),
+        loadAi(),
+      ]);
+    })();
+  </script>
+</body>
+</html>

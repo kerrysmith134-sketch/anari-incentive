@@ -176,7 +176,7 @@ Additional application-level invariants:
 | `POST /calculation-runs:batch` | 1–50 runs, same per-run rules; formal batches rejected while `ENFORCE_BUDGET_POOLS` is on | All-or-nothing in one transaction; any blocked item rolls back runs and ledger |
 | `POST /calculation-runs/:id/approve` | CALCULATED; optional approval | APPROVED; a matching approved `CALCULATION_APPROVE` request is consumed |
 | `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed; optional approval | LOCKED; locks ledger; a matching approved `CALCULATION_LOCK` request is consumed |
-| `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
+| `POST /policy-versions/:id/legal-gate` | server-side gate record; optional approval | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs; a matching approved `LEGAL_GATE` request is consumed |
 | `POST /notices` | admin, policy version exists if supplied | Publishes an employee notice |
 | `POST /notices/:id/acknowledgements` | notice/person exist; employees only for themselves | Upserts ACKNOWLEDGE or DECLINE (decline reason required) |
 | `GET /notices/:id/acknowledgements` | manager/finance/admin | Returns the coverage summary and acknowledgement rows |
@@ -194,7 +194,7 @@ Additional application-level invariants:
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
 
-Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`, `POLICY_PUBLISH`, `LEDGER_REVERSAL`, `LEDGER_ADJUSTMENT`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request. `REQUIRE_APPROVAL_FOR` makes selected action types mandatory; an unapproved guarded command then fails with `APPROVAL_REQUIRED`.
+Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`, `POLICY_PUBLISH`, `LEGAL_GATE`, `LEDGER_REVERSAL`, `LEDGER_ADJUSTMENT`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request. `REQUIRE_APPROVAL_FOR` makes selected action types mandatory; an unapproved guarded command then fails with `APPROVAL_REQUIRED`.
 | `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
 | `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
 | `POST /budget-pools` | finance, cycle exists | Creates a DRAFT pool with a decimal approved amount |

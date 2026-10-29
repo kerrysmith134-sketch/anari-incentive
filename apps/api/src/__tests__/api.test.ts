@@ -1158,13 +1158,45 @@ describe("DPIA records", () => {
     );
     expect(reapprove.status).toBe(409);
 
+    const gateApproval = await adminCall(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "LEGAL_GATE",
+        targetType: "POLICY_VERSION",
+        targetId: REFERENCE_POLICY_ID,
+        requestedByType: "SYSTEM",
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { policyVersionId: REFERENCE_POLICY_ID },
+        idempotencyKey: `legal-gate-${dpiaId}`,
+      },
+    );
+    await adminCall(
+      "POST",
+      `/api/v1/approval-requests/${gateApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: approver.id,
+        payloadHash: gateApproval.body.data.payloadHash,
+      },
+    );
+
     const gate = await adminCall(
       "POST",
       `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
-      gateBody,
+      {
+        ...gateBody,
+        approvalRequestId: gateApproval.body.data.id,
+      },
     );
     expect(gate.status).toBe(200);
     expect(gate.body.data.dataProtectionAssessmentRef).toBe(dpiaId);
+    const consumedGateApproval = await adminCall(
+      "GET",
+      `/api/v1/approval-requests/${gateApproval.body.data.id}`,
+    );
+    expect(consumedGateApproval.body.data.consumedAt).toBeTruthy();
   });
 });
 
@@ -2826,6 +2858,7 @@ describe("observability", () => {
     } as never);
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.headers["x-request-id"]).toBeTruthy();
     expect(response.body).toContain("n_perform_http_requests_total");
     expect(response.body).toContain('route="/health"');
     expect(response.body).toContain("n_perform_process_uptime_seconds");
@@ -2906,6 +2939,21 @@ describe("admin view", () => {
     expect(response.body).toContain("批量计算");
     expect(response.body).toContain("批量认定");
     expect(response.body).toContain("平台租户");
+  });
+
+  it("serves the governance operations page", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/governance",
+    } as never);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("N-Perform 治理操作台");
+    expect(response.body).toContain("审批请求");
+    expect(response.body).toContain("预算池与现金门禁");
+    expect(response.body).toContain("交付物与验收");
+    expect(response.body).toContain("集成与收件箱");
+    expect(response.body).toContain("/api/v1/approval-requests");
   });
 });
 

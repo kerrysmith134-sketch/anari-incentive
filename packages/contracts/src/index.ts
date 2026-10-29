@@ -110,6 +110,7 @@ export const recordLegalGateSchema = z.object({
   minimumWageChecked: z.boolean(),
   policyApproved: z.boolean(),
   recordedBy: uuidSchema,
+  approvalRequestId: uuidSchema.optional(),
 });
 export type RecordLegalGateBody = z.infer<typeof recordLegalGateSchema>;
 

@@ -167,6 +167,11 @@ const adminUi = readFileSync(
   "utf8",
 );
 
+const governanceUi = readFileSync(
+  new URL("../public/governance.html", import.meta.url),
+  "utf8",
+);
+
 export type StoreResolver = (tenantId: string) => IncentiveStore;
 export type AgentRuntimeFactory = (
   store: IncentiveStore,
@@ -522,6 +527,11 @@ export function buildApp(
       }
       throw error;
     }
+  });
+
+  app.addHook("onSend", async (request, reply, payload) => {
+    reply.header("x-request-id", request.id);
+    return payload;
   });
 
   app.addHook("onResponse", async (request, reply) => {
@@ -1171,6 +1181,10 @@ export function buildApp(
     reply.type("text/html; charset=utf-8").send(adminUi),
   );
 
+  app.get("/admin/governance", async (_request, reply) =>
+    reply.type("text/html; charset=utf-8").send(governanceUi),
+  );
+
   app.get("/health", async (request) => data({ status: "ok" }, request));
 
   app.get("/ready", async (request, reply) => {
@@ -1454,6 +1468,15 @@ export function buildApp(
     const body = parse(recordLegalGateSchema, request.body);
     const policyVersionId = idOf(request);
     const tenantId = tenantOf(request);
+    ensureApproval("LEGAL_GATE", body.approvalRequestId);
+    if (body.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "LEGAL_GATE",
+        targetType: "POLICY_VERSION",
+        targetId: policyVersionId,
+      });
+    }
     let democraticProcedureRef = body.democraticProcedureRef;
     if (body.democraticProcedureId) {
       const consultation = await platformStore.getConsultation(
