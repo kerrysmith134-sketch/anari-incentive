@@ -434,6 +434,8 @@ A negative net total requires `kind = 'RECOVERY'`. `STANDARD` batches still enfo
 
 `GET /reports/cycle-readiness?cycleId=` is a read-only aggregation for managers and finance. It lists calculation runs in the cycle with their status, legal-gate and employee-confirmation blockers; settlement batches with export/acknowledgement timestamps; and budget-pool approval counts. `readyForSettlement` is true only when at least one non-reversed formal run exists and no legal-gate, confirmation or stored calculation blocker remains. The report never mutates money or approvals.
 
+`GET /reports/policy-readiness?policyVersionId=` is the policy-side counterpart. It reports the legal gate and its blockers, active golden-case results (including not-run and failing cases), linked notice acknowledgement coverage, concluded consultations and the referenced DPIA status. `ready` requires no legal-gate blocker, at least one active test case with every active case passing its last run, complete acknowledgement-required notices and no unapproved referenced DPIA.
+
 ---
 
 ## 11. Ingestion and connectors

@@ -1070,6 +1070,11 @@ export const cycleReadinessQuerySchema = z.object({
 });
 export type CycleReadinessQuery = z.infer<typeof cycleReadinessQuerySchema>;
 
+export const policyReadinessQuerySchema = z.object({
+  policyVersionId: uuidSchema,
+});
+export type PolicyReadinessQuery = z.infer<typeof policyReadinessQuerySchema>;
+
 export const policySimulationSchema = z.object({
   currentPolicyVersionId: z.string().min(1),
   proposedPolicy: policyDefinitionSchema,

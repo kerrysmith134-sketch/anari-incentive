@@ -3452,6 +3452,38 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/reports/policy-readiness:
+    get:
+      tags: [Reporting]
+      summary: Report policy evidence and test readiness
+      description: |
+        Aggregates the legal gate, active golden-case results, linked notice
+        acknowledgement coverage, consultations and DPIA status for one policy
+        version. `ready` is true only when the legal gate has no blockers, every
+        active test case has a passing last run, linked acknowledgement-required
+        notices are complete and no referenced DPIA is unapproved.
+      parameters:
+        - name: policyVersionId
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Policy readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/reports/cycle-readiness:
     get:
       tags: [Reporting]

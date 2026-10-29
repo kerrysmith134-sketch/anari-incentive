@@ -5071,6 +5071,116 @@ describe("vertical slice", () => {
     expect(after.body.data.calculations.formalLocked).toBe(0);
   });
 
+  it("reports policy readiness from gates, tests and notices", async () => {
+    const missingQuery = await call(
+      "GET",
+      "/api/v1/reports/policy-readiness",
+    );
+    expect(missingQuery.status).toBe(400);
+
+    const initial = await call(
+      "GET",
+      `/api/v1/reports/policy-readiness?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(initial.status).toBe(200);
+    expect(initial.body.data.ready).toBe(false);
+    expect(initial.body.data.legalGate.recorded).toBe(false);
+    expect(initial.body.data.tests.active).toBe(0);
+    expect(initial.body.data.blockers).toEqual(
+      expect.arrayContaining([
+        "LEGAL_GATE_MISSING",
+        "NO_ACTIVE_POLICY_TEST_CASES",
+      ]),
+    );
+
+    const input = {
+      cycleId: CYCLE,
+      order: {
+        id: "policy-ready-order",
+        grossProfit: "100000",
+        currency: "CNY",
+      },
+      participants: [
+        {
+          personId: OWNER,
+          workPackageId: "00000000-0000-4000-8000-000000000010",
+          attributionWeight: "1",
+          role: "OWNER",
+        },
+      ],
+    };
+    const passing = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "READY-CASE",
+      input,
+      expectedOutput: { poolRounded: "5000" },
+      category: "NORMAL",
+    });
+    expect(passing.status).toBe(201);
+    await call(
+      "POST",
+      `/api/v1/policy-test-cases/${passing.body.data.id}/run`,
+    );
+    await recordCompleteLegalGate();
+
+    const ready = await call(
+      "GET",
+      `/api/v1/reports/policy-readiness?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(ready.body.data.ready).toBe(true);
+    expect(ready.body.data.legalGate.blockers).toEqual([]);
+    expect(ready.body.data.tests).toMatchObject({
+      active: 1,
+      passed: 1,
+      failed: 0,
+      notRun: 0,
+      suitePassed: true,
+    });
+    expect(ready.body.data.blockers).toEqual([]);
+
+    const failing = await call("POST", "/api/v1/policy-test-cases", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      caseCode: "READY-FAIL",
+      input,
+      expectedOutput: { poolRounded: "5001" },
+      category: "BOUNDARY",
+    });
+    await call(
+      "POST",
+      `/api/v1/policy-test-cases/${failing.body.data.id}/run`,
+    );
+    const withFailure = await call(
+      "GET",
+      `/api/v1/reports/policy-readiness?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(withFailure.body.data.ready).toBe(false);
+    expect(withFailure.body.data.tests.failed).toBe(1);
+    expect(withFailure.body.data.blockers).toContain(
+      "POLICY_TEST_CASE_FAILED:READY-FAIL",
+    );
+
+    const notice = await call("POST", "/api/v1/notices", {
+      noticeType: "POLICY",
+      title: "Readiness notice",
+      bodyRef: "readiness-notice",
+      effectiveFrom: "2026-11-01T00:00:00Z",
+    });
+    expect(notice.status).toBe(201);
+    await call("POST", "/api/v1/policy-notices", {
+      policyVersionId: REFERENCE_POLICY_ID,
+      noticeId: notice.body.data.id,
+    });
+    const withNotice = await call(
+      "GET",
+      `/api/v1/reports/policy-readiness?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(withNotice.body.data.notices.linked).toBe(1);
+    expect(withNotice.body.data.notices.incomplete).toHaveLength(1);
+    expect(withNotice.body.data.blockers).toContain(
+      `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE:${notice.body.data.id}`,
+    );
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

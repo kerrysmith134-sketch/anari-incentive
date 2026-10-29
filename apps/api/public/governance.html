@@ -508,6 +508,16 @@
       <div class="status" id="readinessStatus"></div>
       <pre id="readinessResult" hidden></pre>
     </section>
+
+    <section class="card">
+      <h2>政策就绪度</h2>
+      <div class="grid">
+        <div><label>政策版本</label><select id="readinessPolicy"></select></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="loadPolicyReadiness" style="width:100%">生成政策就绪报告</button></div>
+      </div>
+      <div class="status" id="policyReadinessStatus"></div>
+      <pre id="policyReadinessResult" hidden></pre>
+    </section>
   </main>
 
   <script>
@@ -556,6 +566,7 @@
       $("changeTargetPolicy").innerHTML = options;
       $("casePolicy").innerHTML = options;
       $("noticePolicy").innerHTML = options;
+      $("readinessPolicy").innerHTML = options;
     }
 
     async function loadNoticeOptions() {
@@ -1627,6 +1638,34 @@
       }
     }
 
+    async function loadPolicyReadiness() {
+      const policyVersionId = $("readinessPolicy").value;
+      if (!policyVersionId) {
+        setStatus("policyReadinessStatus", "请选择政策版本", "bad");
+        return;
+      }
+      try {
+        const report = await api(
+          `/api/v1/reports/policy-readiness?policyVersionId=${encodeURIComponent(policyVersionId)}`,
+        );
+        $("policyReadinessResult").hidden = false;
+        $("policyReadinessResult").textContent = JSON.stringify(
+          report,
+          null,
+          2,
+        );
+        setStatus(
+          "policyReadinessStatus",
+          report.ready
+            ? "政策证据与测试已就绪"
+            : `存在 ${report.blockers.length} 个阻断项`,
+          report.ready ? "ok" : "bad",
+        );
+      } catch (error) {
+        setStatus("policyReadinessStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -1817,6 +1856,10 @@
     });
     $("refreshAi").addEventListener("click", loadAi);
     $("loadReadiness").addEventListener("click", loadReadiness);
+    $("loadPolicyReadiness").addEventListener(
+      "click",
+      loadPolicyReadiness,
+    );
 
     (async () => {
       await loadPolicyOptions();

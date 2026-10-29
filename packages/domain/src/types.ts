@@ -548,6 +548,55 @@ export interface CycleReadinessReport {
   blockers: string[];
 }
 
+export interface PolicyReadinessReport {
+  policyVersionId: UUID;
+  code: string;
+  version: number;
+  generatedAt: string;
+  ready: boolean;
+  legalGate: {
+    recorded: boolean;
+    approved: boolean;
+    blockers: string[];
+  };
+  tests: {
+    active: number;
+    passed: number;
+    failed: number;
+    notRun: number;
+    suitePassed: boolean;
+    cases: Array<{
+      testCaseId: UUID;
+      caseCode: string;
+      passed?: boolean;
+      lastRunAt?: string;
+    }>;
+  };
+  notices: {
+    linked: number;
+    acknowledgementRequired: number;
+    complete: number;
+    incomplete: Array<{
+      noticeId: UUID;
+      acknowledgedCount: number;
+      personCount: number;
+      pendingCount: number;
+      declinedCount: number;
+    }>;
+  };
+  consultations: {
+    total: number;
+    concluded: number;
+    latestOutcome?: ConsultationOutcome;
+  };
+  dpia: {
+    referenced: boolean;
+    status?: DpiaStatus;
+    approved: boolean;
+  };
+  blockers: string[];
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

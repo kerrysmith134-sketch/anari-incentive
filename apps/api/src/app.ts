@@ -88,6 +88,7 @@ import {
   publishPolicySchema,
   rollbackPolicySchema,
   cycleReadinessQuerySchema,
+  policyReadinessQuerySchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
@@ -110,6 +111,7 @@ import {
   legalGateBlockers,
   type CalculationRun,
   type CycleReadinessReport,
+  type PolicyReadinessReport,
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
 } from "@anari/domain";
@@ -1479,6 +1481,142 @@ export function buildApp(
         pools: pools.length,
         approved: pools.filter((pool) => pool.status === "APPROVED")
           .length,
+      },
+      blockers: [...new Set(blockers)],
+    };
+    return data(report, request);
+  });
+
+  app.get("/api/v1/reports/policy-readiness", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = parse(policyReadinessQuerySchema, request.query);
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [policyVersion, gate, cases, links, consultations, dpias] =
+      await Promise.all([
+        store.getPolicyVersion(query.policyVersionId),
+        store.getLegalGate(query.policyVersionId),
+        platformStore.listPolicyTestCases(
+          tenantId,
+          query.policyVersionId,
+        ),
+        platformStore.listPolicyNotices(
+          tenantId,
+          query.policyVersionId,
+        ),
+        platformStore.listConsultations(
+          tenantId,
+          query.policyVersionId,
+        ),
+        platformStore.listDpias(tenantId),
+      ]);
+    const noticeRows = await Promise.all(
+      links.map(async (link) => {
+        const overview = await platformStore.listAcknowledgements(
+          tenantId,
+          link.noticeId,
+        );
+        return { noticeId: link.noticeId, summary: overview.summary };
+      }),
+    );
+    const activeCases = cases.filter(
+      (testCase) => testCase.status === "ACTIVE",
+    );
+    const passed = activeCases.filter(
+      (testCase) => testCase.lastRunPassed === true,
+    ).length;
+    const failed = activeCases.filter(
+      (testCase) => testCase.lastRunPassed === false,
+    ).length;
+    const notRun = activeCases.filter(
+      (testCase) => testCase.lastRunAt === undefined,
+    ).length;
+    const legalBlockers = legalGateBlockers("FORMAL", gate);
+    const blockers = [...legalBlockers];
+    if (activeCases.length === 0) {
+      blockers.push("NO_ACTIVE_POLICY_TEST_CASES");
+    }
+    for (const testCase of activeCases) {
+      if (!testCase.lastRunAt) {
+        blockers.push(`POLICY_TEST_CASE_NOT_RUN:${testCase.caseCode}`);
+      } else if (testCase.lastRunPassed === false) {
+        blockers.push(`POLICY_TEST_CASE_FAILED:${testCase.caseCode}`);
+      }
+    }
+    const incomplete = noticeRows
+      .filter(
+        (notice) =>
+          notice.summary.acknowledgementRequired &&
+          !notice.summary.complete,
+      )
+      .map((notice) => ({
+        noticeId: notice.noticeId,
+        acknowledgedCount: notice.summary.acknowledgedCount,
+        personCount: notice.summary.personCount,
+        pendingCount: notice.summary.pendingCount,
+        declinedCount: notice.summary.declinedCount,
+      }));
+    for (const notice of incomplete) {
+      blockers.push(`NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE:${notice.noticeId}`);
+    }
+    const dpiaRef = gate?.dataProtectionAssessmentRef;
+    const dpiaRecord = dpiaRef
+      ? dpias.find((dpia) => dpia.id === dpiaRef)
+      : undefined;
+    if (dpiaRecord && dpiaRecord.status !== "APPROVED") {
+      blockers.push(`DPIA_NOT_APPROVED:${dpiaRecord.id}`);
+    }
+    const concluded = consultations.filter(
+      (consultation) =>
+        Boolean(consultation.endedAt) &&
+        consultation.outcome !== "PENDING",
+    );
+    const latest = [...concluded].sort((a, b) =>
+      (b.endedAt ?? "").localeCompare(a.endedAt ?? ""),
+    )[0];
+    const report: PolicyReadinessReport = {
+      policyVersionId: query.policyVersionId,
+      code: policyVersion.code,
+      version: policyVersion.version,
+      generatedAt: new Date().toISOString(),
+      ready: blockers.length === 0,
+      legalGate: {
+        recorded: Boolean(gate),
+        approved: Boolean(gate?.policyApproved),
+        blockers: legalBlockers,
+      },
+      tests: {
+        active: activeCases.length,
+        passed,
+        failed,
+        notRun,
+        suitePassed:
+          activeCases.length > 0 && failed === 0 && notRun === 0,
+        cases: activeCases.map((testCase) => ({
+          testCaseId: testCase.id,
+          caseCode: testCase.caseCode,
+          passed: testCase.lastRunPassed,
+          lastRunAt: testCase.lastRunAt,
+        })),
+      },
+      notices: {
+        linked: links.length,
+        acknowledgementRequired: noticeRows.filter(
+          (notice) => notice.summary.acknowledgementRequired,
+        ).length,
+        complete: noticeRows.filter((notice) => notice.summary.complete)
+          .length,
+        incomplete,
+      },
+      consultations: {
+        total: consultations.length,
+        concluded: concluded.length,
+        latestOutcome: latest?.outcome,
+      },
+      dpia: {
+        referenced: Boolean(dpiaRef),
+        status: dpiaRecord?.status,
+        approved: dpiaRecord?.status === "APPROVED",
       },
       blockers: [...new Set(blockers)],
     };
