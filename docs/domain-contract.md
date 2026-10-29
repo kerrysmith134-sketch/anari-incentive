@@ -430,6 +430,10 @@ A post-export correction is a new locked `REVERSAL` ledger entry linked to the o
 
 A negative net total requires `kind = 'RECOVERY'`. `STANDARD` batches still enforce `total_amount >= 0`. Before a recovery batch can lock, every person with a negative active line must have a `CONFIRMED` employee confirmation with `target_type = 'SETTLEMENT'` and `target_id = batch.id`; an `OBJECTED` confirmation blocks the lock. Recovery creation notifies each affected person in-app.
 
+### 10.2 Cycle readiness report
+
+`GET /reports/cycle-readiness?cycleId=` is a read-only aggregation for managers and finance. It lists calculation runs in the cycle with their status, legal-gate and employee-confirmation blockers; settlement batches with export/acknowledgement timestamps; and budget-pool approval counts. `readyForSettlement` is true only when at least one non-reversed formal run exists and no legal-gate, confirmation or stored calculation blocker remains. The report never mutates money or approvals.
+
 ---
 
 ## 11. Ingestion and connectors

@@ -3452,6 +3452,35 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/reports/cycle-readiness:
+    get:
+      tags: [Reporting]
+      summary: Report calculation and settlement readiness for a cycle
+      description: |
+        Aggregates calculation runs, legal gates, employee-confirmation gaps,
+        settlement batches and budget pools for one cycle. `readyForSettlement`
+        means at least one non-reversed formal run exists and there are no
+        legal-gate, confirmation or stored calculation blockers.
+      parameters:
+        - name: cycleId
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Cycle readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/ingestion/events:batch:
     post:
       tags: [Ingestion]

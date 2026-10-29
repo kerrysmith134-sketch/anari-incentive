@@ -1065,6 +1065,11 @@ export const rollbackPolicySchema = z.object({
 });
 export type RollbackPolicyBody = z.infer<typeof rollbackPolicySchema>;
 
+export const cycleReadinessQuerySchema = z.object({
+  cycleId: uuidSchema,
+});
+export type CycleReadinessQuery = z.infer<typeof cycleReadinessQuerySchema>;
+
 export const policySimulationSchema = z.object({
   currentPolicyVersionId: z.string().min(1),
   proposedPolicy: policyDefinitionSchema,

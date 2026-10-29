@@ -87,6 +87,7 @@ import {
   policySimulationSchema,
   publishPolicySchema,
   rollbackPolicySchema,
+  cycleReadinessQuerySchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
@@ -105,7 +106,10 @@ import type { CreateCalculationRunInput } from "@anari/contracts";
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
+  confirmationBlockers,
+  legalGateBlockers,
   type CalculationRun,
+  type CycleReadinessReport,
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
 } from "@anari/domain";
@@ -159,6 +163,16 @@ function errorBody(code: string, message: string, details?: unknown) {
 
 function parse<T>(schema: ZodType<T>, value: unknown): T {
   return schema.parse(value);
+}
+
+function countByStatus(
+  items: Array<{ status: string }>,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function idOf(request: FastifyRequest): string {
@@ -1362,6 +1376,114 @@ export function buildApp(
       .type("text/plain; version=0.0.4; charset=utf-8")
       .send(metrics.render()),
   );
+
+  app.get("/api/v1/reports/cycle-readiness", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = parse(cycleReadinessQuerySchema, request.query);
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [allRuns, confirmations, allBatches, pools] = await Promise.all([
+      store.listRuns(),
+      store.listConfirmations(),
+      store.listSettlementBatches(),
+      platformStore.listBudgetPools(tenantId, query.cycleId),
+    ]);
+    const runs = allRuns.filter(
+      (run) => run.cycleId === query.cycleId,
+    );
+    const relevantRuns = runs.filter((run) => run.status !== "REVERSED");
+    const batches = allBatches.filter(
+      (batch) => batch.cycleId === query.cycleId,
+    );
+    const formalPolicyIds = [
+      ...new Set(
+        relevantRuns
+          .filter((run) => run.mode === "FORMAL")
+          .map((run) => run.policyVersionId),
+      ),
+    ];
+    const legalGates = await Promise.all(
+      formalPolicyIds.map(async (policyVersionId) => {
+        const gate = await store.getLegalGate(policyVersionId);
+        return {
+          policyVersionId,
+          recorded: Boolean(gate),
+          blockers: legalGateBlockers("FORMAL", gate),
+        };
+      }),
+    );
+    const gateByPolicy = new Map(
+      legalGates.map((gate) => [gate.policyVersionId, gate]),
+    );
+    const blockers: string[] = [];
+    for (const gate of legalGates) {
+      for (const blocker of gate.blockers) {
+        blockers.push(`POLICY:${gate.policyVersionId}:${blocker}`);
+      }
+    }
+    const runReports = runs.map((run) => {
+      const runBlockers =
+        run.status === "REVERSED" ? [] : [...run.blockers];
+      if (run.status !== "REVERSED" && run.mode === "FORMAL") {
+        runBlockers.push(...confirmationBlockers(run, confirmations));
+        runBlockers.push(
+          ...(gateByPolicy.get(run.policyVersionId)?.blockers ?? []),
+        );
+      }
+      const unique = [...new Set(runBlockers)];
+      for (const blocker of unique) {
+        blockers.push(`RUN:${run.id}:${blocker}`);
+      }
+      return {
+        runId: run.id,
+        status: run.status,
+        mode: run.mode,
+        policyVersionId: run.policyVersionId,
+        blockers: unique,
+      };
+    });
+    const formalRuns = runs.filter((run) => run.mode === "FORMAL");
+    const report: CycleReadinessReport = {
+      cycleId: query.cycleId,
+      generatedAt: new Date().toISOString(),
+      readyForSettlement:
+        relevantRuns.some((run) => run.mode === "FORMAL") &&
+        blockers.length === 0,
+      calculations: {
+        total: runs.length,
+        byStatus: countByStatus(runs),
+        formal: formalRuns.length,
+        formalLocked: formalRuns.filter(
+          (run) => run.status === "LOCKED",
+        ).length,
+        runs: runReports,
+      },
+      legalGates,
+      settlement: {
+        total: batches.length,
+        byStatus: countByStatus(batches),
+        exported: batches.filter((batch) => Boolean(batch.exportedAt))
+          .length,
+        acknowledged: batches.filter((batch) =>
+          Boolean(batch.acknowledgedAt),
+        ).length,
+        batches: batches.map((batch) => ({
+          batchId: batch.id,
+          status: batch.status,
+          kind: batch.kind,
+          exportedAt: batch.exportedAt,
+          acknowledgedAt: batch.acknowledgedAt,
+        })),
+      },
+      budgets: {
+        pools: pools.length,
+        approved: pools.filter((pool) => pool.status === "APPROVED")
+          .length,
+      },
+      blockers: [...new Set(blockers)],
+    };
+    return data(report, request);
+  });
 
   app.post("/api/v1/ingestion/events:batch", async (request) => {
     requireRoles(request, "integration");

@@ -5023,6 +5023,54 @@ describe("vertical slice", () => {
     expect(empty.body.data.passed).toBe(false);
   });
 
+  it("reports cycle readiness blockers until confirmations complete", async () => {
+    const missingQuery = await call(
+      "GET",
+      "/api/v1/reports/cycle-readiness",
+    );
+    expect(missingQuery.status).toBe(400);
+
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const run = await formalRun(workPackageId);
+    expect(run.status).toBe(201);
+    const runId = run.body.data.id as string;
+
+    const before = await call(
+      "GET",
+      `/api/v1/reports/cycle-readiness?cycleId=${CYCLE}`,
+    );
+    expect(before.status).toBe(200);
+    expect(before.body.data.cycleId).toBe(CYCLE);
+    expect(before.body.data.calculations.formal).toBe(1);
+    expect(before.body.data.readyForSettlement).toBe(false);
+    expect(before.body.data.legalGates).toEqual([
+      {
+        policyVersionId: REFERENCE_POLICY_ID,
+        recorded: true,
+        blockers: [],
+      },
+    ]);
+    expect(before.body.data.blockers).toEqual(
+      expect.arrayContaining([
+        `RUN:${runId}:MISSING_EMPLOYEE_CONFIRMATION:${OWNER}`,
+        `RUN:${runId}:MISSING_EMPLOYEE_CONFIRMATION:${MEMBER}`,
+      ]),
+    );
+
+    await confirmCalculation(runId, OWNER);
+    await confirmCalculation(runId, MEMBER);
+    const after = await call(
+      "GET",
+      `/api/v1/reports/cycle-readiness?cycleId=${CYCLE}`,
+    );
+    expect(after.body.data.readyForSettlement).toBe(true);
+    expect(after.body.data.blockers).toEqual([]);
+    expect(after.body.data.calculations.formalLocked).toBe(0);
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

@@ -506,6 +506,48 @@ export interface PolicyTestSuiteResult {
   results: PolicyTestCaseRunResult[];
 }
 
+export interface CycleReadinessReport {
+  cycleId: UUID;
+  generatedAt: string;
+  readyForSettlement: boolean;
+  calculations: {
+    total: number;
+    byStatus: Record<string, number>;
+    formal: number;
+    formalLocked: number;
+    runs: Array<{
+      runId: UUID;
+      status: string;
+      mode: CalculationMode;
+      policyVersionId: UUID;
+      blockers: string[];
+    }>;
+  };
+  legalGates: Array<{
+    policyVersionId: UUID;
+    recorded: boolean;
+    blockers: string[];
+  }>;
+  settlement: {
+    total: number;
+    byStatus: Record<string, number>;
+    exported: number;
+    acknowledged: number;
+    batches: Array<{
+      batchId: UUID;
+      status: string;
+      kind: "STANDARD" | "RECOVERY";
+      exportedAt?: string;
+      acknowledgedAt?: string;
+    }>;
+  };
+  budgets: {
+    pools: number;
+    approved: number;
+  };
+  blockers: string[];
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

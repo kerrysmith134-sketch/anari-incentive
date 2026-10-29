@@ -498,6 +498,16 @@
         <tbody id="workflowRows"></tbody>
       </table>
     </section>
+
+    <section class="card">
+      <h2>周期就绪度</h2>
+      <div class="grid">
+        <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="loadReadiness" style="width:100%">生成就绪报告</button></div>
+      </div>
+      <div class="status" id="readinessStatus"></div>
+      <pre id="readinessResult" hidden></pre>
+    </section>
   </main>
 
   <script>
@@ -1593,6 +1603,30 @@
       }
     }
 
+    async function loadReadiness() {
+      const cycleId = $("readinessCycle").value.trim();
+      if (!cycleId) {
+        setStatus("readinessStatus", "请填写周期 ID", "bad");
+        return;
+      }
+      try {
+        const report = await api(
+          `/api/v1/reports/cycle-readiness?cycleId=${encodeURIComponent(cycleId)}`,
+        );
+        $("readinessResult").hidden = false;
+        $("readinessResult").textContent = JSON.stringify(report, null, 2);
+        setStatus(
+          "readinessStatus",
+          report.readyForSettlement
+            ? `可以进入结算（${report.calculations.formal} 个正式计算）`
+            : `存在 ${report.blockers.length} 个阻断项`,
+          report.readyForSettlement ? "ok" : "bad",
+        );
+      } catch (error) {
+        setStatus("readinessStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -1782,6 +1816,7 @@
       if (button) finishWorkflow(button.dataset.finishWorkflow);
     });
     $("refreshAi").addEventListener("click", loadAi);
+    $("loadReadiness").addEventListener("click", loadReadiness);
 
     (async () => {
       await loadPolicyOptions();
