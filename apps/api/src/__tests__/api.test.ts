@@ -2500,6 +2500,37 @@ describe("vertical slice", () => {
     );
     expect(exported.body.data.csv.trim().split("\n")).toHaveLength(3);
 
+    const exportEvidence = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/exports`,
+      { exportedBy: ADJUDICATOR, exportRef: "settlement-export-1" },
+    );
+    expect(exportEvidence.status).toBe(201);
+    expect(exportEvidence.body.data.exportHash).toMatch(/^sha256:/);
+    const exportId = exportEvidence.body.data.id as string;
+
+    const listedExports = await call(
+      "GET",
+      `/api/v1/settlement-exports?batchId=${batchId}`,
+    );
+    expect(listedExports.body.data).toHaveLength(1);
+
+    const exportAck = await call(
+      "POST",
+      `/api/v1/settlement-exports/${exportId}/acknowledge`,
+      { externalReference: "finance-receipt-1" },
+    );
+    expect(exportAck.status).toBe(200);
+    expect(exportAck.body.data.payloadHash).toBe(
+      exportEvidence.body.data.exportHash,
+    );
+    const duplicateExportAck = await call(
+      "POST",
+      `/api/v1/settlement-exports/${exportId}/acknowledge`,
+      { externalReference: "finance-receipt-2" },
+    );
+    expect(duplicateExportAck.status).toBe(409);
+
     const acknowledged = await call(
       "POST",
       `/api/v1/settlement-batches/${batchId}/commands`,

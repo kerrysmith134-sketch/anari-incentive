@@ -26,6 +26,8 @@ import type {
   PolicyConsultation,
   RepresentationBodyType,
   RetentionPolicy,
+  SettlementAcknowledgement,
+  SettlementExport,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
@@ -234,6 +236,28 @@ export interface PlatformStore {
     requestId: string;
     consumedBy: string;
   }): Promise<ApprovalRequest>;
+  createSettlementExport(input: {
+    tenantId: string;
+    batchId: string;
+    exportRef: string;
+    exportHash: string;
+    exportedBy: string;
+    exportedAt?: string;
+  }): Promise<SettlementExport>;
+  listSettlementExports(
+    tenantId: string,
+    batchId?: string,
+  ): Promise<SettlementExport[]>;
+  getSettlementExport(
+    tenantId: string,
+    exportId: string,
+  ): Promise<SettlementExport>;
+  acknowledgeSettlementExport(input: {
+    tenantId: string;
+    exportId: string;
+    externalReference: string;
+    acknowledgedAt?: string;
+  }): Promise<SettlementAcknowledgement>;
 }
 
 function now(): string {
@@ -260,6 +284,11 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly retentionPolicies = new Map<string, RetentionPolicy>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
+  private readonly settlementExports = new Map<string, SettlementExport>();
+  private readonly settlementAcknowledgements = new Map<
+    string,
+    SettlementAcknowledgement
+  >();
 
   constructor(
     options: {
@@ -1208,6 +1237,93 @@ export class MemoryPlatformStore implements PlatformStore {
     request.consumedAt = now();
     request.consumedBy = input.consumedBy;
     return request;
+  }
+
+  async createSettlementExport(input: {
+    tenantId: string;
+    batchId: string;
+    exportRef: string;
+    exportHash: string;
+    exportedBy: string;
+    exportedAt?: string;
+  }): Promise<SettlementExport> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const exporter = this.persons.get(input.exportedBy);
+    if (!exporter || exporter.tenantId !== input.tenantId) {
+      notFound("Person", input.exportedBy);
+    }
+    const timestamp = now();
+    const record: SettlementExport = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      batchId: input.batchId,
+      exportRef: input.exportRef,
+      exportHash: input.exportHash,
+      exportedBy: input.exportedBy,
+      exportedAt: input.exportedAt ?? timestamp,
+      createdAt: timestamp,
+    };
+    this.settlementExports.set(record.id, record);
+    return record;
+  }
+
+  async listSettlementExports(
+    tenantId: string,
+    batchId?: string,
+  ): Promise<SettlementExport[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.settlementExports.values()]
+      .filter(
+        (record) =>
+          record.tenantId === tenantId &&
+          (!batchId || record.batchId === batchId),
+      )
+      .sort((a, b) => b.exportedAt.localeCompare(a.exportedAt));
+  }
+
+  async getSettlementExport(
+    tenantId: string,
+    exportId: string,
+  ): Promise<SettlementExport> {
+    const record = this.settlementExports.get(exportId);
+    if (!record || record.tenantId !== tenantId) {
+      notFound("SettlementExport", exportId);
+    }
+    return record;
+  }
+
+  async acknowledgeSettlementExport(input: {
+    tenantId: string;
+    exportId: string;
+    externalReference: string;
+    acknowledgedAt?: string;
+  }): Promise<SettlementAcknowledgement> {
+    const record = await this.getSettlementExport(
+      input.tenantId,
+      input.exportId,
+    );
+    if (record.acknowledgedAt) {
+      throw new ConflictError(
+        `settlement export ${record.id} was already acknowledged`,
+      );
+    }
+    const timestamp = input.acknowledgedAt ?? now();
+    const acknowledgement: SettlementAcknowledgement = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      exportId: record.id,
+      externalReference: input.externalReference,
+      acknowledgedAt: timestamp,
+      payloadHash: record.exportHash,
+      createdAt: now(),
+    };
+    this.settlementAcknowledgements.set(
+      acknowledgement.id,
+      acknowledgement,
+    );
+    record.acknowledgedAt = timestamp;
+    record.acknowledgementRef = input.externalReference;
+    return acknowledgement;
   }
 
   private assertUserNotLinked(
@@ -2418,6 +2534,132 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createSettlementExport(input: {
+    tenantId: string;
+    batchId: string;
+    exportRef: string;
+    exportHash: string;
+    exportedBy: string;
+    exportedAt?: string;
+  }): Promise<SettlementExport> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO settlement_exports
+          (id, tenant_id, batch_id, export_ref, export_hash, exported_by,
+           exported_at)
+         VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()))
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.batchId,
+          input.exportRef,
+          input.exportHash,
+          input.exportedBy,
+          input.exportedAt ?? null,
+        ],
+      );
+      return this.mapSettlementExport(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          "settlement batch or exporting person not found",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listSettlementExports(
+    tenantId: string,
+    batchId?: string,
+  ): Promise<SettlementExport[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM settlement_exports WHERE tenant_id=$1";
+    if (batchId) {
+      params.push(batchId);
+      sql += " AND batch_id=$2";
+    }
+    sql += " ORDER BY exported_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapSettlementExport(row));
+  }
+
+  async getSettlementExport(
+    tenantId: string,
+    exportId: string,
+  ): Promise<SettlementExport> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM settlement_exports WHERE tenant_id=$1 AND id=$2",
+      [tenantId, exportId],
+    );
+    if (!rows[0]) notFound("SettlementExport", exportId);
+    return this.mapSettlementExport(rows[0]);
+  }
+
+  async acknowledgeSettlementExport(input: {
+    tenantId: string;
+    exportId: string;
+    externalReference: string;
+    acknowledgedAt?: string;
+  }): Promise<SettlementAcknowledgement> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM settlement_exports
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.exportId],
+      );
+      if (!rows[0]) notFound("SettlementExport", input.exportId);
+      const record = this.mapSettlementExport(rows[0]);
+      if (record.acknowledgedAt) {
+        throw new ConflictError(
+          `settlement export ${record.id} was already acknowledged`,
+        );
+      }
+      try {
+        const { rows: acknowledgements } = await client.query(
+          `INSERT INTO settlement_acknowledgements
+            (id, tenant_id, export_id, external_reference,
+             acknowledged_at, payload_hash)
+           VALUES ($1,$2,$3,$4,COALESCE($5, now()),$6)
+           RETURNING *`,
+          [
+            randomUUID(),
+            input.tenantId,
+            record.id,
+            input.externalReference,
+            input.acknowledgedAt ?? null,
+            record.exportHash,
+          ],
+        );
+        const acknowledgement = this.mapSettlementAcknowledgement(
+          acknowledgements[0],
+        );
+        await client.query(
+          `UPDATE settlement_exports
+              SET acknowledged_at=$3, acknowledgement_ref=$4
+            WHERE tenant_id=$1 AND id=$2`,
+          [
+            input.tenantId,
+            record.id,
+            acknowledgement.acknowledgedAt,
+            input.externalReference,
+          ],
+        );
+        return acknowledgement;
+      } catch (error) {
+        if ((error as { code?: string }).code === "23505") {
+          throw new ConflictError(
+            `settlement export ${record.id} was already acknowledged`,
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -2652,6 +2894,36 @@ export class PgPlatformStore implements PlatformStore {
       reason: row.reason ?? undefined,
       decidedAt: iso(row.decided_at) ?? new Date().toISOString(),
       authContext: row.auth_context ?? {},
+    };
+  }
+
+  private mapSettlementExport(row: QueryResultRow): SettlementExport {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      batchId: row.batch_id,
+      exportRef: row.export_ref,
+      exportHash: row.export_hash,
+      exportedBy: row.exported_by,
+      exportedAt: iso(row.exported_at) ?? new Date().toISOString(),
+      acknowledgedAt: iso(row.acknowledged_at),
+      acknowledgementRef: row.acknowledgement_ref ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapSettlementAcknowledgement(
+    row: QueryResultRow,
+  ): SettlementAcknowledgement {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      exportId: row.export_id,
+      externalReference: row.external_reference,
+      acknowledgedAt:
+        iso(row.acknowledged_at) ?? new Date().toISOString(),
+      payloadHash: row.payload_hash,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 }

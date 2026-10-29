@@ -323,6 +323,30 @@ describePg("PgStore vertical slice", () => {
     expect(exported.csv?.trim().split("\n")).toHaveLength(3);
     expect(exported.csv).toContain("E001");
     expect(exported.csv).toContain("Sales Lead");
+
+    const platform = new PgPlatformStore(pool);
+    const exportEvidence = await platform.createSettlementExport({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      exportRef: `pg-export-${Date.now()}`,
+      exportHash: "sha256:pg-settlement-export",
+      exportedBy: ADJUDICATOR,
+    });
+    expect(exportEvidence.exportHash).toBe("sha256:pg-settlement-export");
+    const exportAck = await platform.acknowledgeSettlementExport({
+      tenantId: DEMO_TENANT_ID,
+      exportId: exportEvidence.id,
+      externalReference: "pg-export-receipt",
+    });
+    expect(exportAck.payloadHash).toBe("sha256:pg-settlement-export");
+    await expect(
+      platform.acknowledgeSettlementExport({
+        tenantId: DEMO_TENANT_ID,
+        exportId: exportEvidence.id,
+        externalReference: "pg-export-receipt-2",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
     const acknowledged = await store.commandSettlementBatch(batch.id, {
       command: "ACKNOWLEDGE",
       externalReference: "pg-finance-1",

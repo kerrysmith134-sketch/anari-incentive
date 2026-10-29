@@ -192,6 +192,8 @@ Additional application-level invariants:
 | `POST /approval-requests` | manager/finance; idempotency key | Creates PENDING with payload hash, risk tier and required approvals; replay with a different payload conflicts |
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
+| `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
+| `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

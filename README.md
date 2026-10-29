@@ -37,6 +37,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Approvals | Approval requests with payload hash, risk tier, required approval count, idempotency key, expiry, separation of duties, per-approver decisions and one-time consumption |
 | Recalculation | Targeted recalculation requests (`EVIDENCE`/`ATTRIBUTION`/`EVALUATION`/`LEDGER`) with open → approved/rejected → completed lifecycle; completion records the new calculation run; targets are validated before recording |
 | Settlement | Batch locked ledger entries by cycle; explicit RECONCILE/SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE/REQUIRE_ADJUSTMENT/CANCEL commands; verified line-to-ledger match; CSV export with employee code/name; RECOVERY batches may be negative and require every affected person's SETTLEMENT confirmation before locking |
+| Settlement evidence | Export evidence records the CSV hash and exporter; acknowledgement evidence records the external receipt and the same payload hash; one acknowledgement per export |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request; referencing a notice id requires complete acknowledgement coverage, referencing a consultation id requires a concluded consultation for that policy version, and referencing a DPIA id requires an approved assessment |
 | Employee notices | Published notices (policy/pay plan/AI use/data processing) with per-person acknowledgement or decline, coverage summary, and a legal-gate link that blocks formal work until required acknowledgements are complete |
 | Policy consultation | Employee representation bodies (works council/union/representative/all employees) and policy-version consultations with type, minutes, feedback and outcome; a legal gate can reference a concluded consultation |
@@ -242,6 +243,10 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | GET | `/api/v1/approval-requests/:id/decisions` | List approval decisions |
 | POST | `/api/v1/approval-requests/:id/decide` | Approve or reject with payload hash |
 | POST | `/api/v1/approval-requests/:id/consume` | Mark an approved request consumed |
+| POST | `/api/v1/settlement-batches/:id/exports` | Record export evidence with the CSV hash |
+| GET | `/api/v1/settlement-exports?batchId=` | List export evidence |
+| GET | `/api/v1/settlement-exports/:id` | Read export evidence |
+| POST | `/api/v1/settlement-exports/:id/acknowledge` | Record the external receipt |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | POST | `/api/v1/calculation-runs:batch` | Up to 50 calculation runs in one atomic transaction |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |

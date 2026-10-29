@@ -1658,6 +1658,108 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/settlement-batches/{id}/exports:
+    post:
+      tags: [Ledger]
+      summary: Record export evidence for an exported settlement batch
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordSettlementExport"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/settlement-exports:
+    get:
+      tags: [Ledger]
+      summary: List settlement export evidence
+      parameters:
+        - name: batchId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Exports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/settlement-exports/{id}:
+    get:
+      tags: [Ledger]
+      summary: Read settlement export evidence
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Export
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/settlement-exports/{id}/acknowledge:
+    post:
+      tags: [Ledger]
+      summary: Acknowledge a settlement export
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcknowledgeSettlementExport"
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/appeals:
     get:
       tags: [Appeals]
@@ -3900,6 +4002,25 @@ components:
           minLength: 3
         approvedBy:
           $ref: "#/components/schemas/Uuid"
+
+    RecordSettlementExport:
+      type: object
+      required: [exportedBy]
+      properties:
+        exportedBy:
+          $ref: "#/components/schemas/Uuid"
+        exportRef:
+          type: string
+
+    AcknowledgeSettlementExport:
+      type: object
+      required: [externalReference]
+      properties:
+        externalReference:
+          type: string
+        acknowledgedAt:
+          type: string
+          format: date-time
 
     PublishPolicy:
       type: object

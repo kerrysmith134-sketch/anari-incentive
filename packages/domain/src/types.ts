@@ -728,6 +728,29 @@ export interface SettlementBatch {
   lines?: SettlementLine[];
 }
 
+export interface SettlementExport {
+  id: UUID;
+  tenantId: UUID;
+  batchId: UUID;
+  exportRef: string;
+  exportHash: string;
+  exportedBy: UUID;
+  exportedAt: string;
+  acknowledgedAt?: string;
+  acknowledgementRef?: string;
+  createdAt: string;
+}
+
+export interface SettlementAcknowledgement {
+  id: UUID;
+  tenantId: UUID;
+  exportId: UUID;
+  externalReference: string;
+  acknowledgedAt: string;
+  payloadHash: string;
+  createdAt: string;
+}
+
 export type SettlementCommand =
   | "RECONCILE"
   | "SUBMIT"

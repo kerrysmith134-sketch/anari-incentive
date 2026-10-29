@@ -548,6 +548,22 @@ export const settlementCommandSchema = z.object({
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 
+export const recordSettlementExportSchema = z.object({
+  exportedBy: uuidSchema,
+  exportRef: z.string().min(1).optional(),
+});
+export type RecordSettlementExportBody = z.infer<
+  typeof recordSettlementExportSchema
+>;
+
+export const acknowledgeSettlementExportSchema = z.object({
+  externalReference: z.string().min(1),
+  acknowledgedAt: z.string().datetime().optional(),
+});
+export type AcknowledgeSettlementExportBody = z.infer<
+  typeof acknowledgeSettlementExportSchema
+>;
+
 export const createNotificationSchema = z.object({
   recipientPersonId: uuidSchema.optional(),
   audience: z.enum(["PERSON", "MANAGER", "FINANCE", "ADMIN"]),

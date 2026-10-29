@@ -39,6 +39,8 @@ import {
   createApprovalRequestSchema,
   decideApprovalRequestSchema,
   consumeApprovalRequestSchema,
+  recordSettlementExportSchema,
+  acknowledgeSettlementExportSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -89,6 +91,7 @@ import {
   ConflictError,
   NotFoundError,
   Store,
+  settlementCsv,
 } from "./store.js";
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
@@ -256,7 +259,30 @@ export function buildApp(
     userId: "dev-user",
     roles: ["admin"],
   }),
-  platformStore: PlatformStore = new MemoryPlatformStore(),
+  platformStore: PlatformStore = new MemoryPlatformStore({
+    demoTenant: {
+      id: "tenant-demo",
+      name: "Demo tenant",
+      slug: "demo-tenant",
+      persons: [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          employeeCode: "E001",
+          displayName: "Sales Lead",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          employeeCode: "E002",
+          displayName: "Product Manager",
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000003",
+          employeeCode: "E003",
+          displayName: "Finance Reviewer",
+        },
+      ],
+    },
+  }),
 ): FastifyInstance {
   const app = Fastify({
     logger: process.env.LOG_LEVEL
@@ -1708,6 +1734,71 @@ export function buildApp(
         tenantId: tenantOf(request),
         requestId: idOf(request),
         consumedBy: body.consumedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/settlement-batches/:id/exports", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(recordSettlementExportSchema, request.body);
+    const batch = await storeFor(request).getSettlementBatch(idOf(request));
+    if (
+      !["EXPORTED", "ACKNOWLEDGED", "ADJUSTMENT_REQUIRED"].includes(
+        batch.status,
+      )
+    ) {
+      throw new ConflictError(
+        `SETTLEMENT_BATCH_NOT_EXPORTED: ${batch.status}`,
+      );
+    }
+    const csv = settlementCsv(batch, batch.lines ?? []);
+    return reply.status(201).send(
+      data(
+        await platformStore.createSettlementExport({
+          tenantId: tenantOf(request),
+          batchId: batch.id,
+          exportRef: body.exportRef ?? `EXPORT-${batch.batchNo}-${Date.now()}`,
+          exportHash: sha256(csv),
+          exportedBy: body.exportedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/settlement-exports", async (request) => {
+    requireRoles(request, "finance");
+    const query = request.query as { batchId?: string };
+    return data(
+      await platformStore.listSettlementExports(
+        tenantOf(request),
+        query.batchId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/settlement-exports/:id", async (request) => {
+    requireRoles(request, "finance");
+    return data(
+      await platformStore.getSettlementExport(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/settlement-exports/:id/acknowledge", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(acknowledgeSettlementExportSchema, request.body);
+    return data(
+      await platformStore.acknowledgeSettlementExport({
+        tenantId: tenantOf(request),
+        exportId: idOf(request),
+        externalReference: body.externalReference,
+        acknowledgedAt: body.acknowledgedAt,
       }),
       request,
     );
