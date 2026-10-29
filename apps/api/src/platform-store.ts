@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, QueryResultRow } from "pg";
 import type {
+  ConsultationOutcome,
+  ConsultationType,
   EmployeeNotice,
+  EmployeeRepresentation,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -12,6 +15,8 @@ import type {
   PlatformTenant,
   PlatformUser,
   PolicyAcknowledgement,
+  PolicyConsultation,
+  RepresentationBodyType,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
@@ -101,6 +106,40 @@ export interface PlatformStore {
     tenantId: string,
     noticeId: string,
   ): Promise<NoticeAcknowledgementOverview>;
+  createRepresentation(input: {
+    tenantId: string;
+    bodyName: string;
+    bodyType: RepresentationBodyType;
+    jurisdiction: string;
+  }): Promise<EmployeeRepresentation>;
+  listRepresentations(tenantId: string): Promise<EmployeeRepresentation[]>;
+  createConsultation(input: {
+    tenantId: string;
+    policyVersionId: string;
+    representationId?: string;
+    consultationType: ConsultationType;
+    startedAt: string;
+    endedAt?: string;
+    minutesRef?: string;
+    feedbackSummary?: string;
+    outcome: ConsultationOutcome;
+  }): Promise<PolicyConsultation>;
+  listConsultations(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyConsultation[]>;
+  getConsultation(
+    tenantId: string,
+    consultationId: string,
+  ): Promise<PolicyConsultation>;
+  concludeConsultation(input: {
+    tenantId: string;
+    consultationId: string;
+    endedAt: string;
+    outcome: ConsultationOutcome;
+    minutesRef?: string;
+    feedbackSummary?: string;
+  }): Promise<PolicyConsultation>;
 }
 
 function now(): string {
@@ -120,6 +159,8 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly orgAssignments = new Map<string, PlatformOrgAssignment>();
   private readonly notices = new Map<string, EmployeeNotice>();
   private readonly acknowledgements = new Map<string, PolicyAcknowledgement>();
+  private readonly representations = new Map<string, EmployeeRepresentation>();
+  private readonly consultations = new Map<string, PolicyConsultation>();
 
   constructor(
     options: {
@@ -589,6 +630,130 @@ export class MemoryPlatformStore implements PlatformStore {
       },
       acknowledgements,
     };
+  }
+
+  async createRepresentation(input: {
+    tenantId: string;
+    bodyName: string;
+    bodyType: RepresentationBodyType;
+    jurisdiction: string;
+  }): Promise<EmployeeRepresentation> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const representation: EmployeeRepresentation = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      bodyName: input.bodyName,
+      bodyType: input.bodyType,
+      jurisdiction: input.jurisdiction,
+      active: true,
+      createdAt: now(),
+    };
+    this.representations.set(representation.id, representation);
+    return representation;
+  }
+
+  async listRepresentations(
+    tenantId: string,
+  ): Promise<EmployeeRepresentation[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.representations.values()]
+      .filter((representation) => representation.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createConsultation(input: {
+    tenantId: string;
+    policyVersionId: string;
+    representationId?: string;
+    consultationType: ConsultationType;
+    startedAt: string;
+    endedAt?: string;
+    minutesRef?: string;
+    feedbackSummary?: string;
+    outcome: ConsultationOutcome;
+  }): Promise<PolicyConsultation> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (input.representationId) {
+      const representation = this.representations.get(input.representationId);
+      if (
+        !representation ||
+        representation.tenantId !== input.tenantId
+      ) {
+        notFound("EmployeeRepresentation", input.representationId);
+      }
+    }
+    if (input.endedAt && input.endedAt < input.startedAt) {
+      throw new ConflictError("endedAt must not be before startedAt");
+    }
+    const consultation: PolicyConsultation = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      policyVersionId: input.policyVersionId,
+      representationId: input.representationId,
+      consultationType: input.consultationType,
+      startedAt: input.startedAt,
+      endedAt: input.endedAt,
+      minutesRef: input.minutesRef,
+      feedbackSummary: input.feedbackSummary,
+      outcome: input.outcome,
+      createdAt: now(),
+    };
+    this.consultations.set(consultation.id, consultation);
+    return consultation;
+  }
+
+  async listConsultations(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyConsultation[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.consultations.values()]
+      .filter(
+        (consultation) =>
+          consultation.tenantId === tenantId &&
+          (!policyVersionId ||
+            consultation.policyVersionId === policyVersionId),
+      )
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  async getConsultation(
+    tenantId: string,
+    consultationId: string,
+  ): Promise<PolicyConsultation> {
+    const consultation = this.consultations.get(consultationId);
+    if (!consultation || consultation.tenantId !== tenantId) {
+      notFound("PolicyConsultation", consultationId);
+    }
+    return consultation;
+  }
+
+  async concludeConsultation(input: {
+    tenantId: string;
+    consultationId: string;
+    endedAt: string;
+    outcome: ConsultationOutcome;
+    minutesRef?: string;
+    feedbackSummary?: string;
+  }): Promise<PolicyConsultation> {
+    const consultation = await this.getConsultation(
+      input.tenantId,
+      input.consultationId,
+    );
+    if (consultation.outcome !== "PENDING") {
+      throw new ConflictError(
+        `consultation ${consultation.id} is already concluded`,
+      );
+    }
+    if (input.endedAt < consultation.startedAt) {
+      throw new ConflictError("endedAt must not be before startedAt");
+    }
+    consultation.endedAt = input.endedAt;
+    consultation.outcome = input.outcome;
+    consultation.minutesRef = input.minutesRef ?? consultation.minutesRef;
+    consultation.feedbackSummary =
+      input.feedbackSummary ?? consultation.feedbackSummary;
+    return consultation;
   }
 
   private assertUserNotLinked(
@@ -1168,6 +1333,161 @@ export class PgPlatformStore implements PlatformStore {
     };
   }
 
+  async createRepresentation(input: {
+    tenantId: string;
+    bodyName: string;
+    bodyType: RepresentationBodyType;
+    jurisdiction: string;
+  }): Promise<EmployeeRepresentation> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO employee_representations
+          (id, tenant_id, body_name, body_type, jurisdiction)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.bodyName,
+          input.bodyType,
+          input.jurisdiction,
+        ],
+      );
+      return this.mapRepresentation(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listRepresentations(
+    tenantId: string,
+  ): Promise<EmployeeRepresentation[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM employee_representations
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapRepresentation(row));
+  }
+
+  async createConsultation(input: {
+    tenantId: string;
+    policyVersionId: string;
+    representationId?: string;
+    consultationType: ConsultationType;
+    startedAt: string;
+    endedAt?: string;
+    minutesRef?: string;
+    feedbackSummary?: string;
+    outcome: ConsultationOutcome;
+  }): Promise<PolicyConsultation> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO policy_consultations
+          (id, tenant_id, policy_version_id, representation_id,
+           consultation_type, started_at, ended_at, minutes_ref,
+           feedback_summary, outcome)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.policyVersionId,
+          input.representationId ?? null,
+          input.consultationType,
+          input.startedAt,
+          input.endedAt ?? null,
+          input.minutesRef ?? null,
+          input.feedbackSummary ?? null,
+          input.outcome,
+        ],
+      );
+      return this.mapConsultation(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          "policy version or employee representation not found",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listConsultations(
+    tenantId: string,
+    policyVersionId?: string,
+  ): Promise<PolicyConsultation[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM policy_consultations WHERE tenant_id=$1";
+    if (policyVersionId) {
+      params.push(policyVersionId);
+      sql += " AND policy_version_id=$2";
+    }
+    sql += " ORDER BY started_at DESC, created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapConsultation(row));
+  }
+
+  async getConsultation(
+    tenantId: string,
+    consultationId: string,
+  ): Promise<PolicyConsultation> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM policy_consultations WHERE tenant_id=$1 AND id=$2",
+      [tenantId, consultationId],
+    );
+    if (!rows[0]) notFound("PolicyConsultation", consultationId);
+    return this.mapConsultation(rows[0]);
+  }
+
+  async concludeConsultation(input: {
+    tenantId: string;
+    consultationId: string;
+    endedAt: string;
+    outcome: ConsultationOutcome;
+    minutesRef?: string;
+    feedbackSummary?: string;
+  }): Promise<PolicyConsultation> {
+    const consultation = await this.getConsultation(
+      input.tenantId,
+      input.consultationId,
+    );
+    if (consultation.outcome !== "PENDING") {
+      throw new ConflictError(
+        `consultation ${consultation.id} is already concluded`,
+      );
+    }
+    if (
+      Date.parse(input.endedAt) < Date.parse(consultation.startedAt)
+    ) {
+      throw new ConflictError("endedAt must not be before startedAt");
+    }
+    const { rows } = await this.pool.query(
+      `UPDATE policy_consultations
+          SET ended_at=$3,
+              outcome=$4,
+              minutes_ref=COALESCE($5, minutes_ref),
+              feedback_summary=COALESCE($6, feedback_summary)
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.consultationId,
+        input.endedAt,
+        input.outcome,
+        input.minutesRef ?? null,
+        input.feedbackSummary ?? null,
+      ],
+    );
+    return this.mapConsultation(rows[0]);
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -1277,6 +1597,34 @@ export class PgPlatformStore implements PlatformStore {
       signatureRef: row.signature_ref ?? undefined,
       declinedAt: iso(row.declined_at),
       declineReason: row.decline_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapRepresentation(row: QueryResultRow): EmployeeRepresentation {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      bodyName: row.body_name,
+      bodyType: row.body_type,
+      jurisdiction: row.jurisdiction,
+      active: row.active,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapConsultation(row: QueryResultRow): PolicyConsultation {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      policyVersionId: row.policy_version_id,
+      representationId: row.representation_id ?? undefined,
+      consultationType: row.consultation_type,
+      startedAt: iso(row.started_at) ?? new Date().toISOString(),
+      endedAt: iso(row.ended_at),
+      minutesRef: row.minutes_ref ?? undefined,
+      feedbackSummary: row.feedback_summary ?? undefined,
+      outcome: row.outcome,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

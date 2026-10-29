@@ -24,6 +24,9 @@ import {
   createNotificationSchema,
   createNoticeSchema,
   createPlatformPersonSchema,
+  createRepresentationSchema,
+  createConsultationSchema,
+  concludeConsultationSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1183,9 +1186,27 @@ export function buildApp(
     requireRoles(request, "admin");
     const body = parse(recordLegalGateSchema, request.body);
     const policyVersionId = idOf(request);
+    const tenantId = tenantOf(request);
+    let democraticProcedureRef = body.democraticProcedureRef;
+    if (body.democraticProcedureId) {
+      const consultation = await platformStore.getConsultation(
+        tenantId,
+        body.democraticProcedureId,
+      );
+      if (consultation.policyVersionId !== policyVersionId) {
+        throw new ConflictError(
+          `CONSULTATION_POLICY_MISMATCH: consultation ${consultation.id} belongs to policy ${consultation.policyVersionId}`,
+        );
+      }
+      if (!consultation.endedAt || consultation.outcome === "PENDING") {
+        throw new ConflictError(
+          `CONSULTATION_NOT_CONCLUDED: consultation ${consultation.id} has no concluded outcome`,
+        );
+      }
+      democraticProcedureRef = democraticProcedureRef ?? consultation.id;
+    }
     let employeeNoticeRef = body.employeeNoticeRef;
     if (body.employeeNoticeId) {
-      const tenantId = tenantOf(request);
       const notice = await platformStore.getNotice(
         tenantId,
         body.employeeNoticeId,
@@ -1209,7 +1230,7 @@ export function buildApp(
     return data(
       await storeFor(request).recordLegalGate({
         policyVersionId,
-        democraticProcedureRef: body.democraticProcedureRef,
+        democraticProcedureRef,
         employeeNoticeRef,
         dataProtectionAssessmentRef: body.dataProtectionAssessmentRef,
         minimumWageChecked: body.minimumWageChecked,
@@ -1288,6 +1309,86 @@ export function buildApp(
   app.get("/api/v1/notices/:id", async (request) => {
     return data(
       await platformStore.getNotice(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/employee-representations", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createRepresentationSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createRepresentation({
+          tenantId: tenantOf(request),
+          ...body,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/employee-representations", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listRepresentations(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-consultations", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createConsultationSchema, request.body);
+    await storeFor(request).getPolicy(body.policyVersionId);
+    return reply.status(201).send(
+      data(
+        await platformStore.createConsultation({
+          tenantId: tenantOf(request),
+          policyVersionId: body.policyVersionId,
+          representationId: body.representationId,
+          consultationType: body.consultationType,
+          startedAt: body.startedAt,
+          endedAt: body.endedAt,
+          minutesRef: body.minutesRef,
+          feedbackSummary: body.feedbackSummary,
+          outcome: body.outcome ?? "PENDING",
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/policy-consultations", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { policyVersionId?: string };
+    return data(
+      await platformStore.listConsultations(
+        tenantOf(request),
+        query.policyVersionId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/policy-consultations/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getConsultation(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-consultations/:id/conclude", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(concludeConsultationSchema, request.body);
+    return data(
+      await platformStore.concludeConsultation({
+        tenantId: tenantOf(request),
+        consultationId: idOf(request),
+        endedAt: body.endedAt,
+        outcome: body.outcome,
+        minutesRef: body.minutesRef,
+        feedbackSummary: body.feedbackSummary,
+      }),
       request,
     );
   });

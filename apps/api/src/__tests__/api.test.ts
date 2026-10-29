@@ -930,6 +930,152 @@ describe("employee notices and acknowledgements", () => {
   });
 });
 
+describe("employee representation and policy consultations", () => {
+  it("requires a concluded consultation when the legal gate references one", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Consultation tenant",
+      slug: `consult-${Date.now()}`,
+    });
+    const hrPerson = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "HR-001",
+      displayName: "HR Lead",
+    });
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "consult-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const adminCall = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const representative = await adminCall(
+      "POST",
+      "/api/v1/employee-representations",
+      {
+        bodyName: "Employee representative committee",
+        bodyType: "WORKS_COUNCIL",
+        jurisdiction: "CN",
+      },
+    );
+    expect(representative.status).toBe(201);
+    const representationId = representative.body.data.id as string;
+    const representations = await adminCall(
+      "GET",
+      "/api/v1/employee-representations",
+    );
+    expect(representations.body.data).toHaveLength(1);
+
+    const consultation = await adminCall(
+      "POST",
+      "/api/v1/policy-consultations",
+      {
+        policyVersionId: REFERENCE_POLICY_ID,
+        representationId,
+        consultationType: "NEGOTIATION",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      },
+    );
+    expect(consultation.status).toBe(201);
+    expect(consultation.body.data.outcome).toBe("PENDING");
+    const consultationId = consultation.body.data.id as string;
+
+    const filtered = await adminCall(
+      "GET",
+      `/api/v1/policy-consultations?policyVersionId=${REFERENCE_POLICY_ID}`,
+    );
+    expect(filtered.body.data).toHaveLength(1);
+    const detail = await adminCall(
+      "GET",
+      `/api/v1/policy-consultations/${consultationId}`,
+    );
+    expect(detail.body.data.consultationType).toBe("NEGOTIATION");
+
+    const gateBody = {
+      democraticProcedureId: consultationId,
+      employeeNoticeRef: "external-notice",
+      dataProtectionAssessmentRef: "dpia-1",
+      minimumWageChecked: true,
+      policyApproved: true,
+      recordedBy: hrPerson.id,
+    };
+    const earlyGate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(earlyGate.status).toBe(409);
+
+    const concluded = await adminCall(
+      "POST",
+      `/api/v1/policy-consultations/${consultationId}/conclude`,
+      {
+        endedAt: "2026-01-05T00:00:00.000Z",
+        outcome: "AGREED",
+        minutesRef: "minutes-1",
+      },
+    );
+    expect(concluded.status).toBe(200);
+    expect(concluded.body.data.outcome).toBe("AGREED");
+    expect(concluded.body.data.minutesRef).toBe("minutes-1");
+
+    const reconclude = await adminCall(
+      "POST",
+      `/api/v1/policy-consultations/${consultationId}/conclude`,
+      {
+        endedAt: "2026-01-06T00:00:00.000Z",
+        outcome: "CLOSED",
+      },
+    );
+    expect(reconclude.status).toBe(409);
+
+    const gate = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      gateBody,
+    );
+    expect(gate.status).toBe(200);
+    expect(gate.body.data.democraticProcedureRef).toBe(consultationId);
+
+    const otherPolicyConsultation = await adminCall(
+      "POST",
+      "/api/v1/policy-consultations",
+      {
+        policyVersionId: CHARGING_POLICY_ID,
+        consultationType: "DISCUSSION",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      },
+    );
+    expect(otherPolicyConsultation.status).toBe(201);
+    const mismatch = await adminCall(
+      "POST",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/legal-gate`,
+      {
+        ...gateBody,
+        democraticProcedureId: otherPolicyConsultation.body.data.id,
+      },
+    );
+    expect(mismatch.status).toBe(409);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

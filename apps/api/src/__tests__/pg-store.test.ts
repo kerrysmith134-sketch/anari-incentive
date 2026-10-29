@@ -1336,6 +1336,58 @@ describePg("PgStore vertical slice", () => {
     });
   });
 
+  it("records employee representations and policy consultations", async () => {
+    const platform = new PgPlatformStore(pool);
+    const representation = await platform.createRepresentation({
+      tenantId: DEMO_TENANT_ID,
+      bodyName: `PG works council ${Date.now()}`,
+      bodyType: "WORKS_COUNCIL",
+      jurisdiction: "CN",
+    });
+    expect(
+      (await platform.listRepresentations(DEMO_TENANT_ID)).some(
+        (candidate) => candidate.id === representation.id,
+      ),
+    ).toBe(true);
+
+    const consultation = await platform.createConsultation({
+      tenantId: DEMO_TENANT_ID,
+      policyVersionId: REFERENCE_POLICY_ID,
+      representationId: representation.id,
+      consultationType: "NEGOTIATION",
+      startedAt: "2026-01-01T00:00:00Z",
+      outcome: "PENDING",
+    });
+    expect(consultation.outcome).toBe("PENDING");
+    expect(
+      (
+        await platform.listConsultations(
+          DEMO_TENANT_ID,
+          REFERENCE_POLICY_ID,
+        )
+      ).some((candidate) => candidate.id === consultation.id),
+    ).toBe(true);
+
+    const concluded = await platform.concludeConsultation({
+      tenantId: DEMO_TENANT_ID,
+      consultationId: consultation.id,
+      endedAt: "2026-01-05T00:00:00Z",
+      outcome: "AGREED",
+      minutesRef: "pg-minutes",
+      feedbackSummary: "Agreed after two sessions",
+    });
+    expect(concluded.outcome).toBe("AGREED");
+    expect(concluded.minutesRef).toBe("pg-minutes");
+    await expect(
+      platform.concludeConsultation({
+        tenantId: DEMO_TENANT_ID,
+        consultationId: consultation.id,
+        endedAt: "2026-01-06T00:00:00Z",
+        outcome: "CLOSED",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

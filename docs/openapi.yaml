@@ -597,6 +597,142 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/employee-representations:
+    get:
+      tags: [Compliance]
+      summary: List employee representation bodies
+      responses:
+        "200":
+          description: Representations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Create an employee representation body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmployeeRepresentation"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/policy-consultations:
+    get:
+      tags: [Compliance]
+      summary: List policy consultations
+      parameters:
+        - name: policyVersionId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Consultations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Record a policy consultation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyConsultation"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/policy-consultations/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read a policy consultation
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Consultation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/policy-consultations/{id}/conclude:
+    post:
+      tags: [Compliance]
+      summary: Conclude a policy consultation
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConcludePolicyConsultation"
+      responses:
+        "200":
+          description: Concluded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -2366,6 +2502,10 @@ components:
       properties:
         democraticProcedureRef:
           type: string
+        democraticProcedureId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the consultation must belong to this policy version and be concluded; the consultation id becomes the democraticProcedureRef.
         employeeNoticeRef:
           type: string
         employeeNoticeId:
@@ -2418,6 +2558,59 @@ components:
         declineReason:
           type: string
           description: Required when decision is DECLINE.
+
+    CreateEmployeeRepresentation:
+      type: object
+      required: [bodyName, bodyType, jurisdiction]
+      properties:
+        bodyName:
+          type: string
+        bodyType:
+          type: string
+          enum: [WORKS_COUNCIL, UNION, EMPLOYEE_REP, ALL_EMPLOYEES]
+        jurisdiction:
+          type: string
+
+    CreatePolicyConsultation:
+      type: object
+      required: [policyVersionId, consultationType, startedAt]
+      properties:
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        representationId:
+          $ref: "#/components/schemas/Uuid"
+        consultationType:
+          type: string
+          enum: [DISCUSSION, COMMENT_PERIOD, NEGOTIATION, INFORMATION]
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        minutesRef:
+          type: string
+        feedbackSummary:
+          type: string
+        outcome:
+          type: string
+          enum: [PENDING, AGREED, NO_AGREEMENT, INFORMATION_ONLY, CLOSED]
+          default: PENDING
+
+    ConcludePolicyConsultation:
+      type: object
+      required: [endedAt, outcome]
+      properties:
+        endedAt:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum: [AGREED, NO_AGREEMENT, INFORMATION_ONLY, CLOSED]
+        minutesRef:
+          type: string
+        feedbackSummary:
+          type: string
 
     CalculationOrder:
       type: object

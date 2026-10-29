@@ -249,6 +249,66 @@
     </section>
 
     <section class="card">
+      <h2>民主程序与协商</h2>
+      <div class="grid">
+        <div>
+          <label>代表机构名称</label>
+          <input id="representationName" value="职工代表委员会" />
+        </div>
+        <div>
+          <label>机构类型</label>
+          <select id="representationType">
+            <option value="WORKS_COUNCIL">WORKS_COUNCIL</option>
+            <option value="UNION">UNION</option>
+            <option value="EMPLOYEE_REP">EMPLOYEE_REP</option>
+            <option value="ALL_EMPLOYEES">ALL_EMPLOYEES</option>
+          </select>
+        </div>
+        <div>
+          <label>辖区</label>
+          <input id="representationJurisdiction" value="CN" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createRepresentation" style="width:100%">创建代表机构</button>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>政策版本</label>
+          <select id="consultationPolicy"></select>
+        </div>
+        <div>
+          <label>代表机构（可选）</label>
+          <select id="consultationRepresentation"><option value="">不指定</option></select>
+        </div>
+        <div>
+          <label>协商类型</label>
+          <select id="consultationType">
+            <option value="NEGOTIATION">NEGOTIATION</option>
+            <option value="DISCUSSION">DISCUSSION</option>
+            <option value="COMMENT_PERIOD">COMMENT_PERIOD</option>
+            <option value="INFORMATION">INFORMATION</option>
+          </select>
+        </div>
+        <div>
+          <label>开始时间（ISO）</label>
+          <input id="consultationStartedAt" value="2026-01-01T00:00:00Z" />
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createConsultation">记录协商</button>
+        <button id="refreshConsultations">刷新</button>
+      </div>
+      <div class="status" id="consultationStatus"></div>
+      <table>
+        <thead>
+        <tr><th>政策</th><th>类型</th><th>结果</th><th>开始</th><th>结束</th><th>操作</th></tr>
+        </thead>
+        <tbody id="consultations"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>批量计算</h2>
       <div class="grid">
         <div>
@@ -1890,6 +1950,7 @@ order-batch-2,80000</textarea>
         $("diffTarget").innerHTML = options;
         $("batchPolicy").innerHTML = options;
         $("noticePolicy").innerHTML = '<option value="">不关联</option>' + options;
+        $("consultationPolicy").innerHTML = options;
         if (versions.length > 1) $("diffTarget").selectedIndex = 1;
         setStatus("policyStatus", `共 ${versions.length} 个政策版本`, "ok");
       } catch (error) {
@@ -1979,6 +2040,118 @@ order-batch-2,80000</textarea>
         );
       } catch (error) {
         setStatus("noticeStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createRepresentation() {
+      try {
+        await api("/api/v1/employee-representations", {
+          method: "POST",
+          body: JSON.stringify({
+            bodyName: $("representationName").value.trim(),
+            bodyType: $("representationType").value,
+            jurisdiction: $("representationJurisdiction").value.trim(),
+          }),
+        });
+        setStatus("consultationStatus", "代表机构已创建", "ok");
+        await loadRepresentations();
+      } catch (error) {
+        setStatus("consultationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadRepresentations() {
+      try {
+        const representations = await api(
+          "/api/v1/employee-representations",
+        );
+        $("consultationRepresentation").innerHTML =
+          '<option value="">不指定</option>' +
+          representations.map(
+            (representation) =>
+              `<option value="${representation.id}">${escapeHtml(representation.bodyName)}</option>`,
+          ).join("");
+      } catch (error) {
+        setStatus("consultationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createConsultation() {
+      try {
+        const policyVersionId = $("consultationPolicy").value;
+        if (!policyVersionId) throw new Error("请选择政策版本");
+        const representationId = $("consultationRepresentation").value;
+        await api("/api/v1/policy-consultations", {
+          method: "POST",
+          body: JSON.stringify({
+            policyVersionId,
+            representationId: representationId || undefined,
+            consultationType: $("consultationType").value,
+            startedAt: $("consultationStartedAt").value.trim(),
+          }),
+        });
+        setStatus("consultationStatus", "协商已记录", "ok");
+        await loadConsultations();
+      } catch (error) {
+        setStatus("consultationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadConsultations() {
+      try {
+        const consultations = await api("/api/v1/policy-consultations");
+        $("consultations").innerHTML = consultations.map((consultation) => `
+          <tr>
+            <td class="mono">${escapeHtml(consultation.policyVersionId.slice(0, 8))}</td>
+            <td>${escapeHtml(consultation.consultationType)}</td>
+            <td><span class="pill">${escapeHtml(consultation.outcome)}</span></td>
+            <td>${escapeHtml(consultation.startedAt)}</td>
+            <td>${escapeHtml(consultation.endedAt || "—")}</td>
+            <td>${consultation.outcome === "PENDING"
+              ? `<button data-consultation="${consultation.id}">结束协商</button>`
+              : "—"}</td>
+          </tr>`).join("");
+        setStatus(
+          "consultationStatus",
+          `共 ${consultations.length} 条协商记录`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("consultationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function concludeConsultation(consultationId) {
+      const outcome = window.prompt(
+        "协商结果（AGREED / NO_AGREEMENT / INFORMATION_ONLY / CLOSED）",
+        "AGREED",
+      );
+      if (!outcome) return;
+      if (
+        !["AGREED", "NO_AGREEMENT", "INFORMATION_ONLY", "CLOSED"].includes(
+          outcome.toUpperCase(),
+        )
+      ) {
+        setStatus("consultationStatus", "协商结果不合法", "bad");
+        return;
+      }
+      const minutesRef = window.prompt("会议纪要引用（可选）", "") || undefined;
+      try {
+        await api(
+          `/api/v1/policy-consultations/${consultationId}/conclude`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              endedAt: new Date().toISOString(),
+              outcome: outcome.toUpperCase(),
+              minutesRef,
+            }),
+          },
+        );
+        setStatus("consultationStatus", "协商已结束", "ok");
+        await loadConsultations();
+      } catch (error) {
+        setStatus("consultationStatus", String(error.message), "bad");
       }
     }
 
@@ -2139,6 +2312,20 @@ order-batch-2,80000</textarea>
     $("setManager").addEventListener("click", setManager);
     $("createNotice").addEventListener("click", createNotice);
     $("refreshNotices").addEventListener("click", loadNotices);
+    $("createRepresentation").addEventListener(
+      "click",
+      createRepresentation,
+    );
+    $("createConsultation").addEventListener("click", createConsultation);
+    $("refreshConsultations").addEventListener("click", async () => {
+      await loadRepresentations();
+      await loadConsultations();
+    });
+    $("consultations").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-consultation]");
+      if (!button) return;
+      concludeConsultation(button.dataset.consultation);
+    });
     $("notices").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notice]");
       if (!button) return;
@@ -2215,6 +2402,8 @@ order-batch-2,80000</textarea>
     loadPlatformData();
     loadPolicies();
     loadNotices();
+    loadRepresentations();
+    loadConsultations();
     loadTasks();
     loadSettlements();
     loadLedger();

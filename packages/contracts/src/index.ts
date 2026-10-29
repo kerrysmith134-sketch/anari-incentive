@@ -102,6 +102,7 @@ export const legalGateSchema = z.object({
 
 export const recordLegalGateSchema = z.object({
   democraticProcedureRef: z.string().min(1).optional(),
+  democraticProcedureId: uuidSchema.optional(),
   employeeNoticeRef: z.string().min(1).optional(),
   employeeNoticeId: uuidSchema.optional(),
   dataProtectionAssessmentRef: z.string().min(1).optional(),
@@ -142,6 +143,66 @@ export const recordAcknowledgementSchema = z
   );
 export type RecordAcknowledgementBody = z.infer<
   typeof recordAcknowledgementSchema
+>;
+
+export const createRepresentationSchema = z.object({
+  bodyName: z.string().min(1),
+  bodyType: z.enum([
+    "WORKS_COUNCIL",
+    "UNION",
+    "EMPLOYEE_REP",
+    "ALL_EMPLOYEES",
+  ]),
+  jurisdiction: z.string().min(1),
+});
+export type CreateRepresentationBody = z.infer<
+  typeof createRepresentationSchema
+>;
+
+const consultationOutcome = z.enum([
+  "PENDING",
+  "AGREED",
+  "NO_AGREEMENT",
+  "INFORMATION_ONLY",
+  "CLOSED",
+]);
+
+export const createConsultationSchema = z
+  .object({
+    policyVersionId: uuidSchema,
+    representationId: uuidSchema.optional(),
+    consultationType: z.enum([
+      "DISCUSSION",
+      "COMMENT_PERIOD",
+      "NEGOTIATION",
+      "INFORMATION",
+    ]),
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime().optional(),
+    minutesRef: z.string().min(1).optional(),
+    feedbackSummary: z.string().min(1).optional(),
+    outcome: consultationOutcome.default("PENDING"),
+  })
+  .refine(
+    (value) =>
+      !value.endedAt || new Date(value.endedAt) >= new Date(value.startedAt),
+    "endedAt must not be before startedAt",
+  );
+export type CreateConsultationBody = z.infer<typeof createConsultationSchema>;
+
+export const concludeConsultationSchema = z.object({
+  endedAt: z.string().datetime(),
+  outcome: z.enum([
+    "AGREED",
+    "NO_AGREEMENT",
+    "INFORMATION_ONLY",
+    "CLOSED",
+  ]),
+  minutesRef: z.string().min(1).optional(),
+  feedbackSummary: z.string().min(1).optional(),
+});
+export type ConcludeConsultationBody = z.infer<
+  typeof concludeConsultationSchema
 >;
 
 export const recordConfirmationSchema = z.object({

@@ -232,6 +232,51 @@ export interface NoticeAcknowledgementOverview {
   acknowledgements: PolicyAcknowledgement[];
 }
 
+export type RepresentationBodyType =
+  | "WORKS_COUNCIL"
+  | "UNION"
+  | "EMPLOYEE_REP"
+  | "ALL_EMPLOYEES";
+
+/** An employee representation body (works council, union, representative). */
+export interface EmployeeRepresentation {
+  id: UUID;
+  tenantId: UUID;
+  bodyName: string;
+  bodyType: RepresentationBodyType;
+  jurisdiction: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export type ConsultationType =
+  | "DISCUSSION"
+  | "COMMENT_PERIOD"
+  | "NEGOTIATION"
+  | "INFORMATION";
+
+export type ConsultationOutcome =
+  | "PENDING"
+  | "AGREED"
+  | "NO_AGREEMENT"
+  | "INFORMATION_ONLY"
+  | "CLOSED";
+
+/** A recorded democratic-procedure consultation for a policy version. */
+export interface PolicyConsultation {
+  id: UUID;
+  tenantId: UUID;
+  policyVersionId: UUID;
+  representationId?: UUID;
+  consultationType: ConsultationType;
+  startedAt: string;
+  endedAt?: string;
+  minutesRef?: string;
+  feedbackSummary?: string;
+  outcome: ConsultationOutcome;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;
