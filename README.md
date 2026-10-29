@@ -446,3 +446,4 @@ See `docs/PRD_V4.1_评审修订版.md` §11 for Go/No-Go and kill criteria.
 - Domain contract: [`docs/domain-contract.md`](docs/domain-contract.md)
 - ADRs: [`docs/adr/`](docs/adr/)
 - Governance store and approval consumption: [`docs/adr/ADR-005-platform-governance-store.md`](docs/adr/ADR-005-platform-governance-store.md)
+- Policy test governance, readiness reports and model prompts: [`docs/adr/ADR-006-assurance-reports-and-model-prompts.md`](docs/adr/ADR-006-assurance-reports-and-model-prompts.md)
