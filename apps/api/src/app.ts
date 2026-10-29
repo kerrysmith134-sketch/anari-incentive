@@ -617,6 +617,7 @@ export function buildApp(
     reply.header("x-ratelimit-limit", String(options.rateLimit?.limit ?? 0));
     reply.header("x-ratelimit-remaining", String(decision.remaining));
     if (!decision.allowed) {
+      countEvent("rate_limited");
       reply.header("retry-after", String(decision.retryAfterSeconds));
       return reply.status(429).send({
         ...errorBody("RATE_LIMITED", "too many requests"),
@@ -2880,6 +2881,8 @@ export function buildApp(
       passed: result.passed,
       resultHash: result.resultHash,
     });
+    countEvent("policy_test_case_run");
+    if (!result.passed) countEvent("policy_test_case_failed");
     return data(result, request);
   });
 
@@ -2921,6 +2924,10 @@ export function buildApp(
       resultsHash: sha256(results),
       results,
     });
+    countEvent("policy_test_suite_run");
+    countEvent(
+      run.passed ? "policy_test_suite_passed" : "policy_test_suite_failed",
+    );
     const suite: PolicyTestSuiteResult = {
       runId: run.id,
       runAt: run.runAt,
@@ -3200,20 +3207,17 @@ export function buildApp(
   app.post("/api/v1/model-prompts", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createModelPromptSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createModelPrompt({
-          tenantId: tenantOf(request),
-          promptCode: body.promptCode,
-          version: body.version,
-          purpose: body.purpose,
-          modelProvider: body.modelProvider,
-          modelName: body.modelName,
-          template: body.template,
-        }),
-        request,
-      ),
-    );
+    const prompt = await platformStore.createModelPrompt({
+      tenantId: tenantOf(request),
+      promptCode: body.promptCode,
+      version: body.version,
+      purpose: body.purpose,
+      modelProvider: body.modelProvider,
+      modelName: body.modelName,
+      template: body.template,
+    });
+    countEvent("model_prompt_created");
+    return reply.status(201).send(data(prompt, request));
   });
 
   app.get("/api/v1/model-prompts", async (request) => {
@@ -3234,25 +3238,23 @@ export function buildApp(
   app.post("/api/v1/model-prompts/:id/activate", async (request) => {
     requireRoles(request, "admin");
     const body = parse(activateModelPromptSchema, request.body);
-    return data(
-      await platformStore.activateModelPrompt({
-        tenantId: tenantOf(request),
-        promptId: idOf(request),
-        evaluationRunId: body.evaluationRunId,
-      }),
-      request,
-    );
+    const prompt = await platformStore.activateModelPrompt({
+      tenantId: tenantOf(request),
+      promptId: idOf(request),
+      evaluationRunId: body.evaluationRunId,
+    });
+    countEvent("model_prompt_activated");
+    return data(prompt, request);
   });
 
   app.post("/api/v1/model-prompts/:id/retire", async (request) => {
     requireRoles(request, "admin");
-    return data(
-      await platformStore.retireModelPrompt({
-        tenantId: tenantOf(request),
-        promptId: idOf(request),
-      }),
-      request,
-    );
+    const prompt = await platformStore.retireModelPrompt({
+      tenantId: tenantOf(request),
+      promptId: idOf(request),
+    });
+    countEvent("model_prompt_retired");
+    return data(prompt, request);
   });
 
   app.post("/api/v1/workflow-runs", async (request, reply) => {

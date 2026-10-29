@@ -45,6 +45,11 @@ describe("rate limiting", () => {
     expect(limited.statusCode).toBe(429);
     expect(limited.headers["retry-after"]).toBe("1");
     expect(limited.json().error.code).toBe("RATE_LIMITED");
+    const metrics = await app.inject({
+      method: "GET",
+      url: "/metrics",
+    } as never);
+    expect(metrics.body).toContain('event="rate_limited"');
 
     now += 1_000;
     expect((await request()).statusCode).toBe(200);
