@@ -194,7 +194,7 @@ Additional application-level invariants:
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
 
-Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request.
+Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`, `POLICY_PUBLISH`, `LEDGER_REVERSAL`, `LEDGER_ADJUSTMENT`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request.
 | `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
 | `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
 | `POST /budget-pools` | finance, cycle exists | Creates a DRAFT pool with a decimal approved amount |
@@ -248,7 +248,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /policy-simulations` | current policy exists | Recomputes samples; returns deltas and blockers; writes no money |
 | `GET /policy-versions` | manager/finance | Lists policy versions, status and effective windows |
 | `GET /policy-versions/:id/diff?against=` | manager/finance | Structural diff of two policy definitions |
-| `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL |
+| `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy; optional approval | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL; a matching approved `POLICY_PUBLISH` request (with planned `policyVersionId`) is consumed |
 | `POST /settlement-batches` | LOCKED ledger entries not in an active batch | DRAFT batch with one line per ledger entry |
 | `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV; APPROVE/LOCK optionally consume `SETTLEMENT_APPROVE`/`SETTLEMENT_LOCK` approval requests |
 | `POST /ledger/:id/reverse` | original LOCKED, finance; optional approval | Appends a LOCKED negative REVERSAL linked to the original; idempotent by key; a matching approved `LEDGER_REVERSAL` request is consumed |

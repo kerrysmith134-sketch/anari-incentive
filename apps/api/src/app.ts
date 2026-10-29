@@ -907,6 +907,19 @@ export function buildApp(
   app.post("/api/v1/policy-versions", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(publishPolicySchema, request.body);
+    if (body.approvalRequestId) {
+      if (!body.policyVersionId) {
+        throw new ConflictError(
+          "POLICY_VERSION_ID_REQUIRED: an approval needs a planned policy version id",
+        );
+      }
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "POLICY_PUBLISH",
+        targetType: "POLICY_VERSION",
+        targetId: body.policyVersionId,
+      });
+    }
     return reply
       .status(201)
       .send(data(await storeFor(request).publishPolicy(body), request));

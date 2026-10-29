@@ -1042,6 +1042,7 @@ export const publishPolicySchema = z.object({
   effectiveFrom: z.string().datetime(),
   approvedBy: uuidSchema,
   scope: z.record(z.unknown()).optional(),
+  approvalRequestId: uuidSchema.optional(),
 });
 export type PublishPolicyBody = z.infer<typeof publishPolicySchema>;
 

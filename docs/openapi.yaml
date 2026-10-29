@@ -5874,6 +5874,10 @@ components:
         scope:
           type: object
           additionalProperties: true
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, policyVersionId is required and the approved POLICY_PUBLISH request for that version is consumed.
 
     PolicySimulation:
       type: object

@@ -4171,17 +4171,47 @@ describe("vertical slice", () => {
       rounding: "HALF_UP",
       calculator: "SIMPLE_POOL",
     };
+    const policyVersionId = "00000000-0000-4000-8000-0000000007a7";
+    const publishApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "POLICY_PUBLISH",
+        targetType: "POLICY_VERSION",
+        targetId: policyVersionId,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { policyVersionId },
+        idempotencyKey: `policy-publish-${policyVersionId}`,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${publishApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: publishApproval.body.data.payloadHash,
+      },
+    );
     const published = await call("POST", "/api/v1/policy-versions", {
       policy,
+      policyVersionId,
       effectiveFrom: "2026-11-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      approvalRequestId: publishApproval.body.data.id,
     });
     expect(published.status).toBe(201);
-    expect(published.body.data.policyVersionId).toMatch(
-      /^[0-9a-f-]{36}$/,
-    );
+    expect(published.body.data.policyVersionId).toBe(policyVersionId);
     expect(published.body.data.approvedBy).toBe(ADJUDICATOR);
     expect(published.body.data.contentHash).toContain("sha256:");
+    const consumedPublishApproval = await call(
+      "GET",
+      `/api/v1/approval-requests/${publishApproval.body.data.id}`,
+    );
+    expect(consumedPublishApproval.body.data.consumedAt).toBeTruthy();
 
     const versions = await call("GET", "/api/v1/policy-versions");
     expect(versions.status).toBe(200);
