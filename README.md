@@ -29,7 +29,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Evidence graph | EvidenceNode + EvidenceLink with source/provenance, quality status, supersedes, supporting/counter links; employee-submitted evidence records `submittedBy`, is readable only by that person (manager/finance see the tenant) and can only target their own person or work packages; API and PostgreSQL-backed |
 | Data quality | Persistent issues with OPEN → ASSIGNED → IN_PROGRESS → RESOLVED/WAIVED_WITH_APPROVAL → REOPENED; waiver requires approver and reason; unresolved BLOCKING issues on a participant's work package block FORMAL calculations; the DATA_QUALITY agent persists findings as issues and escalates blocking ones |
 | Ingestion + connectors | Generic event ingestion (`raw_events` → evidence nodes) with deduplication; CSV connector + CLI importer (`npm run import:csv`); generic paginated HTTP/JSON connector for CRM/ERP REST APIs |
-| Platform onboarding | Platform-admin endpoints for tenants, users, tenant memberships and tenant persons (employees), plus caller identity resolution (user → person + roles); memory and PostgreSQL implementations |
+| Platform onboarding | Platform-admin endpoints for tenants, users, tenant memberships, tenant persons (employees), org nodes, org assignments and reporting lines, plus caller identity resolution (user → person + roles); memory and PostgreSQL implementations |
 | Auth | OIDC/JWT bearer authentication (`AUTH_MODE=oidc`) or development header authenticator (`AUTH_MODE=dev`); all `/api/v1` routes reject unauthenticated calls; sensitive commands require `admin`, `manager`, `finance` or `integration` roles; employees only see their own work packages, claims, runs, ledger entries, confirmations and appeals; the worker supports a static token or OAuth client-credentials token |
 | Ledger | Append-only, idempotent, lock, linked reversal (`POST /ledger/:id/reverse`), per-tenant hash chain; PostgreSQL trigger prevents locked-row mutation |
 | Batch operations | Work-package acceptance, attribution decisions and calculation runs accept up to 50 items with all-or-nothing rollback (memory and PostgreSQL) |
@@ -174,6 +174,9 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST/GET | `/api/v1/platform/tenants/:id/memberships` | Add/list tenant memberships |
 | POST/GET | `/api/v1/platform/tenants/:id/persons` | Create/list tenant persons (employees) |
 | POST | `/api/v1/platform/tenants/:id/persons/:personId/link-user` | Link a person to a platform user |
+| POST/GET | `/api/v1/platform/tenants/:id/org-nodes` | Create/list tenant org nodes |
+| POST/GET | `/api/v1/platform/tenants/:id/persons/:personId/org-assignments` | Create/list person org assignments |
+| POST | `/api/v1/platform/tenants/:id/persons/:personId/manager` | Set or clear a person's manager |
 | GET | `/api/v1/platform/identity` | Resolve the caller's person and tenant roles |
 | POST | `/api/v1/ingestion/events:batch` | Ingest connector events; dedup + evidence projection |
 | POST | `/api/v1/evidence` | Create evidence node |

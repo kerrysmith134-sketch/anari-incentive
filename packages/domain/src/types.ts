@@ -318,6 +318,29 @@ export interface PlatformPerson {
   employeeCode: string;
   displayName: string;
   employmentStatus: string;
+  managerPersonId?: UUID;
+  createdAt: string;
+}
+
+export interface PlatformOrgNode {
+  id: UUID;
+  tenantId: UUID;
+  parentId?: UUID;
+  nodeType: string;
+  name: string;
+  path?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface PlatformOrgAssignment {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  orgNodeId: UUID;
+  validFrom: string;
+  validTo?: string;
+  allocation?: DecimalString;
   createdAt: string;
 }
 

@@ -1221,6 +1221,64 @@ describePg("PgStore vertical slice", () => {
     });
     expect(adminIdentity.personId).toBeUndefined();
     expect(adminIdentity.roles).toEqual(["admin", "finance"]);
+
+    const orgNode = await platform.createOrgNode({
+      tenantId: tenant.id,
+      name: "PG Sales",
+      nodeType: "DEPARTMENT",
+    });
+    expect(orgNode.path).toBe("/PG Sales");
+    const child = await platform.createOrgNode({
+      tenantId: tenant.id,
+      name: "PG Enterprise",
+      nodeType: "TEAM",
+      parentId: orgNode.id,
+    });
+    expect(child.path).toBe("/PG Sales/PG Enterprise");
+    expect(await platform.listOrgNodes(tenant.id)).toHaveLength(2);
+
+    const assignment = await platform.assignPersonOrg({
+      tenantId: tenant.id,
+      personId: person.id,
+      orgNodeId: child.id,
+      validFrom: "2026-01-01",
+      allocation: "0.5",
+    });
+    expect(assignment.validFrom).toBe("2026-01-01");
+    expect(assignment.allocation).toBe("0.5");
+    const assignments = await platform.listOrgAssignments(
+      tenant.id,
+      person.id,
+    );
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0]!.orgNodeId).toBe(child.id);
+
+    const managed = await platform.setPersonManager({
+      tenantId: tenant.id,
+      personId: unlinkedPerson.id,
+      managerPersonId: person.id,
+    });
+    expect(managed.managerPersonId).toBe(person.id);
+    await expect(
+      platform.setPersonManager({
+        tenantId: tenant.id,
+        personId: person.id,
+        managerPersonId: unlinkedPerson.id,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      platform.setPersonManager({
+        tenantId: tenant.id,
+        personId: person.id,
+        managerPersonId: person.id,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const cleared = await platform.setPersonManager({
+      tenantId: tenant.id,
+      personId: unlinkedPerson.id,
+      managerPersonId: null,
+    });
+    expect(cleared.managerPersonId).toBeUndefined();
   });
 
   it("records applied migrations", async () => {

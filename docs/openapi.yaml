@@ -1684,6 +1684,133 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/platform/tenants/{id}/org-nodes:
+    get:
+      tags: [Platform]
+      summary: List tenant org nodes
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Org nodes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Platform]
+      summary: Create a tenant org node
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrgNode"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/platform/tenants/{id}/persons/{personId}/org-assignments:
+    get:
+      tags: [Platform]
+      summary: List a person's org assignments
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/PersonIdPath"
+      responses:
+        "200":
+          description: Org assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Platform]
+      summary: Assign a person to an org node
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/PersonIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignPersonOrg"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/platform/tenants/{id}/persons/{personId}/manager:
+    post:
+      tags: [Platform]
+      summary: Set or clear a person's manager
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/PersonIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPersonManager"
+      responses:
+        "200":
+          description: Updated person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/platform/identity:
     get:
       tags: [Platform]
@@ -2526,6 +2653,43 @@ components:
       properties:
         userId:
           $ref: "#/components/schemas/Uuid"
+
+    CreateOrgNode:
+      type: object
+      required: [name, nodeType]
+      properties:
+        name:
+          type: string
+        nodeType:
+          type: string
+        parentId:
+          $ref: "#/components/schemas/Uuid"
+
+    AssignPersonOrg:
+      type: object
+      required: [orgNodeId, validFrom]
+      properties:
+        orgNodeId:
+          $ref: "#/components/schemas/Uuid"
+        validFrom:
+          type: string
+          format: date
+        validTo:
+          type: string
+          format: date
+        allocation:
+          type: string
+          description: Decimal between 0 and 1.
+
+    SetPersonManager:
+      type: object
+      required: [managerPersonId]
+      properties:
+        managerPersonId:
+          description: Person id, or null to clear the manager.
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
 
     CreateRubric:
       type: object

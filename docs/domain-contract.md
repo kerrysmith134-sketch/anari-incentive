@@ -150,6 +150,9 @@ Additional application-level invariants:
 | `POST /platform/tenants/:id/memberships` | platform_admin, tenant/user exist | Upserts ACTIVE membership with role codes |
 | `POST /platform/tenants/:id/persons` | platform_admin, tenant exists | Creates a person; employee code unique per tenant, optional `userId` link |
 | `POST /platform/tenants/:id/persons/:personId/link-user` | platform_admin, person/user exist | Links a person to a user; one user maps to at most one person per tenant |
+| `POST /platform/tenants/:id/org-nodes` | platform_admin, tenant and parent exist | Creates an org node; `path` is derived from the parent chain |
+| `POST /platform/tenants/:id/persons/:personId/org-assignments` | platform_admin, person/node exist | Appends a dated org assignment; allocation is 0–1, `validTo` ≥ `validFrom` |
+| `POST /platform/tenants/:id/persons/:personId/manager` | platform_admin, person/manager exist | Sets or clears the manager; self and cycles are rejected |
 | `GET /platform/identity` | authenticated | Resolves the caller's `userId`, linked `personId` and membership role codes |
 | `POST /work-packages` | — | Creates DRAFT |
 | `POST /work-packages/:id/commit` | DRAFT, expectedVersion | Freezes snapshot, COMMITTED |
@@ -393,7 +396,7 @@ Roles are enforced per command (`admin` always passes):
 
 | Role | Can do |
 |---|---|
-| `platform_admin` | tenant/user/membership/person onboarding only (admin also passes) |
+| `platform_admin` | tenant/user/membership/person/org onboarding only (admin also passes) |
 | `admin` | everything, including legal gates, policy publication and publishing an agent-proposed policy |
 | `manager` | simulations, agent scans/approval (except policy publication), attribution decisions, package acceptance, appeals |
 | `finance` | calculations, approval/locking, settlement commands, settlement-related agent approvals |

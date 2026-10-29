@@ -8,6 +8,7 @@ import {
   acceptWorkPackageSchema,
   acceptWorkPackagesBatchSchema,
   addMembershipSchema,
+  assignPersonOrgSchema,
   commitWorkPackageSchema,
   createAppealSchema,
   createAttributionDecisionSchema,
@@ -15,6 +16,7 @@ import {
   createCalculationBatchSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
+  createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
   createDataQualityIssueSchema,
@@ -43,6 +45,7 @@ import {
   rejectWorkPackageSchema,
   resolveAppealSchema,
   reverseLedgerEntrySchema,
+  setPersonManagerSchema,
   settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
@@ -659,6 +662,69 @@ export function buildApp(
   app.get("/api/v1/platform/tenants/:id/persons", async (request) => {
     requireRoles(request, "platform_admin");
     return data(await platformStore.listPersons(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/tenants/:id/org-nodes", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createOrgNodeSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createOrgNode({
+          tenantId: idOf(request),
+          name: body.name,
+          nodeType: body.nodeType,
+          parentId: body.parentId,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/platform/tenants/:id/org-nodes", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listOrgNodes(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/tenants/:id/persons/:personId/org-assignments", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(assignPersonOrgSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.assignPersonOrg({
+          tenantId: idOf(request),
+          personId: paramOf(request, "personId"),
+          orgNodeId: body.orgNodeId,
+          validFrom: body.validFrom,
+          validTo: body.validTo,
+          allocation: body.allocation,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/platform/tenants/:id/persons/:personId/org-assignments", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(
+      await platformStore.listOrgAssignments(
+        idOf(request),
+        paramOf(request, "personId"),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/platform/tenants/:id/persons/:personId/manager", async (request) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(setPersonManagerSchema, request.body);
+    return data(
+      await platformStore.setPersonManager({
+        tenantId: idOf(request),
+        personId: paramOf(request, "personId"),
+        managerPersonId: body.managerPersonId,
+      }),
+      request,
+    );
   });
 
   app.post("/api/v1/platform/tenants/:id/persons/:personId/link-user", async (request) => {

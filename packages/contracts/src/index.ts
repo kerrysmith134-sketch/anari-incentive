@@ -396,6 +396,41 @@ export const linkPersonUserSchema = z.object({
 });
 export type LinkPersonUserBody = z.infer<typeof linkPersonUserSchema>;
 
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)");
+
+export const createOrgNodeSchema = z.object({
+  name: z.string().min(1),
+  nodeType: z.string().min(1),
+  parentId: uuidSchema.optional(),
+});
+export type CreateOrgNodeBody = z.infer<typeof createOrgNodeSchema>;
+
+export const assignPersonOrgSchema = z
+  .object({
+    orgNodeId: uuidSchema,
+    validFrom: isoDate,
+    validTo: isoDate.optional(),
+    allocation: decimal.optional(),
+  })
+  .refine(
+    (value) => !value.validTo || value.validTo >= value.validFrom,
+    "validTo must not be before validFrom",
+  )
+  .refine(
+    (value) =>
+      value.allocation === undefined ||
+      (Number(value.allocation) >= 0 && Number(value.allocation) <= 1),
+    "allocation must be between 0 and 1",
+  );
+export type AssignPersonOrgBody = z.infer<typeof assignPersonOrgSchema>;
+
+export const setPersonManagerSchema = z.object({
+  managerPersonId: uuidSchema.nullable(),
+});
+export type SetPersonManagerBody = z.infer<typeof setPersonManagerSchema>;
+
 export const createDataQualityIssueSchema = z.object({
   objectType: z.string().min(1),
   objectId: uuidSchema,

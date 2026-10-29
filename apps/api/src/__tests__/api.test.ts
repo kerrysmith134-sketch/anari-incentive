@@ -591,6 +591,101 @@ describe("platform onboarding", () => {
     );
     expect(missingPerson.status).toBe(404);
 
+    const sales = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/org-nodes`,
+      { name: "Sales", nodeType: "DEPARTMENT" },
+    );
+    expect(sales.status).toBe(201);
+    expect(sales.body.data.path).toBe("/Sales");
+    const salesId = sales.body.data.id as string;
+
+    const enterprise = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/org-nodes`,
+      { name: "Enterprise", nodeType: "TEAM", parentId: salesId },
+    );
+    expect(enterprise.status).toBe(201);
+    expect(enterprise.body.data.path).toBe("/Sales/Enterprise");
+    const enterpriseId = enterprise.body.data.id as string;
+
+    const nodes = await adminCall(
+      "GET",
+      `/api/v1/platform/tenants/${tenantId}/org-nodes`,
+    );
+    expect(nodes.body.data).toHaveLength(2);
+    expect(nodes.body.data[1].id).toBe(enterpriseId);
+
+    const assignment = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${personId}/org-assignments`,
+      {
+        orgNodeId: enterpriseId,
+        validFrom: "2026-01-01",
+        allocation: "0.5",
+      },
+    );
+    expect(assignment.status).toBe(201);
+    expect(assignment.body.data.allocation).toBe("0.5");
+
+    const badAssignment = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${personId}/org-assignments`,
+      {
+        orgNodeId: enterpriseId,
+        validFrom: "2026-02-01",
+        validTo: "2026-01-01",
+      },
+    );
+    expect(badAssignment.status).toBe(400);
+
+    const assignments = await adminCall(
+      "GET",
+      `/api/v1/platform/tenants/${tenantId}/persons/${personId}/org-assignments`,
+    );
+    expect(assignments.body.data).toHaveLength(1);
+    expect(assignments.body.data[0].orgNodeId).toBe(enterpriseId);
+
+    const manager = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${secondPersonId}/manager`,
+      { managerPersonId: personId },
+    );
+    expect(manager.status).toBe(200);
+    expect(manager.body.data.managerPersonId).toBe(personId);
+
+    const cycle = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${personId}/manager`,
+      { managerPersonId: secondPersonId },
+    );
+    expect(cycle.status).toBe(409);
+
+    const selfManager = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${personId}/manager`,
+      { managerPersonId: personId },
+    );
+    expect(selfManager.status).toBe(409);
+
+    const personsWithManager = await adminCall(
+      "GET",
+      `/api/v1/platform/tenants/${tenantId}/persons`,
+    );
+    expect(
+      personsWithManager.body.data.find(
+        (candidate: { id: string }) => candidate.id === secondPersonId,
+      ).managerPersonId,
+    ).toBe(personId);
+
+    const cleared = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${secondPersonId}/manager`,
+      { managerPersonId: null },
+    );
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.managerPersonId).toBeUndefined();
+
     const secondAuth: Authenticator = {
       async authenticate() {
         return {

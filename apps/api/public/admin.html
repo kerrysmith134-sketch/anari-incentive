@@ -402,7 +402,7 @@ order-batch-2,80000</textarea>
       </div>
       <div class="grid" style="margin-top:10px">
         <div>
-          <label>员工所属租户</label>
+          <label>租户（员工/组织）</label>
           <select id="personTenant"></select>
         </div>
         <div>
@@ -428,10 +428,44 @@ order-batch-2,80000</textarea>
       </table>
       <table>
         <thead>
-        <tr><th>员工编号</th><th>姓名</th><th>状态</th><th>关联用户</th></tr>
+        <tr><th>员工编号</th><th>姓名</th><th>状态</th><th>关联用户</th><th>直属上级</th></tr>
         </thead>
         <tbody id="platformPersons"></tbody>
       </table>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>组织名称</label>
+          <input id="orgName" value="Sales" />
+        </div>
+        <div>
+          <label>组织类型</label>
+          <input id="orgType" value="DEPARTMENT" />
+        </div>
+        <div>
+          <label>上级组织（可选）</label>
+          <select id="orgParent"><option value="">顶级</option></select>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createOrgNode">创建组织</button>
+      </div>
+      <table>
+        <thead><tr><th>路径</th><th>名称</th><th>类型</th></tr></thead>
+        <tbody id="platformOrgNodes"></tbody>
+      </table>
+      <div class="grid" style="margin-top:10px">
+        <div>
+          <label>汇报人</label>
+          <select id="managerPerson"></select>
+        </div>
+        <div>
+          <label>直属上级</label>
+          <select id="managerTarget"><option value="">（无）</option></select>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button id="setManager" style="width:100%">设置汇报线</button>
+        </div>
+      </div>
     </section>
 
     <section class="card">
@@ -893,6 +927,7 @@ order-batch-2,80000</textarea>
           "ok",
         );
         await loadPersons();
+        await loadOrgNodes();
       } catch (error) {
         setStatus("platformStatus", String(error.message), "bad");
       }
@@ -902,18 +937,102 @@ order-batch-2,80000</textarea>
       const tenantId = $("personTenant").value;
       if (!tenantId) {
         $("platformPersons").innerHTML = "";
+        $("managerPerson").innerHTML = "";
+        $("managerTarget").innerHTML = '<option value="">（无）</option>';
         return;
       }
       try {
         const persons = await api(
           `/api/v1/platform/tenants/${tenantId}/persons`,
         );
+        const names = new Map(
+          persons.map((person) => [person.id, person.displayName]),
+        );
         $("platformPersons").innerHTML = persons.map((person) => `<tr>
           <td class="mono">${escapeHtml(person.employeeCode)}</td>
           <td>${escapeHtml(person.displayName)}</td>
           <td><span class="pill">${escapeHtml(person.employmentStatus)}</span></td>
           <td class="mono">${person.userId ? escapeHtml(person.userId.slice(0, 8)) : "—"}</td>
+          <td>${person.managerPersonId ? escapeHtml(names.get(person.managerPersonId) ?? person.managerPersonId.slice(0, 8)) : "—"}</td>
         </tr>`).join("");
+        const options = persons.map(
+          (person) =>
+            `<option value="${person.id}">${escapeHtml(person.displayName)}</option>`,
+        ).join("");
+        $("managerPerson").innerHTML = options;
+        $("managerTarget").innerHTML =
+          '<option value="">（无）</option>' + options;
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadOrgNodes() {
+      const tenantId = $("personTenant").value;
+      if (!tenantId) {
+        $("platformOrgNodes").innerHTML = "";
+        $("orgParent").innerHTML = '<option value="">顶级</option>';
+        return;
+      }
+      try {
+        const nodes = await api(
+          `/api/v1/platform/tenants/${tenantId}/org-nodes`,
+        );
+        $("platformOrgNodes").innerHTML = nodes.map((node) => `<tr>
+          <td class="mono">${escapeHtml(node.path ?? node.name)}</td>
+          <td>${escapeHtml(node.name)}</td>
+          <td>${escapeHtml(node.nodeType)}</td>
+        </tr>`).join("");
+        $("orgParent").innerHTML =
+          '<option value="">顶级</option>' +
+          nodes.map(
+            (node) =>
+              `<option value="${node.id}">${escapeHtml(node.path ?? node.name)}</option>`,
+          ).join("");
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createOrgNode() {
+      try {
+        const tenantId = $("personTenant").value;
+        if (!tenantId) throw new Error("请选择租户");
+        const parentId = $("orgParent").value;
+        await api(`/api/v1/platform/tenants/${tenantId}/org-nodes`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: $("orgName").value.trim(),
+            nodeType: $("orgType").value.trim(),
+            parentId: parentId || undefined,
+          }),
+        });
+        setStatus("platformStatus", "组织已创建", "ok");
+        await loadOrgNodes();
+      } catch (error) {
+        setStatus("platformStatus", String(error.message), "bad");
+      }
+    }
+
+    async function setManager() {
+      try {
+        const tenantId = $("personTenant").value;
+        const personId = $("managerPerson").value;
+        if (!tenantId || !personId) throw new Error("请选择租户和汇报人");
+        const managerPersonId = $("managerTarget").value || null;
+        await api(
+          `/api/v1/platform/tenants/${tenantId}/persons/${personId}/manager`,
+          {
+            method: "POST",
+            body: JSON.stringify({ managerPersonId }),
+          },
+        );
+        setStatus(
+          "platformStatus",
+          managerPersonId ? "汇报线已设置" : "汇报线已清除",
+          "ok",
+        );
+        await loadPersons();
       } catch (error) {
         setStatus("platformStatus", String(error.message), "bad");
       }
@@ -1905,7 +2024,12 @@ order-batch-2,80000</textarea>
     $("createPlatformUser").addEventListener("click", createPlatformUser);
     $("addMembership").addEventListener("click", addMembership);
     $("createPerson").addEventListener("click", createPerson);
-    $("personTenant").addEventListener("change", loadPersons);
+    $("createOrgNode").addEventListener("click", createOrgNode);
+    $("setManager").addEventListener("click", setManager);
+    $("personTenant").addEventListener("change", () => {
+      void loadPersons();
+      void loadOrgNodes();
+    });
     $("createWp").addEventListener("click", createWorkPackage);
     $("refreshWp").addEventListener("click", async () => {
       await loadWorkPackages();
