@@ -1419,6 +1419,38 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("records and resolves DSAR requests", async () => {
+    const platform = new PgPlatformStore(pool);
+    const dsar = await platform.createDsar({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      requestType: "ACCESS",
+      dueAt: "2026-02-01T00:00:00Z",
+    });
+    expect(dsar.status).toBe("OPEN");
+    expect(
+      (await platform.listDsars(DEMO_TENANT_ID, OWNER)).some(
+        (candidate) => candidate.id === dsar.id,
+      ),
+    ).toBe(true);
+    const resolved = await platform.resolveDsar({
+      tenantId: DEMO_TENANT_ID,
+      dsarId: dsar.id,
+      resolution: "RESOLVED",
+      resolutionRef: `PG-DSAR-${Date.now()}`,
+    });
+    expect(resolved.status).toBe("RESOLVED");
+    expect(resolved.resolutionRef).toContain("PG-DSAR");
+    await expect(
+      platform.resolveDsar({
+        tenantId: DEMO_TENANT_ID,
+        dsarId: dsar.id,
+        resolution: "REJECTED",
+        resolutionRef: "PG-DSAR-again",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

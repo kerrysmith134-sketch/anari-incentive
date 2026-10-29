@@ -5,6 +5,8 @@ import type {
   ConsultationType,
   DpiaAssessmentType,
   DpiaRecord,
+  DsarRequest,
+  DsarRequestType,
   EmployeeNotice,
   EmployeeRepresentation,
   NoticeAcknowledgementOverview,
@@ -156,6 +158,20 @@ export interface PlatformStore {
     dpiaId: string;
     approvedBy: string;
   }): Promise<DpiaRecord>;
+  createDsar(input: {
+    tenantId: string;
+    personId: string;
+    requestType: DsarRequestType;
+    dueAt?: string;
+  }): Promise<DsarRequest>;
+  listDsars(tenantId: string, personId?: string): Promise<DsarRequest[]>;
+  getDsar(tenantId: string, dsarId: string): Promise<DsarRequest>;
+  resolveDsar(input: {
+    tenantId: string;
+    dsarId: string;
+    resolution: "RESOLVED" | "REJECTED";
+    resolutionRef: string;
+  }): Promise<DsarRequest>;
 }
 
 function now(): string {
@@ -178,6 +194,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly representations = new Map<string, EmployeeRepresentation>();
   private readonly consultations = new Map<string, PolicyConsultation>();
   private readonly dpias = new Map<string, DpiaRecord>();
+  private readonly dsars = new Map<string, DsarRequest>();
 
   constructor(
     options: {
@@ -825,6 +842,68 @@ export class MemoryPlatformStore implements PlatformStore {
     dpia.approvedBy = input.approvedBy;
     dpia.approvedAt = now();
     return dpia;
+  }
+
+  async createDsar(input: {
+    tenantId: string;
+    personId: string;
+    requestType: DsarRequestType;
+    dueAt?: string;
+  }): Promise<DsarRequest> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    const timestamp = now();
+    const dsar: DsarRequest = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      requestType: input.requestType,
+      status: "OPEN",
+      receivedAt: timestamp,
+      dueAt: input.dueAt,
+      createdAt: timestamp,
+    };
+    this.dsars.set(dsar.id, dsar);
+    return dsar;
+  }
+
+  async listDsars(
+    tenantId: string,
+    personId?: string,
+  ): Promise<DsarRequest[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.dsars.values()]
+      .filter(
+        (dsar) =>
+          dsar.tenantId === tenantId &&
+          (!personId || dsar.personId === personId),
+      )
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+  }
+
+  async getDsar(tenantId: string, dsarId: string): Promise<DsarRequest> {
+    const dsar = this.dsars.get(dsarId);
+    if (!dsar || dsar.tenantId !== tenantId) notFound("DsarRequest", dsarId);
+    return dsar;
+  }
+
+  async resolveDsar(input: {
+    tenantId: string;
+    dsarId: string;
+    resolution: "RESOLVED" | "REJECTED";
+    resolutionRef: string;
+  }): Promise<DsarRequest> {
+    const dsar = await this.getDsar(input.tenantId, input.dsarId);
+    if (dsar.status !== "OPEN") {
+      throw new ConflictError(`DSAR ${dsar.id} is already ${dsar.status}`);
+    }
+    dsar.status = input.resolution;
+    dsar.resolutionRef = input.resolutionRef;
+    dsar.resolvedAt = now();
+    return dsar;
   }
 
   private assertUserNotLinked(
@@ -1637,6 +1716,85 @@ export class PgPlatformStore implements PlatformStore {
     }
   }
 
+  async createDsar(input: {
+    tenantId: string;
+    personId: string;
+    requestType: DsarRequestType;
+    dueAt?: string;
+  }): Promise<DsarRequest> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO dsar_requests
+          (id, tenant_id, person_id, request_type, due_at)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.requestType,
+          input.dueAt ?? null,
+        ],
+      );
+      return this.mapDsar(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError("tenant or person not found");
+      }
+      throw error;
+    }
+  }
+
+  async listDsars(
+    tenantId: string,
+    personId?: string,
+  ): Promise<DsarRequest[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM dsar_requests WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY received_at DESC, created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapDsar(row));
+  }
+
+  async getDsar(tenantId: string, dsarId: string): Promise<DsarRequest> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM dsar_requests WHERE tenant_id=$1 AND id=$2",
+      [tenantId, dsarId],
+    );
+    if (!rows[0]) notFound("DsarRequest", dsarId);
+    return this.mapDsar(rows[0]);
+  }
+
+  async resolveDsar(input: {
+    tenantId: string;
+    dsarId: string;
+    resolution: "RESOLVED" | "REJECTED";
+    resolutionRef: string;
+  }): Promise<DsarRequest> {
+    const dsar = await this.getDsar(input.tenantId, input.dsarId);
+    if (dsar.status !== "OPEN") {
+      throw new ConflictError(`DSAR ${dsar.id} is already ${dsar.status}`);
+    }
+    const { rows } = await this.pool.query(
+      `UPDATE dsar_requests
+          SET status=$3, resolution_ref=$4, resolved_at=now()
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.dsarId,
+        input.resolution,
+        input.resolutionRef,
+      ],
+    );
+    return this.mapDsar(rows[0]);
+  }
+
   private async assertTenant(tenantId: string): Promise<void> {
     const { rowCount } = await this.pool.query(
       "SELECT 1 FROM tenants WHERE id=$1",
@@ -1789,6 +1947,21 @@ export class PgPlatformStore implements PlatformStore {
       mitigationSummary: row.mitigation_summary ?? {},
       approvedBy: row.approved_by ?? undefined,
       approvedAt: iso(row.approved_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapDsar(row: QueryResultRow): DsarRequest {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      requestType: row.request_type,
+      status: row.status,
+      receivedAt: iso(row.received_at) ?? new Date().toISOString(),
+      dueAt: iso(row.due_at),
+      resolvedAt: iso(row.resolved_at),
+      resolutionRef: row.resolution_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

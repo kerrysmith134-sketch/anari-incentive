@@ -219,6 +219,25 @@ export const approveDpiaSchema = z.object({
 });
 export type ApproveDpiaBody = z.infer<typeof approveDpiaSchema>;
 
+export const createDsarSchema = z.object({
+  personId: uuidSchema.optional(),
+  requestType: z.enum([
+    "ACCESS",
+    "CORRECTION",
+    "DELETION",
+    "EXPLANATION",
+    "OBJECTION",
+  ]),
+  dueAt: z.string().datetime().optional(),
+});
+export type CreateDsarBody = z.infer<typeof createDsarSchema>;
+
+export const resolveDsarSchema = z.object({
+  resolution: z.enum(["RESOLVED", "REJECTED"]),
+  resolutionRef: z.string().min(1),
+});
+export type ResolveDsarBody = z.infer<typeof resolveDsarSchema>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

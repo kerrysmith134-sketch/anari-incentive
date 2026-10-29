@@ -295,6 +295,29 @@ export interface DpiaRecord {
   createdAt: string;
 }
 
+export type DsarRequestType =
+  | "ACCESS"
+  | "CORRECTION"
+  | "DELETION"
+  | "EXPLANATION"
+  | "OBJECTION";
+
+export type DsarStatus = "OPEN" | "RESOLVED" | "REJECTED";
+
+/** An employee data-subject access/correction/deletion request. */
+export interface DsarRequest {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  requestType: DsarRequestType;
+  status: DsarStatus;
+  receivedAt: string;
+  dueAt?: string;
+  resolvedAt?: string;
+  resolutionRef?: string;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

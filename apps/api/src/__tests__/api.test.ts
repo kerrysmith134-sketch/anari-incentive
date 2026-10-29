@@ -1167,6 +1167,136 @@ describe("DPIA records", () => {
   });
 });
 
+describe("DSAR requests", () => {
+  it("lets employees request their own data and enforces resolution", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "DSAR tenant",
+      slug: `dsar-${Date.now()}`,
+    });
+    const first = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "D-001",
+      displayName: "DSAR Employee One",
+    });
+    const second = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "D-002",
+      displayName: "DSAR Employee Two",
+    });
+    const employeeAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "dsar-employee",
+          roles: ["employee"],
+          personId: first.id,
+        };
+      },
+    };
+    const employeeApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      employeeAuth,
+      platformStore,
+    );
+    const adminAuth: Authenticator = {
+      async authenticate() {
+        return {
+          tenantId: tenant.id,
+          userId: "dsar-admin",
+          roles: ["admin"],
+        };
+      },
+    };
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      adminAuth,
+      platformStore,
+    );
+    const call = async (
+      app: FastifyInstance,
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await app.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
+    const created = await call(employeeApp, "POST", "/api/v1/dsar-requests", {
+      requestType: "ACCESS",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.personId).toBe(first.id);
+    expect(created.body.data.status).toBe("OPEN");
+    const firstDsarId = created.body.data.id as string;
+
+    const otherPerson = await call(
+      employeeApp,
+      "POST",
+      "/api/v1/dsar-requests",
+      { requestType: "DELETION", personId: second.id },
+    );
+    expect(otherPerson.status).toBe(403);
+
+    const secondCreated = await call(
+      adminApp,
+      "POST",
+      "/api/v1/dsar-requests",
+      {
+        requestType: "CORRECTION",
+        personId: second.id,
+        dueAt: "2026-02-01T00:00:00.000Z",
+      },
+    );
+    expect(secondCreated.status).toBe(201);
+    const secondDsarId = secondCreated.body.data.id as string;
+
+    const ownList = await call(employeeApp, "GET", "/api/v1/dsar-requests");
+    expect(ownList.body.data).toHaveLength(1);
+    expect(ownList.body.data[0].id).toBe(firstDsarId);
+
+    const hidden = await call(
+      employeeApp,
+      "GET",
+      `/api/v1/dsar-requests/${secondDsarId}`,
+    );
+    expect(hidden.status).toBe(403);
+
+    const allList = await call(adminApp, "GET", "/api/v1/dsar-requests");
+    expect(allList.body.data).toHaveLength(2);
+
+    const resolved = await call(
+      adminApp,
+      "POST",
+      `/api/v1/dsar-requests/${firstDsarId}/resolve`,
+      { resolution: "RESOLVED", resolutionRef: "DSAR-2026-001" },
+    );
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.status).toBe("RESOLVED");
+    expect(resolved.body.data.resolutionRef).toBe("DSAR-2026-001");
+    expect(resolved.body.data.resolvedAt).toBeTruthy();
+
+    const reresolve = await call(
+      adminApp,
+      "POST",
+      `/api/v1/dsar-requests/${firstDsarId}/resolve`,
+      { resolution: "REJECTED", resolutionRef: "DSAR-2026-001b" },
+    );
+    expect(reresolve.status).toBe(409);
+
+    const ownDetail = await call(
+      employeeApp,
+      "GET",
+      `/api/v1/dsar-requests/${firstDsarId}`,
+    );
+    expect(ownDetail.status).toBe(200);
+    expect(ownDetail.body.data.status).toBe("RESOLVED");
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

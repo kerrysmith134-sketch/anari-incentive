@@ -254,6 +254,40 @@
     </section>
 
     <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>数据主体请求（DSAR）</strong>
+        <button id="refreshDsars">刷新请求</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="dsarType">请求类型</label>
+          <select id="dsarType">
+            <option value="ACCESS">ACCESS</option>
+            <option value="CORRECTION">CORRECTION</option>
+            <option value="DELETION">DELETION</option>
+            <option value="EXPLANATION">EXPLANATION</option>
+            <option value="OBJECTION">OBJECTION</option>
+          </select>
+        </div>
+        <div>
+          <label for="dsarDueAt">截止时间（可选 ISO）</label>
+          <input id="dsarDueAt" placeholder="2026-02-01T00:00:00Z" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="primary" id="createDsar" style="width:100%">提交请求</button>
+        </div>
+      </div>
+      <div class="status" id="dsarStatus"></div>
+      <table>
+        <thead>
+        <tr><th>类型</th><th>状态</th><th>提交时间</th><th>截止时间</th><th>处理引用</th></tr>
+        </thead>
+        <tbody id="dsarRows"></tbody>
+      </table>
+      <div class="note">请求只针对本人；删除、更正等请求会由 HR/DPO 审核处理。</div>
+    </section>
+
+    <section class="card">
       <label for="reason">异议/申诉理由</label>
       <textarea id="reason" placeholder="请说明你认为哪些证据/贡献/金额需要复核。"></textarea>
       <div class="note">提出异议会阻止正式锁账；申诉会进入独立复核流程。请勿填写与本次计算无关的敏感信息。</div>
@@ -594,6 +628,53 @@
       }
     }
 
+    async function loadDsars() {
+      const personId = $("personId").value.trim();
+      if (!personId) {
+        $("dsarStatus").textContent = "请先填写员工 ID";
+        return;
+      }
+      try {
+        const dsars = await api(
+          `/api/v1/dsar-requests?personId=${encodeURIComponent(personId)}`,
+        );
+        $("dsarRows").innerHTML = dsars.map((dsar) => `
+          <tr>
+            <td>${escapeHtml(dsar.requestType)}</td>
+            <td><span class="pill">${escapeHtml(dsar.status)}</span></td>
+            <td>${escapeHtml(dsar.receivedAt)}</td>
+            <td>${escapeHtml(dsar.dueAt || "—")}</td>
+            <td>${escapeHtml(dsar.resolutionRef || "—")}</td>
+          </tr>`).join("");
+        $("dsarStatus").textContent = `共 ${dsars.length} 条请求`;
+      } catch (error) {
+        $("dsarStatus").textContent = String(error.message);
+      }
+    }
+
+    async function createDsar() {
+      const personId = $("personId").value.trim();
+      if (!personId) {
+        $("dsarStatus").textContent = "请先填写员工 ID";
+        return;
+      }
+      const dueAt = $("dsarDueAt").value.trim();
+      try {
+        await api("/api/v1/dsar-requests", {
+          method: "POST",
+          body: JSON.stringify({
+            personId,
+            requestType: $("dsarType").value,
+            dueAt: dueAt || undefined,
+          }),
+        });
+        $("dsarStatus").textContent = "请求已提交";
+        await loadDsars();
+      } catch (error) {
+        $("dsarStatus").textContent = String(error.message);
+      }
+    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -625,6 +706,8 @@
       recordRecovery("OBJECTED"),
     );
     $("refreshNotices").addEventListener("click", loadNotices);
+    $("createDsar").addEventListener("click", createDsar);
+    $("refreshDsars").addEventListener("click", loadDsars);
     $("noticeRows").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-notice]");
       if (!button) return;
@@ -641,6 +724,7 @@
     loadEvidence();
     loadNotifications();
     loadNotices();
+    loadDsars();
   </script>
 </body>
 </html>

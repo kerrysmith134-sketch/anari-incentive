@@ -38,13 +38,13 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request; referencing a notice id requires complete acknowledgement coverage, referencing a consultation id requires a concluded consultation for that policy version, and referencing a DPIA id requires an approved assessment |
 | Employee notices | Published notices (policy/pay plan/AI use/data processing) with per-person acknowledgement or decline, coverage summary, and a legal-gate link that blocks formal work until required acknowledgements are complete |
 | Policy consultation | Employee representation bodies (works council/union/representative/all employees) and policy-version consultations with type, minutes, feedback and outcome; a legal gate can reference a concluded consultation |
-| Data protection | DPIA/PIPIA records with scope, risk/mitigation summaries and approval; a legal gate can reference an approved assessment |
+| Data protection | DPIA/PIPIA records with scope, risk/mitigation summaries and approval; a legal gate can reference an approved assessment; DSAR requests (access/correction/deletion/explanation/objection) are employee-scoped and resolved by admin |
 | Employee confirmation | `VIEWED` / `CONFIRMED` / `OBJECTED`; a formal run cannot lock until every participant confirms; an objection blocks locking |
 | Appeals | OPEN → TRIAGED → UNDER_REVIEW → DECIDED → RECALCULATION_REQUIRED/CLOSED; appellant cannot triage/resolve their own appeal |
 | Persistence | In-memory store (default) and PostgreSQL `PgStore` with tenant-scoped transactions and RLS; the API resolves a store and agent runtime per authenticated tenant |
 | AI gate | `packages/ai-gate`: evidence summary/gap detection only; numeric scoring refuses until an evaluation gate passes |
 | AI evaluation harness | Cohen's kappa, subgroup error gap, counterfactual stability, prompt-injection pass rate; returns a gate with blockers |
-| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, create/submit own contribution claims, submit/list own evidence, view/read own notifications, confirm/object to RECOVERY batches, view own approved evaluation decisions, acknowledge/decline employee notices |
+| Employee view | Minimal page at `/`: load a calculation, confirm/object, create an appeal, create/submit own contribution claims, submit/list own evidence, view/read own notifications, confirm/object to RECOVERY batches, view own approved evaluation decisions, acknowledge/decline employee notices, create/list own DSAR requests |
 | Admin view | Minimal page at `/admin`: platform tenant/user/membership/person/org onboarding, work-package lifecycle, claims/attribution, policy simulation/publication/version list/diff, employee notices with acknowledgement coverage, employee representation and policy consultation records, batch calculation/acceptance/attribution, agent scan/approval, settlement commands with CSV export, ledger reversal, audit list/verification, notification center with filters/bulk read, evaluation rubrics/drafts/decisions, data-quality workflow, appeal triage/review/resolution |
 | Reconciliation | CSV expected amounts vs engine output; `npm run reconcile` exits non-zero on differences |
 | API | Fastify + Zod, typed error envelope, explicit commands; OpenAPI 3.1 contract at [`docs/openapi.yaml`](docs/openapi.yaml) |
@@ -52,7 +52,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **142 unit/API tests + 25 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
+| Tests | **143 unit/API tests + 26 PostgreSQL integration tests** covering platform onboarding, state transitions, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, tenant isolation, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, OpenAPI route coverage, and RLS |
 
 ## Operations
 
@@ -225,6 +225,9 @@ All responses use `{ data, meta: { correlation_id } }`; errors use `{ error: { c
 | POST/GET | `/api/v1/dpia-records` | Create/list DPIA/PIPIA assessments |
 | GET | `/api/v1/dpia-records/:id` | Read a DPIA/PIPIA assessment |
 | POST | `/api/v1/dpia-records/:id/approve` | Approve a DPIA/PIPIA assessment |
+| POST/GET | `/api/v1/dsar-requests` | Create/list data-subject requests (employees see their own) |
+| GET | `/api/v1/dsar-requests/:id` | Read a data-subject request (employees see their own) |
+| POST | `/api/v1/dsar-requests/:id/resolve` | Resolve/reject a data-subject request |
 | POST | `/api/v1/calculation-runs` | SHADOW/FORMAL calculation |
 | POST | `/api/v1/calculation-runs:batch` | Up to 50 calculation runs in one atomic transaction |
 | GET | `/api/v1/calculation-runs` / `/:id` | List/get |

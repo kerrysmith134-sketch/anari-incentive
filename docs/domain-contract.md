@@ -184,6 +184,8 @@ Additional application-level invariants:
 | `POST /policy-consultations/:id/conclude` | admin, consultation is `PENDING` | Sets `endedAt`, outcome, minutes and feedback; re-conclusion is rejected |
 | `POST /dpia-records` | admin | Creates a DRAFT DPIA/PIPIA with scope and risk/mitigation summaries |
 | `POST /dpia-records/:id/approve` | admin, approver exists, not already approved | Marks the assessment APPROVED with approver and timestamp |
+| `POST /dsar-requests` | authenticated; employees only for themselves | Creates an OPEN DSAR with type and optional due date |
+| `POST /dsar-requests/:id/resolve` | admin, DSAR is OPEN | Sets RESOLVED/REJECTED with a resolution reference and timestamp; re-resolution is rejected |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |
@@ -425,6 +427,7 @@ The employee/admin web pages are served without authentication, but every data-c
 - claims, decisions, calculation runs, ledger entries, confirmations and appeals are filtered to that person;
 - calculation-run lines are redacted to the person's own lines;
 - confirmations, claims and appeals cannot be created for another person;
+- DSARs can be created, listed and read only for the employee's own person; resolution is admin-only;
 - settlement and agent-task read endpoints are role-gated;
 - `GET /ledger/verify` and `GET /policy-versions/:id/legal-gate` are role-gated.
 

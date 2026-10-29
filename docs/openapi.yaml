@@ -823,6 +823,102 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/dsar-requests:
+    get:
+      tags: [Compliance]
+      summary: List data-subject requests
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: DSARs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Create a data-subject request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDsar"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/dsar-requests/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read a data-subject request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: DSAR
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/dsar-requests/{id}/resolve:
+    post:
+      tags: [Compliance]
+      summary: Resolve or reject a data-subject request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveDsar"
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -2728,6 +2824,29 @@ components:
       properties:
         approvedBy:
           $ref: "#/components/schemas/Uuid"
+
+    CreateDsar:
+      type: object
+      required: [requestType]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        requestType:
+          type: string
+          enum: [ACCESS, CORRECTION, DELETION, EXPLANATION, OBJECTION]
+        dueAt:
+          type: string
+          format: date-time
+
+    ResolveDsar:
+      type: object
+      required: [resolution, resolutionRef]
+      properties:
+        resolution:
+          type: string
+          enum: [RESOLVED, REJECTED]
+        resolutionRef:
+          type: string
 
     CalculationOrder:
       type: object

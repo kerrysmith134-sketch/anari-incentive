@@ -29,6 +29,8 @@ import {
   concludeConsultationSchema,
   createDpiaSchema,
   approveDpiaSchema,
+  createDsarSchema,
+  resolveDsarSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -1447,6 +1449,89 @@ export function buildApp(
         tenantId: tenantOf(request),
         dpiaId: idOf(request),
         approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/dsar-requests", async (request, reply) => {
+    const body = parse(createDsarSchema, request.body);
+    const own = ownPersonId(request);
+    if (!isPrivileged(request)) {
+      if (!own) {
+        throw new ForbiddenError(
+          "employee identity is required (person_id claim or X-Person-Id)",
+        );
+      }
+      if (body.personId && body.personId !== own) {
+        throw new ForbiddenError(
+          "an employee cannot create a DSAR for another person",
+        );
+      }
+    }
+    const personId = body.personId ?? own;
+    if (!personId) {
+      throw new ForbiddenError(
+        "person identity is required (person_id claim, X-Person-Id or personId)",
+      );
+    }
+    return reply.status(201).send(
+      data(
+        await platformStore.createDsar({
+          tenantId: tenantOf(request),
+          personId,
+          requestType: body.requestType,
+          dueAt: body.dueAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/dsar-requests", async (request) => {
+    const query = request.query as { personId?: string };
+    let personId = query.personId;
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own) {
+        throw new ForbiddenError(
+          "employee identity is required (person_id claim or X-Person-Id)",
+        );
+      }
+      if (personId && personId !== own) {
+        throw new ForbiddenError("an employee cannot list another person's DSARs");
+      }
+      personId = own;
+    }
+    return data(
+      await platformStore.listDsars(tenantOf(request), personId),
+      request,
+    );
+  });
+
+  app.get("/api/v1/dsar-requests/:id", async (request) => {
+    const dsar = await platformStore.getDsar(
+      tenantOf(request),
+      idOf(request),
+    );
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own || dsar.personId !== own) {
+        throw new ForbiddenError("an employee can only read their own DSARs");
+      }
+    }
+    return data(dsar, request);
+  });
+
+  app.post("/api/v1/dsar-requests/:id/resolve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(resolveDsarSchema, request.body);
+    return data(
+      await platformStore.resolveDsar({
+        tenantId: tenantOf(request),
+        dsarId: idOf(request),
+        resolution: body.resolution,
+        resolutionRef: body.resolutionRef,
       }),
       request,
     );
