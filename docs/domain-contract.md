@@ -148,6 +148,9 @@ Additional application-level invariants:
 | `POST /platform/tenants` | platform_admin | Creates an ACTIVE tenant |
 | `POST /platform/users` | platform_admin | Creates a platform user |
 | `POST /platform/tenants/:id/memberships` | platform_admin, tenant/user exist | Upserts ACTIVE membership with role codes |
+| `POST /platform/tenants/:id/persons` | platform_admin, tenant exists | Creates a person; employee code unique per tenant, optional `userId` link |
+| `POST /platform/tenants/:id/persons/:personId/link-user` | platform_admin, person/user exist | Links a person to a user; one user maps to at most one person per tenant |
+| `GET /platform/identity` | authenticated | Resolves the caller's `userId`, linked `personId` and membership role codes |
 | `POST /work-packages` | — | Creates DRAFT |
 | `POST /work-packages/:id/commit` | DRAFT, expectedVersion | Freezes snapshot, COMMITTED |
 | `GET /work-packages/:id/versions` | owner/member or manager/finance | Lists immutable commitment snapshots |
@@ -390,7 +393,7 @@ Roles are enforced per command (`admin` always passes):
 
 | Role | Can do |
 |---|---|
-| `platform_admin` | tenant/user/membership onboarding only (admin also passes) |
+| `platform_admin` | tenant/user/membership/person onboarding only (admin also passes) |
 | `admin` | everything, including legal gates, policy publication and publishing an agent-proposed policy |
 | `manager` | simulations, agent scans/approval (except policy publication), attribution decisions, package acceptance, appeals |
 | `finance` | calculations, approval/locking, settlement commands, settlement-related agent approvals |
@@ -399,7 +402,7 @@ Roles are enforced per command (`admin` always passes):
 
 The employee/admin web pages are served without authentication, but every data-changing call they make goes through the authenticated API.
 
-`AuthContext.personId` comes from the `person_id` JWT claim (`personClaim`) or `X-Person-Id` in dev. For roles outside `admin/manager/finance`:
+`AuthContext.personId` comes from the `person_id` JWT claim (`personClaim`) or `X-Person-Id` in dev. `GET /platform/identity` resolves the authenticated `userId` to its tenant `personId` (from `people.user_id`) and membership role codes; it is a read-only lookup and does not change the token-derived authorization context. For roles outside `admin/manager/finance`:
 
 - `GET /work-packages` is limited to packages owned by or containing that person;
 - claims, decisions, calculation runs, ledger entries, confirmations and appeals are filtered to that person;

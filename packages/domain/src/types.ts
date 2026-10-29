@@ -311,6 +311,22 @@ export interface PlatformUser {
   createdAt: string;
 }
 
+export interface PlatformPerson {
+  id: UUID;
+  tenantId: UUID;
+  userId?: UUID;
+  employeeCode: string;
+  displayName: string;
+  employmentStatus: string;
+  createdAt: string;
+}
+
+export interface PlatformIdentity {
+  userId: UUID;
+  personId?: UUID;
+  roles: string[];
+}
+
 export interface PlatformMembership {
   id: UUID;
   tenantId: UUID;

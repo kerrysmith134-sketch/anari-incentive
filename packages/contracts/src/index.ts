@@ -380,6 +380,22 @@ export const addMembershipSchema = z.object({
 });
 export type AddMembershipBody = z.infer<typeof addMembershipSchema>;
 
+export const createPlatformPersonSchema = z.object({
+  employeeCode: z.string().min(1),
+  displayName: z.string().min(1),
+  employmentStatus: z.string().min(1).optional(),
+  /** Optional platform user to link at creation time. */
+  userId: uuidSchema.optional(),
+});
+export type CreatePlatformPersonBody = z.infer<
+  typeof createPlatformPersonSchema
+>;
+
+export const linkPersonUserSchema = z.object({
+  userId: uuidSchema,
+});
+export type LinkPersonUserBody = z.infer<typeof linkPersonUserSchema>;
+
 export const createDataQualityIssueSchema = z.object({
   objectType: z.string().min(1),
   objectId: uuidSchema,

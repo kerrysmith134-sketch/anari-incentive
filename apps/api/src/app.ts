@@ -20,6 +20,7 @@ import {
   createDataQualityIssueSchema,
   createEvaluationCycleSchema,
   createNotificationSchema,
+  createPlatformPersonSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -31,6 +32,7 @@ import {
   createWorkPackageSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
+  linkPersonUserSchema,
   policySimulationSchema,
   publishPolicySchema,
   rejectAgentActionSchema,
@@ -91,6 +93,10 @@ function parse<T>(schema: ZodType<T>, value: unknown): T {
 
 function idOf(request: FastifyRequest): string {
   return (request.params as IdParams).id;
+}
+
+function paramOf(request: FastifyRequest, name: string): string {
+  return (request.params as Record<string, string>)[name] ?? "";
 }
 
 const employeeUi = readFileSync(
@@ -629,6 +635,55 @@ export function buildApp(
     requireRoles(request, "platform_admin");
     return data(
       await platformStore.listMemberships(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/platform/tenants/:id/persons", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createPlatformPersonSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createPerson({
+          tenantId: idOf(request),
+          employeeCode: body.employeeCode,
+          displayName: body.displayName,
+          employmentStatus: body.employmentStatus,
+          userId: body.userId,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/platform/tenants/:id/persons", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listPersons(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/tenants/:id/persons/:personId/link-user", async (request) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(linkPersonUserSchema, request.body);
+    return data(
+      await platformStore.linkPersonUser({
+        tenantId: idOf(request),
+        personId: paramOf(request, "personId"),
+        userId: body.userId,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/platform/identity", async (request) => {
+    const context = request.authContext;
+    if (!context) {
+      throw new ForbiddenError("authentication is required");
+    }
+    return data(
+      await platformStore.resolveIdentity({
+        tenantId: context.tenantId,
+        userId: context.userId,
+      }),
       request,
     );
   });

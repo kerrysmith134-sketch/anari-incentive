@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { AuthError, type Authenticator } from "@anari/auth";
 import { buildApp } from "../app.js";
+import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
 import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
@@ -476,9 +477,20 @@ describe("employee evidence", () => {
 });
 
 describe("platform onboarding", () => {
-  it("creates tenants, users and memberships", async () => {
+  it("onboards tenants, users, memberships, persons and identity", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const adminApp = buildApp(new Store(), undefined, undefined, platformStore);
+    const adminCall = async (
+      method: "GET" | "POST",
+      url: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const response = await adminApp.inject({ method, url, payload } as never);
+      return { status: response.statusCode, body: response.json() };
+    };
+
     const slug = `tenant-${Date.now()}`;
-    const tenant = await call("POST", "/api/v1/platform/tenants", {
+    const tenant = await adminCall("POST", "/api/v1/platform/tenants", {
       name: "Design partner",
       slug,
       defaultTimezone: "Asia/Shanghai",
@@ -486,53 +498,136 @@ describe("platform onboarding", () => {
     expect(tenant.status).toBe(201);
     const tenantId = tenant.body.data.id as string;
 
-    const user = await call("POST", "/api/v1/platform/users", {
+    const user = await adminCall("POST", "/api/v1/platform/users", {
       authSubject: `subject-${Date.now()}`,
       displayName: "Tenant Admin",
       email: "admin@example.com",
     });
     expect(user.status).toBe(201);
+    const userId = user.body.data.id as string;
 
-    const membership = await call(
+    const membership = await adminCall(
       "POST",
       `/api/v1/platform/tenants/${tenantId}/memberships`,
       {
-        userId: user.body.data.id,
+        userId,
         roleCodes: ["admin", "finance"],
       },
     );
     expect(membership.status).toBe(201);
     expect(membership.body.data.roleCodes).toEqual(["admin", "finance"]);
 
-    const memberships = await call(
+    const memberships = await adminCall(
       "GET",
       `/api/v1/platform/tenants/${tenantId}/memberships`,
     );
     expect(memberships.body.data).toHaveLength(1);
     expect(memberships.body.data[0].userDisplayName).toBe("Tenant Admin");
 
-    const duplicate = await call("POST", "/api/v1/platform/tenants", {
-      name: "Duplicate",
-      slug,
-    });
-    expect(duplicate.status).toBe(409);
+    const person = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons`,
+      {
+        employeeCode: "E-100",
+        displayName: "Tenant Employee",
+        userId,
+      },
+    );
+    expect(person.status).toBe(201);
+    expect(person.body.data.userId).toBe(userId);
+    expect(person.body.data.employmentStatus).toBe("ACTIVE");
+    const personId = person.body.data.id as string;
 
-    const employee: Authenticator = {
+    const duplicateCode = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons`,
+      { employeeCode: "E-100", displayName: "Duplicate" },
+    );
+    expect(duplicateCode.status).toBe(409);
+
+    const persons = await adminCall(
+      "GET",
+      `/api/v1/platform/tenants/${tenantId}/persons`,
+    );
+    expect(persons.body.data).toHaveLength(1);
+    expect(persons.body.data[0].id).toBe(personId);
+
+    const secondUser = await adminCall("POST", "/api/v1/platform/users", {
+      authSubject: `subject-2-${Date.now()}`,
+      displayName: "Tenant Manager",
+    });
+    const secondUserId = secondUser.body.data.id as string;
+    await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/memberships`,
+      { userId: secondUserId, roleCodes: ["manager"] },
+    );
+
+    const secondPerson = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons`,
+      { employeeCode: "E-101", displayName: "Tenant Manager" },
+    );
+    const secondPersonId = secondPerson.body.data.id as string;
+    const linked = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${secondPersonId}/link-user`,
+      { userId: secondUserId },
+    );
+    expect(linked.status).toBe(200);
+    expect(linked.body.data.userId).toBe(secondUserId);
+
+    const relink = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/${secondPersonId}/link-user`,
+      { userId },
+    );
+    expect(relink.status).toBe(409);
+
+    const missingPerson = await adminCall(
+      "POST",
+      `/api/v1/platform/tenants/${tenantId}/persons/00000000-0000-4000-8000-0000000000ff/link-user`,
+      { userId: secondUserId },
+    );
+    expect(missingPerson.status).toBe(404);
+
+    const secondAuth: Authenticator = {
       async authenticate() {
         return {
-          tenantId: "tenant-demo",
-          userId: "employee",
+          tenantId,
+          userId: secondUserId,
           roles: ["employee"],
-          personId: OWNER,
         };
       },
     };
-    const employeeApp = buildApp(new Store(), undefined, employee);
-    const forbidden = await employeeApp.inject({
+    const secondApp = buildApp(
+      new Store(),
+      undefined,
+      secondAuth,
+      platformStore,
+    );
+    const identity = await secondApp.inject({
+      method: "GET",
+      url: "/api/v1/platform/identity",
+    } as never);
+    expect(identity.statusCode).toBe(200);
+    expect(identity.json().data).toEqual({
+      userId: secondUserId,
+      personId: secondPersonId,
+      roles: ["manager"],
+    });
+
+    const forbidden = await secondApp.inject({
       method: "GET",
       url: "/api/v1/platform/tenants",
     } as never);
     expect(forbidden.statusCode).toBe(403);
+
+    const duplicate = await adminCall("POST", "/api/v1/platform/tenants", {
+      name: "Duplicate",
+      slug,
+    });
+    expect(duplicate.status).toBe(409);
   });
 });
 

@@ -1130,7 +1130,7 @@ describePg("PgStore vertical slice", () => {
     expect(await other.listRuns()).toEqual([]);
   });
 
-  it("onboards tenants, users and memberships", async () => {
+  it("onboards tenants, users, memberships, persons and identity", async () => {
     const platform = new PgPlatformStore(pool);
     const slug = `pg-tenant-${Date.now()}`;
     const tenant = await platform.createTenant({
@@ -1158,6 +1158,69 @@ describePg("PgStore vertical slice", () => {
     await expect(
       platform.createTenant({ name: "Duplicate", slug }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const employeeCode = `E-PG-${Date.now()}`;
+    const person = await platform.createPerson({
+      tenantId: tenant.id,
+      employeeCode,
+      displayName: "PG Employee",
+      userId: user.id,
+    });
+    expect(person.userId).toBe(user.id);
+    const persons = await platform.listPersons(tenant.id);
+    expect(persons.some((candidate) => candidate.id === person.id)).toBe(true);
+    await expect(
+      platform.createPerson({
+        tenantId: tenant.id,
+        employeeCode,
+        displayName: "PG Duplicate",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const secondUser = await platform.createUser({
+      authSubject: `pg-subject-2-${Date.now()}`,
+      displayName: "PG Employee Login",
+    });
+    const linked = await platform.linkPersonUser({
+      tenantId: tenant.id,
+      personId: person.id,
+      userId: secondUser.id,
+    });
+    expect(linked.userId).toBe(secondUser.id);
+    await expect(
+      platform.createPerson({
+        tenantId: tenant.id,
+        employeeCode: `${employeeCode}-2`,
+        displayName: "PG Second Employee",
+        userId: secondUser.id,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const unlinkedPerson = await platform.createPerson({
+      tenantId: tenant.id,
+      employeeCode: `${employeeCode}-3`,
+      displayName: "PG Unlinked Employee",
+    });
+    await expect(
+      platform.linkPersonUser({
+        tenantId: tenant.id,
+        personId: unlinkedPerson.id,
+        userId: secondUser.id,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const identity = await platform.resolveIdentity({
+      tenantId: tenant.id,
+      userId: secondUser.id,
+    });
+    expect(identity.personId).toBe(person.id);
+    expect(identity.roles).toEqual([]);
+    const adminIdentity = await platform.resolveIdentity({
+      tenantId: tenant.id,
+      userId: user.id,
+    });
+    expect(adminIdentity.personId).toBeUndefined();
+    expect(adminIdentity.roles).toEqual(["admin", "finance"]);
   });
 
   it("records applied migrations", async () => {

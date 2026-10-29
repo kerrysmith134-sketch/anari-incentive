@@ -1609,6 +1609,95 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/platform/tenants/{id}/persons:
+    get:
+      tags: [Platform]
+      summary: List tenant persons
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Persons
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Platform]
+      summary: Create a tenant person
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlatformPerson"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/platform/tenants/{id}/persons/{personId}/link-user:
+    post:
+      tags: [Platform]
+      summary: Link a person to a platform user
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - $ref: "#/components/parameters/PersonIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkPersonUser"
+      responses:
+        "200":
+          description: Updated person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/platform/identity:
+    get:
+      tags: [Platform]
+      summary: Resolve the caller's person and tenant roles
+      responses:
+        "200":
+          description: Identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/policy-versions:
     get:
       tags: [Policy]
@@ -1844,6 +1933,12 @@ components:
   parameters:
     IdPath:
       name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    PersonIdPath:
+      name: personId
       in: path
       required: true
       schema:
@@ -2411,6 +2506,26 @@ components:
           minItems: 1
           items:
             type: string
+
+    CreatePlatformPerson:
+      type: object
+      required: [employeeCode, displayName]
+      properties:
+        employeeCode:
+          type: string
+        displayName:
+          type: string
+        employmentStatus:
+          type: string
+        userId:
+          $ref: "#/components/schemas/Uuid"
+
+    LinkPersonUser:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateRubric:
       type: object

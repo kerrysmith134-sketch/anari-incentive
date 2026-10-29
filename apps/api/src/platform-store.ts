@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, QueryResultRow } from "pg";
 import type {
+  PlatformIdentity,
   PlatformMembership,
+  PlatformPerson,
   PlatformTenant,
   PlatformUser,
 } from "@anari/domain";
@@ -27,6 +29,24 @@ export interface PlatformStore {
     roleCodes: string[];
   }): Promise<PlatformMembership>;
   listMemberships(tenantId: string): Promise<PlatformMembership[]>;
+  createPerson(input: {
+    tenantId: string;
+    employeeCode: string;
+    displayName: string;
+    employmentStatus?: string;
+    userId?: string;
+  }): Promise<PlatformPerson>;
+  listPersons(tenantId: string): Promise<PlatformPerson[]>;
+  linkPersonUser(input: {
+    tenantId: string;
+    personId: string;
+    userId: string;
+  }): Promise<PlatformPerson>;
+  /** Resolve the person and tenant roles behind a platform user. */
+  resolveIdentity(input: {
+    tenantId: string;
+    userId: string;
+  }): Promise<PlatformIdentity>;
 }
 
 function now(): string {
@@ -41,6 +61,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly tenants = new Map<string, PlatformTenant>();
   private readonly users = new Map<string, PlatformUser>();
   private readonly memberships = new Map<string, PlatformMembership>();
+  private readonly persons = new Map<string, PlatformPerson>();
 
   async createTenant(input: {
     name: string;
@@ -141,6 +162,104 @@ export class MemoryPlatformStore implements PlatformStore {
           userEmail: user?.email,
         };
       });
+  }
+
+  async createPerson(input: {
+    tenantId: string;
+    employeeCode: string;
+    displayName: string;
+    employmentStatus?: string;
+    userId?: string;
+  }): Promise<PlatformPerson> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (input.userId && !this.users.has(input.userId)) {
+      notFound("User", input.userId);
+    }
+    if (
+      [...this.persons.values()].some(
+        (person) =>
+          person.tenantId === input.tenantId &&
+          person.employeeCode === input.employeeCode,
+      )
+    ) {
+      throw new ConflictError(
+        `employee code ${input.employeeCode} already exists in tenant`,
+      );
+    }
+    if (input.userId) this.assertUserNotLinked(input.tenantId, input.userId);
+    const person: PlatformPerson = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      userId: input.userId,
+      employeeCode: input.employeeCode,
+      displayName: input.displayName,
+      employmentStatus: input.employmentStatus ?? "ACTIVE",
+      createdAt: now(),
+    };
+    this.persons.set(person.id, person);
+    return person;
+  }
+
+  async listPersons(tenantId: string): Promise<PlatformPerson[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.persons.values()]
+      .filter((person) => person.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async linkPersonUser(input: {
+    tenantId: string;
+    personId: string;
+    userId: string;
+  }): Promise<PlatformPerson> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (!this.users.has(input.userId)) notFound("User", input.userId);
+    this.assertUserNotLinked(input.tenantId, input.userId, person.id);
+    person.userId = input.userId;
+    return person;
+  }
+
+  async resolveIdentity(input: {
+    tenantId: string;
+    userId: string;
+  }): Promise<PlatformIdentity> {
+    const person = [...this.persons.values()].find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.userId === input.userId,
+    );
+    const membership = [...this.memberships.values()].find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.userId === input.userId,
+    );
+    return {
+      userId: input.userId,
+      personId: person?.id,
+      roles: membership?.roleCodes ?? [],
+    };
+  }
+
+  private assertUserNotLinked(
+    tenantId: string,
+    userId: string,
+    exceptPersonId?: string,
+  ): void {
+    const linked = [...this.persons.values()].find(
+      (person) =>
+        person.tenantId === tenantId &&
+        person.userId === userId &&
+        person.id !== exceptPersonId,
+    );
+    if (linked) {
+      throw new ConflictError(
+        `user ${userId} is already linked to person ${linked.id}`,
+      );
+    }
   }
 }
 
@@ -245,6 +364,7 @@ export class PgPlatformStore implements PlatformStore {
   }
 
   async listMemberships(tenantId: string): Promise<PlatformMembership[]> {
+    await this.assertTenant(tenantId);
     const { rows } = await this.pool.query(
       `SELECT m.*, u.display_name AS user_display_name,
               u.email AS user_email
@@ -255,6 +375,121 @@ export class PgPlatformStore implements PlatformStore {
       [tenantId],
     );
     return rows.map((row) => this.mapMembership(row));
+  }
+
+  async createPerson(input: {
+    tenantId: string;
+    employeeCode: string;
+    displayName: string;
+    employmentStatus?: string;
+    userId?: string;
+  }): Promise<PlatformPerson> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO people
+          (id, tenant_id, user_id, employee_code, display_name,
+           employment_status)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.userId ?? null,
+          input.employeeCode,
+          input.displayName,
+          input.employmentStatus ?? "ACTIVE",
+        ],
+      );
+      return this.mapPerson(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      const constraint = (error as { constraint?: string }).constraint;
+      if (code === "23505") {
+        if (constraint === "uq_people_tenant_user") {
+          throw new ConflictError(
+            `user ${input.userId} is already linked to a person in this tenant`,
+          );
+        }
+        throw new ConflictError(
+          `employee code ${input.employeeCode} already exists in tenant`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError("tenant or user not found");
+      }
+      throw error;
+    }
+  }
+
+  async listPersons(tenantId: string): Promise<PlatformPerson[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM people WHERE tenant_id=$1 ORDER BY created_at DESC",
+      [tenantId],
+    );
+    return rows.map((row) => this.mapPerson(row));
+  }
+
+  async linkPersonUser(input: {
+    tenantId: string;
+    personId: string;
+    userId: string;
+  }): Promise<PlatformPerson> {
+    try {
+      const { rows } = await this.pool.query(
+        `UPDATE people SET user_id=$3, updated_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.personId, input.userId],
+      );
+      if (!rows[0]) notFound("Person", input.personId);
+      return this.mapPerson(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      const constraint = (error as { constraint?: string }).constraint;
+      if (code === "23505" && constraint === "uq_people_tenant_user") {
+        throw new ConflictError(
+          `user ${input.userId} is already linked to a person in this tenant`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`User ${input.userId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async resolveIdentity(input: {
+    tenantId: string;
+    userId: string;
+  }): Promise<PlatformIdentity> {
+    const [{ rows: personRows }, { rows: membershipRows }] = await Promise.all([
+      this.pool.query(
+        `SELECT id FROM people
+          WHERE tenant_id=$1 AND user_id=$2
+          ORDER BY created_at
+          LIMIT 1`,
+        [input.tenantId, input.userId],
+      ),
+      this.pool.query(
+        `SELECT role_codes FROM memberships
+          WHERE tenant_id=$1 AND user_id=$2`,
+        [input.tenantId, input.userId],
+      ),
+    ]);
+    return {
+      userId: input.userId,
+      personId: personRows[0]?.id ?? undefined,
+      roles: membershipRows[0]?.role_codes ?? [],
+    };
+  }
+
+  private async assertTenant(tenantId: string): Promise<void> {
+    const { rowCount } = await this.pool.query(
+      "SELECT 1 FROM tenants WHERE id=$1",
+      [tenantId],
+    );
+    if (!rowCount) notFound("Tenant", tenantId);
   }
 
   private mapTenant(row: QueryResultRow): PlatformTenant {
@@ -291,6 +526,18 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       userDisplayName: row.user_display_name ?? undefined,
       userEmail: row.user_email ?? undefined,
+    };
+  }
+
+  private mapPerson(row: QueryResultRow): PlatformPerson {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      userId: row.user_id ?? undefined,
+      employeeCode: row.employee_code,
+      displayName: row.display_name,
+      employmentStatus: row.employment_status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 }
