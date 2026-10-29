@@ -3051,9 +3051,14 @@ describe("admin view", () => {
     expect(response.body).toContain("N-Perform 治理操作台");
     expect(response.body).toContain("审批请求");
     expect(response.body).toContain("预算池与现金门禁");
+    expect(response.body).toContain("财务事实");
     expect(response.body).toContain("交付物与验收");
+    expect(response.body).toContain("结算导出证据");
     expect(response.body).toContain("集成与收件箱");
+    expect(response.body).toContain("AI 与工作流记录");
     expect(response.body).toContain("/api/v1/approval-requests");
+    expect(response.body).toContain("/api/v1/financial-facts");
+    expect(response.body).toContain("/api/v1/model-evaluation-runs");
   });
 });
 
