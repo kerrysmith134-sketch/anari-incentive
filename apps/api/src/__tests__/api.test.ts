@@ -2115,6 +2115,114 @@ describe("deliverables and acceptance", () => {
   });
 });
 
+describe("AI suggestion logs and workflow runs", () => {
+  it("records suggestions, model evaluations and workflow lifecycle", async () => {
+    const task = await call("POST", "/api/v1/agent-tasks", {
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      input: {},
+      idempotencyKey: `ai-log-${Date.now()}`,
+    });
+    expect(task.status).toBe(201);
+    const taskId = task.body.data.id as string;
+
+    const suggestion = await call("POST", "/api/v1/ai-suggestion-logs", {
+      agentTaskId: taskId,
+      targetType: "EVALUATION_DRAFT",
+      suggestionType: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      inputHash: "sha256:input",
+      outputJson: { summary: "Two evidence gaps" },
+      validationStatus: "VALID",
+    });
+    expect(suggestion.status).toBe(201);
+    expect(suggestion.body.data.acceptedAt).toBeUndefined();
+    const suggestionId = suggestion.body.data.id as string;
+
+    const listed = await call(
+      "GET",
+      `/api/v1/ai-suggestion-logs?agentTaskId=${taskId}`,
+    );
+    expect(listed.body.data).toHaveLength(1);
+
+    const accepted = await call(
+      "POST",
+      `/api/v1/ai-suggestion-logs/${suggestionId}/accept`,
+      { acceptedBy: ADJUDICATOR },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.data.acceptedAt).toBeTruthy();
+    const reaccepted = await call(
+      "POST",
+      `/api/v1/ai-suggestion-logs/${suggestionId}/accept`,
+      { acceptedBy: ADJUDICATOR },
+    );
+    expect(reaccepted.status).toBe(409);
+
+    const evaluation = await call(
+      "POST",
+      "/api/v1/model-evaluation-runs",
+      {
+        evaluationType: "IRR",
+        modelProvider: "anthropic",
+        modelName: "claude",
+        promptVersion: "v1",
+        datasetRef: "gold-set-1",
+        sampleSize: 50,
+        metrics: { kappa: 0.8 },
+        subgroupMetrics: { by_tenure: { gap: 0.02 } },
+        passed: true,
+      },
+    );
+    expect(evaluation.status).toBe(201);
+    expect(evaluation.body.data.passed).toBe(true);
+    const runId = evaluation.body.data.id as string;
+    const passedRuns = await call(
+      "GET",
+      "/api/v1/model-evaluation-runs?passed=true",
+    );
+    expect(passedRuns.body.data).toHaveLength(1);
+    const detail = await call(
+      "GET",
+      `/api/v1/model-evaluation-runs/${runId}`,
+    );
+    expect(detail.status).toBe(200);
+
+    const workflow = await call("POST", "/api/v1/workflow-runs", {
+      agentTaskId: taskId,
+      workflowName: "evidence-gap",
+      workflowVersion: "v1",
+      status: "RUNNING",
+      currentStep: "COLLECT",
+      state: { examined: 3 },
+    });
+    expect(workflow.status).toBe(201);
+    const workflowId = workflow.body.data.id as string;
+
+    const finished = await call(
+      "POST",
+      `/api/v1/workflow-runs/${workflowId}/finish`,
+      { status: "COMPLETED", currentStep: "VERIFY" },
+    );
+    expect(finished.status).toBe(200);
+    expect(finished.body.data.finishedAt).toBeTruthy();
+    const refinished = await call(
+      "POST",
+      `/api/v1/workflow-runs/${workflowId}/finish`,
+      { status: "COMPLETED" },
+    );
+    expect(refinished.status).toBe(409);
+
+    const workflows = await call(
+      "GET",
+      `/api/v1/workflow-runs?agentTaskId=${taskId}`,
+    );
+    expect(workflows.body.data).toHaveLength(1);
+  });
+});
+
 describe("in-app notifications", () => {
   it("delivers to the recipient and enforces read access", async () => {
     const notification = await call("POST", "/api/v1/notifications", {

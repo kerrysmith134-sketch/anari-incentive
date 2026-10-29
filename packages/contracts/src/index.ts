@@ -447,6 +447,66 @@ export type RecordDeliverableAcceptanceBody = z.infer<
   typeof recordDeliverableAcceptanceSchema
 >;
 
+export const createAiSuggestionLogSchema = z.object({
+  agentTaskId: uuidSchema,
+  targetType: z.string().min(1),
+  targetId: uuidSchema.optional(),
+  suggestionType: z.string().min(1),
+  modelProvider: z.string().min(1).optional(),
+  modelName: z.string().min(1).optional(),
+  promptVersion: z.string().min(1),
+  inputHash: z.string().min(1),
+  outputJson: z.record(z.unknown()),
+  validationStatus: z.string().min(1),
+});
+export type CreateAiSuggestionLogBody = z.infer<
+  typeof createAiSuggestionLogSchema
+>;
+
+export const acceptAiSuggestionSchema = z.object({
+  acceptedBy: uuidSchema,
+});
+export type AcceptAiSuggestionBody = z.infer<
+  typeof acceptAiSuggestionSchema
+>;
+
+export const createModelEvaluationRunSchema = z.object({
+  evaluationType: z.string().min(1),
+  modelProvider: z.string().min(1),
+  modelName: z.string().min(1),
+  promptVersion: z.string().min(1),
+  datasetRef: z.string().min(1),
+  sampleSize: z.number().int().positive(),
+  metrics: z.record(z.unknown()).default({}),
+  subgroupMetrics: z.record(z.unknown()).default({}),
+  passed: z.boolean(),
+  blockers: z.array(z.string()).default([]),
+});
+export type CreateModelEvaluationRunBody = z.infer<
+  typeof createModelEvaluationRunSchema
+>;
+
+export const createWorkflowRunSchema = z.object({
+  agentTaskId: uuidSchema,
+  workflowName: z.string().min(1),
+  workflowVersion: z.string().min(1),
+  status: z.string().min(1),
+  currentStep: z.string().min(1).optional(),
+  state: z.record(z.unknown()).default({}),
+  startedAt: z.string().datetime().optional(),
+});
+export type CreateWorkflowRunBody = z.infer<
+  typeof createWorkflowRunSchema
+>;
+
+export const finishWorkflowRunSchema = z.object({
+  status: z.string().min(1),
+  currentStep: z.string().min(1).optional(),
+});
+export type FinishWorkflowRunBody = z.infer<
+  typeof finishWorkflowRunSchema
+>;
+
 export const recordConfirmationSchema = z.object({
   personId: uuidSchema,
   targetType: z.enum([

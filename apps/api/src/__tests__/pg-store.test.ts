@@ -1971,6 +1971,107 @@ describePg("PgStore vertical slice", () => {
     ).toHaveLength(1);
   });
 
+  it("records AI suggestions, model evaluations and workflow runs", async () => {
+    const platform = new PgPlatformStore(pool);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      {
+        requireApprovalAtOrAbove: "T3",
+        actor: "api",
+        repository: new PgAgentTaskRepository(pool, DEMO_TENANT_ID),
+      },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `pg-ai-log-${Date.now()}`,
+    });
+
+    const suggestion = await platform.createAiSuggestion({
+      tenantId: DEMO_TENANT_ID,
+      agentTaskId: task.id,
+      targetType: "EVALUATION_DRAFT",
+      suggestionType: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      inputHash: "sha256:pg-input",
+      outputJson: { summary: "PG gaps" },
+      validationStatus: "VALID",
+    });
+    expect(suggestion.acceptedAt).toBeUndefined();
+    const accepted = await platform.acceptAiSuggestion({
+      tenantId: DEMO_TENANT_ID,
+      suggestionId: suggestion.id,
+      acceptedBy: ADJUDICATOR,
+    });
+    expect(accepted.acceptedAt).toBeTruthy();
+    await expect(
+      platform.acceptAiSuggestion({
+        tenantId: DEMO_TENANT_ID,
+        suggestionId: suggestion.id,
+        acceptedBy: ADJUDICATOR,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const evaluation = await platform.createModelEvaluationRun({
+      tenantId: DEMO_TENANT_ID,
+      evaluationType: "IRR",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      datasetRef: "pg-gold-set",
+      sampleSize: 50,
+      metrics: { kappa: 0.8 },
+      subgroupMetrics: {},
+      passed: true,
+      blockers: [],
+    });
+    expect(
+      (
+        await platform.listModelEvaluationRuns(DEMO_TENANT_ID, {
+          passed: true,
+        })
+      ).some((candidate) => candidate.id === evaluation.id),
+    ).toBe(true);
+    expect(
+      (await platform.getModelEvaluationRun(DEMO_TENANT_ID, evaluation.id))
+        .sampleSize,
+    ).toBe(50);
+
+    const workflow = await platform.createWorkflowRun({
+      tenantId: DEMO_TENANT_ID,
+      agentTaskId: task.id,
+      workflowName: "evidence-gap",
+      workflowVersion: "v1",
+      status: "RUNNING",
+      currentStep: "COLLECT",
+      state: { examined: 2 },
+    });
+    const finished = await platform.finishWorkflowRun({
+      tenantId: DEMO_TENANT_ID,
+      workflowRunId: workflow.id,
+      status: "COMPLETED",
+      currentStep: "VERIFY",
+    });
+    expect(finished.finishedAt).toBeTruthy();
+    await expect(
+      platform.finishWorkflowRun({
+        tenantId: DEMO_TENANT_ID,
+        workflowRunId: workflow.id,
+        status: "COMPLETED",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (await platform.listWorkflowRuns(DEMO_TENANT_ID, task.id)).some(
+        (candidate) => candidate.id === workflow.id,
+      ),
+    ).toBe(true);
+  });
+
   it("records applied migrations", async () => {
     const { rows } = await pool.query(
       "SELECT count(*)::int AS count FROM schema_migrations",

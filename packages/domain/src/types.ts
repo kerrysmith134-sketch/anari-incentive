@@ -534,6 +534,55 @@ export interface Acceptance {
   createdAt: string;
 }
 
+export interface AiSuggestionLog {
+  id: UUID;
+  tenantId: UUID;
+  agentTaskId: UUID;
+  targetType: string;
+  targetId?: UUID;
+  suggestionType: string;
+  modelProvider?: string;
+  modelName?: string;
+  promptVersion: string;
+  inputHash: string;
+  outputJson: Record<string, unknown>;
+  validationStatus: string;
+  acceptedBy?: UUID;
+  acceptedAt?: string;
+  createdAt: string;
+}
+
+export interface ModelEvaluationRun {
+  id: UUID;
+  tenantId: UUID;
+  evaluationType: string;
+  modelProvider: string;
+  modelName: string;
+  promptVersion: string;
+  datasetRef: string;
+  sampleSize: number;
+  metrics: Record<string, unknown>;
+  subgroupMetrics: Record<string, unknown>;
+  passed: boolean;
+  blockers: string[];
+  evaluatedAt: string;
+  createdAt: string;
+}
+
+export interface WorkflowRun {
+  id: UUID;
+  tenantId: UUID;
+  agentTaskId: UUID;
+  workflowName: string;
+  workflowVersion: string;
+  status: string;
+  currentStep?: string;
+  state: Record<string, unknown>;
+  startedAt: string;
+  finishedAt?: string;
+  createdAt: string;
+}
+
 export interface CalculationLine {
   /** Deterministic key: person + work package + incentive type. */
   lineKey: string;

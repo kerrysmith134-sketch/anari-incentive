@@ -211,6 +211,11 @@ Additional application-level invariants:
 | `POST /work-packages/:id/deliverables` | manager/finance, package and owner exist | Creates a DRAFT deliverable (version 1) |
 | `POST /deliverables/:id/submit` | manager/finance, DRAFT or REJECTED | SUBMITTED with artifact reference; a rejected deliverable becomes a new version |
 | `POST /deliverables/:id/acceptance` | manager/finance, SUBMITTED, reviewer ≠ owner | Records acceptance evidence and sets ACCEPTED or REJECTED |
+| `POST /ai-suggestion-logs` | manager/finance, agent task exists | Records prompt/model/input hash, output and validation status |
+| `POST /ai-suggestion-logs/:id/accept` | not already accepted, person exists | Records one-time human acceptance |
+| `POST /model-evaluation-runs` | manager/finance | Records metrics, subgroup metrics, pass/fail and blockers |
+| `POST /workflow-runs` | manager/finance, agent task exists | Records a workflow run with state |
+| `POST /workflow-runs/:id/finish` | manager/finance, not finished | Sets status, current step and `finishedAt` |
 | `POST /ingestion/events:batch` | connector event has source record id + event version | Deduplicates per source, stores `raw_events`, projects evidence nodes |
 | `POST /evidence` | — | Creates an evidence node with provenance and quality status |
 | `GET /evidence?subjectType=&subjectId=` | — | Lists evidence for a subject |

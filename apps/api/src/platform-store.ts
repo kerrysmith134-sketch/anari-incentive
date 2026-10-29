@@ -3,6 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
 import type {
   Acceptance,
+  AiSuggestionLog,
   ApprovalDecision,
   ApprovalRequest,
   ApprovalRiskTier,
@@ -21,6 +22,7 @@ import type {
   EmployeeRepresentation,
   FinancialFact,
   MetricDefinition,
+  ModelEvaluationRun,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -39,6 +41,7 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  WorkflowRun,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
@@ -442,6 +445,69 @@ export interface PlatformStore {
     tenantId: string,
     deliverableId: string,
   ): Promise<Acceptance[]>;
+  createAiSuggestion(input: {
+    tenantId: string;
+    agentTaskId: string;
+    targetType: string;
+    targetId?: string;
+    suggestionType: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion: string;
+    inputHash: string;
+    outputJson: Record<string, unknown>;
+    validationStatus: string;
+  }): Promise<AiSuggestionLog>;
+  listAiSuggestions(
+    tenantId: string,
+    filter?: { agentTaskId?: string; targetType?: string },
+  ): Promise<AiSuggestionLog[]>;
+  acceptAiSuggestion(input: {
+    tenantId: string;
+    suggestionId: string;
+    acceptedBy: string;
+  }): Promise<AiSuggestionLog>;
+  createModelEvaluationRun(input: {
+    tenantId: string;
+    evaluationType: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    datasetRef: string;
+    sampleSize: number;
+    metrics: Record<string, unknown>;
+    subgroupMetrics: Record<string, unknown>;
+    passed: boolean;
+    blockers: string[];
+  }): Promise<ModelEvaluationRun>;
+  listModelEvaluationRuns(
+    tenantId: string,
+    filter?: { evaluationType?: string; passed?: boolean },
+  ): Promise<ModelEvaluationRun[]>;
+  getModelEvaluationRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<ModelEvaluationRun>;
+  createWorkflowRun(input: {
+    tenantId: string;
+    agentTaskId: string;
+    workflowName: string;
+    workflowVersion: string;
+    status: string;
+    currentStep?: string;
+    state: Record<string, unknown>;
+    startedAt?: string;
+  }): Promise<WorkflowRun>;
+  listWorkflowRuns(
+    tenantId: string,
+    agentTaskId?: string,
+  ): Promise<WorkflowRun[]>;
+  finishWorkflowRun(input: {
+    tenantId: string;
+    workflowRunId: string;
+    status: string;
+    currentStep?: string;
+  }): Promise<WorkflowRun>;
 }
 
 function now(): string {
@@ -483,6 +549,9 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly metricDefinitions = new Map<string, MetricDefinition>();
   private readonly deliverables = new Map<string, Deliverable>();
   private readonly acceptances = new Map<string, Acceptance>();
+  private readonly aiSuggestions = new Map<string, AiSuggestionLog>();
+  private readonly modelEvaluationRuns = new Map<string, ModelEvaluationRun>();
+  private readonly workflowRuns = new Map<string, WorkflowRun>();
 
   constructor(
     options: {
@@ -2282,6 +2351,202 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.acceptances.values()]
       .filter((acceptance) => acceptance.deliverableId === deliverableId)
       .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
+  }
+
+  async createAiSuggestion(input: {
+    tenantId: string;
+    agentTaskId: string;
+    targetType: string;
+    targetId?: string;
+    suggestionType: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion: string;
+    inputHash: string;
+    outputJson: Record<string, unknown>;
+    validationStatus: string;
+  }): Promise<AiSuggestionLog> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const suggestion: AiSuggestionLog = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      agentTaskId: input.agentTaskId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      suggestionType: input.suggestionType,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      inputHash: input.inputHash,
+      outputJson: input.outputJson,
+      validationStatus: input.validationStatus,
+      createdAt: now(),
+    };
+    this.aiSuggestions.set(suggestion.id, suggestion);
+    return suggestion;
+  }
+
+  async listAiSuggestions(
+    tenantId: string,
+    filter?: { agentTaskId?: string; targetType?: string },
+  ): Promise<AiSuggestionLog[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.aiSuggestions.values()]
+      .filter(
+        (suggestion) =>
+          suggestion.tenantId === tenantId &&
+          (!filter?.agentTaskId ||
+            suggestion.agentTaskId === filter.agentTaskId) &&
+          (!filter?.targetType ||
+            suggestion.targetType === filter.targetType),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async acceptAiSuggestion(input: {
+    tenantId: string;
+    suggestionId: string;
+    acceptedBy: string;
+  }): Promise<AiSuggestionLog> {
+    const suggestion = this.aiSuggestions.get(input.suggestionId);
+    if (!suggestion || suggestion.tenantId !== input.tenantId) {
+      notFound("AiSuggestionLog", input.suggestionId);
+    }
+    if (suggestion.acceptedAt) {
+      throw new ConflictError(
+        `AI suggestion ${suggestion.id} was already accepted`,
+      );
+    }
+    const person = this.persons.get(input.acceptedBy);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.acceptedBy);
+    }
+    suggestion.acceptedBy = input.acceptedBy;
+    suggestion.acceptedAt = now();
+    return suggestion;
+  }
+
+  async createModelEvaluationRun(input: {
+    tenantId: string;
+    evaluationType: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    datasetRef: string;
+    sampleSize: number;
+    metrics: Record<string, unknown>;
+    subgroupMetrics: Record<string, unknown>;
+    passed: boolean;
+    blockers: string[];
+  }): Promise<ModelEvaluationRun> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const timestamp = now();
+    const run: ModelEvaluationRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      evaluationType: input.evaluationType,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      datasetRef: input.datasetRef,
+      sampleSize: input.sampleSize,
+      metrics: input.metrics,
+      subgroupMetrics: input.subgroupMetrics,
+      passed: input.passed,
+      blockers: input.blockers,
+      evaluatedAt: timestamp,
+      createdAt: timestamp,
+    };
+    this.modelEvaluationRuns.set(run.id, run);
+    return run;
+  }
+
+  async listModelEvaluationRuns(
+    tenantId: string,
+    filter?: { evaluationType?: string; passed?: boolean },
+  ): Promise<ModelEvaluationRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelEvaluationRuns.values()]
+      .filter(
+        (run) =>
+          run.tenantId === tenantId &&
+          (!filter?.evaluationType ||
+            run.evaluationType === filter.evaluationType) &&
+          (filter?.passed === undefined || run.passed === filter.passed),
+      )
+      .sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
+  }
+
+  async getModelEvaluationRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<ModelEvaluationRun> {
+    const run = this.modelEvaluationRuns.get(runId);
+    if (!run || run.tenantId !== tenantId) {
+      notFound("ModelEvaluationRun", runId);
+    }
+    return run;
+  }
+
+  async createWorkflowRun(input: {
+    tenantId: string;
+    agentTaskId: string;
+    workflowName: string;
+    workflowVersion: string;
+    status: string;
+    currentStep?: string;
+    state: Record<string, unknown>;
+    startedAt?: string;
+  }): Promise<WorkflowRun> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const timestamp = now();
+    const run: WorkflowRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      agentTaskId: input.agentTaskId,
+      workflowName: input.workflowName,
+      workflowVersion: input.workflowVersion,
+      status: input.status,
+      currentStep: input.currentStep,
+      state: input.state,
+      startedAt: input.startedAt ?? timestamp,
+      createdAt: timestamp,
+    };
+    this.workflowRuns.set(run.id, run);
+    return run;
+  }
+
+  async listWorkflowRuns(
+    tenantId: string,
+    agentTaskId?: string,
+  ): Promise<WorkflowRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.workflowRuns.values()]
+      .filter(
+        (run) =>
+          run.tenantId === tenantId &&
+          (!agentTaskId || run.agentTaskId === agentTaskId),
+      )
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  async finishWorkflowRun(input: {
+    tenantId: string;
+    workflowRunId: string;
+    status: string;
+    currentStep?: string;
+  }): Promise<WorkflowRun> {
+    const run = this.workflowRuns.get(input.workflowRunId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("WorkflowRun", input.workflowRunId);
+    }
+    if (run.finishedAt) {
+      throw new ConflictError(`workflow run ${run.id} is already finished`);
+    }
+    run.status = input.status;
+    run.currentStep = input.currentStep ?? run.currentStep;
+    run.finishedAt = now();
+    return run;
   }
 
   private assertUserNotLinked(
@@ -4558,6 +4823,270 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapAcceptance(row));
   }
 
+  async createAiSuggestion(input: {
+    tenantId: string;
+    agentTaskId: string;
+    targetType: string;
+    targetId?: string;
+    suggestionType: string;
+    modelProvider?: string;
+    modelName?: string;
+    promptVersion: string;
+    inputHash: string;
+    outputJson: Record<string, unknown>;
+    validationStatus: string;
+  }): Promise<AiSuggestionLog> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO ai_suggestion_logs
+          (id, tenant_id, agent_task_id, target_type, target_id,
+           suggestion_type, model_provider, model_name, prompt_version,
+           input_hash, output_json, validation_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.agentTaskId,
+          input.targetType,
+          input.targetId ?? null,
+          input.suggestionType,
+          input.modelProvider ?? null,
+          input.modelName ?? null,
+          input.promptVersion,
+          input.inputHash,
+          input.outputJson,
+          input.validationStatus,
+        ],
+      );
+      return this.mapAiSuggestion(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Agent task ${input.agentTaskId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listAiSuggestions(
+    tenantId: string,
+    filter?: { agentTaskId?: string; targetType?: string },
+  ): Promise<AiSuggestionLog[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM ai_suggestion_logs WHERE tenant_id=$1";
+    if (filter?.agentTaskId) {
+      params.push(filter.agentTaskId);
+      sql += ` AND agent_task_id=$${params.length}`;
+    }
+    if (filter?.targetType) {
+      params.push(filter.targetType);
+      sql += ` AND target_type=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapAiSuggestion(row));
+  }
+
+  async acceptAiSuggestion(input: {
+    tenantId: string;
+    suggestionId: string;
+    acceptedBy: string;
+  }): Promise<AiSuggestionLog> {
+    try {
+      const { rows } = await this.pool.query(
+        `UPDATE ai_suggestion_logs
+            SET accepted_by=$3, accepted_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND accepted_at IS NULL
+          RETURNING *`,
+        [input.tenantId, input.suggestionId, input.acceptedBy],
+      );
+      if (!rows[0]) {
+        const { rows: existing } = await this.pool.query(
+          "SELECT * FROM ai_suggestion_logs WHERE tenant_id=$1 AND id=$2",
+          [input.tenantId, input.suggestionId],
+        );
+        if (!existing[0]) notFound("AiSuggestionLog", input.suggestionId);
+        throw new ConflictError(
+          `AI suggestion ${input.suggestionId} was already accepted`,
+        );
+      }
+      return this.mapAiSuggestion(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.acceptedBy} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async createModelEvaluationRun(input: {
+    tenantId: string;
+    evaluationType: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    datasetRef: string;
+    sampleSize: number;
+    metrics: Record<string, unknown>;
+    subgroupMetrics: Record<string, unknown>;
+    passed: boolean;
+    blockers: string[];
+  }): Promise<ModelEvaluationRun> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_evaluation_runs
+          (id, tenant_id, evaluation_type, model_provider, model_name,
+           prompt_version, dataset_ref, sample_size, metrics,
+           subgroup_metrics, passed, blockers)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.evaluationType,
+          input.modelProvider,
+          input.modelName,
+          input.promptVersion,
+          input.datasetRef,
+          input.sampleSize,
+          input.metrics,
+          input.subgroupMetrics,
+          input.passed,
+          input.blockers,
+        ],
+      );
+      return this.mapModelEvaluationRun(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listModelEvaluationRuns(
+    tenantId: string,
+    filter?: { evaluationType?: string; passed?: boolean },
+  ): Promise<ModelEvaluationRun[]> {
+    await this.assertTenant(tenantId);
+    const params: Array<string | boolean> = [tenantId];
+    let sql = "SELECT * FROM model_evaluation_runs WHERE tenant_id=$1";
+    if (filter?.evaluationType) {
+      params.push(filter.evaluationType);
+      sql += ` AND evaluation_type=$${params.length}`;
+    }
+    if (filter?.passed !== undefined) {
+      params.push(filter.passed);
+      sql += ` AND passed=$${params.length}`;
+    }
+    sql += " ORDER BY evaluated_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapModelEvaluationRun(row));
+  }
+
+  async getModelEvaluationRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<ModelEvaluationRun> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM model_evaluation_runs WHERE tenant_id=$1 AND id=$2",
+      [tenantId, runId],
+    );
+    if (!rows[0]) notFound("ModelEvaluationRun", runId);
+    return this.mapModelEvaluationRun(rows[0]);
+  }
+
+  async createWorkflowRun(input: {
+    tenantId: string;
+    agentTaskId: string;
+    workflowName: string;
+    workflowVersion: string;
+    status: string;
+    currentStep?: string;
+    state: Record<string, unknown>;
+    startedAt?: string;
+  }): Promise<WorkflowRun> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO workflow_runs
+          (id, tenant_id, agent_task_id, workflow_name, workflow_version,
+           status, current_step, state, started_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, now()))
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.agentTaskId,
+          input.workflowName,
+          input.workflowVersion,
+          input.status,
+          input.currentStep ?? null,
+          input.state,
+          input.startedAt ?? null,
+        ],
+      );
+      return this.mapWorkflowRun(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Agent task ${input.agentTaskId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listWorkflowRuns(
+    tenantId: string,
+    agentTaskId?: string,
+  ): Promise<WorkflowRun[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM workflow_runs WHERE tenant_id=$1";
+    if (agentTaskId) {
+      params.push(agentTaskId);
+      sql += " AND agent_task_id=$2";
+    }
+    sql += " ORDER BY started_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapWorkflowRun(row));
+  }
+
+  async finishWorkflowRun(input: {
+    tenantId: string;
+    workflowRunId: string;
+    status: string;
+    currentStep?: string;
+  }): Promise<WorkflowRun> {
+    const { rows } = await this.pool.query(
+      `UPDATE workflow_runs
+          SET status=$3, current_step=COALESCE($4, current_step),
+              finished_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND finished_at IS NULL
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.workflowRunId,
+        input.status,
+        input.currentStep ?? null,
+      ],
+    );
+    if (!rows[0]) {
+      const { rows: existing } = await this.pool.query(
+        "SELECT * FROM workflow_runs WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.workflowRunId],
+      );
+      if (!existing[0]) notFound("WorkflowRun", input.workflowRunId);
+      throw new ConflictError(
+        `workflow run ${input.workflowRunId} is already finished`,
+      );
+    }
+    return this.mapWorkflowRun(rows[0]);
+  }
+
   private async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -4987,6 +5516,61 @@ export class PgPlatformStore implements PlatformStore {
       comments: row.comments ?? undefined,
       decidedAt: iso(row.decided_at) ?? new Date().toISOString(),
       supersedesId: row.supersedes_id ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapAiSuggestion(row: QueryResultRow): AiSuggestionLog {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      agentTaskId: row.agent_task_id,
+      targetType: row.target_type,
+      targetId: row.target_id ?? undefined,
+      suggestionType: row.suggestion_type,
+      modelProvider: row.model_provider ?? undefined,
+      modelName: row.model_name ?? undefined,
+      promptVersion: row.prompt_version,
+      inputHash: row.input_hash,
+      outputJson: row.output_json ?? {},
+      validationStatus: row.validation_status,
+      acceptedBy: row.accepted_by ?? undefined,
+      acceptedAt: iso(row.accepted_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapModelEvaluationRun(row: QueryResultRow): ModelEvaluationRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      evaluationType: row.evaluation_type,
+      modelProvider: row.model_provider,
+      modelName: row.model_name,
+      promptVersion: row.prompt_version,
+      datasetRef: row.dataset_ref,
+      sampleSize: Number(row.sample_size),
+      metrics: row.metrics ?? {},
+      subgroupMetrics: row.subgroup_metrics ?? {},
+      passed: row.passed,
+      blockers: row.blockers ?? [],
+      evaluatedAt: iso(row.evaluated_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapWorkflowRun(row: QueryResultRow): WorkflowRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      agentTaskId: row.agent_task_id,
+      workflowName: row.workflow_name,
+      workflowVersion: row.workflow_version,
+      status: row.status,
+      currentStep: row.current_step ?? undefined,
+      state: row.state ?? {},
+      startedAt: iso(row.started_at) ?? new Date().toISOString(),
+      finishedAt: iso(row.finished_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

@@ -54,6 +54,11 @@ import {
   createDeliverableSchema,
   submitDeliverableSchema,
   recordDeliverableAcceptanceSchema,
+  createAiSuggestionLogSchema,
+  acceptAiSuggestionSchema,
+  createModelEvaluationRunSchema,
+  createWorkflowRunSchema,
+  finishWorkflowRunSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
@@ -2256,6 +2261,153 @@ export function buildApp(
         tenantOf(request),
         idOf(request),
       ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/ai-suggestion-logs", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createAiSuggestionLogSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createAiSuggestion({
+          tenantId: tenantOf(request),
+          agentTaskId: body.agentTaskId,
+          targetType: body.targetType,
+          targetId: body.targetId,
+          suggestionType: body.suggestionType,
+          modelProvider: body.modelProvider,
+          modelName: body.modelName,
+          promptVersion: body.promptVersion,
+          inputHash: body.inputHash,
+          outputJson: body.outputJson,
+          validationStatus: body.validationStatus,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/ai-suggestion-logs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      agentTaskId?: string;
+      targetType?: string;
+    };
+    return data(
+      await platformStore.listAiSuggestions(tenantOf(request), {
+        agentTaskId: query.agentTaskId,
+        targetType: query.targetType,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/ai-suggestion-logs/:id/accept", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(acceptAiSuggestionSchema, request.body);
+    return data(
+      await platformStore.acceptAiSuggestion({
+        tenantId: tenantOf(request),
+        suggestionId: idOf(request),
+        acceptedBy: body.acceptedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-evaluation-runs", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createModelEvaluationRunSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createModelEvaluationRun({
+          tenantId: tenantOf(request),
+          evaluationType: body.evaluationType,
+          modelProvider: body.modelProvider,
+          modelName: body.modelName,
+          promptVersion: body.promptVersion,
+          datasetRef: body.datasetRef,
+          sampleSize: body.sampleSize,
+          metrics: body.metrics ?? {},
+          subgroupMetrics: body.subgroupMetrics ?? {},
+          passed: body.passed,
+          blockers: body.blockers ?? [],
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/model-evaluation-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      evaluationType?: string;
+      passed?: string;
+    };
+    return data(
+      await platformStore.listModelEvaluationRuns(tenantOf(request), {
+        evaluationType: query.evaluationType,
+        passed:
+          query.passed === undefined ? undefined : query.passed === "true",
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/model-evaluation-runs/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getModelEvaluationRun(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/workflow-runs", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createWorkflowRunSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createWorkflowRun({
+          tenantId: tenantOf(request),
+          agentTaskId: body.agentTaskId,
+          workflowName: body.workflowName,
+          workflowVersion: body.workflowVersion,
+          status: body.status,
+          currentStep: body.currentStep,
+          state: body.state ?? {},
+          startedAt: body.startedAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/workflow-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { agentTaskId?: string };
+    return data(
+      await platformStore.listWorkflowRuns(
+        tenantOf(request),
+        query.agentTaskId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/workflow-runs/:id/finish", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(finishWorkflowRunSchema, request.body);
+    return data(
+      await platformStore.finishWorkflowRun({
+        tenantId: tenantOf(request),
+        workflowRunId: idOf(request),
+        status: body.status,
+        currentStep: body.currentStep,
+      }),
       request,
     );
   });

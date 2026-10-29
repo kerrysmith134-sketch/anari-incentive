@@ -2033,6 +2033,230 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/ai-suggestion-logs:
+    get:
+      tags: [Agent]
+      summary: List AI suggestion logs
+      parameters:
+        - name: agentTaskId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: targetType
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Record an AI suggestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAiSuggestionLog"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/ai-suggestion-logs/{id}/accept:
+    post:
+      tags: [Agent]
+      summary: Mark an AI suggestion accepted
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptAiSuggestion"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/model-evaluation-runs:
+    get:
+      tags: [Agent]
+      summary: List model evaluation runs
+      parameters:
+        - name: evaluationType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: passed
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Evaluation runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Record a model evaluation run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelEvaluationRun"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/model-evaluation-runs/{id}:
+    get:
+      tags: [Agent]
+      summary: Read a model evaluation run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Evaluation run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflow-runs:
+    get:
+      tags: [Agent]
+      summary: List workflow runs
+      parameters:
+        - name: agentTaskId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Workflow runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Record a workflow run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowRun"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflow-runs/{id}/finish:
+    post:
+      tags: [Agent]
+      summary: Finish a workflow run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinishWorkflowRun"
+      responses:
+        "200":
+          description: Finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/calculation-runs:batch:
     post:
       tags: [Calculation]
@@ -4393,6 +4617,101 @@ components:
           type: object
           additionalProperties: true
         comments:
+          type: string
+
+    CreateAiSuggestionLog:
+      type: object
+      required:
+        [agentTaskId, targetType, suggestionType, promptVersion, inputHash, outputJson, validationStatus]
+      properties:
+        agentTaskId:
+          $ref: "#/components/schemas/Uuid"
+        targetType:
+          type: string
+        targetId:
+          $ref: "#/components/schemas/Uuid"
+        suggestionType:
+          type: string
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        promptVersion:
+          type: string
+        inputHash:
+          type: string
+        outputJson:
+          type: object
+          additionalProperties: true
+        validationStatus:
+          type: string
+
+    AcceptAiSuggestion:
+      type: object
+      required: [acceptedBy]
+      properties:
+        acceptedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CreateModelEvaluationRun:
+      type: object
+      required:
+        [evaluationType, modelProvider, modelName, promptVersion, datasetRef, sampleSize, passed]
+      properties:
+        evaluationType:
+          type: string
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        promptVersion:
+          type: string
+        datasetRef:
+          type: string
+        sampleSize:
+          type: integer
+          minimum: 1
+        metrics:
+          type: object
+          additionalProperties: true
+        subgroupMetrics:
+          type: object
+          additionalProperties: true
+        passed:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            type: string
+
+    CreateWorkflowRun:
+      type: object
+      required: [agentTaskId, workflowName, workflowVersion, status]
+      properties:
+        agentTaskId:
+          $ref: "#/components/schemas/Uuid"
+        workflowName:
+          type: string
+        workflowVersion:
+          type: string
+        status:
+          type: string
+        currentStep:
+          type: string
+        state:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+
+    FinishWorkflowRun:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        currentStep:
           type: string
 
     CalculationOrder:
