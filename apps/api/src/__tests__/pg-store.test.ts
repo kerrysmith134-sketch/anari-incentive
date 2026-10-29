@@ -1907,6 +1907,25 @@ describePg("PgStore vertical slice", () => {
     expect(recordedRun.lastRunPassed).toBe(true);
     expect(recordedRun.lastRunAt).toBeTruthy();
     expect(recordedRun.lastRunResultHash).toBe("sha256:test-case-run");
+    const testRun = await platform.recordPolicyTestRun({
+      tenantId: DEMO_TENANT_ID,
+      policyVersionId: REFERENCE_POLICY_ID,
+      total: 1,
+      passedCount: 1,
+      failedCount: 0,
+      retiredCount: 0,
+      passed: true,
+      resultsHash: "sha256:test-suite",
+      results: [],
+    });
+    expect(testRun.passed).toBe(true);
+    const testRuns = await platform.listPolicyTestRuns(
+      DEMO_TENANT_ID,
+      REFERENCE_POLICY_ID,
+    );
+    expect(
+      testRuns.some((candidate) => candidate.id === testRun.id),
+    ).toBe(true);
     await expect(
       platform.createPolicyTestCase({
         tenantId: DEMO_TENANT_ID,

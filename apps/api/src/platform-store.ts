@@ -39,6 +39,7 @@ import type {
   PolicyConsultation,
   PolicyNotice,
   PolicyTestCase,
+  PolicyTestRun,
   RepresentationBodyType,
   RetentionPolicy,
   RuleChangeOrder,
@@ -400,6 +401,23 @@ export interface PlatformStore {
     resultHash?: string;
     runAt?: string;
   }): Promise<PolicyTestCase>;
+  recordPolicyTestRun(input: {
+    tenantId: string;
+    policyVersionId: string;
+    runAt?: string;
+    total: number;
+    passedCount: number;
+    failedCount: number;
+    retiredCount: number;
+    passed: boolean;
+    resultsHash: string;
+    results: PolicyTestRun["results"];
+  }): Promise<PolicyTestRun>;
+  listPolicyTestRuns(
+    tenantId: string,
+    policyVersionId?: string,
+    limit?: number,
+  ): Promise<PolicyTestRun[]>;
   retirePolicyTestCase(input: {
     tenantId: string;
     testCaseId: string;
@@ -646,6 +664,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly financialFacts = new Map<string, FinancialFact>();
   private readonly ruleChangeOrders = new Map<string, RuleChangeOrder>();
   private readonly policyTestCases = new Map<string, PolicyTestCase>();
+  private readonly policyTestRuns = new Map<string, PolicyTestRun>();
   private readonly policyNotices = new Map<string, PolicyNotice>();
   private readonly metricDefinitions = new Map<string, MetricDefinition>();
   private readonly deliverables = new Map<string, Deliverable>();
@@ -2216,6 +2235,57 @@ export class MemoryPlatformStore implements PlatformStore {
     testCase.lastRunPassed = input.passed;
     testCase.lastRunResultHash = input.resultHash;
     return testCase;
+  }
+
+  async recordPolicyTestRun(input: {
+    tenantId: string;
+    policyVersionId: string;
+    runAt?: string;
+    total: number;
+    passedCount: number;
+    failedCount: number;
+    retiredCount: number;
+    passed: boolean;
+    resultsHash: string;
+    results: PolicyTestRun["results"];
+  }): Promise<PolicyTestRun> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const id = randomUUID();
+    const run: PolicyTestRun = {
+      id,
+      runId: id,
+      tenantId: input.tenantId,
+      policyVersionId: input.policyVersionId,
+      runAt: input.runAt ?? new Date().toISOString(),
+      total: input.total,
+      passedCount: input.passedCount,
+      failedCount: input.failedCount,
+      retiredCount: input.retiredCount,
+      passed: input.passed,
+      resultsHash: input.resultsHash,
+      results: structuredClone(input.results),
+    };
+    this.policyTestRuns.set(run.id, run);
+    return run;
+  }
+
+  async listPolicyTestRuns(
+    tenantId: string,
+    policyVersionId?: string,
+    limit = 20,
+  ): Promise<PolicyTestRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.policyTestRuns.values()]
+      .filter(
+        (run) =>
+          run.tenantId === tenantId &&
+          (!policyVersionId ||
+            run.policyVersionId === policyVersionId),
+      )
+      .sort((a, b) => b.runAt.localeCompare(a.runAt))
+      .slice(0, limit);
   }
 
   async retirePolicyTestCase(input: {
@@ -4947,6 +5017,59 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapPolicyTestCase(rows[0]);
   }
 
+  async recordPolicyTestRun(input: {
+    tenantId: string;
+    policyVersionId: string;
+    runAt?: string;
+    total: number;
+    passedCount: number;
+    failedCount: number;
+    retiredCount: number;
+    passed: boolean;
+    resultsHash: string;
+    results: PolicyTestRun["results"];
+  }): Promise<PolicyTestRun> {
+    await this.assertTenant(input.tenantId);
+    const { rows } = await this.pool.query(
+      `INSERT INTO policy_test_runs
+        (id, tenant_id, policy_version_id, run_at, total, passed_count,
+         failed_count, retired_count, passed, results_hash, results)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [
+        randomUUID(),
+        input.tenantId,
+        input.policyVersionId,
+        input.runAt ?? new Date().toISOString(),
+        input.total,
+        input.passedCount,
+        input.failedCount,
+        input.retiredCount,
+        input.passed,
+        input.resultsHash,
+        JSON.stringify(input.results),
+      ],
+    );
+    return this.mapPolicyTestRun(rows[0]);
+  }
+
+  async listPolicyTestRuns(
+    tenantId: string,
+    policyVersionId?: string,
+    limit = 20,
+  ): Promise<PolicyTestRun[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM policy_test_runs
+        WHERE tenant_id=$1
+          AND ($2::uuid IS NULL OR policy_version_id=$2)
+        ORDER BY run_at DESC
+        LIMIT $3`,
+      [tenantId, policyVersionId ?? null, limit],
+    );
+    return rows.map((row) => this.mapPolicyTestRun(row));
+  }
+
   async retirePolicyTestCase(input: {
     tenantId: string;
     testCaseId: string;
@@ -6384,6 +6507,23 @@ export class PgPlatformStore implements PlatformStore {
         row.last_run_passed === null ? undefined : row.last_run_passed,
       lastRunResultHash: row.last_run_result_hash ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapPolicyTestRun(row: QueryResultRow): PolicyTestRun {
+    return {
+      id: row.id,
+      runId: row.id,
+      tenantId: row.tenant_id,
+      policyVersionId: row.policy_version_id,
+      runAt: iso(row.run_at) ?? new Date().toISOString(),
+      total: Number(row.total),
+      passedCount: Number(row.passed_count),
+      failedCount: Number(row.failed_count),
+      retiredCount: Number(row.retired_count),
+      passed: row.passed,
+      resultsHash: row.results_hash,
+      results: row.results ?? [],
     };
   }
 

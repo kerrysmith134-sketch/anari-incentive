@@ -2801,17 +2801,44 @@ export function buildApp(
       ),
     );
     const passedCount = results.filter((result) => result.passed).length;
-    const suite: PolicyTestSuiteResult = {
+    const runAt = new Date().toISOString();
+    const run = await platformStore.recordPolicyTestRun({
+      tenantId: tenantOf(request),
       policyVersionId,
+      runAt,
       total: active.length,
       passedCount,
       failedCount: active.length - passedCount,
       retiredCount: cases.length - active.length,
-      passed:
-        active.length > 0 && passedCount === active.length,
+      passed: active.length > 0 && passedCount === active.length,
+      resultsHash: sha256(results),
       results,
+    });
+    const suite: PolicyTestSuiteResult = {
+      runId: run.id,
+      runAt: run.runAt,
+      policyVersionId: run.policyVersionId,
+      total: run.total,
+      passedCount: run.passedCount,
+      failedCount: run.failedCount,
+      retiredCount: run.retiredCount,
+      passed: run.passed,
+      results: run.results,
     };
     return data(suite, request);
+  });
+
+  app.get("/api/v1/policy-versions/:id/test-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const policyVersionId = idOf(request);
+    await storeFor(request).getPolicyVersion(policyVersionId);
+    return data(
+      await platformStore.listPolicyTestRuns(
+        tenantOf(request),
+        policyVersionId,
+      ),
+      request,
+    );
   });
 
   app.post("/api/v1/policy-notices", async (request, reply) => {

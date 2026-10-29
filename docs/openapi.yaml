@@ -4378,6 +4378,25 @@ paths:
           $ref: "#/components/responses/StateConflict"
 
   /api/v1/policy-versions/{id}/test-runs:
+    get:
+      tags: [Policy]
+      summary: List policy test suite run history
+      description: Returns append-only suite runs for the policy version, newest first.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Test suite history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       tags: [Policy]
       summary: Run all active test cases for a policy version

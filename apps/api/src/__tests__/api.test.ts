@@ -4994,6 +4994,20 @@ describe("vertical slice", () => {
     expect(suite.body.data.retiredCount).toBe(1);
     expect(suite.body.data.passed).toBe(false);
     expect(suite.body.data.results).toHaveLength(2);
+    expect(suite.body.data.runId).toBeTruthy();
+    expect(suite.body.data.runAt).toBeTruthy();
+
+    const history = await call(
+      "GET",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}/test-runs`,
+    );
+    expect(history.status).toBe(200);
+    expect(history.body.data).toHaveLength(1);
+    expect(history.body.data[0].id).toBe(suite.body.data.runId);
+    expect(history.body.data[0].passedCount).toBe(1);
+    expect(history.body.data[0].failedCount).toBe(1);
+    expect(history.body.data[0].retiredCount).toBe(1);
+    expect(history.body.data[0].resultsHash).toMatch(/^sha256:/);
 
     const cases = await call(
       "GET",

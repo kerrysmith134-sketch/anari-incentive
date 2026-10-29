@@ -497,6 +497,8 @@ export interface PolicyTestCaseRunResult {
 }
 
 export interface PolicyTestSuiteResult {
+  runId: UUID;
+  runAt: string;
   policyVersionId: UUID;
   total: number;
   passedCount: number;
@@ -504,6 +506,12 @@ export interface PolicyTestSuiteResult {
   retiredCount: number;
   passed: boolean;
   results: PolicyTestCaseRunResult[];
+}
+
+export interface PolicyTestRun extends PolicyTestSuiteResult {
+  id: UUID;
+  tenantId: UUID;
+  resultsHash: string;
 }
 
 export interface CycleReadinessReport {
