@@ -493,6 +493,7 @@ export interface PlatformStore {
     suggestionType: string;
     modelProvider?: string;
     modelName?: string;
+    modelPromptId?: string;
     promptVersion: string;
     inputHash: string;
     outputJson: Record<string, unknown>;
@@ -2611,6 +2612,7 @@ export class MemoryPlatformStore implements PlatformStore {
     suggestionType: string;
     modelProvider?: string;
     modelName?: string;
+    modelPromptId?: string;
     promptVersion: string;
     inputHash: string;
     outputJson: Record<string, unknown>;
@@ -2626,6 +2628,7 @@ export class MemoryPlatformStore implements PlatformStore {
       suggestionType: input.suggestionType,
       modelProvider: input.modelProvider,
       modelName: input.modelName,
+      modelPromptId: input.modelPromptId,
       promptVersion: input.promptVersion,
       inputHash: input.inputHash,
       outputJson: input.outputJson,
@@ -5636,6 +5639,7 @@ export class PgPlatformStore implements PlatformStore {
     suggestionType: string;
     modelProvider?: string;
     modelName?: string;
+    modelPromptId?: string;
     promptVersion: string;
     inputHash: string;
     outputJson: Record<string, unknown>;
@@ -5645,9 +5649,9 @@ export class PgPlatformStore implements PlatformStore {
       const { rows } = await this.pool.query(
         `INSERT INTO ai_suggestion_logs
           (id, tenant_id, agent_task_id, target_type, target_id,
-           suggestion_type, model_provider, model_name, prompt_version,
-           input_hash, output_json, validation_status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           suggestion_type, model_provider, model_name, model_prompt_id,
+           prompt_version, input_hash, output_json, validation_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING *`,
         [
           randomUUID(),
@@ -5658,6 +5662,7 @@ export class PgPlatformStore implements PlatformStore {
           input.suggestionType,
           input.modelProvider ?? null,
           input.modelName ?? null,
+          input.modelPromptId ?? null,
           input.promptVersion,
           input.inputHash,
           input.outputJson,
@@ -6916,6 +6921,7 @@ export class PgPlatformStore implements PlatformStore {
       suggestionType: row.suggestion_type,
       modelProvider: row.model_provider ?? undefined,
       modelName: row.model_name ?? undefined,
+      modelPromptId: row.model_prompt_id ?? undefined,
       promptVersion: row.prompt_version,
       inputHash: row.input_hash,
       outputJson: row.output_json ?? {},

@@ -3106,6 +3106,29 @@ export function buildApp(
   app.post("/api/v1/ai-suggestion-logs", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createAiSuggestionLogSchema, request.body);
+    let modelProvider = body.modelProvider;
+    let modelName = body.modelName;
+    if (body.modelPromptId) {
+      const prompt = await platformStore.getModelPrompt(
+        tenantOf(request),
+        body.modelPromptId,
+      );
+      if (prompt.status !== "ACTIVE") {
+        throw new ConflictError(
+          `MODEL_PROMPT_NOT_ACTIVE: ${prompt.id} is ${prompt.status}`,
+        );
+      }
+      if (
+        (modelProvider && modelProvider !== prompt.modelProvider) ||
+        (modelName && modelName !== prompt.modelName)
+      ) {
+        throw new ConflictError(
+          `MODEL_PROMPT_MODEL_MISMATCH: ${prompt.id}`,
+        );
+      }
+      modelProvider = prompt.modelProvider;
+      modelName = prompt.modelName;
+    }
     return reply.status(201).send(
       data(
         await platformStore.createAiSuggestion({
@@ -3114,8 +3137,9 @@ export function buildApp(
           targetType: body.targetType,
           targetId: body.targetId,
           suggestionType: body.suggestionType,
-          modelProvider: body.modelProvider,
-          modelName: body.modelName,
+          modelProvider,
+          modelName,
+          modelPromptId: body.modelPromptId,
           promptVersion: body.promptVersion,
           inputHash: body.inputHash,
           outputJson: body.outputJson,

@@ -2144,6 +2144,20 @@ describePg("PgStore vertical slice", () => {
     });
     expect(activatedPrompt.status).toBe("ACTIVE");
     expect(activatedPrompt.evaluationRunId).toBe(evaluation.id);
+    const linkedSuggestion = await platform.createAiSuggestion({
+      tenantId: DEMO_TENANT_ID,
+      agentTaskId: task.id,
+      targetType: "CALCULATION_RUN",
+      suggestionType: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      modelPromptId: prompt.id,
+      promptVersion: "v1",
+      inputHash: "pg-link-hash",
+      outputJson: { summary: "Evidence summary" },
+      validationStatus: "VALID",
+    });
+    expect(linkedSuggestion.modelPromptId).toBe(prompt.id);
     expect(
       (
         await platform.listModelPrompts(DEMO_TENANT_ID, {

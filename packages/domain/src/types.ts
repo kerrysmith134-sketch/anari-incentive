@@ -711,6 +711,7 @@ export interface AiSuggestionLog {
   suggestionType: string;
   modelProvider?: string;
   modelName?: string;
+  modelPromptId?: UUID;
   promptVersion: string;
   inputHash: string;
   outputJson: Record<string, unknown>;

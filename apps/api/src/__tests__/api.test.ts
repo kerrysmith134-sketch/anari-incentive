@@ -2370,6 +2370,52 @@ describe("AI suggestion logs and workflow runs", () => {
     );
     expect(activePrompts.body.data).toHaveLength(1);
     expect(activePrompts.body.data[0].version).toBe(2);
+
+    const task = await call("POST", "/api/v1/agent-tasks", {
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "prompt-suggestion-task",
+    });
+    expect(task.status).toBe(201);
+    const suggestion = await call(
+      "POST",
+      "/api/v1/ai-suggestion-logs",
+      {
+        agentTaskId: task.body.data.id,
+        targetType: "CALCULATION_RUN",
+        suggestionType: "EVIDENCE_SUMMARY",
+        modelPromptId: second.body.data.id,
+        promptVersion: "v2",
+        inputHash: "input-hash",
+        outputJson: { summary: "Evidence supports the claim" },
+        validationStatus: "VALID",
+      },
+    );
+    expect(suggestion.status).toBe(201);
+    expect(suggestion.body.data.modelPromptId).toBe(
+      second.body.data.id,
+    );
+    expect(suggestion.body.data.modelProvider).toBe("anthropic");
+    expect(suggestion.body.data.modelName).toBe("claude");
+
+    const retiredPromptSuggestion = await call(
+      "POST",
+      "/api/v1/ai-suggestion-logs",
+      {
+        agentTaskId: task.body.data.id,
+        targetType: "CALCULATION_RUN",
+        suggestionType: "EVIDENCE_SUMMARY",
+        modelPromptId: prompt.body.data.id,
+        promptVersion: "v1",
+        inputHash: "input-hash-2",
+        outputJson: { summary: "Retired prompt" },
+        validationStatus: "VALID",
+      },
+    );
+    expect(retiredPromptSuggestion.status).toBe(409);
+    expect(retiredPromptSuggestion.body.error.message).toContain(
+      "MODEL_PROMPT_NOT_ACTIVE",
+    );
   });
 });
 

@@ -455,6 +455,7 @@ export const createAiSuggestionLogSchema = z.object({
   suggestionType: z.string().min(1),
   modelProvider: z.string().min(1).optional(),
   modelName: z.string().min(1).optional(),
+  modelPromptId: uuidSchema.optional(),
   promptVersion: z.string().min(1),
   inputHash: z.string().min(1),
   outputJson: z.record(z.unknown()),

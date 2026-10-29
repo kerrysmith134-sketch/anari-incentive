@@ -5453,6 +5453,10 @@ components:
           type: string
         modelName:
           type: string
+        modelPromptId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the prompt must be ACTIVE and its provider/model must match the recorded model fields.
         promptVersion:
           type: string
         inputHash:
