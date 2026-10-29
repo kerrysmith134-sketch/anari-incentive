@@ -5195,6 +5195,42 @@ describe("vertical slice", () => {
     );
   });
 
+  it("reports operations coverage for work packages and claims", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+
+    const before = await call(
+      "GET",
+      "/api/v1/reports/operations-coverage",
+    );
+    expect(before.status).toBe(200);
+    expect(before.body.data.workPackages.total).toBe(1);
+    expect(before.body.data.workPackages.accepted).toBe(1);
+    expect(before.body.data.workPackages.withEvidence).toBe(0);
+    expect(before.body.data.workPackages.evidenceCoverageRate).toBe(0);
+    expect(before.body.data.claims.total).toBe(1);
+    expect(before.body.data.claims.confirmed).toBe(1);
+    expect(before.body.data.deliverables.pendingAcceptance).toBe(0);
+    expect(before.body.data.approvals.pending).toBe(0);
+    expect(before.body.data.dsars.open).toBe(0);
+
+    await call("POST", "/api/v1/evidence", {
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "TEST",
+      normalizedPayload: { delivered: true },
+    });
+    const after = await call(
+      "GET",
+      "/api/v1/reports/operations-coverage",
+    );
+    expect(after.body.data.evidence.total).toBe(1);
+    expect(after.body.data.evidence.workPackage).toBe(1);
+    expect(after.body.data.workPackages.withEvidence).toBe(1);
+    expect(after.body.data.workPackages.evidenceCoverageRate).toBe(1);
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

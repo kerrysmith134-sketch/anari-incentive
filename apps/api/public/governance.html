@@ -525,6 +525,15 @@
       <div class="status" id="policyReadinessStatus"></div>
       <pre id="policyReadinessResult" hidden></pre>
     </section>
+
+    <section class="card">
+      <h2>运营覆盖率</h2>
+      <div class="actions">
+        <button class="primary" id="loadCoverage">生成覆盖率报告</button>
+      </div>
+      <div class="status" id="coverageStatus"></div>
+      <pre id="coverageResult" hidden></pre>
+    </section>
   </main>
 
   <script>
@@ -1696,6 +1705,21 @@
       }
     }
 
+    async function loadCoverage() {
+      try {
+        const report = await api("/api/v1/reports/operations-coverage");
+        $("coverageResult").hidden = false;
+        $("coverageResult").textContent = JSON.stringify(report, null, 2);
+        setStatus(
+          "coverageStatus",
+          `证据覆盖率 ${Math.round(report.workPackages.evidenceCoverageRate * 100)}%，待验收交付物 ${report.deliverables.pendingAcceptance}，待审批 ${report.approvals.pending}`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("coverageStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -1891,6 +1915,7 @@
       "click",
       loadPolicyReadiness,
     );
+    $("loadCoverage").addEventListener("click", loadCoverage);
 
     (async () => {
       await loadPolicyOptions();

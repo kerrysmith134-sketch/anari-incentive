@@ -437,6 +437,8 @@ A negative net total requires `kind = 'RECOVERY'`. `STANDARD` batches still enfo
 
 `GET /reports/policy-readiness?policyVersionId=` is the policy-side counterpart. It reports the legal gate and its blockers, active golden-case results (including not-run and failing cases), linked notice acknowledgement coverage, concluded consultations and the referenced DPIA status. `ready` requires no legal-gate blocker, at least one active test case with every active case passing its last run, complete acknowledgement-required notices and no unapproved referenced DPIA.
 
+`GET /reports/operations-coverage` is a tenant-wide operational snapshot: accepted work packages with work-package evidence and the resulting coverage ratio, claim confirmation, deliverable acceptance queue, approval status and DSAR status. It is read-only and does not define performance targets.
+
 ---
 
 ## 11. Ingestion and connectors

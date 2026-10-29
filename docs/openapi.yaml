@@ -3484,6 +3484,26 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/reports/operations-coverage:
+    get:
+      tags: [Reporting]
+      summary: Report evidence and workload coverage
+      description: |
+        Tenant-wide counts for accepted work packages with work-package
+        evidence, claim confirmation, deliverables awaiting acceptance,
+        approval requests and DSARs. Ratios are between 0 and 1.
+      responses:
+        "200":
+          description: Operations coverage report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/reports/cycle-readiness:
     get:
       tags: [Reporting]

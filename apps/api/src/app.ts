@@ -111,6 +111,7 @@ import {
   legalGateBlockers,
   type CalculationRun,
   type CycleReadinessReport,
+  type OperationsCoverageReport,
   type PolicyReadinessReport,
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
@@ -175,6 +176,12 @@ function countByStatus(
     counts[item.status] = (counts[item.status] ?? 0) + 1;
   }
   return counts;
+}
+
+function ratio(numerator: number, denominator: number): number {
+  return denominator === 0
+    ? 0
+    : Math.round((numerator / denominator) * 10_000) / 10_000;
 }
 
 function idOf(request: FastifyRequest): string {
@@ -1619,6 +1626,104 @@ export function buildApp(
         approved: dpiaRecord?.status === "APPROVED",
       },
       blockers: [...new Set(blockers)],
+    };
+    return data(report, request);
+  });
+
+  app.get("/api/v1/reports/operations-coverage", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [workPackages, claims, evidence, deliverables, approvals, dsars] =
+      await Promise.all([
+        store.listWorkPackages(),
+        store.listClaims(),
+        store.listEvidence(),
+        platformStore.listDeliverables(tenantId),
+        platformStore.listApprovalRequests(tenantId),
+        platformStore.listDsars(tenantId),
+      ]);
+    const acceptedPackages = workPackages.filter(
+      (workPackage) => workPackage.status === "ACCEPTED",
+    );
+    const workPackageEvidence = evidence.filter(
+      (node) => node.subjectType === "WORK_PACKAGE",
+    );
+    const evidenceSubjects = new Set(
+      workPackageEvidence.map((node) => node.subjectId),
+    );
+    const packagesWithEvidence = acceptedPackages.filter((workPackage) =>
+      evidenceSubjects.has(workPackage.id),
+    ).length;
+    const confirmedClaims = claims.filter(
+      (claim) =>
+        claim.status === "ACCEPTED" ||
+        claim.status === "PARTIALLY_ACCEPTED",
+    ).length;
+    const rejectedClaims = claims.filter(
+      (claim) => claim.status === "REJECTED",
+    ).length;
+    const pendingClaims = claims.filter(
+      (claim) =>
+        ![
+          "ACCEPTED",
+          "PARTIALLY_ACCEPTED",
+          "REJECTED",
+          "WITHDRAWN",
+        ].includes(claim.status),
+    ).length;
+    const report: OperationsCoverageReport = {
+      generatedAt: new Date().toISOString(),
+      workPackages: {
+        total: workPackages.length,
+        accepted: acceptedPackages.length,
+        withEvidence: packagesWithEvidence,
+        evidenceCoverageRate: ratio(
+          packagesWithEvidence,
+          acceptedPackages.length,
+        ),
+      },
+      claims: {
+        total: claims.length,
+        confirmed: confirmedClaims,
+        pending: pendingClaims,
+        rejected: rejectedClaims,
+      },
+      evidence: {
+        total: evidence.length,
+        workPackage: workPackageEvidence.length,
+      },
+      deliverables: {
+        total: deliverables.length,
+        pendingAcceptance: deliverables.filter(
+          (deliverable) => deliverable.status === "SUBMITTED",
+        ).length,
+        accepted: deliverables.filter(
+          (deliverable) => deliverable.status === "ACCEPTED",
+        ).length,
+      },
+      approvals: {
+        total: approvals.length,
+        pending: approvals.filter(
+          (approval) => approval.status === "PENDING",
+        ).length,
+        approved: approvals.filter(
+          (approval) => approval.status === "APPROVED",
+        ).length,
+        consumed: approvals.filter((approval) =>
+          Boolean(approval.consumedAt),
+        ).length,
+      },
+      dsars: {
+        total: dsars.length,
+        open: dsars.filter((request) => request.status === "OPEN").length,
+        resolved: dsars.filter(
+          (request) => request.status === "RESOLVED",
+        ).length,
+        rejected: dsars.filter(
+          (request) => request.status === "REJECTED",
+        ).length,
+      },
     };
     return data(report, request);
   });

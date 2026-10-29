@@ -605,6 +605,43 @@ export interface PolicyReadinessReport {
   blockers: string[];
 }
 
+export interface OperationsCoverageReport {
+  generatedAt: string;
+  workPackages: {
+    total: number;
+    accepted: number;
+    withEvidence: number;
+    evidenceCoverageRate: number;
+  };
+  claims: {
+    total: number;
+    confirmed: number;
+    pending: number;
+    rejected: number;
+  };
+  evidence: {
+    total: number;
+    workPackage: number;
+  };
+  deliverables: {
+    total: number;
+    pendingAcceptance: number;
+    accepted: number;
+  };
+  approvals: {
+    total: number;
+    pending: number;
+    approved: number;
+    consumed: number;
+  };
+  dsars: {
+    total: number;
+    open: number;
+    resolved: number;
+    rejected: number;
+  };
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;
