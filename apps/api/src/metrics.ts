@@ -18,7 +18,12 @@ function escapeLabel(value: string): string {
 
 export class ApiMetrics {
   private readonly series = new Map<string, Series>();
+  private readonly events = new Map<string, number>();
   private readonly startedAt = Date.now();
+
+  increment(event: string, amount = 1): void {
+    this.events.set(event, (this.events.get(event) ?? 0) + amount);
+  }
 
   observeRequest(
     method: string,
@@ -80,6 +85,15 @@ export class ApiMetrics {
         )}",route="${escapeLabel(series.route)}",status="${escapeLabel(
           series.status,
         )}"} ${series.count}`,
+      );
+    }
+    lines.push(
+      "# HELP n_perform_business_events_total Business events by name.",
+      "# TYPE n_perform_business_events_total counter",
+    );
+    for (const [event, count] of this.events) {
+      lines.push(
+        `n_perform_business_events_total{event="${escapeLabel(event)}"} ${count}`,
       );
     }
     lines.push(

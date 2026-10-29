@@ -98,6 +98,12 @@ const app = buildApp(
   createRuntime,
   authenticator,
   platformStore,
+  {
+    requiredApprovals: (process.env.REQUIRE_APPROVAL_FOR ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  },
 );
 
 let shuttingDown = false;

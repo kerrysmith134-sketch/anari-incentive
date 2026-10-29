@@ -2665,6 +2665,56 @@ describe("observability", () => {
     expect(response.body).toContain('route="/health"');
     expect(response.body).toContain("n_perform_process_uptime_seconds");
   });
+
+  it("requires configured approvals before guarded commands", async () => {
+    const guarded = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      { requiredApprovals: ["POLICY_PUBLISH"] },
+    );
+    const denied = await guarded.inject({
+      method: "POST",
+      url: "/api/v1/policy-versions",
+      payload: {
+        policy: {
+          code: "GUARDED_POLICY",
+          version: 1,
+          currency: "CNY",
+          poolRate: "0.05",
+          poolCap: "1000",
+          rounding: "HALF_UP",
+          calculator: "SIMPLE_POOL",
+        },
+        effectiveFrom: "2026-11-01T00:00:00Z",
+        approvedBy: ADJUDICATOR,
+      },
+    } as never);
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json().error.message).toContain("APPROVAL_REQUIRED");
+  });
+
+  it("renders business event counters", async () => {
+    const created = await call("POST", "/api/v1/approval-requests", {
+      actionType: "SETTLEMENT_LOCK",
+      targetType: "SETTLEMENT_BATCH",
+      targetId: "00000000-0000-4000-8000-0000000000aa",
+      requestedByType: "USER",
+      requestedById: OWNER,
+      riskTier: "T2",
+      requiredApprovals: 1,
+      payload: { batchId: "metrics" },
+      idempotencyKey: `metrics-${Date.now()}`,
+    });
+    expect(created.status).toBe(201);
+    const response = await app.inject({
+      method: "GET",
+      url: "/metrics",
+    } as never);
+    expect(response.body).toContain("n_perform_business_events_total");
+    expect(response.body).toContain('event="approval_created"');
+  });
 });
 
 describe("admin view", () => {

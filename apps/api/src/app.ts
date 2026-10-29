@@ -168,6 +168,11 @@ export type AgentRuntimeFactory = (
   tenantId: string,
 ) => AgentRuntime;
 
+export interface BuildAppOptions {
+  /** Action types that must carry a matching approvalRequestId. */
+  requiredApprovals?: string[];
+}
+
 function tenantOf(request: FastifyRequest): string {
   return request.authContext?.tenantId ?? "tenant-demo";
 }
@@ -312,6 +317,7 @@ export function buildApp(
       ],
     },
   }),
+  options: BuildAppOptions = {},
 ): FastifyInstance {
   const app = Fastify({
     logger: process.env.LOG_LEVEL
@@ -319,9 +325,23 @@ export function buildApp(
       : false,
   });
   const metrics = new ApiMetrics();
+  const requiredApprovals = new Set(options.requiredApprovals ?? []);
   const scopedStores = new Map<string, IncentiveStore>();
   const scopedRuntimes = new Map<string, AgentRuntime>();
   let readinessProbe: IncentiveStore | undefined;
+
+  function ensureApproval(
+    actionType: string,
+    approvalRequestId?: string,
+  ): void {
+    if (requiredApprovals.has(actionType) && !approvalRequestId) {
+      throw new ConflictError(`APPROVAL_REQUIRED: ${actionType}`);
+    }
+  }
+
+  function countEvent(event: string): void {
+    metrics.increment(event);
+  }
 
   function storeFor(request: FastifyRequest): IncentiveStore {
     if (typeof storeOrResolver !== "function") return storeOrResolver;
@@ -907,6 +927,7 @@ export function buildApp(
   app.post("/api/v1/policy-versions", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(publishPolicySchema, request.body);
+    ensureApproval("POLICY_PUBLISH", body.approvalRequestId);
     if (body.approvalRequestId) {
       if (!body.policyVersionId) {
         throw new ConflictError(
@@ -920,9 +941,9 @@ export function buildApp(
         targetId: body.policyVersionId,
       });
     }
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).publishPolicy(body), request));
+    const published = await storeFor(request).publishPolicy(body);
+    countEvent("policy_published");
+    return reply.status(201).send(data(published, request));
   });
 
   app.post("/api/v1/policy-simulations", async (request) => {
@@ -1399,18 +1420,17 @@ export function buildApp(
       dataProtectionAssessmentRef =
         dataProtectionAssessmentRef ?? dpia.id;
     }
-    return data(
-      await storeFor(request).recordLegalGate({
-        policyVersionId,
-        democraticProcedureRef,
-        employeeNoticeRef,
-        dataProtectionAssessmentRef,
-        minimumWageChecked: body.minimumWageChecked,
-        policyApproved: body.policyApproved,
-        recordedBy: body.recordedBy,
-      }),
-      request,
-    );
+    const gate = await storeFor(request).recordLegalGate({
+      policyVersionId,
+      democraticProcedureRef,
+      employeeNoticeRef,
+      dataProtectionAssessmentRef,
+      minimumWageChecked: body.minimumWageChecked,
+      policyApproved: body.policyApproved,
+      recordedBy: body.recordedBy,
+    });
+    countEvent("legal_gate_recorded");
+    return data(gate, request);
   });
 
   app.post("/api/v1/notices", async (request, reply) => {
@@ -1465,17 +1485,20 @@ export function buildApp(
         );
       }
     }
-    return data(
-      await platformStore.recordAcknowledgement({
-        tenantId: tenantOf(request),
-        noticeId: idOf(request),
-        personId: body.personId,
-        decision: body.decision,
-        signatureRef: body.signatureRef,
-        declineReason: body.declineReason,
-      }),
-      request,
+    const acknowledgement = await platformStore.recordAcknowledgement({
+      tenantId: tenantOf(request),
+      noticeId: idOf(request),
+      personId: body.personId,
+      decision: body.decision,
+      signatureRef: body.signatureRef,
+      declineReason: body.declineReason,
+    });
+    countEvent(
+      body.decision === "ACKNOWLEDGE"
+        ? "notice_acknowledged"
+        : "notice_declined",
     );
+    return data(acknowledgement, request);
   });
 
   app.get("/api/v1/notices/:id", async (request) => {
@@ -1629,17 +1652,14 @@ export function buildApp(
         "person identity is required (person_id claim, X-Person-Id or personId)",
       );
     }
-    return reply.status(201).send(
-      data(
-        await platformStore.createDsar({
-          tenantId: tenantOf(request),
-          personId,
-          requestType: body.requestType,
-          dueAt: body.dueAt,
-        }),
-        request,
-      ),
-    );
+    const dsar = await platformStore.createDsar({
+      tenantId: tenantOf(request),
+      personId,
+      requestType: body.requestType,
+      dueAt: body.dueAt,
+    });
+    countEvent("dsar_created");
+    return reply.status(201).send(data(dsar, request));
   });
 
   app.get("/api/v1/dsar-requests", async (request) => {
@@ -1680,15 +1700,18 @@ export function buildApp(
   app.post("/api/v1/dsar-requests/:id/resolve", async (request) => {
     requireRoles(request, "admin");
     const body = parse(resolveDsarSchema, request.body);
-    return data(
-      await platformStore.resolveDsar({
-        tenantId: tenantOf(request),
-        dsarId: idOf(request),
-        resolution: body.resolution,
-        resolutionRef: body.resolutionRef,
-      }),
-      request,
+    const resolved = await platformStore.resolveDsar({
+      tenantId: tenantOf(request),
+      dsarId: idOf(request),
+      resolution: body.resolution,
+      resolutionRef: body.resolutionRef,
+    });
+    countEvent(
+      body.resolution === "RESOLVED"
+        ? "dsar_resolved"
+        : "dsar_rejected",
     );
+    return data(resolved, request);
   });
 
   app.post("/api/v1/retention-policies", async (request, reply) => {
@@ -1755,25 +1778,22 @@ export function buildApp(
   app.post("/api/v1/approval-requests", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createApprovalRequestSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createApprovalRequest({
-          tenantId: tenantOf(request),
-          actionType: body.actionType,
-          targetType: body.targetType,
-          targetId: body.targetId,
-          targetVersion: body.targetVersion ?? 1,
-          requestedByType: body.requestedByType,
-          requestedById: body.requestedById,
-          riskTier: body.riskTier,
-          requiredApprovals: body.requiredApprovals ?? 1,
-          expiresAt: body.expiresAt,
-          payloadHash: sha256(body.payload ?? {}),
-          idempotencyKey: body.idempotencyKey,
-        }),
-        request,
-      ),
-    );
+    const approval = await platformStore.createApprovalRequest({
+      tenantId: tenantOf(request),
+      actionType: body.actionType,
+      targetType: body.targetType,
+      targetId: body.targetId,
+      targetVersion: body.targetVersion ?? 1,
+      requestedByType: body.requestedByType,
+      requestedById: body.requestedById,
+      riskTier: body.riskTier,
+      requiredApprovals: body.requiredApprovals ?? 1,
+      expiresAt: body.expiresAt,
+      payloadHash: sha256(body.payload ?? {}),
+      idempotencyKey: body.idempotencyKey,
+    });
+    countEvent("approval_created");
+    return reply.status(201).send(data(approval, request));
   });
 
   app.get("/api/v1/approval-requests", async (request) => {
@@ -1824,31 +1844,33 @@ export function buildApp(
   app.post("/api/v1/approval-requests/:id/decide", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(decideApprovalRequestSchema, request.body);
-    return data(
-      await platformStore.decideApprovalRequest({
-        tenantId: tenantOf(request),
-        requestId: idOf(request),
-        decision: body.decision,
-        approverPersonId: body.approverPersonId,
-        payloadHash: body.payloadHash,
-        reason: body.reason,
-        authContext: body.authContext ?? {},
-      }),
-      request,
+    const decided = await platformStore.decideApprovalRequest({
+      tenantId: tenantOf(request),
+      requestId: idOf(request),
+      decision: body.decision,
+      approverPersonId: body.approverPersonId,
+      payloadHash: body.payloadHash,
+      reason: body.reason,
+      authContext: body.authContext ?? {},
+    });
+    countEvent(
+      body.decision === "APPROVE"
+        ? "approval_approved"
+        : "approval_rejected",
     );
+    return data(decided, request);
   });
 
   app.post("/api/v1/approval-requests/:id/consume", async (request) => {
     requireRoles(request, "finance");
     const body = parse(consumeApprovalRequestSchema, request.body);
-    return data(
-      await platformStore.consumeApprovalRequest({
-        tenantId: tenantOf(request),
-        requestId: idOf(request),
-        consumedBy: body.consumedBy,
-      }),
-      request,
-    );
+    const consumed = await platformStore.consumeApprovalRequest({
+      tenantId: tenantOf(request),
+      requestId: idOf(request),
+      consumedBy: body.consumedBy,
+    });
+    countEvent("approval_consumed");
+    return data(consumed, request);
   });
 
   app.post("/api/v1/settlement-batches/:id/exports", async (request, reply) => {
@@ -1972,18 +1994,15 @@ export function buildApp(
   app.post("/api/v1/budget-pools/:id/allocations", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(createBudgetAllocationSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createBudgetAllocation({
-          tenantId: tenantOf(request),
-          poolId: idOf(request),
-          targetType: body.targetType,
-          targetId: body.targetId,
-          amount: body.amount,
-        }),
-        request,
-      ),
-    );
+    const allocation = await platformStore.createBudgetAllocation({
+      tenantId: tenantOf(request),
+      poolId: idOf(request),
+      targetType: body.targetType,
+      targetId: body.targetId,
+      amount: body.amount,
+    });
+    countEvent("budget_allocated");
+    return reply.status(201).send(data(allocation, request));
   });
 
   app.get("/api/v1/budget-pools/:id/allocations", async (request) => {
@@ -2333,19 +2352,20 @@ export function buildApp(
   app.post("/api/v1/deliverables/:id/acceptance", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(recordDeliverableAcceptanceSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.recordDeliverableAcceptance({
-          tenantId: tenantOf(request),
-          deliverableId: idOf(request),
-          decision: body.decision,
-          reviewerPersonId: body.reviewerPersonId,
-          criteriaResults: body.criteriaResults ?? {},
-          comments: body.comments,
-        }),
-        request,
-      ),
+    const acceptance = await platformStore.recordDeliverableAcceptance({
+      tenantId: tenantOf(request),
+      deliverableId: idOf(request),
+      decision: body.decision,
+      reviewerPersonId: body.reviewerPersonId,
+      criteriaResults: body.criteriaResults ?? {},
+      comments: body.comments,
+    });
+    countEvent(
+      body.decision === "REJECT"
+        ? "deliverable_rejected"
+        : "deliverable_accepted",
     );
+    return reply.status(201).send(data(acceptance, request));
   });
 
   app.get("/api/v1/deliverables/:id/acceptances", async (request) => {
@@ -2631,17 +2651,14 @@ export function buildApp(
   app.post("/api/v1/webhook-inbox", async (request, reply) => {
     requireRoles(request, "integration");
     const body = parse(receiveWebhookSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.receiveWebhook({
-          tenantId: tenantOf(request),
-          sourceSystem: body.sourceSystem,
-          messageId: body.messageId,
-          payloadHash: body.payloadHash,
-        }),
-        request,
-      ),
-    );
+    const webhook = await platformStore.receiveWebhook({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      messageId: body.messageId,
+      payloadHash: body.payloadHash,
+    });
+    countEvent("webhook_received");
+    return reply.status(201).send(data(webhook, request));
   });
 
   app.get("/api/v1/webhook-inbox", async (request) => {
@@ -2662,20 +2679,24 @@ export function buildApp(
   app.post("/api/v1/webhook-inbox/:id/process", async (request) => {
     requireRoles(request, "integration");
     const body = parse(processWebhookSchema, request.body);
-    return data(
-      await platformStore.processWebhook({
-        tenantId: tenantOf(request),
-        webhookId: idOf(request),
-        status: body.status,
-        errorCode: body.errorCode,
-      }),
-      request,
+    const processed = await platformStore.processWebhook({
+      tenantId: tenantOf(request),
+      webhookId: idOf(request),
+      status: body.status,
+      errorCode: body.errorCode,
+    });
+    countEvent(
+      body.status === "PROCESSED"
+        ? "webhook_processed"
+        : "webhook_failed",
     );
+    return data(processed, request);
   });
 
   app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(adjustLedgerEntrySchema, request.body);
+    ensureApproval("LEDGER_ADJUSTMENT", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2684,18 +2705,18 @@ export function buildApp(
         targetId: idOf(request),
       });
     }
-    return reply.status(201).send(
-      data(
-        await storeFor(request).adjustLedgerEntry(idOf(request), {
-          amount: body.amount,
-          reasonCode: body.reasonCode,
-          explanation: body.explanation,
-          approvedBy: body.approvedBy,
-          idempotencyKey: body.idempotencyKey,
-        }),
-        request,
-      ),
+    const adjustment = await storeFor(request).adjustLedgerEntry(
+      idOf(request),
+      {
+        amount: body.amount,
+        reasonCode: body.reasonCode,
+        explanation: body.explanation,
+        approvedBy: body.approvedBy,
+        idempotencyKey: body.idempotencyKey,
+      },
     );
+    countEvent("ledger_adjustment");
+    return reply.status(201).send(data(adjustment, request));
   });
 
   app.get("/api/v1/adjustment-records", async (request) => {
@@ -2709,16 +2730,13 @@ export function buildApp(
   app.post("/api/v1/inbox-messages", async (request, reply) => {
     requireRoles(request, "integration");
     const body = parse(receiveInboxMessageSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.receiveInboxMessage({
-          tenantId: tenantOf(request),
-          consumerName: body.consumerName,
-          messageId: body.messageId,
-        }),
-        request,
-      ),
-    );
+    const inboxMessage = await platformStore.receiveInboxMessage({
+      tenantId: tenantOf(request),
+      consumerName: body.consumerName,
+      messageId: body.messageId,
+    });
+    countEvent("inbox_received");
+    return reply.status(201).send(data(inboxMessage, request));
   });
 
   app.get("/api/v1/inbox-messages", async (request) => {
@@ -2739,15 +2757,18 @@ export function buildApp(
   app.post("/api/v1/inbox-messages/:id/process", async (request) => {
     requireRoles(request, "integration");
     const body = parse(processInboxMessageSchema, request.body);
-    return data(
-      await platformStore.processInboxMessage({
-        tenantId: tenantOf(request),
-        inboxMessageId: idOf(request),
-        status: body.status,
-        errorCode: body.errorCode,
-      }),
-      request,
+    const processed = await platformStore.processInboxMessage({
+      tenantId: tenantOf(request),
+      inboxMessageId: idOf(request),
+      status: body.status,
+      errorCode: body.errorCode,
+    });
+    countEvent(
+      body.status === "PROCESSED"
+        ? "inbox_processed"
+        : "inbox_failed",
     );
+    return data(processed, request);
   });
 
   app.get("/api/v1/policy-versions/:id/legal-gate", async (request) => {
@@ -2802,6 +2823,7 @@ export function buildApp(
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
     requireRoles(request, "finance");
     const body = parse(approveCalculationRunSchema, request.body ?? {});
+    ensureApproval("CALCULATION_APPROVE", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2810,12 +2832,15 @@ export function buildApp(
         targetId: idOf(request),
       });
     }
-    return data(await storeFor(request).approveRun(idOf(request)), request);
+    const approved = await storeFor(request).approveRun(idOf(request));
+    countEvent("calculation_approved");
+    return data(approved, request);
   });
 
   app.post("/api/v1/calculation-runs/:id/lock", async (request) => {
     requireRoles(request, "finance");
     const body = parse(lockCalculationRunSchema, request.body);
+    ensureApproval("CALCULATION_LOCK", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2824,7 +2849,9 @@ export function buildApp(
         targetId: idOf(request),
       });
     }
-    return data(await storeFor(request).lockRun(idOf(request), body.confirmation), request);
+    const locked = await storeFor(request).lockRun(idOf(request), body.confirmation);
+    countEvent("calculation_locked");
+    return data(locked, request);
   });
 
   app.post("/api/v1/employee-confirmations", async (request, reply) => {
@@ -2895,6 +2922,7 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/reverse", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(reverseLedgerEntrySchema, request.body);
+    ensureApproval("LEDGER_REVERSAL", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
         approvalRequestId: body.approvalRequestId,
@@ -2903,14 +2931,12 @@ export function buildApp(
         targetId: idOf(request),
       });
     }
-    return reply
-      .status(201)
-      .send(
-        data(
-          await storeFor(request).reverseLedgerEntry(idOf(request), body),
-          request,
-        ),
-      );
+    const reversal = await storeFor(request).reverseLedgerEntry(
+      idOf(request),
+      body,
+    );
+    countEvent("ledger_reversal");
+    return reply.status(201).send(data(reversal, request));
   });
 
   app.get("/api/v1/ledger/verify", async (request) => {
@@ -2960,23 +2986,27 @@ export function buildApp(
     requireRoles(request, "finance");
     const body = parse(settlementCommandSchema, request.body);
     const store = storeFor(request);
-    if (body.approvalRequestId) {
-      if (body.command !== "APPROVE" && body.command !== "LOCK") {
-        throw new ConflictError(
-          "APPROVAL_NOT_APPLICABLE: only APPROVE and LOCK consume approvals",
-        );
+    if (body.command === "APPROVE" || body.command === "LOCK") {
+      const actionType =
+        body.command === "APPROVE"
+          ? "SETTLEMENT_APPROVE"
+          : "SETTLEMENT_LOCK";
+      ensureApproval(actionType, body.approvalRequestId);
+      if (body.approvalRequestId) {
+        await consumeApprovalForAction(request, {
+          approvalRequestId: body.approvalRequestId,
+          actionType,
+          targetType: "SETTLEMENT_BATCH",
+          targetId: idOf(request),
+        });
       }
-      await consumeApprovalForAction(request, {
-        approvalRequestId: body.approvalRequestId,
-        actionType:
-          body.command === "APPROVE"
-            ? "SETTLEMENT_APPROVE"
-            : "SETTLEMENT_LOCK",
-        targetType: "SETTLEMENT_BATCH",
-        targetId: idOf(request),
-      });
+    } else if (body.approvalRequestId) {
+      throw new ConflictError(
+        "APPROVAL_NOT_APPLICABLE: only APPROVE and LOCK consume approvals",
+      );
     }
     const result = await store.commandSettlementBatch(idOf(request), body);
+    countEvent(`settlement_${body.command.toLowerCase()}`);
     if (body.command === "REQUIRE_ADJUSTMENT") {
       await notifyBestEffort(store, {
         audience: "FINANCE",
@@ -3082,9 +3112,9 @@ export function buildApp(
       body.targetType,
       body.targetId,
     );
-    return reply
-      .status(201)
-      .send(data(await store.createRecalculationRequest(body), request));
+    const recalculation = await store.createRecalculationRequest(body);
+    countEvent("recalculation_created");
+    return reply.status(201).send(data(recalculation, request));
   });
 
   app.get("/api/v1/recalculation-requests", async (request) => {
@@ -3123,25 +3153,23 @@ export function buildApp(
   app.post("/api/v1/recalculation-requests/:id/approve", async (request) => {
     requireRoles(request, "finance");
     const body = parse(reviewRecalculationRequestSchema, request.body);
-    return data(
-      await storeFor(request).approveRecalculationRequest(
-        idOf(request),
-        body.approvedBy,
-      ),
-      request,
+    const approved = await storeFor(request).approveRecalculationRequest(
+      idOf(request),
+      body.approvedBy,
     );
+    countEvent("recalculation_approved");
+    return data(approved, request);
   });
 
   app.post("/api/v1/recalculation-requests/:id/reject", async (request) => {
     requireRoles(request, "finance");
     const body = parse(reviewRecalculationRequestSchema, request.body);
-    return data(
-      await storeFor(request).rejectRecalculationRequest(
-        idOf(request),
-        body.approvedBy,
-      ),
-      request,
+    const rejected = await storeFor(request).rejectRecalculationRequest(
+      idOf(request),
+      body.approvedBy,
     );
+    countEvent("recalculation_rejected");
+    return data(rejected, request);
   });
 
   app.post("/api/v1/recalculation-requests/:id/complete", async (request) => {
@@ -3149,13 +3177,12 @@ export function buildApp(
     const body = parse(completeRecalculationRequestSchema, request.body);
     const store = storeFor(request);
     await store.getRun(body.newCalculationRunId);
-    return data(
-      await store.completeRecalculationRequest(
-        idOf(request),
-        body.newCalculationRunId,
-      ),
-      request,
+    const completed = await store.completeRecalculationRequest(
+      idOf(request),
+      body.newCalculationRunId,
     );
+    countEvent("recalculation_completed");
+    return data(completed, request);
   });
 
   return app;
