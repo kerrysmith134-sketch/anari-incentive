@@ -2416,6 +2416,31 @@ describe("ledger adjustments", () => {
     );
     expect(original).toBeTruthy();
 
+    const adjustmentApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "LEDGER_ADJUSTMENT",
+        targetType: "LEDGER_ENTRY",
+        targetId: original.id,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { ledgerId: original.id },
+        idempotencyKey: `adjustment-approval-${original.id}`,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${adjustmentApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: adjustmentApproval.body.data.payloadHash,
+      },
+    );
+
     const adjusted = await call(
       "POST",
       `/api/v1/ledger/${original.id}/adjustments`,
@@ -2425,6 +2450,7 @@ describe("ledger adjustments", () => {
         explanation: "Corrected after the evidence review",
         approvedBy: ADJUDICATOR,
         idempotencyKey: `adjustment-${original.id}`,
+        approvalRequestId: adjustmentApproval.body.data.id,
       },
     );
     expect(adjusted.status).toBe(201);
@@ -2436,6 +2462,11 @@ describe("ledger adjustments", () => {
     expect(adjusted.body.data.record.reasonCode).toBe(
       "EVIDENCE_CORRECTION",
     );
+    const consumedAdjustment = await call(
+      "GET",
+      `/api/v1/approval-requests/${adjustmentApproval.body.data.id}`,
+    );
+    expect(consumedAdjustment.body.data.consumedAt).toBeTruthy();
 
     const replay = await call(
       "POST",
@@ -3065,6 +3096,30 @@ describe("vertical slice", () => {
       (entry: { personId: string; amount: string }) =>
         entry.personId === OWNER && Number(entry.amount) > 0,
     );
+    const reversalApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "LEDGER_REVERSAL",
+        targetType: "LEDGER_ENTRY",
+        targetId: ownerEntry.id,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { ledgerId: ownerEntry.id },
+        idempotencyKey: `reversal-approval-${ownerEntry.id}`,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${reversalApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: reversalApproval.body.data.payloadHash,
+      },
+    );
     const reversal = await call(
       "POST",
       `/api/v1/ledger/${ownerEntry.id}/reverse`,
@@ -3072,12 +3127,18 @@ describe("vertical slice", () => {
         idempotencyKey: "reversal-demo-1",
         reason: "Order value corrected",
         approvedBy: ADJUDICATOR,
+        approvalRequestId: reversalApproval.body.data.id,
       },
     );
     expect(reversal.status).toBe(201);
     expect(reversal.body.data.entryType).toBe("REVERSAL");
     expect(Number(reversal.body.data.amount)).toBe(-3000);
     expect(reversal.body.data.status).toBe("LOCKED");
+    const consumedReversal = await call(
+      "GET",
+      `/api/v1/approval-requests/${reversalApproval.body.data.id}`,
+    );
+    expect(consumedReversal.body.data.consumedAt).toBeTruthy();
 
     const replay = await call(
       "POST",
@@ -3214,9 +3275,40 @@ describe("vertical slice", () => {
     await confirmCalculation(runId, OWNER);
     await confirmCalculation(runId, MEMBER);
     await call("POST", `/api/v1/calculation-runs/${runId}/approve`);
+    const runLockApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "CALCULATION_LOCK",
+        targetType: "CALCULATION_RUN",
+        targetId: runId,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { runId },
+        idempotencyKey: `calculation-lock-${runId}`,
+      },
+    );
+    expect(runLockApproval.status).toBe(201);
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${runLockApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: runLockApproval.body.data.payloadHash,
+      },
+    );
     await call("POST", `/api/v1/calculation-runs/${runId}/lock`, {
       confirmation: "LOCK_CALCULATION",
+      approvalRequestId: runLockApproval.body.data.id,
     });
+    const consumedRunLock = await call(
+      "GET",
+      `/api/v1/approval-requests/${runLockApproval.body.data.id}`,
+    );
+    expect(consumedRunLock.body.data.consumedAt).toBeTruthy();
 
     const created = await call("POST", "/api/v1/settlement-batches", {
       cycleId: CYCLE,
@@ -3256,13 +3348,87 @@ describe("vertical slice", () => {
     expect(missingApprover.status).toBe(409);
     expect(missingApprover.body.error.message).toContain("APPROVER_REQUIRED");
 
+    const mismatchApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "SETTLEMENT_APPROVE",
+        targetType: "WORK_PACKAGE",
+        targetId: workPackageId,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { batchId },
+        idempotencyKey: `settlement-mismatch-${batchId}`,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${mismatchApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: mismatchApproval.body.data.payloadHash,
+      },
+    );
+    const mismatched = await call(
+      "POST",
+      `/api/v1/settlement-batches/${batchId}/commands`,
+      {
+        command: "APPROVE",
+        actorPersonId: ADJUDICATOR,
+        approvalRequestId: mismatchApproval.body.data.id,
+      },
+    );
+    expect(mismatched.status).toBe(409);
+    expect(mismatched.body.error.message).toContain(
+      "APPROVAL_TARGET_MISMATCH",
+    );
+
+    const settlementApproval = await call(
+      "POST",
+      "/api/v1/approval-requests",
+      {
+        actionType: "SETTLEMENT_APPROVE",
+        targetType: "SETTLEMENT_BATCH",
+        targetId: batchId,
+        requestedByType: "USER",
+        requestedById: OWNER,
+        riskTier: "T2",
+        requiredApprovals: 1,
+        payload: { batchId },
+        idempotencyKey: `settlement-approve-${batchId}`,
+      },
+    );
+    await call(
+      "POST",
+      `/api/v1/approval-requests/${settlementApproval.body.data.id}/decide`,
+      {
+        decision: "APPROVE",
+        approverPersonId: ADJUDICATOR,
+        payloadHash: settlementApproval.body.data.payloadHash,
+      },
+    );
+
     const approved = await call(
       "POST",
       `/api/v1/settlement-batches/${batchId}/commands`,
-      { command: "APPROVE", actorPersonId: ADJUDICATOR },
+      {
+        command: "APPROVE",
+        actorPersonId: ADJUDICATOR,
+        approvalRequestId: settlementApproval.body.data.id,
+      },
     );
     expect(approved.body.data.batch.status).toBe("APPROVED");
     expect(approved.body.data.batch.approvedBy).toBe(ADJUDICATOR);
+    const consumedSettlementApproval = await call(
+      "GET",
+      `/api/v1/approval-requests/${settlementApproval.body.data.id}`,
+    );
+    expect(
+      consumedSettlementApproval.body.data.consumedAt,
+    ).toBeTruthy();
 
     const locked = await call(
       "POST",

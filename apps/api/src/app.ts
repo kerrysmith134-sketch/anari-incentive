@@ -86,6 +86,7 @@ import {
   rejectAgentActionSchema,
   scanAgentTasksSchema,
   lockCalculationRunSchema,
+  approveCalculationRunSchema,
   recordAcknowledgementSchema,
   recordConfirmationSchema,
   recordLegalGateSchema,
@@ -346,6 +347,53 @@ export function buildApp(
       scopedRuntimes.set(tenantId, runtime);
     }
     return runtime;
+  }
+
+  async function consumeApprovalForAction(
+    request: FastifyRequest,
+    input: {
+      approvalRequestId: string;
+      actionType: string;
+      targetType: string;
+      targetId: string;
+    },
+  ): Promise<void> {
+    const tenantId = tenantOf(request);
+    const approval = await platformStore.getApprovalRequest(
+      tenantId,
+      input.approvalRequestId,
+    );
+    if (approval.actionType !== input.actionType) {
+      throw new ConflictError(
+        `APPROVAL_ACTION_MISMATCH: expected ${input.actionType}, got ${approval.actionType}`,
+      );
+    }
+    if (
+      approval.targetType !== input.targetType ||
+      approval.targetId !== input.targetId
+    ) {
+      throw new ConflictError(
+        `APPROVAL_TARGET_MISMATCH: approval targets ${approval.targetType} ${approval.targetId}`,
+      );
+    }
+    if (approval.status !== "APPROVED") {
+      throw new ConflictError(
+        `APPROVAL_NOT_READY: ${approval.status}`,
+      );
+    }
+    const decisions = await platformStore.listApprovalDecisions(
+      tenantId,
+      approval.id,
+    );
+    const consumedBy = decisions.at(-1)?.approverPersonId;
+    if (!consumedBy) {
+      throw new ConflictError("APPROVAL_HAS_NO_APPROVER");
+    }
+    await platformStore.consumeApprovalRequest({
+      tenantId,
+      requestId: approval.id,
+      consumedBy,
+    });
   }
 
   app.addHook("preHandler", async (request, reply) => {
@@ -2615,6 +2663,14 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(adjustLedgerEntrySchema, request.body);
+    if (body.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "LEDGER_ADJUSTMENT",
+        targetType: "LEDGER_ENTRY",
+        targetId: idOf(request),
+      });
+    }
     return reply.status(201).send(
       data(
         await storeFor(request).adjustLedgerEntry(idOf(request), {
@@ -2732,12 +2788,29 @@ export function buildApp(
 
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {
     requireRoles(request, "finance");
+    const body = parse(approveCalculationRunSchema, request.body ?? {});
+    if (body.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "CALCULATION_APPROVE",
+        targetType: "CALCULATION_RUN",
+        targetId: idOf(request),
+      });
+    }
     return data(await storeFor(request).approveRun(idOf(request)), request);
   });
 
   app.post("/api/v1/calculation-runs/:id/lock", async (request) => {
     requireRoles(request, "finance");
     const body = parse(lockCalculationRunSchema, request.body);
+    if (body.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "CALCULATION_LOCK",
+        targetType: "CALCULATION_RUN",
+        targetId: idOf(request),
+      });
+    }
     return data(await storeFor(request).lockRun(idOf(request), body.confirmation), request);
   });
 
@@ -2809,6 +2882,14 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/reverse", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(reverseLedgerEntrySchema, request.body);
+    if (body.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType: "LEDGER_REVERSAL",
+        targetType: "LEDGER_ENTRY",
+        targetId: idOf(request),
+      });
+    }
     return reply
       .status(201)
       .send(
@@ -2866,6 +2947,22 @@ export function buildApp(
     requireRoles(request, "finance");
     const body = parse(settlementCommandSchema, request.body);
     const store = storeFor(request);
+    if (body.approvalRequestId) {
+      if (body.command !== "APPROVE" && body.command !== "LOCK") {
+        throw new ConflictError(
+          "APPROVAL_NOT_APPLICABLE: only APPROVE and LOCK consume approvals",
+        );
+      }
+      await consumeApprovalForAction(request, {
+        approvalRequestId: body.approvalRequestId,
+        actionType:
+          body.command === "APPROVE"
+            ? "SETTLEMENT_APPROVE"
+            : "SETTLEMENT_LOCK",
+        targetType: "SETTLEMENT_BATCH",
+        targetId: idOf(request),
+      });
+    }
     const result = await store.commandSettlementBatch(idOf(request), body);
     if (body.command === "REQUIRE_ADJUSTMENT") {
       await notifyBestEffort(store, {

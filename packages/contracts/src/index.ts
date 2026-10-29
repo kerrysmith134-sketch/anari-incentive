@@ -568,6 +568,7 @@ export const adjustLedgerEntrySchema = z.object({
   explanation: z.string().min(3),
   approvedBy: uuidSchema,
   idempotencyKey: z.string().min(1),
+  approvalRequestId: uuidSchema.optional(),
 });
 export type AdjustLedgerEntryBody = z.infer<typeof adjustLedgerEntrySchema>;
 
@@ -685,9 +686,17 @@ export type CreateCalculationBatchInput = z.infer<
 
 export const lockCalculationRunSchema = z.object({
   confirmation: z.literal("LOCK_CALCULATION"),
+  approvalRequestId: uuidSchema.optional(),
 });
 export type LockCalculationRunInput = z.infer<
   typeof lockCalculationRunSchema
+>;
+
+export const approveCalculationRunSchema = z.object({
+  approvalRequestId: uuidSchema.optional(),
+});
+export type ApproveCalculationRunBody = z.infer<
+  typeof approveCalculationRunSchema
 >;
 
 export const createAppealSchema = z.object({
@@ -813,6 +822,7 @@ export const reverseLedgerEntrySchema = z.object({
   idempotencyKey: z.string().min(1),
   reason: z.string().min(3),
   approvedBy: uuidSchema,
+  approvalRequestId: uuidSchema.optional(),
 });
 export type ReverseLedgerEntryBody = z.infer<
   typeof reverseLedgerEntrySchema
@@ -842,6 +852,7 @@ export const settlementCommandSchema = z.object({
   actorPersonId: uuidSchema.optional(),
   externalReference: z.string().optional(),
   reason: z.string().optional(),
+  approvalRequestId: uuidSchema.optional(),
 });
 export type SettlementCommandBody = z.infer<typeof settlementCommandSchema>;
 

@@ -174,8 +174,8 @@ Additional application-level invariants:
 | `POST /evaluation-drafts/:id/decision` | SUBMITTED, reviewer ≠ person, rubric scores complete | APPROVED + versioned decision, or REJECTED |
 | `POST /calculation-runs` | Policy exists; FORMAL requires legal gate + confirmed attribution; a policy with `evaluation` requires approved, matching decisions | CALCULATED; FORMAL writes ledger |
 | `POST /calculation-runs:batch` | 1–50 runs, same per-run rules | All-or-nothing in one transaction; any blocked item rolls back runs and ledger |
-| `POST /calculation-runs/:id/approve` | CALCULATED | APPROVED |
-| `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed | LOCKED; locks ledger |
+| `POST /calculation-runs/:id/approve` | CALCULATED; optional approval | APPROVED; a matching approved `CALCULATION_APPROVE` request is consumed |
+| `POST /calculation-runs/:id/lock` | APPROVED, confirmation, all FORMAL participants confirmed; optional approval | LOCKED; locks ledger; a matching approved `CALCULATION_LOCK` request is consumed |
 | `POST /policy-versions/:id/legal-gate` | server-side gate record | Records policy approval/minimum-wage/democratic-procedure/notice/DPIA refs |
 | `POST /notices` | admin, policy version exists if supplied | Publishes an employee notice |
 | `POST /notices/:id/acknowledgements` | notice/person exist; employees only for themselves | Upserts ACKNOWLEDGE or DECLINE (decline reason required) |
@@ -193,6 +193,8 @@ Additional application-level invariants:
 | `POST /approval-requests` | manager/finance; idempotency key | Creates PENDING with payload hash, risk tier and required approvals; replay with a different payload conflicts |
 | `POST /approval-requests/:id/decide` | PENDING, hash matches, approver ≠ requester | Records one decision per approver; APPROVE increments, REJECT finalizes; expiry blocks decisions |
 | `POST /approval-requests/:id/consume` | APPROVED, not consumed | Marks consumed once with the consuming person |
+
+Approval consumption is checked before the guarded action: the action type (`CALCULATION_APPROVE`, `CALCULATION_LOCK`, `SETTLEMENT_APPROVE`, `SETTLEMENT_LOCK`), target type/id and APPROVED status must match, and the approval is consumed with the last approver. A failed action therefore burns the approval and requires a new request.
 | `POST /settlement-batches/:id/exports` | finance, batch EXPORTED/ACKNOWLEDGED/ADJUSTMENT_REQUIRED | Records the export reference and SHA-256 of the CSV |
 | `POST /settlement-exports/:id/acknowledge` | finance, export not acknowledged | Records the external receipt with the export payload hash; repeat acknowledgement conflicts |
 | `POST /budget-pools` | finance, cycle exists | Creates a DRAFT pool with a decimal approved amount |
@@ -248,9 +250,9 @@ Additional application-level invariants:
 | `GET /policy-versions/:id/diff?against=` | manager/finance | Structural diff of two policy definitions |
 | `POST /policy-versions` | approved policy definition, effectiveFrom, approvedBy | Creates a PUBLISHED version with content hash; closes the prior open effective window; legal gate still required for FORMAL |
 | `POST /settlement-batches` | LOCKED ledger entries not in an active batch | DRAFT batch with one line per ledger entry |
-| `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV |
-| `POST /ledger/:id/reverse` | original LOCKED, finance | Appends a LOCKED negative REVERSAL linked to the original; idempotent by key |
-| `POST /ledger/:id/adjustments` | original LOCKED, finance | Appends a LOCKED ADJUSTMENT linked to the original and an adjustment record with reason/approver; idempotent by key |
+| `POST /settlement-batches/:id/commands` | canonical settlement state | RECONCILE validates lines; SUBMIT/APPROVE/LOCK/EXPORT/ACKNOWLEDGE advance state; REQUIRE_ADJUSTMENT marks an exported/acknowledged batch; CANCEL deactivates lines; EXPORT returns CSV; APPROVE/LOCK optionally consume `SETTLEMENT_APPROVE`/`SETTLEMENT_LOCK` approval requests |
+| `POST /ledger/:id/reverse` | original LOCKED, finance; optional approval | Appends a LOCKED negative REVERSAL linked to the original; idempotent by key; a matching approved `LEDGER_REVERSAL` request is consumed |
+| `POST /ledger/:id/adjustments` | original LOCKED, finance; optional approval | Appends a LOCKED ADJUSTMENT linked to the original and an adjustment record; idempotent by key; a matching approved `LEDGER_ADJUSTMENT` request is consumed |
 | `POST /inbox-messages` | integration | Idempotent receive by consumer name and message id |
 | `POST /inbox-messages/:id/process` | integration, unprocessed | Marks PROCESSED/FAILED/IGNORED once with an optional error code |
 

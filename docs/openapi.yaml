@@ -2775,6 +2775,17 @@ paths:
       summary: Approve a draft calculation run
       parameters:
         - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvalRequestId:
+                  allOf:
+                    - $ref: "#/components/schemas/Uuid"
+                  description: When supplied, the approved CALCULATION_APPROVE request for this run is consumed.
       responses:
         "200":
           description: Approved
@@ -2804,6 +2815,10 @@ paths:
                 confirmation:
                   type: string
                   const: LOCK_CALCULATION
+                approvalRequestId:
+                  allOf:
+                    - $ref: "#/components/schemas/Uuid"
+                  description: When supplied, the approved CALCULATION_LOCK request for this run is consumed.
       responses:
         "200":
           description: Locked
@@ -5234,6 +5249,10 @@ components:
           $ref: "#/components/schemas/Uuid"
         idempotencyKey:
           type: string
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the approved LEDGER_ADJUSTMENT request for this entry is consumed.
 
     ReceiveInboxMessage:
       type: object
@@ -5799,6 +5818,10 @@ components:
           type: string
         reason:
           type: string
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied on APPROVE/LOCK, consumes the matching SETTLEMENT_APPROVE or SETTLEMENT_LOCK approval request; other commands reject it.
 
     ReverseLedgerEntry:
       type: object
@@ -5811,6 +5834,10 @@ components:
           minLength: 3
         approvedBy:
           $ref: "#/components/schemas/Uuid"
+        approvalRequestId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: When supplied, the approved LEDGER_REVERSAL request for this entry is consumed.
 
     RecordSettlementExport:
       type: object
