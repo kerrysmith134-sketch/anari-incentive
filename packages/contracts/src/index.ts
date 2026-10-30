@@ -670,6 +670,33 @@ export type ApproveEquityExerciseBody = z.infer<
   typeof approveEquityExerciseSchema
 >;
 
+export const createBountySchema = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+  rewardAmount: decimal,
+  currency: z.string().length(3),
+  createdBy: uuidSchema,
+  dueAt: z.string().datetime().optional(),
+});
+export type CreateBountyBody = z.infer<typeof createBountySchema>;
+
+export const claimBountySchema = z.object({
+  personId: uuidSchema,
+});
+export type ClaimBountyBody = z.infer<typeof claimBountySchema>;
+
+export const submitBountySchema = z.object({
+  personId: uuidSchema,
+  submissionRef: z.string().min(1),
+});
+export type SubmitBountyBody = z.infer<typeof submitBountySchema>;
+
+export const acceptBountySchema = z.object({
+  reviewerPersonId: uuidSchema,
+  paymentRef: z.string().min(1).optional(),
+});
+export type AcceptBountyBody = z.infer<typeof acceptBountySchema>;
+
 export const upsertExternalIdentitySchema = z.object({
   sourceSystem: z.string().min(1),
   externalId: z.string().min(1),

@@ -709,6 +709,36 @@ export interface EquityVesting {
   fullyVested: boolean;
 }
 
+export type BountyStatus =
+  | "OPEN"
+  | "CLAIMED"
+  | "SUBMITTED"
+  | "ACCEPTED"
+  | "CANCELLED";
+
+export interface Bounty {
+  id: UUID;
+  tenantId: UUID;
+  title: string;
+  description: string;
+  rewardAmount: DecimalString;
+  currency: string;
+  status: BountyStatus;
+  createdBy: UUID;
+  dueAt?: string;
+  assigneePersonId?: UUID;
+  claimedAt?: string;
+  submissionRef?: string;
+  submittedAt?: string;
+  acceptedBy?: UUID;
+  acceptedAt?: string;
+  paymentRef?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

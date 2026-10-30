@@ -28,6 +28,7 @@ tags:
   - name: System
   - name: Work packages
   - name: Equity
+  - name: Bounty
   - name: Contribution claims
   - name: Attribution
   - name: Evaluation
@@ -3012,6 +3013,186 @@ paths:
       responses:
         "200":
           description: Settled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/bounties:
+    get:
+      tags: [Bounty]
+      summary: List bounties
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [OPEN, CLAIMED, SUBMITTED, ACCEPTED, CANCELLED]
+      responses:
+        "200":
+          description: Bounties
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Bounty]
+      summary: Create a bounty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBounty"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/bounties/{id}:
+    get:
+      tags: [Bounty]
+      summary: Read a bounty
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Bounty
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/bounties/{id}/claim:
+    post:
+      tags: [Bounty]
+      summary: Claim an open bounty
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimBounty"
+      responses:
+        "200":
+          description: Claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/bounties/{id}/submit:
+    post:
+      tags: [Bounty]
+      summary: Submit a claimed bounty
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitBounty"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/bounties/{id}/accept:
+    post:
+      tags: [Bounty]
+      summary: Accept a submitted bounty
+      description: The reviewer must not be the assignee.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptBounty"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/bounties/{id}/cancel:
+    post:
+      tags: [Bounty]
+      summary: Cancel an unaccepted bounty
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Cancelled
           content:
             application/json:
               schema:
@@ -6316,6 +6497,51 @@ components:
       properties:
         approvedBy:
           $ref: "#/components/schemas/Uuid"
+
+    CreateBounty:
+      type: object
+      required: [title, description, rewardAmount, currency, createdBy]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        rewardAmount:
+          $ref: "#/components/schemas/Decimal"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        createdBy:
+          $ref: "#/components/schemas/Uuid"
+        dueAt:
+          type: string
+          format: date-time
+
+    ClaimBounty:
+      type: object
+      required: [personId]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+
+    SubmitBounty:
+      type: object
+      required: [personId, submissionRef]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        submissionRef:
+          type: string
+
+    AcceptBounty:
+      type: object
+      required: [reviewerPersonId]
+      properties:
+        reviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        paymentRef:
+          type: string
 
     CreateSyncRun:
       type: object

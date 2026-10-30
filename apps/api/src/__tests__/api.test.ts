@@ -2259,6 +2259,83 @@ describe("equity ledger", () => {
   });
 });
 
+describe("bounty marketplace", () => {
+  it("runs bounty claim, submission and acceptance", async () => {
+    const bounty = await call("POST", "/api/v1/bounties", {
+      title: "Evidence cleanup",
+      description: "Close missing evidence on pilot orders",
+      rewardAmount: "5000",
+      currency: "CNY",
+      createdBy: ADJUDICATOR,
+    });
+    expect(bounty.status).toBe(201);
+    expect(bounty.body.data.status).toBe("OPEN");
+    const bountyId = bounty.body.data.id as string;
+
+    const claimed = await call(
+      "POST",
+      `/api/v1/bounties/${bountyId}/claim`,
+      { personId: OWNER },
+    );
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.data.status).toBe("CLAIMED");
+    expect(claimed.body.data.assigneePersonId).toBe(OWNER);
+
+    const submitted = await call(
+      "POST",
+      `/api/v1/bounties/${bountyId}/submit`,
+      { personId: OWNER, submissionRef: "evidence-pack-1" },
+    );
+    expect(submitted.status).toBe(200);
+    expect(submitted.body.data.status).toBe("SUBMITTED");
+
+    const selfAccept = await call(
+      "POST",
+      `/api/v1/bounties/${bountyId}/accept`,
+      { reviewerPersonId: OWNER },
+    );
+    expect(selfAccept.status).toBe(409);
+    expect(selfAccept.body.error.message).toContain(
+      "BOUNTY_SELF_ACCEPTANCE",
+    );
+    const accepted = await call(
+      "POST",
+      `/api/v1/bounties/${bountyId}/accept`,
+      {
+        reviewerPersonId: ADJUDICATOR,
+        paymentRef: "PAY-001",
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.data.status).toBe("ACCEPTED");
+    expect(accepted.body.data.paymentRef).toBe("PAY-001");
+    const cancelAccepted = await call(
+      "POST",
+      `/api/v1/bounties/${bountyId}/cancel`,
+    );
+    expect(cancelAccepted.status).toBe(409);
+
+    const second = await call("POST", "/api/v1/bounties", {
+      title: "Archive sprint",
+      description: "Archive old evidence",
+      rewardAmount: "1000",
+      currency: "CNY",
+      createdBy: ADJUDICATOR,
+    });
+    const cancelled = await call(
+      "POST",
+      `/api/v1/bounties/${second.body.data.id}/cancel`,
+    );
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.status).toBe("CANCELLED");
+    const acceptedList = await call(
+      "GET",
+      "/api/v1/bounties?status=ACCEPTED",
+    );
+    expect(acceptedList.body.data).toHaveLength(1);
+  });
+});
+
 describe("deliverables and acceptance", () => {
   it("submits deliverables and records acceptance with separation of duties", async () => {
     const workPackageId = await createAcceptedWorkPackage();

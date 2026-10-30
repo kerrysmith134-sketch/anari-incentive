@@ -76,6 +76,10 @@ import {
   createEquityGrantSchema,
   createEquityExerciseSchema,
   approveEquityExerciseSchema,
+  createBountySchema,
+  claimBountySchema,
+  submitBountySchema,
+  acceptBountySchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -3876,6 +3880,96 @@ export function buildApp(
       await platformStore.settleEquityExercise({
         tenantId: tenantOf(request),
         exerciseId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/bounties", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createBountySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createBounty({
+          tenantId: tenantOf(request),
+          title: body.title,
+          description: body.description,
+          rewardAmount: body.rewardAmount,
+          currency: body.currency,
+          createdBy: body.createdBy,
+          dueAt: body.dueAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/bounties", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      status?: "OPEN" | "CLAIMED" | "SUBMITTED" | "ACCEPTED" | "CANCELLED";
+    };
+    return data(
+      await platformStore.listBounties(tenantOf(request), query.status),
+      request,
+    );
+  });
+
+  app.get("/api/v1/bounties/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getBounty(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/bounties/:id/claim", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(claimBountySchema, request.body);
+    return data(
+      await platformStore.claimBounty({
+        tenantId: tenantOf(request),
+        bountyId: idOf(request),
+        personId: body.personId,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/bounties/:id/submit", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(submitBountySchema, request.body);
+    return data(
+      await platformStore.submitBounty({
+        tenantId: tenantOf(request),
+        bountyId: idOf(request),
+        personId: body.personId,
+        submissionRef: body.submissionRef,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/bounties/:id/accept", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(acceptBountySchema, request.body);
+    return data(
+      await platformStore.acceptBounty({
+        tenantId: tenantOf(request),
+        bountyId: idOf(request),
+        reviewerPersonId: body.reviewerPersonId,
+        paymentRef: body.paymentRef,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/bounties/:id/cancel", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.cancelBounty({
+        tenantId: tenantOf(request),
+        bountyId: idOf(request),
       }),
       request,
     );

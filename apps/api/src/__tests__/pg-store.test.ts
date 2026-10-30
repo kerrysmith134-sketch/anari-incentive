@@ -2668,6 +2668,51 @@ describePg("PgStore vertical slice", () => {
     ).toEqual([exercise.id]);
   });
 
+  it("runs the bounty lifecycle", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const bounty = await platform.createBounty({
+      tenantId: DEMO_TENANT_ID,
+      title: "PG evidence cleanup",
+      description: "Close missing evidence",
+      rewardAmount: "5000",
+      currency: "CNY",
+      createdBy: ADJUDICATOR,
+    });
+    expect(bounty.status).toBe("OPEN");
+    const claimed = await platform.claimBounty({
+      tenantId: DEMO_TENANT_ID,
+      bountyId: bounty.id,
+      personId: OWNER,
+    });
+    expect(claimed.status).toBe("CLAIMED");
+    const submitted = await platform.submitBounty({
+      tenantId: DEMO_TENANT_ID,
+      bountyId: bounty.id,
+      personId: OWNER,
+      submissionRef: "pg-evidence-pack",
+    });
+    expect(submitted.status).toBe("SUBMITTED");
+    await expect(
+      platform.acceptBounty({
+        tenantId: DEMO_TENANT_ID,
+        bountyId: bounty.id,
+        reviewerPersonId: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const accepted = await platform.acceptBounty({
+      tenantId: DEMO_TENANT_ID,
+      bountyId: bounty.id,
+      reviewerPersonId: ADJUDICATOR,
+      paymentRef: "PG-PAY-1",
+    });
+    expect(accepted.status).toBe("ACCEPTED");
+    expect(
+      (
+        await platform.listBounties(DEMO_TENANT_ID, "ACCEPTED")
+      ).map((candidate) => candidate.id),
+    ).toContain(bounty.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

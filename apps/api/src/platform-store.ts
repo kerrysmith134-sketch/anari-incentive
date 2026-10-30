@@ -11,6 +11,7 @@ import type {
   ApprovalStatus,
   BudgetAllocation,
   BudgetPool,
+  Bounty,
   CashGateInput,
   ConsultationOutcome,
   ConsultationType,
@@ -729,6 +730,41 @@ export interface PlatformStore {
     tenantId: string;
     exerciseId: string;
   }): Promise<EquityExercise>;
+  createBounty(input: {
+    tenantId: string;
+    title: string;
+    description: string;
+    rewardAmount: string;
+    currency: string;
+    createdBy: string;
+    dueAt?: string;
+  }): Promise<Bounty>;
+  listBounties(
+    tenantId: string,
+    status?: Bounty["status"],
+  ): Promise<Bounty[]>;
+  getBounty(tenantId: string, bountyId: string): Promise<Bounty>;
+  claimBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+  }): Promise<Bounty>;
+  submitBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+    submissionRef: string;
+  }): Promise<Bounty>;
+  acceptBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    reviewerPersonId: string;
+    paymentRef?: string;
+  }): Promise<Bounty>;
+  cancelBounty(input: {
+    tenantId: string;
+    bountyId: string;
+  }): Promise<Bounty>;
   createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -848,6 +884,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly syncSchedules = new Map<string, SyncSchedule>();
   private readonly equityGrants = new Map<string, EquityGrant>();
   private readonly equityExercises = new Map<string, EquityExercise>();
+  private readonly bounties = new Map<string, Bounty>();
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
@@ -3696,6 +3733,151 @@ export class MemoryPlatformStore implements PlatformStore {
       grant.version += 1;
     }
     return exercise;
+  }
+
+  async createBounty(input: {
+    tenantId: string;
+    title: string;
+    description: string;
+    rewardAmount: string;
+    currency: string;
+    createdBy: string;
+    dueAt?: string;
+  }): Promise<Bounty> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const creator = this.persons.get(input.createdBy);
+    if (!creator || creator.tenantId !== input.tenantId) {
+      notFound("Person", input.createdBy);
+    }
+    if (parseDecimal(input.rewardAmount) <= 0n) {
+      throw new ConflictError("BOUNTY_REWARD_MUST_BE_POSITIVE");
+    }
+    const timestamp = now();
+    const bounty: Bounty = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      title: input.title,
+      description: input.description,
+      rewardAmount: formatDecimal(parseDecimal(input.rewardAmount)),
+      currency: input.currency,
+      status: "OPEN",
+      createdBy: input.createdBy,
+      dueAt: input.dueAt,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.bounties.set(bounty.id, bounty);
+    return bounty;
+  }
+
+  async listBounties(
+    tenantId: string,
+    status?: Bounty["status"],
+  ): Promise<Bounty[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.bounties.values()]
+      .filter(
+        (bounty) =>
+          bounty.tenantId === tenantId &&
+          (!status || bounty.status === status),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getBounty(tenantId: string, bountyId: string): Promise<Bounty> {
+    const bounty = this.bounties.get(bountyId);
+    if (!bounty || bounty.tenantId !== tenantId) {
+      notFound("Bounty", bountyId);
+    }
+    return bounty;
+  }
+
+  async claimBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+  }): Promise<Bounty> {
+    const bounty = await this.getBounty(input.tenantId, input.bountyId);
+    if (bounty.status !== "OPEN") {
+      throw new ConflictError(`bounty is ${bounty.status}`);
+    }
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    bounty.status = "CLAIMED";
+    bounty.assigneePersonId = input.personId;
+    bounty.claimedAt = now();
+    bounty.updatedAt = bounty.claimedAt;
+    bounty.version += 1;
+    return bounty;
+  }
+
+  async submitBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+    submissionRef: string;
+  }): Promise<Bounty> {
+    const bounty = await this.getBounty(input.tenantId, input.bountyId);
+    if (bounty.status !== "CLAIMED") {
+      throw new ConflictError(`bounty is ${bounty.status}`);
+    }
+    if (bounty.assigneePersonId !== input.personId) {
+      throw new ConflictError("BOUNTY_ONLY_ASSIGNEE_CAN_SUBMIT");
+    }
+    bounty.status = "SUBMITTED";
+    bounty.submissionRef = input.submissionRef;
+    bounty.submittedAt = now();
+    bounty.updatedAt = bounty.submittedAt;
+    bounty.version += 1;
+    return bounty;
+  }
+
+  async acceptBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    reviewerPersonId: string;
+    paymentRef?: string;
+  }): Promise<Bounty> {
+    const bounty = await this.getBounty(input.tenantId, input.bountyId);
+    if (bounty.status !== "SUBMITTED") {
+      throw new ConflictError(`bounty is ${bounty.status}`);
+    }
+    if (bounty.assigneePersonId === input.reviewerPersonId) {
+      throw new ConflictError(
+        "BOUNTY_SELF_ACCEPTANCE: the assignee cannot accept the bounty",
+      );
+    }
+    const reviewer = this.persons.get(input.reviewerPersonId);
+    if (!reviewer || reviewer.tenantId !== input.tenantId) {
+      notFound("Person", input.reviewerPersonId);
+    }
+    bounty.status = "ACCEPTED";
+    bounty.acceptedBy = input.reviewerPersonId;
+    bounty.acceptedAt = now();
+    bounty.paymentRef = input.paymentRef;
+    bounty.updatedAt = bounty.acceptedAt;
+    bounty.version += 1;
+    return bounty;
+  }
+
+  async cancelBounty(input: {
+    tenantId: string;
+    bountyId: string;
+  }): Promise<Bounty> {
+    const bounty = await this.getBounty(input.tenantId, input.bountyId);
+    if (bounty.status === "ACCEPTED" || bounty.status === "CANCELLED") {
+      throw new ConflictError(`bounty is ${bounty.status}`);
+    }
+    bounty.status = "CANCELLED";
+    bounty.cancelledAt = now();
+    bounty.updatedAt = bounty.cancelledAt;
+    bounty.version += 1;
+    return bounty;
   }
 
   async createSyncRun(input: {
@@ -7546,6 +7728,202 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createBounty(input: {
+    tenantId: string;
+    title: string;
+    description: string;
+    rewardAmount: string;
+    currency: string;
+    createdBy: string;
+    dueAt?: string;
+  }): Promise<Bounty> {
+    if (parseDecimal(input.rewardAmount) <= 0n) {
+      throw new ConflictError("BOUNTY_REWARD_MUST_BE_POSITIVE");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO bounties
+          (id, tenant_id, title, description, reward_amount, currency,
+           status, created_by, due_at, version)
+         VALUES ($1,$2,$3,$4,$5,$6,'OPEN',$7,$8,1)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.title,
+          input.description,
+          input.rewardAmount,
+          input.currency,
+          input.createdBy,
+          input.dueAt ?? null,
+        ],
+      );
+      return this.mapBounty(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.createdBy} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listBounties(
+    tenantId: string,
+    status?: Bounty["status"],
+  ): Promise<Bounty[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM bounties WHERE tenant_id=$1";
+    if (status) {
+      params.push(status);
+      sql += " AND status=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapBounty(row));
+  }
+
+  async getBounty(tenantId: string, bountyId: string): Promise<Bounty> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM bounties WHERE tenant_id=$1 AND id=$2",
+      [tenantId, bountyId],
+    );
+    if (!rows[0]) notFound("Bounty", bountyId);
+    return this.mapBounty(rows[0]);
+  }
+
+  async claimBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+  }): Promise<Bounty> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM bounties
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.bountyId],
+      );
+      if (!rows[0]) notFound("Bounty", input.bountyId);
+      const bounty = this.mapBounty(rows[0]);
+      if (bounty.status !== "OPEN") {
+        throw new ConflictError(`bounty is ${bounty.status}`);
+      }
+      const { rows: personRows } = await client.query(
+        "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.personId],
+      );
+      if (!personRows[0]) notFound("Person", input.personId);
+      const { rows: updated } = await client.query(
+        `UPDATE bounties
+            SET status='CLAIMED', assignee_person_id=$3, claimed_at=now(),
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.bountyId, input.personId],
+      );
+      return this.mapBounty(updated[0]);
+    });
+  }
+
+  async submitBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    personId: string;
+    submissionRef: string;
+  }): Promise<Bounty> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM bounties
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.bountyId],
+      );
+      if (!rows[0]) notFound("Bounty", input.bountyId);
+      const bounty = this.mapBounty(rows[0]);
+      if (bounty.status !== "CLAIMED") {
+        throw new ConflictError(`bounty is ${bounty.status}`);
+      }
+      if (bounty.assigneePersonId !== input.personId) {
+        throw new ConflictError("BOUNTY_ONLY_ASSIGNEE_CAN_SUBMIT");
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE bounties
+            SET status='SUBMITTED', submission_ref=$3, submitted_at=now(),
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.bountyId, input.submissionRef],
+      );
+      return this.mapBounty(updated[0]);
+    });
+  }
+
+  async acceptBounty(input: {
+    tenantId: string;
+    bountyId: string;
+    reviewerPersonId: string;
+    paymentRef?: string;
+  }): Promise<Bounty> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM bounties
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.bountyId],
+      );
+      if (!rows[0]) notFound("Bounty", input.bountyId);
+      const bounty = this.mapBounty(rows[0]);
+      if (bounty.status !== "SUBMITTED") {
+        throw new ConflictError(`bounty is ${bounty.status}`);
+      }
+      if (bounty.assigneePersonId === input.reviewerPersonId) {
+        throw new ConflictError(
+          "BOUNTY_SELF_ACCEPTANCE: the assignee cannot accept the bounty",
+        );
+      }
+      const { rows: personRows } = await client.query(
+        "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.reviewerPersonId],
+      );
+      if (!personRows[0]) notFound("Person", input.reviewerPersonId);
+      const { rows: updated } = await client.query(
+        `UPDATE bounties
+            SET status='ACCEPTED', accepted_by=$3, accepted_at=now(),
+                payment_ref=$4, updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.bountyId,
+          input.reviewerPersonId,
+          input.paymentRef ?? null,
+        ],
+      );
+      return this.mapBounty(updated[0]);
+    });
+  }
+
+  async cancelBounty(input: {
+    tenantId: string;
+    bountyId: string;
+  }): Promise<Bounty> {
+    const { rows } = await this.pool.query(
+      `UPDATE bounties
+          SET status='CANCELLED', cancelled_at=now(), updated_at=now(),
+              version=version+1
+        WHERE tenant_id=$1 AND id=$2
+          AND status NOT IN ('ACCEPTED','CANCELLED')
+        RETURNING *`,
+      [input.tenantId, input.bountyId],
+    );
+    if (!rows[0]) {
+      const bounty = await this.getBounty(input.tenantId, input.bountyId);
+      throw new ConflictError(`bounty is ${bounty.status}`);
+    }
+    return this.mapBounty(rows[0]);
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -8518,6 +8896,31 @@ export class PgPlatformStore implements PlatformStore {
       approvedBy: row.approved_by ?? undefined,
       approvedAt: iso(row.approved_at),
       settledAt: iso(row.settled_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+    };
+  }
+
+  private mapBounty(row: QueryResultRow): Bounty {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      title: row.title,
+      description: row.description,
+      rewardAmount: decimalText(String(row.reward_amount)) ?? "0",
+      currency: String(row.currency).trim(),
+      status: row.status,
+      createdBy: row.created_by,
+      dueAt: iso(row.due_at),
+      assigneePersonId: row.assignee_person_id ?? undefined,
+      claimedAt: iso(row.claimed_at),
+      submissionRef: row.submission_ref ?? undefined,
+      submittedAt: iso(row.submitted_at),
+      acceptedBy: row.accepted_by ?? undefined,
+      acceptedAt: iso(row.accepted_at),
+      paymentRef: row.payment_ref ?? undefined,
+      cancelledAt: iso(row.cancelled_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),

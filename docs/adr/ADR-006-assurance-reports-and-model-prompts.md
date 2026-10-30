@@ -14,6 +14,7 @@
   - Integration connections carry versioned CSV/HTTP field mappings (field map plus connector config). At most one version per mapping name is ACTIVE; retiring a mapping is explicit. Mappings are configuration data, not executable code.
   - Sync schedules are durable interval records with an enable flag and next-run time. The API atomically claims due schedules (`FOR UPDATE SKIP LOCKED`) and advances the next run; an external sync runner creates the actual sync run and connector execution remains provider-specific.
   - Equity grants (OPTION/RSU/SAR) are versioned records with cliff/monthly vesting. Vesting is computed from the grant and committed exercises; exercises reserve vested units and move PENDING → APPROVED → SETTLED with requester ≠ approver. Settling all units marks the grant EXHAUSTED.
+  - Bounties move OPEN → CLAIMED → SUBMITTED → ACCEPTED/CANCELLED. Only the assignee submits, the assignee cannot accept, and acceptance records an external payment reference rather than writing the ledger.
   - API rate limiting is opt-in per process (`RATE_LIMIT_PER_MINUTE`) and keyed by tenant/actor. `BODY_LIMIT_BYTES` caps request bodies and returns a standard 413 envelope. Multi-replica deployments should enforce the shared limit at the gateway.
 - **Consequences**:
   - Policy readiness is evidence-based but not a legal opinion. A green report means the recorded controls pass; it does not prove the underlying policy is lawful.

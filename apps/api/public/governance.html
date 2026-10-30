@@ -634,6 +634,33 @@
     </section>
 
     <section class="card">
+      <h2>悬赏市场</h2>
+      <div class="grid">
+        <div><label>标题</label><input id="bountyTitle" value="Evidence cleanup sprint" /></div>
+        <div><label>奖励金额</label><input id="bountyReward" value="5000" /></div>
+        <div><label>币种</label><input id="bountyCurrency" value="CNY" /></div>
+        <div><label>创建人 ID</label><input id="bountyCreator" value="00000000-0000-4000-8000-000000000003" /></div>
+      </div>
+      <label style="margin-top:10px">说明</label>
+      <input id="bountyDescription" value="Close missing evidence on the pilot orders." />
+      <div class="grid" style="margin-top:10px">
+        <div><label>认领人 ID</label><input id="bountyClaimer" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>提交引用</label><input id="bountySubmission" value="evidence-pack-1" /></div>
+        <div><label>验收人 ID</label><input id="bountyReviewer" value="00000000-0000-4000-8000-000000000003" /></div>
+        <div><label>支付引用（可选）</label><input id="bountyPayment" value="" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createBounty">创建悬赏</button>
+        <button id="refreshBounties">刷新悬赏</button>
+      </div>
+      <div class="status" id="bountyStatus"></div>
+      <table>
+        <thead><tr><th>标题</th><th>奖励</th><th>状态</th><th>认领人</th><th>操作</th></tr></thead>
+        <tbody id="bountyRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>周期就绪度</h2>
       <div class="grid">
         <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
@@ -2260,6 +2287,73 @@
       }
     }
 
+    async function loadBounties() {
+      try {
+        const bounties = await api("/api/v1/bounties");
+        $("bountyRows").innerHTML = bounties.map((bounty) => `<tr>
+          <td>${escapeHtml(bounty.title)}</td>
+          <td>${escapeHtml(bounty.rewardAmount)} ${escapeHtml(bounty.currency)}</td>
+          <td><span class="pill">${escapeHtml(bounty.status)}</span></td>
+          <td class="mono">${bounty.assigneePersonId ? escapeHtml(bounty.assigneePersonId.slice(0, 8)) : "—"}</td>
+          <td>
+            ${bounty.status === "OPEN" ? `<button data-bounty="${bounty.id}" data-action="claim">认领</button>` : ""}
+            ${bounty.status === "CLAIMED" ? `<button data-bounty="${bounty.id}" data-action="submit">提交</button>` : ""}
+            ${bounty.status === "SUBMITTED" ? `<button data-bounty="${bounty.id}" data-action="accept">验收</button>` : ""}
+            ${bounty.status !== "ACCEPTED" && bounty.status !== "CANCELLED" ? `<button data-bounty="${bounty.id}" data-action="cancel">取消</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus("bountyStatus", `共 ${bounties.length} 个悬赏`, "ok");
+      } catch (error) {
+        setStatus("bountyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createBounty() {
+      try {
+        await api("/api/v1/bounties", {
+          method: "POST",
+          body: JSON.stringify({
+            title: $("bountyTitle").value.trim(),
+            description: $("bountyDescription").value.trim(),
+            rewardAmount: $("bountyReward").value.trim(),
+            currency: $("bountyCurrency").value.trim(),
+            createdBy: $("bountyCreator").value.trim(),
+          }),
+        });
+        setStatus("bountyStatus", "悬赏已创建", "ok");
+        await loadBounties();
+      } catch (error) {
+        setStatus("bountyStatus", String(error.message), "bad");
+      }
+    }
+
+    async function bountyAction(id, action) {
+      const payload =
+        action === "claim"
+          ? { personId: $("bountyClaimer").value.trim() }
+          : action === "submit"
+            ? {
+                personId: $("bountyClaimer").value.trim(),
+                submissionRef: $("bountySubmission").value.trim(),
+              }
+            : action === "accept"
+              ? {
+                  reviewerPersonId: $("bountyReviewer").value.trim(),
+                  paymentRef: $("bountyPayment").value.trim() || undefined,
+                }
+              : {};
+      try {
+        await api(`/api/v1/bounties/${id}/${action}`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setStatus("bountyStatus", "悬赏状态已更新", "ok");
+        await loadBounties();
+      } catch (error) {
+        setStatus("bountyStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -2515,6 +2609,14 @@
       const settle = event.target.closest("button[data-settle-equity]");
       if (settle) settleEquityExercise(settle.dataset.settleEquity);
     });
+    $("createBounty").addEventListener("click", createBounty);
+    $("refreshBounties").addEventListener("click", loadBounties);
+    $("bountyRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-bounty]");
+      if (button) {
+        bountyAction(button.dataset.bounty, button.dataset.action);
+      }
+    });
     $("loadReadiness").addEventListener("click", loadReadiness);
     $("loadPolicyReadiness").addEventListener(
       "click",
@@ -2548,6 +2650,7 @@
         loadSchedules(),
         loadEquityGrants(),
         loadEquityExercises(),
+        loadBounties(),
       ]);
     })();
   </script>

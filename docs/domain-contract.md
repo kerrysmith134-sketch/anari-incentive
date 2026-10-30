@@ -240,6 +240,11 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /equity-grants/:id/exercises` | manager/finance, ACTIVE grant, units ≤ available | Creates a PENDING exercise and computes cost from the strike price |
 | `POST /equity-exercises/:id/approve` | admin, PENDING, requester ≠ approver | Sets APPROVED with approver and timestamp |
 | `POST /equity-exercises/:id/settle` | finance, APPROVED | Sets SETTLED and marks the grant EXHAUSTED when all units are exercised |
+| `POST /bounties` | manager/finance, creator exists, positive reward | Creates an OPEN bounty |
+| `POST /bounties/:id/claim` | manager/finance, OPEN, person exists | Sets CLAIMED and records the assignee |
+| `POST /bounties/:id/submit` | manager/finance, CLAIMED, caller is assignee | Sets SUBMITTED with a submission reference |
+| `POST /bounties/:id/accept` | manager/finance, SUBMITTED, reviewer ≠ assignee | Sets ACCEPTED with reviewer, timestamp and optional payment reference |
+| `POST /bounties/:id/cancel` | admin, not ACCEPTED/CANCELLED | Sets CANCELLED |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
