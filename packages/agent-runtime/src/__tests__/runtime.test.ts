@@ -67,6 +67,7 @@ class FakeContext implements AgentContext {
       effectiveFrom: input.effectiveFrom,
       publishedAt: new Date().toISOString(),
       approvedBy: input.approvedBy,
+      applicability: input.applicability,
     };
     this.published.push(published);
     return published;
@@ -424,6 +425,13 @@ describe("agent runtime", () => {
       input: {
         currentPolicy: current,
         proposedPolicy: proposed,
+        applicability: {
+          legalEntity: "N-Perform Test Entity",
+          jurisdictions: ["CN"],
+          workLocations: ["Shanghai"],
+          employeeCategories: ["FULL_TIME"],
+          workTimeTypes: ["FULL_TIME"],
+        },
         samples: [{ personId: "person-1", input: sampleInput }],
       },
       idempotencyKey: "policy-proposal-1",
@@ -773,6 +781,13 @@ describe("policy proposal loop", () => {
       input: {
         currentPolicy: current,
         proposedPolicy: proposed,
+        applicability: {
+          legalEntity: "N-Perform Test Entity",
+          jurisdictions: ["CN"],
+          workLocations: ["Shanghai"],
+          employeeCategories: ["FULL_TIME"],
+          workTimeTypes: ["FULL_TIME"],
+        },
         samples: [{ personId: "person-1", input: sample }],
         effectiveFrom: "2026-11-01T00:00:00.000Z",
       },

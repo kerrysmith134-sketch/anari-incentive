@@ -29,6 +29,7 @@ import {
 import type {
   OperationsCoverageReport,
   PolicyReadinessReport,
+  PolicyReviewReport,
   PolicyTestCase,
   PolicyVersionSummary,
 } from "../lib/types.js";
@@ -78,6 +79,9 @@ export function PolicyPage() {
       ? `/api/v1/policy-test-cases?policyVersionId=${encodeURIComponent(selectedId)}`
       : null,
     selectedId,
+  );
+  const review = useApiQuery<PolicyReviewReport>(
+    tab === "annual" ? "/api/v1/reports/policy-review" : null,
   );
 
   function openGate() {
@@ -279,6 +283,31 @@ export function PolicyPage() {
               <LoadingRows rows={4} />
             ) : (
               <>
+                {selected?.applicability ? (
+                  <div className="chip-row" style={{ marginBottom: 14 }}>
+                    <span className="chip">
+                      {selected.applicability.legalEntity}
+                    </span>
+                    <span className="chip">
+                      {selected.applicability.jurisdictions.join(", ")}
+                    </span>
+                    <span className="chip">
+                      {selected.applicability.workLocations.join(", ")}
+                    </span>
+                    <span className="chip">
+                      {selected.applicability.employeeCategories.join(", ")}
+                    </span>
+                    <span className="chip">
+                      {selected.applicability.workTimeTypes.join(", ")}
+                    </span>
+                  </div>
+                ) : (
+                  <InfoNotice tone="warning">
+                    This policy has no recorded applicability. New publications
+                    require legal entity, jurisdictions, work locations, employee
+                    categories and work-time types.
+                  </InfoNotice>
+                )}
                 <div className="coverage-grid">
                   <div className="coverage-cell">
                     <div className="coverage-cell__label">Legal gate</div>
@@ -372,6 +401,7 @@ export function PolicyPage() {
             count: tests.data?.length ?? 0,
           },
           { id: "coverage", label: "Operations coverage" },
+          { id: "annual", label: "Annual review" },
         ]}
         active={tab}
         onChange={setTab}
@@ -465,7 +495,7 @@ export function PolicyPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "coverage" ? (
           <Panel
             title="Operations coverage"
             subtitle="Cross-module evidence and data-quality posture"
@@ -616,6 +646,153 @@ export function PolicyPage() {
                   Generated {formatDateTime(coverage.data.generatedAt)}. Coverage is
                   recomputed from live tenant records on refresh.
                 </InfoNotice>
+              </>
+            )}
+          </Panel>
+        ) : (
+          <Panel
+            title="Annual policy review"
+            subtitle="Rolling 12-month view of policy, appeal, AI-review and privacy evidence"
+          >
+            {review.error ? (
+              <ErrorNotice error={review.error} onRetry={review.reload} />
+            ) : review.loading || !review.data ? (
+              <LoadingRows rows={4} />
+            ) : (
+              <>
+                <div className="coverage-grid">
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Policies published</div>
+                    <div className="coverage-cell__value">
+                      {review.data.policies.published}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.policies.versionsInScope} versions in scope
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Notice acknowledgement</div>
+                    <div className="coverage-cell__value">
+                      {review.data.notices.complete}/{review.data.notices.total}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.notices.incomplete} incomplete
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Open appeals</div>
+                    <div className="coverage-cell__value">
+                      {review.data.appeals.open}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.appeals.overdue} past SLA ·{" "}
+                      {review.data.appeals.closed} closed
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">AI acceptance</div>
+                    <div className="coverage-cell__value">
+                      {formatPercent(review.data.aiReview.acceptanceRate, 1)}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.aiReview.accepted} of{" "}
+                      {review.data.aiReview.decided} decided
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Human overrides</div>
+                    <div className="coverage-cell__value">
+                      {review.data.aiReview.overrides}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.aiReview.blindReviews} independent-first reviews
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Data quality</div>
+                    <div className="coverage-cell__value">
+                      {review.data.dataQuality.open}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.dataQuality.overdue} overdue ·{" "}
+                      {review.data.dataQuality.escalated} escalated
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Evaluation decisions</div>
+                    <div className="coverage-cell__value">
+                      {review.data.evaluations.decisions}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.evaluations.drafts} AI drafts
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Privacy</div>
+                    <div className="coverage-cell__value">
+                      {review.data.privacy.approvedDpias}/
+                      {review.data.privacy.dpias}
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {review.data.privacy.openDsars} open data requests
+                    </div>
+                  </div>
+                </div>
+                <div className="split-grid section-gap">
+                  <div className="detail-section" style={{ marginTop: 0 }}>
+                    <div className="detail-section__title">Appeal outcomes</div>
+                    {Object.keys(review.data.appeals.outcomes).length === 0 ? (
+                      <p className="muted">No resolved appeal in this window.</p>
+                    ) : (
+                      <div className="stack" style={{ gap: 6 }}>
+                        {Object.entries(review.data.appeals.outcomes).map(
+                          ([outcome, count]) => (
+                            <div
+                              key={outcome}
+                              className="inline"
+                              style={{ justifyContent: "space-between", width: "100%" }}
+                            >
+                              <span>{titleCase(outcome)}</span>
+                              <span className="muted">{count}</span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="detail-section" style={{ marginTop: 0 }}>
+                    <div className="detail-section__title">Harness evidence</div>
+                    <div className="stack" style={{ gap: 6 }}>
+                      <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
+                        <span>Harness evaluations</span>
+                        <span className="muted">
+                          {review.data.aiReview.harnessEvaluations}
+                        </span>
+                      </div>
+                      <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
+                        <span>AI proposals decided</span>
+                        <span className="muted">
+                          {review.data.aiReview.decided}/{review.data.aiReview.total}
+                        </span>
+                      </div>
+                      <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
+                        <span>Contribution claims decided</span>
+                        <span className="muted">
+                          {review.data.claims.decided}/{review.data.claims.total}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <InfoNotice tone="warning">
+                  Employee trust/procedural-fairness survey and subgroup impact are
+                  not captured yet. This report is evidence for review, not a
+                  complete INC-12 sign-off.
+                </InfoNotice>
+                <p className="subtle" style={{ fontSize: 11.5 }}>
+                  Window {formatDate(review.data.from)} – {formatDate(review.data.to)}.
+                  Generated {formatDateTime(review.data.generatedAt)}.
+                </p>
               </>
             )}
           </Panel>

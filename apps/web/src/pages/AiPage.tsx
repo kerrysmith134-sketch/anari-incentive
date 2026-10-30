@@ -14,6 +14,7 @@ import {
   Select,
   Tabs,
   Textarea,
+  TextInput,
 } from "../components/ui.js";
 import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { Icon } from "../components/Icon.js";
@@ -30,6 +31,7 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  AiReviewMetrics,
   AiScoreProposal,
   ModelEvaluationRun,
   ModelPrompt,
@@ -52,6 +54,9 @@ export function AiPage() {
   const evaluations = useApiQuery<ModelEvaluationRun[]>(
     "/api/v1/model-evaluation-runs",
   );
+  const reviewMetrics = useApiQuery<AiReviewMetrics>(
+    "/api/v1/ai-review-metrics",
+  );
   const [tab, setTab] = useState("proposals");
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [selected, setSelected] = useState<AiScoreProposal | null>(null);
@@ -59,6 +64,15 @@ export function AiPage() {
   const [decidedBy, setDecidedBy] = useState(session.personId);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [reviewStartedAt, setReviewStartedAt] = useState("");
+  const [independentScores, setIndependentScores] = useState<
+    Record<string, string>
+  >({});
+  const [independentRationale, setIndependentRationale] = useState("");
+  const [evidenceOpened, setEvidenceOpened] = useState(0);
+  const [blindReview, setBlindReview] = useState(true);
+  const [overrideReason, setOverrideReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [promptDetail, setPromptDetail] = useState<ModelPrompt | null>(null);
   const [evaluationDetail, setEvaluationDetail] =
@@ -89,12 +103,69 @@ export function AiPage() {
     setDecidedBy(session.personId);
     setNote("");
     setActionError(null);
+    setRevealed(proposal.status !== "PENDING");
+    setReviewStartedAt(
+      proposal.reviewStartedAt ?? new Date().toISOString(),
+    );
+    setIndependentScores(
+      Object.fromEntries(
+        proposal.dimensions.map((dimension) => [
+          dimension,
+          proposal.independentScores?.[dimension] !== undefined
+            ? String(proposal.independentScores[dimension])
+            : "",
+        ]),
+      ),
+    );
+    setIndependentRationale(proposal.independentRationale ?? "");
+    setEvidenceOpened(proposal.evidenceOpened ?? 0);
+    setBlindReview(proposal.blindReview ?? true);
+    setOverrideReason(proposal.overrideReason ?? "");
+  }
+
+  function currentOverride(proposal: AiScoreProposal): boolean {
+    return proposal.dimensions.some(
+      (dimension) =>
+        Math.abs(
+          Number(independentScores[dimension] ?? 0) -
+            (proposal.scores[dimension] ?? 0),
+        ) > 0.05,
+    );
+  }
+
+  function revealAiProposal() {
+    if (!selected) return;
+    const missing = selected.dimensions.some(
+      (dimension) =>
+        independentScores[dimension]?.trim() === "" ||
+        !Number.isFinite(Number(independentScores[dimension])) ||
+        Number(independentScores[dimension]) < 0 ||
+        Number(independentScores[dimension]) > 5,
+    );
+    if (missing) {
+      setActionError("Score every dimension from 0 to 5 before revealing AI output.");
+      return;
+    }
+    if (independentRationale.trim().length < 3) {
+      setActionError("Record your independent rationale before revealing AI output.");
+      return;
+    }
+    setActionError(null);
+    setRevealed(true);
   }
 
   async function submitDecision() {
     if (!selected) return;
+    if (!revealed) {
+      setActionError("Reveal the AI proposal only after recording your independent judgment.");
+      return;
+    }
     if (decision === "REJECT" && !note.trim()) {
       setActionError("A note is required when rejecting a score proposal.");
+      return;
+    }
+    if (currentOverride(selected) && !overrideReason.trim()) {
+      setActionError("Explain why your independent score differs from the AI proposal.");
       return;
     }
     setSubmitting(true);
@@ -106,6 +177,17 @@ export function AiPage() {
           decision,
           decidedBy,
           note: note.trim() || undefined,
+          independentScores: Object.fromEntries(
+            selected.dimensions.map((dimension) => [
+              dimension,
+              Number(independentScores[dimension]),
+            ]),
+          ),
+          independentRationale: independentRationale.trim() || undefined,
+          reviewStartedAt,
+          evidenceOpened,
+          overrideReason: overrideReason.trim() || undefined,
+          blindReview,
         },
       });
       toast.success(
@@ -141,15 +223,21 @@ export function AiPage() {
               proposals.reload();
               prompts.reload();
               evaluations.reload();
+              reviewMetrics.reload();
             }}
-            loading={proposals.loading || prompts.loading || evaluations.loading}
+            loading={
+              proposals.loading ||
+              prompts.loading ||
+              evaluations.loading ||
+              reviewMetrics.loading
+            }
           >
             Refresh
           </Button>
         }
       />
 
-      <div className="stat-grid stat-grid--three">
+      <div className="stat-grid">
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
             <span className="stat-tile__label">Awaiting review</span>
@@ -174,6 +262,33 @@ export function AiPage() {
           <div className="stat-tile__detail">
             {promptList.length} registered versions · {harnessPassed} harness
             passes
+          </div>
+        </div>
+        <div
+          className={`stat-tile ${
+            reviewMetrics.data?.rubberStampAlert
+              ? "stat-tile--critical"
+              : "stat-tile--neutral"
+          }`}
+        >
+          <div className="stat-tile__top">
+            <span className="stat-tile__label">Review oversight</span>
+          </div>
+          <div className="stat-tile__value" style={{ fontSize: 22 }}>
+            {reviewMetrics.data?.rubberStampAlert ? (
+              <Badge tone="danger">Review needed</Badge>
+            ) : (
+              <Badge tone="success">Within policy</Badge>
+            )}
+          </div>
+          <div className="stat-tile__detail">
+            {reviewMetrics.data
+              ? `${reviewMetrics.data.decided} decided · ${formatPercent(
+                  reviewMetrics.data.overrideRate,
+                )} override · ${formatPercent(
+                  reviewMetrics.data.acceptanceRate,
+                )} accepted`
+              : "No review metrics yet"}
           </div>
         </div>
       </div>
@@ -216,6 +331,15 @@ export function AiPage() {
             }
             flush
           >
+            {reviewMetrics.data?.rubberStampAlert ? (
+              <div style={{ padding: "14px 20px 0" }}>
+                <InfoNotice tone="warning">
+                  Adoption exceeds 95% across {reviewMetrics.data.decided}{" "}
+                  decisions. Sample and review the queue for rubber-stamping
+                  before accepting more proposals.
+                </InfoNotice>
+              </div>
+            ) : null}
             {proposals.error ? (
               <div style={{ padding: 16 }}>
                 <ErrorNotice error={proposals.error} onRetry={proposals.reload} />
@@ -468,7 +592,9 @@ export function AiPage() {
         title="Score proposal"
         description={
           selected
-            ? `${displayName(selected.personId, people)} · ${selected.modelProvider} ${selected.modelName}`
+            ? selected.status === "PENDING" && !revealed
+              ? `${displayName(selected.personId, people)} · record your independent judgment first`
+              : `${displayName(selected.personId, people)} · ${selected.modelProvider} ${selected.modelName}`
             : undefined
         }
         onClose={() => setSelected(null)}
@@ -479,13 +605,19 @@ export function AiPage() {
               <Button variant="ghost" onClick={() => setSelected(null)}>
                 Cancel
               </Button>
-              <Button
-                variant={decision === "REJECT" ? "danger" : "primary"}
-                onClick={submitDecision}
-                loading={submitting}
-              >
-                {decision === "REJECT" ? "Reject score" : "Accept score"}
-              </Button>
+              {!revealed ? (
+                <Button variant="primary" onClick={revealAiProposal}>
+                  Reveal AI proposal
+                </Button>
+              ) : (
+                <Button
+                  variant={decision === "REJECT" ? "danger" : "primary"}
+                  onClick={submitDecision}
+                  loading={submitting}
+                >
+                  {decision === "REJECT" ? "Reject score" : "Accept score"}
+                </Button>
+              )}
             </>
           ) : (
             <Button variant="secondary" onClick={() => setSelected(null)}>
@@ -499,138 +631,294 @@ export function AiPage() {
             {actionError ? (
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             ) : null}
-            <div className="coverage-grid">
-              <div className="coverage-cell">
-                <div className="coverage-cell__label">Overall score</div>
-                <div className="coverage-cell__value">
-                  {selected.overallScore.toFixed(2)} / 5
-                </div>
-                <div className="coverage-cell__sub">proposal only</div>
-              </div>
-              <div className="coverage-cell">
-                <div className="coverage-cell__label">Confidence</div>
-                <div className="coverage-cell__value">
-                  {formatPercent(selected.confidence)}
-                </div>
-                <div className="coverage-cell__sub">evidence weighting</div>
-              </div>
-              <div className="coverage-cell">
-                <div className="coverage-cell__label">Evidence</div>
-                <div className="coverage-cell__value">
-                  {selected.evidenceRefs.length}
-                </div>
-                <div className="coverage-cell__sub">cited references</div>
-              </div>
-              <div className="coverage-cell">
-                <div className="coverage-cell__label">Status</div>
-                <div className="coverage-cell__value" style={{ fontSize: 15 }}>
-                  <Badge status={selected.status} />
-                </div>
-                <div className="coverage-cell__sub">
-                  {selected.decidedAt
-                    ? formatDateTime(selected.decidedAt)
-                    : "awaiting review"}
-                </div>
-              </div>
-            </div>
+            <DefinitionList
+              items={[
+                {
+                  label: "Person",
+                  value: displayName(selected.personId, people),
+                },
+                { label: "Status", value: <Badge status={selected.status} /> },
+                {
+                  label: "Evidence",
+                  value: `${selected.evidenceRefs.length} cited references`,
+                },
+              ]}
+            />
 
-            <div className="detail-section">
-              <div className="detail-section__title">Dimension scores</div>
-              <div className="stack" style={{ gap: 4 }}>
-                {Object.entries(selected.scores).map(([dimension, score]) => (
-                  <div className="score-row" key={dimension}>
-                    <span className="score-row__label">{titleCase(dimension)}</span>
-                    <span className="score-row__track">
-                      <span
-                        className="score-row__fill"
-                        style={{
-                          display: "block",
-                          width: `${Math.min(100, (score / 5) * 100)}%`,
-                        }}
-                      />
-                    </span>
-                    <span className="score-row__value">{score.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="detail-section">
-              <div className="detail-section__title">Rationale</div>
-              <div className="reason-box">{selected.rationale}</div>
-            </div>
-
-            <div className="detail-section">
-              <div className="detail-section__title">Evidence references</div>
-              {selected.evidenceRefs.length === 0 ? (
-                <p className="muted">No evidence reference recorded.</p>
-              ) : (
-                <div className="chip-row">
-                  {selected.evidenceRefs.map((reference) => (
-                    <span className="chip" key={reference}>
-                      {reference}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <p className="subtle" style={{ fontSize: 11.5, marginTop: 8 }}>
-                Snapshot {shortId(selected.evidenceSnapshotHash, 16)}
-              </p>
-            </div>
-
-            <div className="detail-section">
-              <div className="detail-section__title">Gate metrics</div>
-              <pre className="code-block">
-                {JSON.stringify(selected.gateMetrics ?? {}, null, 2)}
-              </pre>
-            </div>
-
-            {selected.status === "PENDING" ? (
-              <div className="detail-section">
-                <div className="detail-section__title">Human decision</div>
+            {!revealed ? (
+              <>
+                <InfoNotice>
+                  <strong>Independent judgment first.</strong> Enter your own
+                  dimension scores and rationale before the AI proposal is
+                  revealed. The backend records the review duration and evidence
+                  count, and requires a reason for each override.
+                </InfoNotice>
                 <div className="form-grid">
-                  <FormField label="Decision" htmlFor="ai-decision">
-                    <Select
-                      id="ai-decision"
-                      value={decision}
-                      onChange={(event) =>
-                        setDecision(event.target.value as "ACCEPT" | "REJECT")
-                      }
+                  {selected.dimensions.map((dimension) => (
+                    <FormField
+                      key={dimension}
+                      label={`${titleCase(dimension)} score (0–5)`}
+                      htmlFor={`independent-${dimension}`}
                     >
-                      <option value="ACCEPT">Accept proposal</option>
-                      <option value="REJECT">Reject proposal</option>
-                    </Select>
-                  </FormField>
-                  <FormField label="Decided by" htmlFor="ai-decider">
-                    <PersonSelect
-                      id="ai-decider"
-                      value={decidedBy}
-                      onChange={setDecidedBy}
-                    />
-                  </FormField>
+                      <TextInput
+                        id={`independent-${dimension}`}
+                        type="number"
+                        min="0"
+                        max="5"
+                        step="0.01"
+                        value={independentScores[dimension] ?? ""}
+                        onChange={(event) =>
+                          setIndependentScores((current) => ({
+                            ...current,
+                            [dimension]: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                  ))}
                   <FormField
-                    label={decision === "REJECT" ? "Note (required)" : "Note (optional)"}
-                    htmlFor="ai-note"
+                    label="Independent rationale"
+                    htmlFor="independent-rationale"
                     className="field--full"
+                    hint="At least 3 characters; recorded before AI output is shown."
                   >
                     <Textarea
-                      id="ai-note"
-                      value={note}
-                      onChange={(event) => setNote(event.target.value)}
-                      placeholder="What did you check before deciding?"
+                      id="independent-rationale"
+                      value={independentRationale}
+                      onChange={(event) =>
+                        setIndependentRationale(event.target.value)
+                      }
                     />
                   </FormField>
                 </div>
-              </div>
-            ) : selected.decisionNote ? (
-              <div className="detail-section">
-                <div className="detail-section__title">Decision note</div>
-                <div className="reason-box">{selected.decisionNote}</div>
-                <p className="subtle" style={{ fontSize: 11.5, marginTop: 6 }}>
-                  Decided by {displayName(selected.decidedBy, people)}
-                </p>
-              </div>
-            ) : null}
+                <div className="detail-section">
+                  <div className="detail-section__title">
+                    Evidence review ({evidenceOpened} opened)
+                  </div>
+                  {selected.evidenceRefs.length === 0 ? (
+                    <p className="muted">No evidence reference recorded.</p>
+                  ) : (
+                    <div className="chip-row">
+                      {selected.evidenceRefs.map((reference) => (
+                        <button
+                          type="button"
+                          className="chip"
+                          key={reference}
+                          onClick={() => setEvidenceOpened((count) => count + 1)}
+                        >
+                          {reference}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <label className="checkbox" style={{ marginTop: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={blindReview}
+                      onChange={(event) => setBlindReview(event.target.checked)}
+                    />
+                    <span>
+                      Mark this review as a blind-audit sample. AI output is not
+                      shown before the independent scores are recorded.
+                    </span>
+                  </label>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="coverage-grid">
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Overall score</div>
+                    <div className="coverage-cell__value">
+                      {selected.overallScore.toFixed(2)} / 5
+                    </div>
+                    <div className="coverage-cell__sub">proposal only</div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Confidence</div>
+                    <div className="coverage-cell__value">
+                      {formatPercent(selected.confidence)}
+                    </div>
+                    <div className="coverage-cell__sub">evidence weighting</div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Evidence opened</div>
+                    <div className="coverage-cell__value">{evidenceOpened}</div>
+                    <div className="coverage-cell__sub">during this review</div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Status</div>
+                    <div className="coverage-cell__value" style={{ fontSize: 15 }}>
+                      <Badge status={selected.status} />
+                    </div>
+                    <div className="coverage-cell__sub">
+                      {selected.decidedAt
+                        ? formatDateTime(selected.decidedAt)
+                        : "awaiting review"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Dimension scores</div>
+                  <div className="stack" style={{ gap: 4 }}>
+                    {Object.entries(selected.scores).map(([dimension, score]) => (
+                      <div className="score-row" key={dimension}>
+                        <span className="score-row__label">
+                          {titleCase(dimension)}
+                        </span>
+                        <span className="score-row__track">
+                          <span
+                            className="score-row__fill"
+                            style={{
+                              display: "block",
+                              width: `${Math.min(100, (score / 5) * 100)}%`,
+                            }}
+                          />
+                        </span>
+                        <span className="score-row__value">
+                          {score.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">AI rationale</div>
+                  <div className="reason-box">{selected.rationale}</div>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Evidence references</div>
+                  <div className="chip-row">
+                    {selected.evidenceRefs.map((reference) => (
+                      <span className="chip" key={reference}>
+                        {reference}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="subtle" style={{ fontSize: 11.5, marginTop: 8 }}>
+                    Snapshot {shortId(selected.evidenceSnapshotHash, 16)}
+                  </p>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Gate metrics</div>
+                  <pre className="code-block">
+                    {JSON.stringify(selected.gateMetrics ?? {}, null, 2)}
+                  </pre>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Your independent review</div>
+                  <div className="reason-box">
+                    {selected.dimensions
+                      .map(
+                        (dimension) =>
+                          `${titleCase(dimension)}: ${independentScores[dimension] ?? "—"}`,
+                      )
+                      .join(" · ")}
+                    {independentRationale ? ` — ${independentRationale}` : ""}
+                  </div>
+                  {(selected.status === "PENDING"
+                    ? currentOverride(selected)
+                    : selected.override) ? (
+                    <InfoNotice tone="warning">
+                      Your score differs from the AI proposal. A written override
+                      reason is required and will be retained.
+                    </InfoNotice>
+                  ) : (
+                    <InfoNotice tone="success">
+                      Your independent score matches the AI proposal within
+                      tolerance.
+                    </InfoNotice>
+                  )}
+                </div>
+
+                {selected.status === "PENDING" ? (
+                  <div className="detail-section">
+                    <div className="detail-section__title">Human decision</div>
+                    <div className="form-grid">
+                      <FormField label="Decision" htmlFor="ai-decision">
+                        <Select
+                          id="ai-decision"
+                          value={decision}
+                          onChange={(event) =>
+                            setDecision(
+                              event.target.value as "ACCEPT" | "REJECT",
+                            )
+                          }
+                        >
+                          <option value="ACCEPT">Accept proposal</option>
+                          <option value="REJECT">Reject proposal</option>
+                        </Select>
+                      </FormField>
+                      <FormField label="Decided by" htmlFor="ai-decider">
+                        <PersonSelect
+                          id="ai-decider"
+                          value={decidedBy}
+                          onChange={setDecidedBy}
+                        />
+                      </FormField>
+                      <FormField
+                        label={
+                          decision === "REJECT"
+                            ? "Decision note (required)"
+                            : "Decision note (optional)"
+                        }
+                        htmlFor="ai-note"
+                        className="field--full"
+                      >
+                        <Textarea
+                          id="ai-note"
+                          value={note}
+                          onChange={(event) => setNote(event.target.value)}
+                          placeholder="What did you check before deciding?"
+                        />
+                      </FormField>
+                      {currentOverride(selected) ? (
+                        <FormField
+                          label="Override reason (required)"
+                          htmlFor="ai-override"
+                          className="field--full"
+                        >
+                          <Textarea
+                            id="ai-override"
+                            value={overrideReason}
+                            onChange={(event) =>
+                              setOverrideReason(event.target.value)
+                            }
+                          />
+                        </FormField>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : selected.decisionNote || selected.independentRationale ? (
+                  <div className="detail-section">
+                    <div className="detail-section__title">Decision record</div>
+                    {selected.independentRationale ? (
+                      <div className="reason-box">
+                        <strong>Independent rationale:</strong>{" "}
+                        {selected.independentRationale}
+                      </div>
+                    ) : null}
+                    {selected.decisionNote ? (
+                      <div className="reason-box" style={{ marginTop: 8 }}>
+                        <strong>Decision note:</strong> {selected.decisionNote}
+                      </div>
+                    ) : null}
+                    <p className="subtle" style={{ fontSize: 11.5, marginTop: 6 }}>
+                      Decided by {displayName(selected.decidedBy, people)}
+                      {selected.reviewDurationSeconds !== undefined
+                        ? ` · review ${selected.reviewDurationSeconds}s`
+                        : ""}
+                      {selected.override ? " · override" : ""}
+                    </p>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </Modal>

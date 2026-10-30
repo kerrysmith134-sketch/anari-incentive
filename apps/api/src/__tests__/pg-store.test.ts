@@ -19,6 +19,14 @@ const MEMBER = "00000000-0000-4000-8000-000000000002";
 const ADJUDICATOR = "00000000-0000-4000-8000-000000000003";
 const CYCLE = "00000000-0000-4000-8000-000000000020";
 
+const TEST_APPLICABILITY = {
+  legalEntity: "N-Perform Test Entity",
+  jurisdictions: ["CN"],
+  workLocations: ["Shanghai"],
+  employeeCategories: ["FULL_TIME"],
+  workTimeTypes: ["FULL_TIME"],
+};
+
 const databaseUrl = process.env.DATABASE_URL;
 const describePg = databaseUrl ? describe : describe.skip;
 
@@ -635,6 +643,7 @@ describePg("PgStore vertical slice", () => {
       },
       effectiveFrom: "2026-12-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     await completeGate(published.policyVersionId);
     const rubric = await store.createRubric({
@@ -1092,6 +1101,7 @@ describePg("PgStore vertical slice", () => {
       policy,
       effectiveFrom: "2026-11-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(published.contentHash).toContain("sha256:");
     expect(published.approvedBy).toBe(ADJUDICATOR);
@@ -1119,6 +1129,7 @@ describePg("PgStore vertical slice", () => {
         policy,
         effectiveFrom: "2026-12-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -1136,12 +1147,14 @@ describePg("PgStore vertical slice", () => {
       policy: { ...base, version: 1 },
       effectiveFrom: "2027-01-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
       scope: { region: "CN" },
     });
     const second = await store.publishPolicy({
       policy: { ...base, version: 2, poolRate: "0.07" },
       effectiveFrom: "2027-02-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
 
     const detail = await store.getPolicyVersion(first.policyVersionId);
@@ -2199,6 +2212,12 @@ describePg("PgStore vertical slice", () => {
       decision: "ACCEPT",
       decidedBy: ADJUDICATOR,
       note: "Reviewed",
+      independentScores: { QUALITY: 4.5 },
+      reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+      reviewDurationSeconds: 60,
+      evidenceOpened: 1,
+      override: false,
+      blindReview: true,
     });
     expect(decidedScore.status).toBe("ACCEPTED");
     expect(
@@ -2728,7 +2747,9 @@ describePg("PgStore vertical slice", () => {
       minimumMonthlyWage: "2690",
       taxRate: "0.1",
       socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
       bankAccountRef: "PG-BANK-001",
+      consentSignatureRef: "PG-ESIGN-001",
     });
     const run = await platform.createPayrollRun({
       tenantId: DEMO_TENANT_ID,
@@ -2781,6 +2802,86 @@ describePg("PgStore vertical slice", () => {
     });
     expect(reversed.status).toBe("REVERSED");
     expect(reversed.reversalReason).toBe("CORRECTION");
+  });
+
+  it("persists contract consent and amendment history", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const contract = await platform.createEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      personId: MEMBER,
+      contractCode: `PG-CONSENT-${Date.now()}`,
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "9000",
+      minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
+      consentSignatureRef: "PG-ESIGN-1",
+    });
+    expect(contract.payPlanVersion).toBe(1);
+    expect(contract.consentSignatureRef).toBe("PG-ESIGN-1");
+    const amended = await platform.amendEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      contractId: contract.id,
+      fixedMonthlySalary: "10000",
+      minimumMonthlyWage: "2800",
+      taxRate: "0.12",
+      socialInsuranceRate: "0.06",
+      deductionCapRate: "0.2",
+      effectiveFrom: "2026-01-01T00:00:00Z",
+      consentSignatureRef: "PG-ESIGN-2",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(amended.fixedMonthlySalary).toBe("10000");
+    expect(amended.payPlanVersion).toBe(2);
+    const history = await platform.listEmploymentContractAmendments(
+      DEMO_TENANT_ID,
+      contract.id,
+    );
+    expect(history).toHaveLength(1);
+    expect(history[0]?.consentSignatureRef).toBe("PG-ESIGN-2");
+  });
+
+  it("persists a human adverse-action lifecycle", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const action = await platform.createAdverseAction({
+      tenantId: DEMO_TENANT_ID,
+      personId: MEMBER,
+      actionType: "PIP",
+      reason: "Documented handover gaps",
+      performanceBasis: "Two review cycles and coaching notes",
+      evidenceRefs: [],
+      requestedBy: ADJUDICATOR,
+    });
+    expect(action.status).toBe("DRAFT");
+    const reviewed = await platform.reviewAdverseAction({
+      tenantId: DEMO_TENANT_ID,
+      actionId: action.id,
+      legalReviewerId: OWNER,
+      legalReviewRef: "PG-LEGAL-1",
+      decision: "APPROVE",
+    });
+    expect(reviewed.status).toBe("LEGAL_REVIEW");
+    const approved = await platform.approveAdverseAction({
+      tenantId: DEMO_TENANT_ID,
+      actionId: action.id,
+      approvedBy: MEMBER,
+    });
+    expect(approved.status).toBe("APPROVED");
+    const active = await platform.activateAdverseAction({
+      tenantId: DEMO_TENANT_ID,
+      actionId: action.id,
+      effectiveFrom: "2026-10-01T00:00:00Z",
+    });
+    expect(active.status).toBe("ACTIVE");
+    const completed = await platform.completeAdverseAction({
+      tenantId: DEMO_TENANT_ID,
+      actionId: action.id,
+    });
+    expect(completed.status).toBe("COMPLETED");
   });
 
   it("persists appeal evidence refs and SLA due dates", async () => {

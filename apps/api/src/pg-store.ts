@@ -3,6 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   appealCaseTransitions,
   assertAdjudicatorIsNotClaimant,
+  assertPolicyApplicability,
   assertTransition,
   attributionDecisionTransitions,
   calculationRunTransitions,
@@ -33,6 +34,7 @@ import {
   type IngestionBatch,
   type IngestionResult,
   type LegalGateRecord,
+  type PolicyApplicability,
   type PolicyDefinition,
   type PolicyVersionDetail,
   type PolicyVersionSummary,
@@ -167,7 +169,7 @@ export class PgStore implements IncentiveStore {
     return this.tx(async (client) => {
       const { rows } = await client.query(
         `SELECT id, policy_code, version, status, effective_from, effective_to,
-                content_hash, published_at, rule_ast, scope
+                content_hash, published_at, rule_ast, scope, applicability
            FROM policy_versions
           WHERE tenant_id = $1 AND id = $2`,
         [this.tenantId, policyVersionId],
@@ -185,6 +187,7 @@ export class PgStore implements IncentiveStore {
         publishedAt: iso(row.published_at),
         policy: row.rule_ast as PolicyDefinition,
         scope: (row.scope ?? {}) as Record<string, unknown>,
+        applicability: (row.applicability ?? {}) as PolicyApplicability,
       };
     });
   }
@@ -193,7 +196,7 @@ export class PgStore implements IncentiveStore {
     return this.tx(async (client) => {
       const { rows } = await client.query(
         `SELECT id, policy_code, version, status, effective_from,
-                effective_to, content_hash, published_at
+                effective_to, content_hash, published_at, applicability
            FROM policy_versions
           WHERE tenant_id = $1
           ORDER BY policy_code, version DESC`,
@@ -208,11 +211,13 @@ export class PgStore implements IncentiveStore {
         effectiveTo: iso(row.effective_to),
         contentHash: row.content_hash,
         publishedAt: iso(row.published_at),
+        applicability: (row.applicability ?? {}) as PolicyApplicability,
       }));
     });
   }
 
   async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    assertPolicyApplicability(input.applicability);
     return this.tx(async (client) => {
       const policyVersionId = input.policyVersionId ?? randomUUID();
       const contentHash = sha256(input.policy);
@@ -248,8 +253,8 @@ export class PgStore implements IncentiveStore {
           `INSERT INTO policy_versions
             (id, tenant_id, policy_code, version, scope, status,
              effective_from, rule_ast, rule_schema_version, content_hash,
-             approved_by, approved_at, published_at)
-           VALUES ($1,$2,$3,$4,$5,'PUBLISHED',$6,$7,'policy-definition/v1',$8,$9,now(),now())
+             approved_by, approved_at, published_at, applicability)
+           VALUES ($1,$2,$3,$4,$5,'PUBLISHED',$6,$7,'policy-definition/v1',$8,$9,now(),now(),$10::jsonb)
            RETURNING published_at`,
           [
             policyVersionId,
@@ -261,6 +266,7 @@ export class PgStore implements IncentiveStore {
             JSON.stringify(input.policy),
             contentHash,
             input.approvedBy,
+            JSON.stringify(input.applicability),
           ],
         );
         await this.appendAudit(client, {
@@ -279,6 +285,7 @@ export class PgStore implements IncentiveStore {
           effectiveFrom: input.effectiveFrom,
           publishedAt: iso(rows[0]?.published_at) ?? new Date().toISOString(),
           approvedBy: input.approvedBy,
+          applicability: structuredClone(input.applicability),
         };
       } catch (error) {
         if ((error as { code?: string }).code === "23505") {

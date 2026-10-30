@@ -3,6 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { formatDecimal, parseDecimal, sha256 } from "@anari/policy-dsl";
 import type {
   Acceptance,
+  AdverseActionCase,
   AiScoreProposal,
   AiSuggestionLog,
   ApprovalDecision,
@@ -23,6 +24,7 @@ import type {
   EmployeeNotice,
   EmployeeRepresentation,
   EmploymentContract,
+  EmploymentContractAmendment,
   EquityExercise,
   EquityGrant,
   EquityVesting,
@@ -60,6 +62,7 @@ import type {
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
+import { adverseActionTransitions, assertTransition } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
 
 export interface PlatformStore {
@@ -599,6 +602,14 @@ export interface PlatformStore {
     decision: "ACCEPT" | "REJECT";
     decidedBy: string;
     note?: string;
+    independentScores: Record<string, number>;
+    independentRationale?: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    override: boolean;
+    overrideReason?: string;
+    blindReview: boolean;
   }): Promise<AiScoreProposal>;
   createWorkflowRun(input: {
     tenantId: string;
@@ -781,7 +792,10 @@ export interface PlatformStore {
     minimumMonthlyWage: string;
     taxRate: string;
     socialInsuranceRate: string;
+    deductionCapRate: string;
     bankAccountRef?: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
   }): Promise<EmploymentContract>;
   listEmploymentContracts(
     tenantId: string,
@@ -790,7 +804,69 @@ export interface PlatformStore {
   getEmploymentContract(
     tenantId: string,
     contractId: string,
-  ): Promise<EmploymentContract>;
+  ): Promise<EmploymentContract>;  amendEmploymentContract(input: {
+    tenantId: string;
+    contractId: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    deductionCapRate: string;
+    bankAccountRef?: string;
+    effectiveFrom: string;
+    consentSignatureRef: string;
+    approvedBy: string;
+  }): Promise<EmploymentContract>;
+  listEmploymentContractAmendments(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContractAmendment[]>;
+
+  createAdverseAction(input: {
+    tenantId: string;
+    personId: string;
+    actionType: AdverseActionCase["actionType"];
+    reason: string;
+    performanceBasis: string;
+    evidenceRefs: string[];
+    requestedBy: string;
+  }): Promise<AdverseActionCase>;
+  listAdverseActions(
+    tenantId: string,
+    personId?: string,
+  ): Promise<AdverseActionCase[]>;
+  getAdverseAction(
+    tenantId: string,
+    actionId: string,
+  ): Promise<AdverseActionCase>;
+  reviewAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    legalReviewerId: string;
+    legalReviewRef: string;
+    decision: "APPROVE" | "REJECT";
+    note?: string;
+  }): Promise<AdverseActionCase>;
+  approveAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    approvedBy: string;
+  }): Promise<AdverseActionCase>;
+  activateAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    effectiveFrom: string;
+  }): Promise<AdverseActionCase>;
+  completeAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+  }): Promise<AdverseActionCase>;
+  cancelAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    reason: string;
+  }): Promise<AdverseActionCase>;
+
   createPayrollRun(input: {
     tenantId: string;
     cycleId: string;
@@ -960,6 +1036,11 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly employmentContracts = new Map<
     string,
     EmploymentContract
+  >();
+  private readonly adverseActions = new Map<string, AdverseActionCase>();
+  private readonly contractAmendments = new Map<
+    string,
+    EmploymentContractAmendment[]
   >();
   private readonly payrollRuns = new Map<string, PayrollRun>();
   private readonly payrollLines = new Map<string, PayrollLine[]>();
@@ -3222,6 +3303,14 @@ export class MemoryPlatformStore implements PlatformStore {
     decision: "ACCEPT" | "REJECT";
     decidedBy: string;
     note?: string;
+    independentScores: Record<string, number>;
+    independentRationale?: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    override: boolean;
+    overrideReason?: string;
+    blindReview: boolean;
   }): Promise<AiScoreProposal> {
     const proposal = await this.getAiScoreProposal(
       input.tenantId,
@@ -3242,6 +3331,14 @@ export class MemoryPlatformStore implements PlatformStore {
     proposal.decidedBy = input.decidedBy;
     proposal.decidedAt = now();
     proposal.decisionNote = input.note;
+    proposal.independentScores = input.independentScores;
+    proposal.independentRationale = input.independentRationale;
+    proposal.reviewStartedAt = input.reviewStartedAt;
+    proposal.reviewDurationSeconds = input.reviewDurationSeconds;
+    proposal.evidenceOpened = input.evidenceOpened;
+    proposal.override = input.override;
+    proposal.overrideReason = input.overrideReason;
+    proposal.blindReview = input.blindReview;
     return proposal;
   }
 
@@ -3971,7 +4068,10 @@ export class MemoryPlatformStore implements PlatformStore {
     minimumMonthlyWage: string;
     taxRate: string;
     socialInsuranceRate: string;
+    deductionCapRate: string;
     bankAccountRef?: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
   }): Promise<EmploymentContract> {
     if (!this.tenants.has(input.tenantId)) {
       notFound("Tenant", input.tenantId);
@@ -4012,6 +4112,12 @@ export class MemoryPlatformStore implements PlatformStore {
       );
     }
     if (
+      parseDecimal(input.deductionCapRate) < 0n ||
+      parseDecimal(input.deductionCapRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_DEDUCTION_CAP_OUT_OF_RANGE");
+    }
+    if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
     ) {
@@ -4038,7 +4144,13 @@ export class MemoryPlatformStore implements PlatformStore {
       socialInsuranceRate: formatDecimal(
         parseDecimal(input.socialInsuranceRate),
       ),
+      deductionCapRate: formatDecimal(
+        parseDecimal(input.deductionCapRate),
+      ),
       bankAccountRef: input.bankAccountRef,
+      payPlanVersion: 1,
+      consentSignatureRef: input.consentSignatureRef,
+      consentSignedAt: input.consentSignedAt ?? timestamp,
       status: "ACTIVE",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -4046,6 +4158,329 @@ export class MemoryPlatformStore implements PlatformStore {
     };
     this.employmentContracts.set(contract.id, contract);
     return contract;
+  }
+
+  async amendEmploymentContract(input: {
+    tenantId: string;
+    contractId: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    deductionCapRate: string;
+    bankAccountRef?: string;
+    effectiveFrom: string;
+    consentSignatureRef: string;
+    approvedBy: string;
+  }): Promise<EmploymentContract> {
+    const contract = this.employmentContracts.get(input.contractId);
+    if (!contract || contract.tenantId !== input.tenantId) {
+      notFound("EmploymentContract", input.contractId);
+    }
+    if (contract.status !== "ACTIVE") {
+      throw new ConflictError(`employment contract is ${contract.status}`);
+    }
+    if (Date.parse(input.effectiveFrom) > Date.now()) {
+      throw new ConflictError(
+        "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+      );
+    }
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("CONTRACT_CONSENT_SIGNATURE_REQUIRED");
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    if (parseDecimal(input.fixedMonthlySalary) < 0n) {
+      throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
+    }
+    if (parseDecimal(input.minimumMonthlyWage) < 0n) {
+      throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
+    }
+    for (const [field, value] of [
+      ["taxRate", input.taxRate],
+      ["socialInsuranceRate", input.socialInsuranceRate],
+      ["deductionCapRate", input.deductionCapRate],
+    ] as const) {
+      const parsed = parseDecimal(value);
+      if (parsed < 0n || parsed > 1_000_000n) {
+        throw new ConflictError(`CONTRACT_${field}_OUT_OF_RANGE`);
+      }
+    }
+    const beforeTerms = {
+      fixedMonthlySalary: contract.fixedMonthlySalary,
+      minimumMonthlyWage: contract.minimumMonthlyWage,
+      taxRate: contract.taxRate,
+      socialInsuranceRate: contract.socialInsuranceRate,
+      deductionCapRate: contract.deductionCapRate,
+      bankAccountRef: contract.bankAccountRef,
+      payPlanVersion: contract.payPlanVersion,
+    };
+    contract.fixedMonthlySalary = formatDecimal(
+      parseDecimal(input.fixedMonthlySalary),
+    );
+    contract.minimumMonthlyWage = formatDecimal(
+      parseDecimal(input.minimumMonthlyWage),
+    );
+    contract.taxRate = formatDecimal(parseDecimal(input.taxRate));
+    contract.socialInsuranceRate = formatDecimal(
+      parseDecimal(input.socialInsuranceRate),
+    );
+    contract.deductionCapRate = formatDecimal(
+      parseDecimal(input.deductionCapRate),
+    );
+    contract.bankAccountRef = input.bankAccountRef;
+    contract.payPlanVersion += 1;
+    contract.consentSignatureRef = input.consentSignatureRef;
+    contract.consentSignedAt = input.effectiveFrom;
+    contract.version += 1;
+    contract.updatedAt = now();
+    const afterTerms = {
+      fixedMonthlySalary: contract.fixedMonthlySalary,
+      minimumMonthlyWage: contract.minimumMonthlyWage,
+      taxRate: contract.taxRate,
+      socialInsuranceRate: contract.socialInsuranceRate,
+      deductionCapRate: contract.deductionCapRate,
+      bankAccountRef: contract.bankAccountRef,
+      payPlanVersion: contract.payPlanVersion,
+    };
+    const amendment: EmploymentContractAmendment = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      contractId: contract.id,
+      payPlanVersion: contract.payPlanVersion,
+      beforeTerms,
+      afterTerms,
+      effectiveFrom: input.effectiveFrom,
+      consentSignatureRef: input.consentSignatureRef,
+      approvedBy: input.approvedBy,
+      createdAt: now(),
+    };
+    const existing = this.contractAmendments.get(contract.id) ?? [];
+    existing.push(amendment);
+    this.contractAmendments.set(contract.id, existing);
+    return contract;
+  }
+
+  async listEmploymentContractAmendments(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContractAmendment[]> {
+    const contract = this.employmentContracts.get(contractId);
+    if (!contract || contract.tenantId !== tenantId) {
+      notFound("EmploymentContract", contractId);
+    }
+    return [...(this.contractAmendments.get(contractId) ?? [])].map(
+      (amendment) => structuredClone(amendment),
+    );
+  }
+
+  async createAdverseAction(input: {
+    tenantId: string;
+    personId: string;
+    actionType: AdverseActionCase["actionType"];
+    reason: string;
+    performanceBasis: string;
+    evidenceRefs: string[];
+    requestedBy: string;
+  }): Promise<AdverseActionCase> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    for (const personId of [input.personId, input.requestedBy]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    const timestamp = now();
+    const action: AdverseActionCase = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      actionType: input.actionType,
+      status: "DRAFT",
+      reason: input.reason,
+      performanceBasis: input.performanceBasis,
+      evidenceRefs: [...input.evidenceRefs],
+      requestedBy: input.requestedBy,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.adverseActions.set(action.id, action);
+    return action;
+  }
+
+  async listAdverseActions(
+    tenantId: string,
+    personId?: string,
+  ): Promise<AdverseActionCase[]> {
+    return [...this.adverseActions.values()]
+      .filter(
+        (action) =>
+          action.tenantId === tenantId &&
+          (!personId || action.personId === personId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getAdverseAction(
+    tenantId: string,
+    actionId: string,
+  ): Promise<AdverseActionCase> {
+    const action = this.adverseActions.get(actionId);
+    if (!action || action.tenantId !== tenantId) {
+      notFound("AdverseActionCase", actionId);
+    }
+    return action;
+  }
+
+  async reviewAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    legalReviewerId: string;
+    legalReviewRef: string;
+    decision: "APPROVE" | "REJECT";
+    note?: string;
+  }): Promise<AdverseActionCase> {
+    const action = await this.getAdverseAction(
+      input.tenantId,
+      input.actionId,
+    );
+    assertTransition(
+      adverseActionTransitions,
+      "AdverseActionCase",
+      action.status,
+      "LEGAL_REVIEW",
+    );
+    if (action.requestedBy === input.legalReviewerId) {
+      throw new ConflictError(
+        "ADVERSE_ACTION_SELF_REVIEW: the requester cannot perform legal review",
+      );
+    }
+    const reviewer = this.persons.get(input.legalReviewerId);
+    if (!reviewer || reviewer.tenantId !== input.tenantId) {
+      notFound("Person", input.legalReviewerId);
+    }
+    action.status = "LEGAL_REVIEW";
+    action.legalReviewerId = input.legalReviewerId;
+    action.legalReviewRef = input.legalReviewRef;
+    action.legalReviewedAt = now();
+    action.updatedAt = action.legalReviewedAt;
+    action.version += 1;
+    if (input.decision === "REJECT") {
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        action.status,
+        "REJECTED",
+      );
+      action.status = "REJECTED";
+    }
+    return action;
+  }
+
+  async approveAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    approvedBy: string;
+  }): Promise<AdverseActionCase> {
+    const action = await this.getAdverseAction(
+      input.tenantId,
+      input.actionId,
+    );
+    assertTransition(
+      adverseActionTransitions,
+      "AdverseActionCase",
+      action.status,
+      "APPROVED",
+    );
+    if (
+      action.requestedBy === input.approvedBy ||
+      action.legalReviewerId === input.approvedBy
+    ) {
+      throw new ConflictError(
+        "ADVERSE_ACTION_SEPARATION_REQUIRED: requester and legal reviewer cannot approve",
+      );
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    action.status = "APPROVED";
+    action.approvedBy = input.approvedBy;
+    action.approvedAt = now();
+    action.updatedAt = action.approvedAt;
+    action.version += 1;
+    return action;
+  }
+
+  async activateAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    effectiveFrom: string;
+  }): Promise<AdverseActionCase> {
+    const action = await this.getAdverseAction(
+      input.tenantId,
+      input.actionId,
+    );
+    assertTransition(
+      adverseActionTransitions,
+      "AdverseActionCase",
+      action.status,
+      "ACTIVE",
+    );
+    action.status = "ACTIVE";
+    action.effectiveFrom = input.effectiveFrom;
+    action.updatedAt = now();
+    action.version += 1;
+    return action;
+  }
+
+  async completeAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+  }): Promise<AdverseActionCase> {
+    const action = await this.getAdverseAction(
+      input.tenantId,
+      input.actionId,
+    );
+    assertTransition(
+      adverseActionTransitions,
+      "AdverseActionCase",
+      action.status,
+      "COMPLETED",
+    );
+    action.status = "COMPLETED";
+    action.completedAt = now();
+    action.updatedAt = action.completedAt;
+    action.version += 1;
+    return action;
+  }
+
+  async cancelAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    reason: string;
+  }): Promise<AdverseActionCase> {
+    const action = await this.getAdverseAction(
+      input.tenantId,
+      input.actionId,
+    );
+    assertTransition(
+      adverseActionTransitions,
+      "AdverseActionCase",
+      action.status,
+      "CANCELLED",
+    );
+    action.status = "CANCELLED";
+    action.cancelledAt = now();
+    action.cancelReason = input.reason;
+    action.updatedAt = action.cancelledAt;
+    action.version += 1;
+    return action;
   }
 
   async listEmploymentContracts(
@@ -7432,6 +7867,14 @@ export class PgPlatformStore implements PlatformStore {
     decision: "ACCEPT" | "REJECT";
     decidedBy: string;
     note?: string;
+    independentScores: Record<string, number>;
+    independentRationale?: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    override: boolean;
+    overrideReason?: string;
+    blindReview: boolean;
   }): Promise<AiScoreProposal> {
     return this.transaction(async (client) => {
       const { rows } = await client.query(
@@ -7454,7 +7897,11 @@ export class PgPlatformStore implements PlatformStore {
       }
       const { rows: updated } = await client.query(
         `UPDATE ai_score_proposals
-            SET status=$3, decided_by=$4, decision_note=$5, decided_at=now()
+            SET status=$3, decided_by=$4, decision_note=$5, decided_at=now(),
+                independent_scores=$6::jsonb, independent_rationale=$7,
+                review_started_at=$8, review_duration_seconds=$9,
+                evidence_opened=$10, override=$11, override_reason=$12,
+                blind_review=$13
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -7463,6 +7910,14 @@ export class PgPlatformStore implements PlatformStore {
           input.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED",
           input.decidedBy,
           input.note ?? null,
+          JSON.stringify(input.independentScores),
+          input.independentRationale ?? null,
+          input.reviewStartedAt,
+          input.reviewDurationSeconds,
+          input.evidenceOpened,
+          input.override,
+          input.overrideReason ?? null,
+          input.blindReview,
         ],
       );
       return this.mapAiScoreProposal(updated[0]);
@@ -8348,7 +8803,10 @@ export class PgPlatformStore implements PlatformStore {
     minimumMonthlyWage: string;
     taxRate: string;
     socialInsuranceRate: string;
+    deductionCapRate: string;
     bankAccountRef?: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
   }): Promise<EmploymentContract> {
     if (parseDecimal(input.fixedMonthlySalary) < 0n) {
       throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
@@ -8371,6 +8829,12 @@ export class PgPlatformStore implements PlatformStore {
       );
     }
     if (
+      parseDecimal(input.deductionCapRate) < 0n ||
+      parseDecimal(input.deductionCapRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_DEDUCTION_CAP_OUT_OF_RANGE");
+    }
+    if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
     ) {
@@ -8382,8 +8846,10 @@ export class PgPlatformStore implements PlatformStore {
           (id, tenant_id, person_id, contract_code, employment_type,
            start_date, end_date, work_location, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
-           social_insurance_rate, bank_account_ref, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACTIVE',1)
+           social_insurance_rate, deduction_cap_rate, bank_account_ref,
+           pay_plan_version, consent_signature_ref, consent_signed_at,
+           status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1,$16,$17,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -8399,7 +8865,10 @@ export class PgPlatformStore implements PlatformStore {
           input.minimumMonthlyWage,
           input.taxRate,
           input.socialInsuranceRate,
+          input.deductionCapRate,
           input.bankAccountRef ?? null,
+          input.consentSignatureRef,
+          input.consentSignedAt ?? new Date().toISOString(),
         ],
       );
       return this.mapEmploymentContract(rows[0]);
@@ -8414,6 +8883,376 @@ export class PgPlatformStore implements PlatformStore {
       }
       throw error;
     }
+  }
+
+  async amendEmploymentContract(input: {
+    tenantId: string;
+    contractId: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    deductionCapRate: string;
+    bankAccountRef?: string;
+    effectiveFrom: string;
+    consentSignatureRef: string;
+    approvedBy: string;
+  }): Promise<EmploymentContract> {
+    if (Date.parse(input.effectiveFrom) > Date.now()) {
+      throw new ConflictError(
+        "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+      );
+    }
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("CONTRACT_CONSENT_SIGNATURE_REQUIRED");
+    }
+    if (parseDecimal(input.fixedMonthlySalary) < 0n) {
+      throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
+    }
+    if (parseDecimal(input.minimumMonthlyWage) < 0n) {
+      throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
+    }
+    for (const [field, value] of [
+      ["taxRate", input.taxRate],
+      ["socialInsuranceRate", input.socialInsuranceRate],
+      ["deductionCapRate", input.deductionCapRate],
+    ] as const) {
+      const parsed = parseDecimal(value);
+      if (parsed < 0n || parsed > 1_000_000n) {
+        throw new ConflictError(`CONTRACT_${field}_OUT_OF_RANGE`);
+      }
+    }
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM employment_contracts
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.contractId],
+      );
+      if (!rows[0]) notFound("EmploymentContract", input.contractId);
+      const row = rows[0];
+      if (row.status !== "ACTIVE") {
+        throw new ConflictError(`employment contract is ${row.status}`);
+      }
+      const beforeTerms = {
+        fixedMonthlySalary: decimalText(String(row.fixed_monthly_salary)),
+        minimumMonthlyWage: decimalText(String(row.minimum_monthly_wage)),
+        taxRate: decimalText(String(row.tax_rate)),
+        socialInsuranceRate: decimalText(String(row.social_insurance_rate)),
+        deductionCapRate: decimalText(String(row.deduction_cap_rate)),
+        bankAccountRef: row.bank_account_ref ?? undefined,
+        payPlanVersion: Number(row.pay_plan_version ?? 1),
+      };
+      const payPlanVersion = Number(row.pay_plan_version ?? 1) + 1;
+      const { rows: updated } = await client.query(
+        `UPDATE employment_contracts
+            SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
+                tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
+                bank_account_ref=$8, pay_plan_version=$9,
+                consent_signature_ref=$10, consent_signed_at=$11,
+                version=version+1, updated_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.contractId,
+          input.fixedMonthlySalary,
+          input.minimumMonthlyWage,
+          input.taxRate,
+          input.socialInsuranceRate,
+          input.deductionCapRate,
+          input.bankAccountRef ?? null,
+          payPlanVersion,
+          input.consentSignatureRef,
+          input.effectiveFrom,
+        ],
+      );
+      const afterTerms = {
+        fixedMonthlySalary: decimalText(
+          String(updated[0]?.fixed_monthly_salary),
+        ),
+        minimumMonthlyWage: decimalText(
+          String(updated[0]?.minimum_monthly_wage),
+        ),
+        taxRate: decimalText(String(updated[0]?.tax_rate)),
+        socialInsuranceRate: decimalText(
+          String(updated[0]?.social_insurance_rate),
+        ),
+        deductionCapRate: decimalText(
+          String(updated[0]?.deduction_cap_rate),
+        ),
+        bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
+        payPlanVersion,
+      };
+      await client.query(
+        `INSERT INTO employment_contract_amendments
+          (tenant_id, contract_id, pay_plan_version, before_terms,
+           after_terms, effective_from, consent_signature_ref, approved_by)
+         VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8)`,
+        [
+          input.tenantId,
+          input.contractId,
+          payPlanVersion,
+          JSON.stringify(beforeTerms),
+          JSON.stringify(afterTerms),
+          input.effectiveFrom,
+          input.consentSignatureRef,
+          input.approvedBy,
+        ],
+      );
+      return this.mapEmploymentContract(updated[0]);
+    });
+  }
+
+  async listEmploymentContractAmendments(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContractAmendment[]> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM employment_contract_amendments
+        WHERE tenant_id=$1 AND contract_id=$2
+        ORDER BY created_at DESC`,
+      [tenantId, contractId],
+    );
+    return rows.map((row) => this.mapEmploymentContractAmendment(row));
+  }
+
+  async createAdverseAction(input: {
+    tenantId: string;
+    personId: string;
+    actionType: AdverseActionCase["actionType"];
+    reason: string;
+    performanceBasis: string;
+    evidenceRefs: string[];
+    requestedBy: string;
+  }): Promise<AdverseActionCase> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO adverse_action_cases
+        (tenant_id, person_id, action_type, status, reason, performance_basis,
+         evidence_refs, requested_by)
+       VALUES ($1,$2,$3,'DRAFT',$4,$5,$6::jsonb,$7)
+       RETURNING *`,
+      [
+        input.tenantId,
+        input.personId,
+        input.actionType,
+        input.reason,
+        input.performanceBasis,
+        JSON.stringify(input.evidenceRefs),
+        input.requestedBy,
+      ],
+    );
+    return this.mapAdverseAction(rows[0]);
+  }
+
+  async listAdverseActions(
+    tenantId: string,
+    personId?: string,
+  ): Promise<AdverseActionCase[]> {
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM adverse_action_cases WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapAdverseAction(row));
+  }
+
+  async getAdverseAction(
+    tenantId: string,
+    actionId: string,
+  ): Promise<AdverseActionCase> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM adverse_action_cases WHERE tenant_id=$1 AND id=$2",
+      [tenantId, actionId],
+    );
+    if (!rows[0]) notFound("AdverseActionCase", actionId);
+    return this.mapAdverseAction(rows[0]);
+  }
+
+  async reviewAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    legalReviewerId: string;
+    legalReviewRef: string;
+    decision: "APPROVE" | "REJECT";
+    note?: string;
+  }): Promise<AdverseActionCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adverse_action_cases
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [input.tenantId, input.actionId],
+      );
+      if (!rows[0]) notFound("AdverseActionCase", input.actionId);
+      const action = this.mapAdverseAction(rows[0]);
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        action.status,
+        "LEGAL_REVIEW",
+      );
+      if (action.requestedBy === input.legalReviewerId) {
+        throw new ConflictError(
+          "ADVERSE_ACTION_SELF_REVIEW: the requester cannot perform legal review",
+        );
+      }
+      const nextStatus =
+        input.decision === "REJECT" ? "REJECTED" : "LEGAL_REVIEW";
+      if (input.decision === "REJECT") {
+        assertTransition(
+          adverseActionTransitions,
+          "AdverseActionCase",
+          "LEGAL_REVIEW",
+          "REJECTED",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE adverse_action_cases
+            SET status=$3, legal_reviewer_id=$4, legal_review_ref=$5,
+                legal_reviewed_at=now(), updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.actionId,
+          nextStatus,
+          input.legalReviewerId,
+          input.legalReviewRef,
+        ],
+      );
+      return this.mapAdverseAction(updated[0]);
+    });
+  }
+
+  async approveAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    approvedBy: string;
+  }): Promise<AdverseActionCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adverse_action_cases
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [input.tenantId, input.actionId],
+      );
+      if (!rows[0]) notFound("AdverseActionCase", input.actionId);
+      const action = this.mapAdverseAction(rows[0]);
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        action.status,
+        "APPROVED",
+      );
+      if (
+        action.requestedBy === input.approvedBy ||
+        action.legalReviewerId === input.approvedBy
+      ) {
+        throw new ConflictError(
+          "ADVERSE_ACTION_SEPARATION_REQUIRED: requester and legal reviewer cannot approve",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE adverse_action_cases
+            SET status='APPROVED', approved_by=$3, approved_at=now(),
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.actionId, input.approvedBy],
+      );
+      return this.mapAdverseAction(updated[0]);
+    });
+  }
+
+  async activateAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    effectiveFrom: string;
+  }): Promise<AdverseActionCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adverse_action_cases
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [input.tenantId, input.actionId],
+      );
+      if (!rows[0]) notFound("AdverseActionCase", input.actionId);
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        this.mapAdverseAction(rows[0]).status,
+        "ACTIVE",
+      );
+      const { rows: updated } = await client.query(
+        `UPDATE adverse_action_cases
+            SET status='ACTIVE', effective_from=$3, updated_at=now(),
+                version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.actionId, input.effectiveFrom],
+      );
+      return this.mapAdverseAction(updated[0]);
+    });
+  }
+
+  async completeAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+  }): Promise<AdverseActionCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adverse_action_cases
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [input.tenantId, input.actionId],
+      );
+      if (!rows[0]) notFound("AdverseActionCase", input.actionId);
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        this.mapAdverseAction(rows[0]).status,
+        "COMPLETED",
+      );
+      const { rows: updated } = await client.query(
+        `UPDATE adverse_action_cases
+            SET status='COMPLETED', completed_at=now(), updated_at=now(),
+                version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.actionId],
+      );
+      return this.mapAdverseAction(updated[0]);
+    });
+  }
+
+  async cancelAdverseAction(input: {
+    tenantId: string;
+    actionId: string;
+    reason: string;
+  }): Promise<AdverseActionCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM adverse_action_cases
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [input.tenantId, input.actionId],
+      );
+      if (!rows[0]) notFound("AdverseActionCase", input.actionId);
+      assertTransition(
+        adverseActionTransitions,
+        "AdverseActionCase",
+        this.mapAdverseAction(rows[0]).status,
+        "CANCELLED",
+      );
+      const { rows: updated } = await client.query(
+        `UPDATE adverse_action_cases
+            SET status='CANCELLED', cancelled_at=now(), cancel_reason=$3,
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.actionId, input.reason],
+      );
+      return this.mapAdverseAction(updated[0]);
+    });
   }
 
   async listEmploymentContracts(
@@ -8561,8 +9400,9 @@ export class PgPlatformStore implements PlatformStore {
             (id, tenant_id, run_id, person_id, contract_id, currency,
              fixed_amount, incentive_amount, gross_amount, deduction_amount,
              tax_amount, social_insurance_amount, net_amount,
-             minimum_monthly_wage, minimum_wage_passed, bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+             minimum_monthly_wage, minimum_wage_passed, deduction_cap_rate,
+             deduction_cap_amount, deduction_cap_passed, bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
           [
             randomUUID(),
             input.tenantId,
@@ -8579,6 +9419,9 @@ export class PgPlatformStore implements PlatformStore {
             line.netAmount,
             line.minimumMonthlyWage,
             line.minimumWagePassed,
+            line.deductionCapRate,
+            line.deductionCapAmount,
+            line.deductionCapPassed,
             line.bankAccountRef ?? null,
           ],
         );
@@ -9590,6 +10433,18 @@ export class PgPlatformStore implements PlatformStore {
       decidedBy: row.decided_by ?? undefined,
       decisionNote: row.decision_note ?? undefined,
       decidedAt: iso(row.decided_at),
+      independentScores: (row.independent_scores ?? {}) as Record<string, number>,
+      independentRationale: row.independent_rationale ?? undefined,
+      reviewStartedAt: iso(row.review_started_at),
+      reviewDurationSeconds:
+        row.review_duration_seconds === null ||
+        row.review_duration_seconds === undefined
+          ? undefined
+          : Number(row.review_duration_seconds),
+      evidenceOpened: Number(row.evidence_opened ?? 0),
+      override: Boolean(row.override),
+      overrideReason: row.override_reason ?? undefined,
+      blindReview: Boolean(row.blind_review),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
@@ -9727,6 +10582,32 @@ export class PgPlatformStore implements PlatformStore {
     };
   }
 
+  private mapAdverseAction(row: QueryResultRow): AdverseActionCase {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      actionType: row.action_type,
+      status: row.status,
+      reason: row.reason,
+      performanceBasis: row.performance_basis,
+      evidenceRefs: (row.evidence_refs ?? []) as string[],
+      requestedBy: row.requested_by,
+      legalReviewerId: row.legal_reviewer_id ?? undefined,
+      legalReviewRef: row.legal_review_ref ?? undefined,
+      legalReviewedAt: iso(row.legal_reviewed_at),
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      effectiveFrom: iso(row.effective_from),
+      completedAt: iso(row.completed_at),
+      cancelledAt: iso(row.cancelled_at),
+      cancelReason: row.cancel_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+    };
+  }
+
   private mapEmploymentContract(row: QueryResultRow): EmploymentContract {
     return {
       id: row.id,
@@ -9745,11 +10626,34 @@ export class PgPlatformStore implements PlatformStore {
       taxRate: decimalText(String(row.tax_rate)) ?? "0",
       socialInsuranceRate:
         decimalText(String(row.social_insurance_rate)) ?? "0",
+      deductionCapRate:
+        decimalText(String(row.deduction_cap_rate)) ?? "0.2",
       bankAccountRef: row.bank_account_ref ?? undefined,
+      payPlanVersion: Number(row.pay_plan_version ?? 1),
+      consentSignatureRef: row.consent_signature_ref,
+      consentSignedAt:
+        iso(row.consent_signed_at) ?? new Date().toISOString(),
       status: row.status,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapEmploymentContractAmendment(
+    row: QueryResultRow,
+  ): EmploymentContractAmendment {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      contractId: row.contract_id,
+      payPlanVersion: Number(row.pay_plan_version),
+      beforeTerms: (row.before_terms ?? {}) as Record<string, unknown>,
+      afterTerms: (row.after_terms ?? {}) as Record<string, unknown>,
+      effectiveFrom: iso(row.effective_from) ?? new Date().toISOString(),
+      consentSignatureRef: row.consent_signature_ref,
+      approvedBy: row.approved_by,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 
@@ -9772,6 +10676,11 @@ export class PgPlatformStore implements PlatformStore {
       minimumMonthlyWage:
         decimalText(String(row.minimum_monthly_wage)) ?? "0",
       minimumWagePassed: row.minimum_wage_passed,
+      deductionCapRate:
+        decimalText(String(row.deduction_cap_rate)) ?? "0.2",
+      deductionCapAmount:
+        decimalText(String(row.deduction_cap_amount)) ?? "0",
+      deductionCapPassed: row.deduction_cap_passed,
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

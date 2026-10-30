@@ -325,6 +325,13 @@ interface PolicyProposalInput {
   rationale?: string;
   policyVersionId?: string;
   effectiveFrom?: string;
+  applicability?: {
+    legalEntity: string;
+    jurisdictions: string[];
+    workLocations: string[];
+    employeeCategories: string[];
+    workTimeTypes: string[];
+  };
 }
 
 /**
@@ -433,6 +440,7 @@ export class PolicyProposalSkill implements AgentSkill {
             policyVersionId: proposal.policyVersionId,
             effectiveFrom:
               proposal.effectiveFrom ?? new Date().toISOString(),
+            applicability: proposal.applicability,
           },
           requiresApproval: true,
         }),

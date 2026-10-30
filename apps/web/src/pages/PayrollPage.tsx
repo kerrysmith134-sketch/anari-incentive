@@ -671,11 +671,22 @@ function RunsTab({
                               {formatMoney(line.netAmount, line.currency)}
                             </td>
                             <td>
-                              <Badge
-                                tone={line.minimumWagePassed ? "success" : "danger"}
-                              >
-                                {line.minimumWagePassed ? "Passed" : "Blocked"}
-                              </Badge>
+                              <div className="stack" style={{ gap: 4 }}>
+                                <Badge
+                                  tone={line.minimumWagePassed ? "success" : "danger"}
+                                >
+                                  {line.minimumWagePassed
+                                    ? "Minimum wage"
+                                    : "Below minimum"}
+                                </Badge>
+                                <Badge
+                                  tone={line.deductionCapPassed ? "success" : "danger"}
+                                >
+                                  {line.deductionCapPassed
+                                    ? "Within deduction cap"
+                                    : "Deduction cap exceeded"}
+                                </Badge>
+                              </div>
                             </td>
                             <td className="cell-actions">
                               <Button
@@ -924,6 +935,7 @@ function ContractsTab({
   reload: () => void;
 }) {
   const toast = useToast();
+  const { session } = useAuth();
   const { people } = usePeople();
   const [open, setOpen] = useState(false);
   const [personId, setPersonId] = useState("");
@@ -939,9 +951,25 @@ function ContractsTab({
   const [minimumMonthlyWage, setMinimumMonthlyWage] = useState("");
   const [taxRatePercent, setTaxRatePercent] = useState("0");
   const [socialRatePercent, setSocialRatePercent] = useState("0");
+  const [deductionCapPercent, setDeductionCapPercent] = useState("20");
+  const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [amendTarget, setAmendTarget] = useState<EmploymentContract | null>(
+    null,
+  );
+  const [amendSalary, setAmendSalary] = useState("");
+  const [amendMinimum, setAmendMinimum] = useState("");
+  const [amendTax, setAmendTax] = useState("0");
+  const [amendSocial, setAmendSocial] = useState("0");
+  const [amendCap, setAmendCap] = useState("20");
+  const [amendEffective, setAmendEffective] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [amendConsent, setAmendConsent] = useState("");
+  const [amendApprover, setAmendApprover] = useState(session.personId);
+  const [amendError, setAmendError] = useState<string | null>(null);
 
   function openForm() {
     setPersonId(people[0]?.id ?? "");
@@ -955,6 +983,8 @@ function ContractsTab({
     setMinimumMonthlyWage("");
     setTaxRatePercent("0");
     setSocialRatePercent("0");
+    setDeductionCapPercent("20");
+    setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
     setOpen(true);
@@ -979,7 +1009,9 @@ function ContractsTab({
           minimumMonthlyWage,
           taxRate: String(toNumber(taxRatePercent) / 100),
           socialInsuranceRate: String(toNumber(socialRatePercent) / 100),
+          deductionCapRate: String(toNumber(deductionCapPercent) / 100),
           bankAccountRef: bankAccountRef.trim() || undefined,
+          consentSignatureRef: consentSignatureRef.trim(),
         },
       });
       toast.success("Contract created", contractCode);
@@ -988,6 +1020,50 @@ function ContractsTab({
     } catch (caught) {
       setFormError(
         caught instanceof Error ? caught.message : "Could not create the contract.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function openAmend(contract: EmploymentContract) {
+    setAmendTarget(contract);
+    setAmendSalary(contract.fixedMonthlySalary);
+    setAmendMinimum(contract.minimumMonthlyWage);
+    setAmendTax(String(toNumber(contract.taxRate) * 100));
+    setAmendSocial(String(toNumber(contract.socialInsuranceRate) * 100));
+    setAmendCap(String(toNumber(contract.deductionCapRate) * 100));
+    setAmendEffective(new Date().toISOString().slice(0, 10));
+    setAmendConsent("");
+    setAmendApprover(session.personId);
+    setAmendError(null);
+  }
+
+  async function amendContract(event: FormEvent) {
+    event.preventDefault();
+    if (!amendTarget) return;
+    setAmendError(null);
+    setSubmitting(true);
+    try {
+      await api(`/api/v1/employment-contracts/${amendTarget.id}/amendments`, {
+        method: "POST",
+        body: {
+          fixedMonthlySalary: amendSalary,
+          minimumMonthlyWage: amendMinimum,
+          taxRate: String(toNumber(amendTax) / 100),
+          socialInsuranceRate: String(toNumber(amendSocial) / 100),
+          deductionCapRate: String(toNumber(amendCap) / 100),
+          effectiveFrom: toIsoDate(amendEffective),
+          consentSignatureRef: amendConsent.trim(),
+          approvedBy: amendApprover,
+        },
+      });
+      toast.success("Contract amended", amendTarget.contractCode);
+      setAmendTarget(null);
+      reload();
+    } catch (caught) {
+      setAmendError(
+        caught instanceof Error ? caught.message : "Could not amend the contract.",
       );
     } finally {
       setSubmitting(false);
@@ -1037,6 +1113,7 @@ function ContractsTab({
                 <th className="cell-num">Tax</th>
                 <th className="cell-num">Social</th>
                 <th>Status</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -1068,6 +1145,20 @@ function ContractsTab({
                   </td>
                   <td>
                     <Badge status={contract.status} />
+                    <span className="cell-sub">
+                      plan v{contract.payPlanVersion} · contract v{contract.version}
+                    </span>
+                  </td>
+                  <td className="cell-actions">
+                    {contract.status === "ACTIVE" ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => openAmend(contract)}
+                      >
+                        Amend
+                      </Button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -1222,12 +1313,159 @@ function ContractsTab({
               onChange={(event) => setSocialRatePercent(event.target.value)}
             />
           </FormField>
+          <FormField
+            label="Deduction cap (% of gross)"
+            htmlFor="contract-deduction-cap"
+            hint="Ledger deductions above this cap block the payroll line. Default 20%."
+          >
+            <TextInput
+              id="contract-deduction-cap"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={deductionCapPercent}
+              onChange={(event) => setDeductionCapPercent(event.target.value)}
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
               value={bankAccountRef}
               onChange={(event) => setBankAccountRef(event.target.value)}
               placeholder="masked account reference"
+            />
+          </FormField>
+          <FormField
+            label="Consent / e-signature reference"
+            htmlFor="contract-consent"
+            hint="Required evidence that the employee agreed to the pay plan."
+          >
+            <TextInput
+              id="contract-consent"
+              value={consentSignatureRef}
+              onChange={(event) => setConsentSignatureRef(event.target.value)}
+              placeholder="ESIGN-2026-001"
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(amendTarget)}
+        title={
+          amendTarget
+            ? `Amend ${amendTarget.contractCode}`
+            : "Amend employment contract"
+        }
+        description="A new pay-plan version requires employee consent evidence and is recorded in the amendment history."
+        onClose={() => setAmendTarget(null)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAmendTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="amend-contract-form"
+              loading={submitting}
+            >
+              Record amendment
+            </Button>
+          </>
+        }
+      >
+        <form id="amend-contract-form" onSubmit={amendContract} className="form-grid">
+          {amendError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{amendError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Fixed monthly salary" htmlFor="amend-salary">
+            <TextInput
+              id="amend-salary"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amendSalary}
+              onChange={(event) => setAmendSalary(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Minimum monthly wage" htmlFor="amend-minimum">
+            <TextInput
+              id="amend-minimum"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amendMinimum}
+              onChange={(event) => setAmendMinimum(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Tax rate (%)" htmlFor="amend-tax">
+            <TextInput
+              id="amend-tax"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={amendTax}
+              onChange={(event) => setAmendTax(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Social insurance rate (%)" htmlFor="amend-social">
+            <TextInput
+              id="amend-social"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={amendSocial}
+              onChange={(event) => setAmendSocial(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Deduction cap (%)" htmlFor="amend-cap">
+            <TextInput
+              id="amend-cap"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={amendCap}
+              onChange={(event) => setAmendCap(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Effective date" htmlFor="amend-effective">
+            <TextInput
+              id="amend-effective"
+              type="date"
+              value={amendEffective}
+              onChange={(event) => setAmendEffective(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Consent / e-signature reference"
+            htmlFor="amend-consent"
+            className="field--full"
+            hint="The server rejects a missing consent reference and future effective dates."
+          >
+            <TextInput
+              id="amend-consent"
+              value={amendConsent}
+              onChange={(event) => setAmendConsent(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Approved by" htmlFor="amend-approver">
+            <PersonSelect
+              id="amend-approver"
+              value={amendApprover}
+              onChange={setAmendApprover}
             />
           </FormField>
         </form>

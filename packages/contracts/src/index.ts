@@ -578,6 +578,12 @@ export const decideAiScoreProposalSchema = z.object({
   decision: z.enum(["ACCEPT", "REJECT"]),
   decidedBy: uuidSchema,
   note: z.string().optional(),
+  independentScores: z.record(z.number().min(0).max(5)),
+  independentRationale: z.string().optional(),
+  reviewStartedAt: z.string().datetime(),
+  evidenceOpened: z.number().int().min(0).default(0),
+  overrideReason: z.string().optional(),
+  blindReview: z.boolean().default(false),
 });
 export type DecideAiScoreProposalBody = z.infer<
   typeof decideAiScoreProposalSchema
@@ -734,6 +740,58 @@ export const acceptBountySchema = z.object({
 });
 export type AcceptBountyBody = z.infer<typeof acceptBountySchema>;
 
+export const adverseActionTypeSchema = z.enum([
+  "PIP",
+  "TRAINING",
+  "REASSIGNMENT",
+  "DEMOTION",
+  "PAY_REDUCTION",
+  "TERMINATION",
+]);
+
+export const createAdverseActionSchema = z.object({
+  personId: uuidSchema,
+  actionType: adverseActionTypeSchema,
+  reason: z.string().min(3),
+  performanceBasis: z.string().min(3),
+  evidenceRefs: z.array(uuidSchema).default([]),
+  requestedBy: uuidSchema,
+});
+export type CreateAdverseActionBody = z.infer<
+  typeof createAdverseActionSchema
+>;
+
+export const reviewAdverseActionSchema = z.object({
+  legalReviewerId: uuidSchema,
+  legalReviewRef: z.string().min(1),
+  decision: z.enum(["APPROVE", "REJECT"]),
+  note: z.string().optional(),
+});
+export type ReviewAdverseActionBody = z.infer<
+  typeof reviewAdverseActionSchema
+>;
+
+export const approveAdverseActionSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveAdverseActionBody = z.infer<
+  typeof approveAdverseActionSchema
+>;
+
+export const activateAdverseActionSchema = z.object({
+  effectiveFrom: z.string().datetime(),
+});
+export type ActivateAdverseActionBody = z.infer<
+  typeof activateAdverseActionSchema
+>;
+
+export const cancelAdverseActionSchema = z.object({
+  reason: z.string().min(3),
+});
+export type CancelAdverseActionBody = z.infer<
+  typeof cancelAdverseActionSchema
+>;
+
 export const createEmploymentContractSchema = z.object({
   personId: uuidSchema,
   contractCode: z.string().min(1),
@@ -746,10 +804,28 @@ export const createEmploymentContractSchema = z.object({
   minimumMonthlyWage: decimal,
   taxRate: decimal.default("0"),
   socialInsuranceRate: decimal.default("0"),
+  deductionCapRate: decimal.default("0.2"),
   bankAccountRef: z.string().min(1).optional(),
+  consentSignatureRef: z.string().min(1),
+  consentSignedAt: z.string().datetime().optional(),
 });
 export type CreateEmploymentContractBody = z.infer<
   typeof createEmploymentContractSchema
+>;
+
+export const amendEmploymentContractSchema = z.object({
+  fixedMonthlySalary: decimal,
+  minimumMonthlyWage: decimal,
+  taxRate: decimal,
+  socialInsuranceRate: decimal,
+  deductionCapRate: decimal,
+  bankAccountRef: z.string().min(1).optional(),
+  effectiveFrom: z.string().datetime(),
+  consentSignatureRef: z.string().min(1),
+  approvedBy: uuidSchema,
+});
+export type AmendEmploymentContractBody = z.infer<
+  typeof amendEmploymentContractSchema
 >;
 
 export const createPayrollRunSchema = z.object({
@@ -786,6 +862,9 @@ export const payrollLineInputSchema = z.object({
   netAmount: decimal,
   minimumMonthlyWage: decimal,
   minimumWagePassed: z.boolean(),
+  deductionCapRate: decimal,
+  deductionCapAmount: decimal,
+  deductionCapPassed: z.boolean(),
   bankAccountRef: z.string().min(1).optional(),
 });
 export type PayrollLineInput = z.infer<typeof payrollLineInputSchema>;
@@ -1328,12 +1407,81 @@ export type DecideEvaluationDraftBody = z.infer<
   typeof decideEvaluationDraftSchema
 >;
 
+export const policyPackManifestSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  version: z.string().min(1),
+  status: z.string().min(1),
+  description: z.string().min(1),
+  corePolicyCode: z.string().min(1),
+  policy: z.string().min(1),
+  fixtures: z.string().min(1),
+  policyVersionId: uuidSchema,
+  applicability: z.object({
+    legalEntity: z.string().min(1),
+    jurisdictions: z.array(z.string().min(1)).min(1),
+    workLocations: z.array(z.string().min(1)).min(1),
+    employeeCategories: z.array(z.string().min(1)).min(1),
+    workTimeTypes: z.array(z.string().min(1)).min(1),
+  }),
+  roles: z
+    .array(
+      z.object({
+        code: z.string().min(1),
+        name: z.string().min(1),
+        employmentTypes: z.array(z.string().min(1)).default([]),
+        description: z.string().optional(),
+      }),
+    )
+    .min(1),
+  workPackageTemplates: z
+    .array(
+      z.object({
+        code: z.string().min(1),
+        title: z.string().min(1),
+        objective: z.string().min(1),
+        defaultResponsibilityCode: z.string().min(1).optional(),
+        acceptanceCriteria: z.array(z.string().min(1)).min(1),
+        evidenceRequirementCodes: z.array(z.string().min(1)).default([]),
+      }),
+    )
+    .min(1),
+  evidenceRequirements: z
+    .array(
+      z.object({
+        code: z.string().min(1),
+        roleCode: z.string().min(1).optional(),
+        requiredTypes: z.array(z.string().min(1)).min(1),
+        minCount: z.number().int().min(1).default(1),
+        minimumQuality: z.string().min(1).optional(),
+        ownerRoleCode: z.string().min(1).optional(),
+        slaHours: z.number().int().min(1).optional(),
+      }),
+    )
+    .min(1),
+  simulationData: z.record(z.unknown()).optional(),
+  seed: z.record(z.unknown()).optional(),
+});
+export type PolicyPackManifest = z.infer<typeof policyPackManifestSchema>;
+
+export const policyApplicabilitySchema = z.object({
+  legalEntity: z.string().min(1),
+  jurisdictions: z.array(z.string().min(1)).min(1),
+  workLocations: z.array(z.string().min(1)).min(1),
+  employeeCategories: z.array(z.string().min(1)).min(1),
+  workTimeTypes: z.array(z.string().min(1)).min(1),
+});
+export type PolicyApplicabilityBody = z.infer<
+  typeof policyApplicabilitySchema
+>;
+
 export const publishPolicySchema = z.object({
   policy: policyDefinitionSchema,
   policyVersionId: uuidSchema.optional(),
   effectiveFrom: z.string().datetime(),
   approvedBy: uuidSchema,
   scope: z.record(z.unknown()).optional(),
+  applicability: policyApplicabilitySchema,
   approvalRequestId: uuidSchema.optional(),
 });
 export type PublishPolicyBody = z.infer<typeof publishPolicySchema>;

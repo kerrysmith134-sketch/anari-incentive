@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   appealCaseTransitions,
   assertAdjudicatorIsNotClaimant,
+  assertPolicyApplicability,
   assertTransition,
   attributionDecisionTransitions,
   calculationRunTransitions,
@@ -276,6 +277,7 @@ export class Store implements IncentiveStore {
   }
 
   async publishPolicy(input: PublishPolicyInput): Promise<PublishedPolicy> {
+    assertPolicyApplicability(input.applicability);
     const policyVersionId = input.policyVersionId ?? randomUUID();
     if (
       this.publishedPolicies.has(policyVersionId) ||
@@ -326,6 +328,7 @@ export class Store implements IncentiveStore {
       policyVersionId,
       structuredClone(input.scope ?? {}),
     );
+    const applicability = structuredClone(input.applicability);
     this.publishedPolicySummaries.set(policyVersionId, {
       policyVersionId,
       code: input.policy.code,
@@ -334,6 +337,7 @@ export class Store implements IncentiveStore {
       effectiveFrom: input.effectiveFrom,
       contentHash,
       publishedAt,
+      applicability,
     });
     return {
       policyVersionId,
@@ -342,6 +346,7 @@ export class Store implements IncentiveStore {
       effectiveFrom: input.effectiveFrom,
       publishedAt,
       approvedBy: input.approvedBy,
+      applicability,
     };
   }
 

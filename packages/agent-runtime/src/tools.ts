@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PolicyDefinition } from "@anari/domain";
+import type { PolicyApplicability, PolicyDefinition } from "@anari/domain";
 import type { AgentContext, AgentTool } from "./types.js";
 
 async function notify(
@@ -206,11 +206,16 @@ export function createDefaultTools(): AgentTool[] {
           typeof input.effectiveFrom === "string"
             ? input.effectiveFrom
             : new Date().toISOString();
+        const applicability = input.applicability;
+        if (!applicability || typeof applicability !== "object") {
+          throw new Error("POLICY_APPLICABILITY_REQUIRED");
+        }
         return context.publishPolicy({
           policy,
           policyVersionId,
           effectiveFrom,
           approvedBy: execution.approvedBy,
+          applicability: applicability as PolicyApplicability,
         });
       },
     },

@@ -60,6 +60,9 @@ export interface PayrollLine {
   netAmount: DecimalString;
   minimumMonthlyWage: DecimalString;
   minimumWagePassed: boolean;
+  deductionCapRate: DecimalString;
+  deductionCapAmount: DecimalString;
+  deductionCapPassed: boolean;
   bankAccountRef?: string;
   createdAt: string;
 }
@@ -108,7 +111,11 @@ export interface EmploymentContract {
   minimumMonthlyWage: DecimalString;
   taxRate: DecimalString;
   socialInsuranceRate: DecimalString;
+  deductionCapRate: DecimalString;
   bankAccountRef?: string;
+  payPlanVersion: number;
+  consentSignatureRef: string;
+  consentSignedAt: string;
   status: "ACTIVE" | "ENDED";
   createdAt: string;
   updatedAt: string;
@@ -275,6 +282,14 @@ export interface AiScoreProposal {
   decidedBy?: Uuid;
   decisionNote?: string;
   decidedAt?: string;
+  independentScores?: Record<string, number>;
+  independentRationale?: string;
+  reviewStartedAt?: string;
+  reviewDurationSeconds?: number;
+  evidenceOpened?: number;
+  override?: boolean;
+  overrideReason?: string;
+  blindReview?: boolean;
   createdAt: string;
 }
 
@@ -294,6 +309,14 @@ export interface ModelPrompt {
   createdAt: string;
 }
 
+export interface PolicyApplicability {
+  legalEntity: string;
+  jurisdictions: string[];
+  workLocations: string[];
+  employeeCategories: string[];
+  workTimeTypes: string[];
+}
+
 export interface PolicyVersionSummary {
   policyVersionId: Uuid;
   code: string;
@@ -303,6 +326,7 @@ export interface PolicyVersionSummary {
   effectiveTo?: string;
   contentHash?: string;
   publishedAt?: string;
+  applicability?: PolicyApplicability;
 }
 
 export interface PolicyTestCase {
@@ -421,6 +445,46 @@ export interface OperationsCoverageReport {
     appealRate: number;
   };
   [key: string]: unknown;
+}
+
+export interface PolicyReviewReport {
+  from: string;
+  to: string;
+  generatedAt: string;
+  policies: { published: number; versionsInScope: number };
+  notices: { total: number; complete: number; incomplete: number };
+  appeals: {
+    total: number;
+    open: number;
+    overdue: number;
+    closed: number;
+    outcomes: Record<string, number>;
+  };
+  claims: { total: number; decided: number };
+  evaluations: { drafts: number; decisions: number };
+  aiReview: {
+    total: number;
+    decided: number;
+    accepted: number;
+    acceptanceRate: number;
+    overrides: number;
+    blindReviews: number;
+    harnessEvaluations: number;
+  };
+  dataQuality: {
+    total: number;
+    open: number;
+    overdue: number;
+    escalated: number;
+  };
+  privacy: {
+    dsars: number;
+    openDsars: number;
+    dpias: number;
+    approvedDpias: number;
+  };
+  trustSurvey: { available: boolean; note: string };
+  subgroupImpact: { available: boolean; note: string };
 }
 
 export interface AuditEvent {
@@ -765,4 +829,50 @@ export interface ModelEvaluationRun {
   blockers: string[];
   evaluatedAt: string;
   createdAt: string;
+}
+
+export interface AiReviewMetrics {
+  total: number;
+  pending: number;
+  decided: number;
+  accepted: number;
+  rejected: number;
+  acceptanceRate: number;
+  overrideCount: number;
+  overrideRate: number;
+  blindReviewCount: number;
+  averageReviewDurationSeconds: number;
+  averageEvidenceOpened: number;
+  rubberStampAlert: boolean;
+}
+
+export type AdverseActionType =
+  | "PIP"
+  | "TRAINING"
+  | "REASSIGNMENT"
+  | "DEMOTION"
+  | "PAY_REDUCTION"
+  | "TERMINATION";
+
+export interface AdverseActionCase {
+  id: Uuid;
+  personId: Uuid;
+  actionType: AdverseActionType;
+  status: string;
+  reason: string;
+  performanceBasis: string;
+  evidenceRefs: Uuid[];
+  requestedBy: Uuid;
+  legalReviewerId?: Uuid;
+  legalReviewRef?: string;
+  legalReviewedAt?: string;
+  approvedBy?: Uuid;
+  approvedAt?: string;
+  effectiveFrom?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
 }

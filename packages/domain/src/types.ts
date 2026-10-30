@@ -1,4 +1,5 @@
 import type {
+  AdverseActionStatus,
   AppealCaseStatus,
   AttributionDecisionStatus,
   CalculationRunStatus,
@@ -775,11 +776,28 @@ export interface EmploymentContract {
   minimumMonthlyWage: DecimalString;
   taxRate: DecimalString;
   socialInsuranceRate: DecimalString;
+  deductionCapRate: DecimalString;
   bankAccountRef?: string;
+  payPlanVersion: number;
+  consentSignatureRef: string;
+  consentSignedAt: string;
   status: EmploymentContractStatus;
   createdAt: string;
   updatedAt: string;
   version: number;
+}
+
+export interface EmploymentContractAmendment {
+  id: UUID;
+  tenantId: UUID;
+  contractId: UUID;
+  payPlanVersion: number;
+  beforeTerms: Record<string, unknown>;
+  afterTerms: Record<string, unknown>;
+  effectiveFrom: string;
+  consentSignatureRef: string;
+  approvedBy: UUID;
+  createdAt: string;
 }
 
 export type PayrollRunStatus =
@@ -807,6 +825,9 @@ export interface PayrollLine {
   netAmount: DecimalString;
   minimumMonthlyWage: DecimalString;
   minimumWagePassed: boolean;
+  deductionCapRate: DecimalString;
+  deductionCapAmount: DecimalString;
+  deductionCapPassed: boolean;
   bankAccountRef?: string;
   createdAt: string;
 }
@@ -979,6 +1000,14 @@ export interface AiScoreProposal {
   decidedBy?: UUID;
   decisionNote?: string;
   decidedAt?: string;
+  independentScores?: Record<string, number>;
+  independentRationale?: string;
+  reviewStartedAt?: string;
+  reviewDurationSeconds?: number;
+  evidenceOpened?: number;
+  override?: boolean;
+  overrideReason?: string;
+  blindReview?: boolean;
   createdAt: string;
 }
 
@@ -1285,6 +1314,45 @@ export interface PlatformMembership {
   userEmail?: string;
 }
 
+/** Required legal/operational applicability of a published policy. */
+export interface PolicyApplicability {
+  legalEntity: string;
+  jurisdictions: string[];
+  workLocations: string[];
+  employeeCategories: string[];
+  workTimeTypes: string[];
+}
+
+export function assertPolicyApplicability(
+  value: unknown,
+): asserts value is PolicyApplicability {
+  if (!value || typeof value !== "object") {
+    throw new Error("POLICY_APPLICABILITY_REQUIRED");
+  }
+  const candidate = value as Partial<Record<keyof PolicyApplicability, unknown>>;
+  if (
+    typeof candidate.legalEntity !== "string" ||
+    candidate.legalEntity.trim().length === 0
+  ) {
+    throw new Error("POLICY_APPLICABILITY_LEGAL_ENTITY_REQUIRED");
+  }
+  for (const key of [
+    "jurisdictions",
+    "workLocations",
+    "employeeCategories",
+    "workTimeTypes",
+  ] as const) {
+    const list = candidate[key];
+    if (
+      !Array.isArray(list) ||
+      list.length === 0 ||
+      list.some((item) => typeof item !== "string" || item.trim().length === 0)
+    ) {
+      throw new Error(`POLICY_APPLICABILITY_${key.toUpperCase()}_REQUIRED`);
+    }
+  }
+}
+
 export interface PolicyVersionSummary {
   policyVersionId: UUID;
   code: string;
@@ -1294,6 +1362,7 @@ export interface PolicyVersionSummary {
   effectiveTo?: string;
   contentHash?: string;
   publishedAt?: string;
+  applicability?: PolicyApplicability;
 }
 
 export interface PolicyVersionDetail extends PolicyVersionSummary {
@@ -1308,6 +1377,7 @@ export interface PublishedPolicy {
   effectiveFrom: string;
   publishedAt: string;
   approvedBy: UUID;
+  applicability: PolicyApplicability;
 }
 
 export interface PolicyRollbackResult extends PublishedPolicy {
@@ -1321,6 +1391,7 @@ export interface PublishPolicyInput {
   effectiveFrom: string;
   approvedBy: UUID;
   scope?: Record<string, unknown>;
+  applicability: PolicyApplicability;
 }
 
 export type EvidenceQualityStatus =
@@ -1643,4 +1714,41 @@ export interface DataQualityIssue {
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;
+}
+
+export type AdverseActionType =
+  | "PIP"
+  | "TRAINING"
+  | "REASSIGNMENT"
+  | "DEMOTION"
+  | "PAY_REDUCTION"
+  | "TERMINATION";
+
+/**
+ * A human-only PIP / adverse-action record. Evaluation scores never create or
+ * advance this object; it exists so the separate HR/legal process is visible,
+ * separated and auditable.
+ */
+export interface AdverseActionCase {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  actionType: AdverseActionType;
+  status: AdverseActionStatus;
+  reason: string;
+  performanceBasis: string;
+  evidenceRefs: UUID[];
+  requestedBy: UUID;
+  legalReviewerId?: UUID;
+  legalReviewRef?: string;
+  legalReviewedAt?: string;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  effectiveFrom?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
 }

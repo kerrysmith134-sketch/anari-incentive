@@ -84,6 +84,12 @@ import {
   submitBountySchema,
   acceptBountySchema,
   createEmploymentContractSchema,
+  amendEmploymentContractSchema,
+  createAdverseActionSchema,
+  reviewAdverseActionSchema,
+  approveAdverseActionSchema,
+  activateAdverseActionSchema,
+  cancelAdverseActionSchema,
   createPayrollRunSchema,
   approvePayrollRunSchema,
   reversePayrollRunSchema,
@@ -131,6 +137,7 @@ import type { CreateCalculationRunInput } from "@anari/contracts";
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
+  assertPolicyApplicability,
   confirmationBlockers,
   legalGateBlockers,
   type CalculationRun,
@@ -291,6 +298,15 @@ export interface BuildAppOptions {
   };
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   bodyLimitBytes?: number;
+}
+
+class BadRequestError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 function tenantOf(request: FastifyRequest): string {
@@ -886,6 +902,12 @@ export function buildApp(
         meta: { correlation_id: request.id },
       });
     }
+    if (error instanceof BadRequestError) {
+      return reply.status(400).send({
+        ...errorBody(error.code, error.message),
+        meta: { correlation_id: request.id },
+      });
+    }
     if (error instanceof ForbiddenError) {
       return reply.status(403).send({
         ...errorBody(error.code, error.message),
@@ -1419,12 +1441,15 @@ export function buildApp(
           .filter((version) => version.code === source.code)
           .map((version) => version.version),
       ) + 1;
+    const applicability = source.applicability;
+    assertPolicyApplicability(applicability);
     const published = await store.publishPolicy({
       policy: { ...source.policy, version: nextVersion },
       policyVersionId: body.newPolicyVersionId,
       effectiveFrom: body.effectiveFrom,
       approvedBy: body.approvedBy,
       scope: source.scope,
+      applicability,
     });
     countEvent("policy_published");
     const result: PolicyRollbackResult = {
@@ -1863,6 +1888,172 @@ export function buildApp(
       blockers: [...new Set(blockers)],
     };
     return data(report, request);
+  });
+
+  app.get("/api/v1/reports/policy-review", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { from?: string; to?: string };
+    const to = query.to ?? new Date().toISOString();
+    const from =
+      query.from ??
+      new Date(
+        new Date(to).getTime() - 365 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+    const fromMs = Date.parse(from);
+    const toMs = Date.parse(to);
+    if (
+      !Number.isFinite(fromMs) ||
+      !Number.isFinite(toMs) ||
+      fromMs > toMs
+    ) {
+      throw new BadRequestError(
+        "INVALID_REPORT_WINDOW",
+        "from/to must be valid ISO dates and from <= to",
+      );
+    }
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [
+      versions,
+      notices,
+      appeals,
+      claims,
+      decisions,
+      drafts,
+      issues,
+      dsars,
+      dpias,
+      proposals,
+      modelRuns,
+    ] = await Promise.all([
+      store.listPolicyVersions(),
+      platformStore.listNotices(tenantId),
+      store.listAppeals(),
+      store.listClaims(),
+      store.listEvaluationDecisions(),
+      store.listEvaluationDrafts(),
+      store.listDataQualityIssues(),
+      platformStore.listDsars(tenantId),
+      platformStore.listDpias(tenantId),
+      platformStore.listAiScoreProposals(tenantId),
+      platformStore.listModelEvaluationRuns(tenantId),
+    ]);
+    const noticeCoverage = await Promise.all(
+      notices.map((notice) =>
+        platformStore.listAcknowledgements(tenantId, notice.id),
+      ),
+    );
+    const published = versions.filter((version) => {
+      const timestamp = Date.parse(
+        version.publishedAt ?? version.effectiveFrom ?? "",
+      );
+      return Number.isFinite(timestamp) && timestamp >= fromMs && timestamp <= toMs;
+    });
+    const inRange = (value: string | undefined): boolean => {
+      if (!value) return false;
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) && timestamp >= fromMs && timestamp <= toMs;
+    };
+    const openAppeals = appeals.filter((appeal) => appeal.status !== "CLOSED");
+    const openIssues = issues.filter(
+      (issue) =>
+        issue.status !== "RESOLVED" &&
+        issue.status !== "WAIVED_WITH_APPROVAL",
+    );
+    const decidedProposals = proposals.filter(
+      (proposal) => proposal.status !== "PENDING",
+    );
+    const acceptedProposals = decidedProposals.filter(
+      (proposal) => proposal.status === "ACCEPTED",
+    ).length;
+    return data(
+      {
+        from,
+        to,
+        generatedAt: new Date().toISOString(),
+        policies: {
+          published: published.length,
+          versionsInScope: versions.length,
+        },
+        notices: {
+          total: notices.length,
+          complete: noticeCoverage.filter((coverage) => coverage.summary.complete)
+            .length,
+          incomplete: noticeCoverage.filter(
+            (coverage) => !coverage.summary.complete,
+          ).length,
+        },
+        appeals: {
+          total: appeals.length,
+          open: openAppeals.length,
+          overdue: openAppeals.filter(
+            (appeal) =>
+              Boolean(appeal.dueAt) &&
+              new Date(appeal.dueAt as string).getTime() < Date.now(),
+          ).length,
+          closed: appeals.filter((appeal) => appeal.status === "CLOSED").length,
+          outcomes: appeals.reduce<Record<string, number>>((totals, appeal) => {
+            if (appeal.resolution) {
+              totals[appeal.resolution] = (totals[appeal.resolution] ?? 0) + 1;
+            }
+            return totals;
+          }, {}),
+        },
+        claims: {
+          total: claims.length,
+          decided: decisions.filter((decision) => inRange(decision.createdAt))
+            .length,
+        },
+        evaluations: {
+          drafts: drafts.length,
+          decisions: decisions.length,
+        },
+        aiReview: {
+          total: proposals.length,
+          decided: decidedProposals.length,
+          accepted: acceptedProposals,
+          acceptanceRate:
+            decidedProposals.length === 0
+              ? 0
+              : acceptedProposals / decidedProposals.length,
+          overrides: decidedProposals.filter(
+            (proposal) => proposal.override,
+          ).length,
+          blindReviews: decidedProposals.filter(
+            (proposal) => proposal.blindReview,
+          ).length,
+          harnessEvaluations: modelRuns.filter(
+            (run) => run.metrics.harnessVersion === "ai-gate-v1",
+          ).length,
+        },
+        dataQuality: {
+          total: issues.length,
+          open: openIssues.length,
+          overdue: openIssues.filter(
+            (issue) =>
+              Boolean(issue.dueAt) &&
+              new Date(issue.dueAt as string).getTime() < Date.now(),
+          ).length,
+          escalated: issues.filter((issue) => Boolean(issue.escalatedAt)).length,
+        },
+        privacy: {
+          dsars: dsars.length,
+          openDsars: dsars.filter((request) => request.status === "OPEN").length,
+          dpias: dpias.length,
+          approvedDpias: dpias.filter((record) => record.status === "APPROVED")
+            .length,
+        },
+        trustSurvey: {
+          available: false,
+          note: "Employee trust/procedural-fairness survey is not captured yet.",
+        },
+        subgroupImpact: {
+          available: false,
+          note: "Contribution/evaluation subgroup impact is not aggregated yet.",
+        },
+      },
+      request,
+    );
   });
 
   app.get("/api/v1/reports/operations-coverage", async (request) => {
@@ -3712,6 +3903,123 @@ export function buildApp(
     return reply.status(201).send(data(proposal, request));
   });
 
+  app.get("/api/v1/me/ai-explanations", async (request) => {
+    const query = request.query as { personId?: string };
+    const own = personFilter(request);
+    const personId = own ?? (isPrivileged(request) ? query.personId : undefined);
+    if (!personId) {
+      throw new ForbiddenError("a person identity is required");
+    }
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [drafts, decisions, proposals, notices] = await Promise.all([
+      store.listEvaluationDrafts({ personId }),
+      store.listEvaluationDecisions({ personId }),
+      platformStore.listAiScoreProposals(tenantId, { personId }),
+      platformStore.listNotices(tenantId),
+    ]);
+    const aiNotices = notices.filter((notice) => notice.noticeType === "AI_USE");
+    const noticeRecords = await Promise.all(
+      aiNotices.map(async (notice) => {
+        const overview = await platformStore.listAcknowledgements(
+          tenantId,
+          notice.id,
+        );
+        return {
+          notice,
+          myAcknowledgement:
+            overview.acknowledgements.find(
+              (acknowledgement) =>
+                acknowledgement.personId === personId,
+            ) ?? null,
+        };
+      }),
+    );
+    const models = new Set<string>();
+    for (const draft of drafts) {
+      if (draft.modelName) {
+        models.add(`${draft.modelProvider ?? "unknown"}/${draft.modelName}`);
+      }
+    }
+    for (const proposal of proposals) {
+      models.add(`${proposal.modelProvider}/${proposal.modelName}`);
+    }
+    return data(
+      {
+        personId,
+        generatedAt: new Date().toISOString(),
+        aiUsed: drafts.length > 0 || proposals.length > 0,
+        models: [...models],
+        notices: noticeRecords,
+        evaluationDrafts: drafts,
+        evaluationDecisions: decisions,
+        aiScoreProposals: proposals,
+        explanation: {
+          summary:
+            "AI output is advisory. A human reviewer records the formal evaluation or attribution decision, and you can appeal it.",
+          humanReviewRequired: true,
+          autonomousDecision: false,
+          appealTargetType: "EVALUATION",
+          appealTargets: decisions.map((decision) => decision.id),
+        },
+      },
+      request,
+    );
+  });
+
+  app.get("/api/v1/ai-review-metrics", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const proposals = await platformStore.listAiScoreProposals(
+      tenantOf(request),
+    );
+    const decided = proposals.filter(
+      (proposal) => proposal.status !== "PENDING",
+    );
+    const accepted = decided.filter(
+      (proposal) => proposal.status === "ACCEPTED",
+    ).length;
+    const overridden = decided.filter(
+      (proposal) => proposal.override,
+    ).length;
+    const blind = decided.filter((proposal) => proposal.blindReview).length;
+    const durations = decided
+      .map((proposal) => proposal.reviewDurationSeconds)
+      .filter((value): value is number => typeof value === "number");
+    const evidenceOpened = decided.reduce(
+      (total, proposal) => total + (proposal.evidenceOpened ?? 0),
+      0,
+    );
+    const acceptanceRate =
+      decided.length === 0 ? 0 : accepted / decided.length;
+    return data(
+      {
+        total: proposals.length,
+        pending: proposals.length - decided.length,
+        decided: decided.length,
+        accepted,
+        rejected: decided.length - accepted,
+        acceptanceRate,
+        overrideCount: overridden,
+        overrideRate: decided.length === 0 ? 0 : overridden / decided.length,
+        blindReviewCount: blind,
+        averageReviewDurationSeconds:
+          durations.length === 0
+            ? 0
+            : Math.round(
+                durations.reduce((sum, value) => sum + value, 0) /
+                  durations.length,
+              ),
+        averageEvidenceOpened:
+          decided.length === 0
+            ? 0
+            : Math.round((evidenceOpened / decided.length) * 10) / 10,
+        rubberStampAlert:
+          decided.length >= 20 && acceptanceRate > 0.95,
+      },
+      request,
+    );
+  });
+
   app.get("/api/v1/ai-score-proposals", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as {
@@ -3748,12 +4056,52 @@ export function buildApp(
     if (!persons.some((person) => person.id === body.decidedBy)) {
       throw new NotFoundError(`Person ${body.decidedBy} not found`);
     }
+    const existing = await platformStore.getAiScoreProposal(
+      tenantId,
+      idOf(request),
+    );
+    for (const dimension of existing.dimensions) {
+      if (typeof body.independentScores[dimension] !== "number") {
+        throw new ConflictError(
+          `AI_INDEPENDENT_SCORES_REQUIRED: missing ${dimension}`,
+        );
+      }
+    }
+    const override = existing.dimensions.some(
+      (dimension) =>
+        Math.abs(
+          (body.independentScores[dimension] ?? 0) -
+            (existing.scores[dimension] ?? 0),
+        ) > 0.05,
+    );
+    if (override && !body.overrideReason?.trim()) {
+      throw new ConflictError("AI_OVERRIDE_REASON_REQUIRED");
+    }
+    const reviewStartedMs = Date.parse(body.reviewStartedAt);
+    if (
+      !Number.isFinite(reviewStartedMs) ||
+      reviewStartedMs > Date.now()
+    ) {
+      throw new ConflictError("AI_REVIEW_STARTED_AT_INVALID");
+    }
+    const reviewDurationSeconds = Math.max(
+      0,
+      Math.round((Date.now() - reviewStartedMs) / 1000),
+    );
     const proposal = await platformStore.decideAiScoreProposal({
       tenantId,
       proposalId: idOf(request),
       decision: body.decision,
       decidedBy: body.decidedBy,
       note: body.note,
+      independentScores: body.independentScores,
+      independentRationale: body.independentRationale,
+      reviewStartedAt: body.reviewStartedAt,
+      reviewDurationSeconds,
+      evidenceOpened: body.evidenceOpened ?? 0,
+      override,
+      overrideReason: body.overrideReason,
+      blindReview: body.blindReview ?? false,
     });
     countEvent(
       proposal.status === "ACCEPTED"
@@ -4177,6 +4525,108 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/adverse-actions", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createAdverseActionSchema, request.body);
+    const action = await platformStore.createAdverseAction({
+      tenantId: tenantOf(request),
+      personId: body.personId,
+      actionType: body.actionType,
+      reason: body.reason,
+      performanceBasis: body.performanceBasis,
+      evidenceRefs: body.evidenceRefs ?? [],
+      requestedBy: body.requestedBy,
+    });
+    countEvent("adverse_action_created");
+    return reply.status(201).send(data(action, request));
+  });
+
+  app.get("/api/v1/adverse-actions", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listAdverseActions(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/adverse-actions/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getAdverseAction(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/adverse-actions/:id/legal-review", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(reviewAdverseActionSchema, request.body);
+    const action = await platformStore.reviewAdverseAction({
+      tenantId: tenantOf(request),
+      actionId: idOf(request),
+      legalReviewerId: body.legalReviewerId,
+      legalReviewRef: body.legalReviewRef,
+      decision: body.decision,
+      note: body.note,
+    });
+    countEvent("adverse_action_legal_reviewed");
+    return data(action, request);
+  });
+
+  app.post("/api/v1/adverse-actions/:id/approve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(approveAdverseActionSchema, request.body);
+    const action = await platformStore.approveAdverseAction({
+      tenantId: tenantOf(request),
+      actionId: idOf(request),
+      approvedBy: body.approvedBy,
+    });
+    countEvent("adverse_action_approved");
+    return data(action, request);
+  });
+
+  app.post("/api/v1/adverse-actions/:id/activate", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(activateAdverseActionSchema, request.body);
+    const action = await platformStore.activateAdverseAction({
+      tenantId: tenantOf(request),
+      actionId: idOf(request),
+      effectiveFrom: body.effectiveFrom,
+    });
+    countEvent("adverse_action_activated");
+    return data(action, request);
+  });
+
+  app.post("/api/v1/adverse-actions/:id/complete", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.completeAdverseAction({
+        tenantId: tenantOf(request),
+        actionId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/adverse-actions/:id/cancel", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(cancelAdverseActionSchema, request.body);
+    return data(
+      await platformStore.cancelAdverseAction({
+        tenantId: tenantOf(request),
+        actionId: idOf(request),
+        reason: body.reason,
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/employment-contracts", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createEmploymentContractSchema, request.body);
@@ -4195,10 +4645,45 @@ export function buildApp(
           minimumMonthlyWage: body.minimumMonthlyWage,
           taxRate: body.taxRate ?? "0",
           socialInsuranceRate: body.socialInsuranceRate ?? "0",
+          deductionCapRate: body.deductionCapRate ?? "0.2",
           bankAccountRef: body.bankAccountRef,
+          consentSignatureRef: body.consentSignatureRef,
+          consentSignedAt: body.consentSignedAt,
         }),
         request,
       ),
+    );
+  });
+
+  app.post("/api/v1/employment-contracts/:id/amendments", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(amendEmploymentContractSchema, request.body);
+    return data(
+      await platformStore.amendEmploymentContract({
+        tenantId: tenantOf(request),
+        contractId: idOf(request),
+        fixedMonthlySalary: body.fixedMonthlySalary,
+        minimumMonthlyWage: body.minimumMonthlyWage,
+        taxRate: body.taxRate,
+        socialInsuranceRate: body.socialInsuranceRate,
+        deductionCapRate: body.deductionCapRate,
+        bankAccountRef: body.bankAccountRef,
+        effectiveFrom: body.effectiveFrom,
+        consentSignatureRef: body.consentSignatureRef,
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/employment-contracts/:id/amendments", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listEmploymentContractAmendments(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
     );
   });
 

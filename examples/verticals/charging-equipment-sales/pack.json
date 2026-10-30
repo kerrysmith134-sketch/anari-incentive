@@ -7,5 +7,87 @@
   "corePolicyCode": "CHARGING_EQUIPMENT_SALES_V1",
   "policy": "policy.json",
   "fixtures": "fixtures",
-  "policyVersionId": "00000000-0000-4000-8000-000000000102"
+  "policyVersionId": "00000000-0000-4000-8000-000000000102",
+  "applicability": {
+    "legalEntity": "Anari Energy Equipment Co., Ltd.",
+    "jurisdictions": [
+      "CN"
+    ],
+    "workLocations": [
+      "Shanghai",
+      "Beijing",
+      "Shenzhen"
+    ],
+    "employeeCategories": [
+      "FULL_TIME",
+      "CONTRACTOR"
+    ],
+    "workTimeTypes": [
+      "FULL_TIME"
+    ]
+  },
+  "roles": [
+    {
+      "code": "OWNER",
+      "name": "Account owner",
+      "employmentTypes": [
+        "FULL_TIME"
+      ],
+      "description": "Owns the commercial outcome and final handover."
+    },
+    {
+      "code": "CONTRIBUTOR",
+      "name": "Contributor",
+      "employmentTypes": [
+        "FULL_TIME",
+        "CONTRACTOR"
+      ],
+      "description": "Delivers a scoped work package output."
+    },
+    {
+      "code": "REVIEWER",
+      "name": "Reviewer",
+      "employmentTypes": [
+        "FULL_TIME"
+      ],
+      "description": "Independent acceptance and legal/quality review."
+    }
+  ],
+  "workPackageTemplates": [
+    {
+      "code": "DELIVERY-PACKAGE",
+      "title": "Delivery work package",
+      "objective": "Deliver the scoped commercial or service outcome.",
+      "defaultResponsibilityCode": "OWNER",
+      "acceptanceCriteria": [
+        "Customer accepts the outcome",
+        "Evidence is attached"
+      ],
+      "evidenceRequirementCodes": [
+        "DELIVERY-EVIDENCE"
+      ]
+    }
+  ],
+  "evidenceRequirements": [
+    {
+      "code": "DELIVERY-EVIDENCE",
+      "roleCode": "OWNER",
+      "requiredTypes": [
+        "DELIVERY_RECORD",
+        "ACCEPTANCE"
+      ],
+      "minCount": 1,
+      "minimumQuality": "VALID",
+      "ownerRoleCode": "REVIEWER",
+      "slaHours": 72
+    }
+  ],
+  "simulationData": {
+    "fixtures": "fixtures",
+    "notes": "Representative pack fixtures used for policy simulation."
+  },
+  "seed": {
+    "source": "fixtures",
+    "notes": "Seeded by scripts/seed-policy-packs.ts."
+  }
 }

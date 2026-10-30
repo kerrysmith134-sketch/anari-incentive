@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（222 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（41 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（229 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（43 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -53,14 +53,14 @@
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
 | LG-01 记录/阻断/审计 | ✅ | `legalGateBlockers`、`legal_gate_records`、门禁审计 |
-| LG-02 法人/法域/员工类型 | ❌ | `policy_versions.scope` 是可选 JSON，无必填 schema，也未在发布/门禁校验法人、工作地、员工类别和工时类型 |
+| LG-02 法人/法域/员工类型 | ✅ | 发布 schema 必填 legalEntity/jurisdictions/workLocations/employeeCategories/workTimeTypes；memory/PG 持久化并在 store 层拒绝缺失；rollback 继承源版本适用性；console 显示 |
 | LG-03 民主程序/员工代表 | ✅ | Representation、Consultation、legal gate ref、readiness 检查 |
 | LG-04 告知/签收 | ✅ | EmployeeNotice、Acknowledgement/Decline、覆盖率门禁；沉默不视为同意 |
-| LG-05 合同/薪酬方案变更 | 🟡 | 有 employment contract/notice；无个体同意/电子签署、合同变更版本和生效门禁 |
-| LG-06 最低工资/扣款 | 🟡 | 有最低工资校验；无扣款类型/20% 上限/顺序硬校验，税费与 ledger 扣款未分类 |
-| LG-07 PIP/不利决定 | ❌ | 没有 PIP、培训/调岗、adverse action 流程；系统目前也不会自动执行不利决定 |
+| LG-05 合同/薪酬方案变更 | 🟡 | 新增必填 consent signature、payPlanVersion 和 amendment history；amend 需同意证据且拒绝未来生效日期。仍未接入真正电子签服务，也不支持未来生效排期 |
+| LG-06 最低工资/扣款 | 🟡 | 本轮新增 contract 级 ledger 扣款上限（默认 20%）并在 payroll 行阻断；仍无扣款类型/顺序与税费分类 |
+| LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
 | LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；数据地图、跨境/供应商清单、自动删除未闭环 |
-| LG-09 AI 告知/解释 | 🟡 | 有 AI_USE notice 类型、prompt/score rationale；员工无法查看“AI 参与了哪一步、依据、如何申诉”的完整链路 |
+| LG-09 AI 告知/解释 | ✅ | 新增 `GET /me/ai-explanations` 和 console `My AI record`：员工可见 AI 使用、模型、notice/ack、草稿/决策、建议分数、人工复核与可申诉目标 |
 | LG-10 证据包 | ✅ | 本轮新增 `GET /api/v1/evidence-packages/:cycleId` 和 console 下载：策略/法律门/测试/证据/claim/decision/计算/确认/申诉/结算/账本/DQ/审批/审计/哈希校验 |
 
 ### 3. 激励设计护栏
@@ -78,7 +78,7 @@
 | INC-09 A 类池/成本核算 | ⚪ | 明确非目标，未实现 |
 | INC-10 Clawback | 🟡 | 冲销/Recovery 有；无书面同意、分期/困难豁免、最低工资与不追溯已签周期 |
 | INC-11 评价与发展/奖惩分离 | ✅ | EvaluationDecision、AttributionDecision、Ledger 分模型 |
-| INC-12 年度制度审查 | ❌ | 无调查、申诉统计、子群体影响、副作用年度报告 |
+| INC-12 年度制度审查 | 🟡 | 新增 `GET /reports/policy-review` 与 console Annual review：滚动 12 个月的制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审、DQ、DSAR/DPIA、harness 证据；员工信任调查与子群体影响仍未采集，不能视为完整签收 |
 | INC-13 Policy Pack 契约 | 🟡 | `pack.json` 有 policy/fixtures；缺 roles、workPackageTemplates、evidenceRequirements、simulationData、seed 的契约与校验 |
 
 ### 4. 贡献认定
@@ -101,7 +101,7 @@
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
 | AI-02 评测要求 | 🟡 | 本轮新增 harness 端点、holdout 阈值、AI-human ≤ human-human 检查；gold set 标注管理/季度刷新/canary/供应商变更回归仍无 |
-| AI-03 人工监督 | ❌/🟡 | 有决定人/备注和一次性 accept；无“人先独立判断”、review time、打开证据数、盲审/双人复核、rubber-stamp 指标 |
+| AI-03 人工监督 | 🟡 | 已强制先录独立分数/理由再揭示 AI，记录时长/证据打开/override 理由/盲审标记，并提供 >95% rubber-stamp 预警；仍无随机抽样强制与高风险双人复核 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；无 reader/actor 隔离的强制实现、egress allowlist、供应商 DPA/零留存/区域推理配置、红队记录 |
 
@@ -152,18 +152,22 @@
 1. **LG-10 证据包**：`GET /api/v1/evidence-packages/:cycleId`，聚合 policy/legal gate/tests/evidence/claims/decisions/calculations/confirmations/appeals/settlements/ledger/approvals/notices/privacy/audit，并返回 `packageHash` 与审计/账本校验；console 的 Cycles 页面可直接下载 JSON。
 2. **ATT-07 申诉 SLA/证据披露**：AppealCase 新增 `dueAt`、`evidenceRefs`；创建时默认 10 天 SLA；SLA skill 使用 dueAt；Exceptions 页面显示到期/逾期；迁移 `027_appeal_sla.sql`。
 3. **DATA-01/ATT-04**：operations coverage 新增按责任角色、订单类型的覆盖率，以及申诉总数/开放/逾期/关闭/申诉率；Policy 页面展示。
-4. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-5. 新增 3 个 API/单元测试和 1 个 PG 测试（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化），当前 **222 unit/API + 41 PG** 全绿。
+4. **LG-02 policy applicability**：Policy Version 发布必填法人/法域/工作地/员工类别/工时类型，memory 与 PostgreSQL 持久化，rollback 继承源版本；console 展示适用性。
+5. **LG-05 contract consent**：合同创建必填同意/电子签引用；新增 amendment 端点与 before/after 历史，拒绝未来生效排期；console 支持创建与修订。
+6. **LG-06 deduction cap**：EmploymentContract 新增 `deductionCapRate`（默认 0.2），PayrollLine 记录 cap 金额/是否通过；超过上限的行阻断 run；console 合同表单可配置。
+7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
+8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
+9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
+10. 新增 10 个 API/单元测试和 3 个 PG 测试（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、PG 合同同意/修订、PG adverse action），当前 **229 unit/API + 43 PG** 全绿。
 
 ## 仍建议按 P0 顺序补做
 
-1. **legal scope + contract consent**：给 Policy Version 增加必填 legalEntity/jurisdictions/employeeCategories/workTimeTypes，并在发布/门禁校验；补合同变更与个体同意。
-2. **扣款与不利决定**：扣款类型/上限/顺序；PIP/培训/调岗/adverse action 独立人工流程。
-3. **员工 AI 解释**：员工端展示 AI 参与点、证据、人工决定、申诉入口。
-4. **AI-03 人工监督**：独立判断先于 AI、review time/evidence opened/override、盲审样本、95% 采纳率审查。
+1. **future-dated consent/e-signature**：合同未来生效排期与外部电子签服务。
+2. **扣款与不利决定**：扣款类型/顺序与税费分类；PIP/培训/调岗/adverse action 独立人工流程。
+3. **AI-03 residual**：随机盲审抽样、高风险双人复核、审阅耗时/证据打开的前端分析面板。
 5. **DATA/ORG**：数据源 owner/SLA、同伴提名/经理证明、员工/经理耗时与信任调查。
 6. **SEC**：威胁模型、字段级 ABAC、break-glass、导出 DLP/水印、供应商与 egress 策略。
-7. **INC**：角色薪酬模板、平滑阈值/不追溯、机动池治理、clawback 条件、年度制度审查。
+7. **INC**：角色薪酬模板、平滑阈值/不追溯、机动池治理、clawback 条件；年度审查已有一致性报告，但员工信任调查和子群体影响仍缺。
 8. **DOM-01/MON-07**：字段级契约校验、WORM/双副本/外部锚定。
 
-这些缺口里，有些是产品/法务决策（LG-05/07/08、INC-12、ORG），不能只靠代码“补完”；在当前代码基线上，**只能说核心 P0 闭环已可运行，不能宣称完整 P0 已落地**。
+这些缺口里，有些是产品/法务决策（LG-05/07/08、INC-12 的调查口径、ORG），不能只靠代码“补完”；在当前代码基线上，**只能说核心 P0 闭环已可运行，不能宣称完整 P0 已落地**。

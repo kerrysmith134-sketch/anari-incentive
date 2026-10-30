@@ -74,7 +74,13 @@ export function calculatePayroll(input: {
       1_000_000n;
     const net = gross - deductions - tax - socialInsurance;
     const minimum = parseDecimal(contract.minimumMonthlyWage);
-    const passed = net >= minimum;
+    const deductionCapRate = parseDecimal(
+      contract.deductionCapRate || "0.2",
+    );
+    const deductionCapAmount = (gross * deductionCapRate) / 1_000_000n;
+    const deductionCapPassed = deductions <= deductionCapAmount;
+    const minimumWagePassed = net >= minimum;
+    const passed = minimumWagePassed && deductionCapPassed;
     if (!passed) blockedCount += 1;
     totalGross += gross;
     totalDeductions += deductions + tax + socialInsurance;
@@ -93,7 +99,10 @@ export function calculatePayroll(input: {
       socialInsuranceAmount: formatDecimal(socialInsurance),
       netAmount: formatDecimal(net),
       minimumMonthlyWage: contract.minimumMonthlyWage,
-      minimumWagePassed: passed,
+      minimumWagePassed,
+      deductionCapRate: formatDecimal(deductionCapRate),
+      deductionCapAmount: formatDecimal(deductionCapAmount),
+      deductionCapPassed,
       bankAccountRef: contract.bankAccountRef,
     });
   }
@@ -117,7 +126,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,bank_account_ref";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -132,6 +141,9 @@ export function payrollCsv(run: PayrollRun): string {
       line.netAmount,
       line.minimumMonthlyWage,
       line.minimumWagePassed,
+      line.deductionCapRate,
+      line.deductionCapAmount,
+      line.deductionCapPassed,
       line.bankAccountRef,
     ]
       .map(csvField)
@@ -182,6 +194,7 @@ export function payrollPayslipHtml(
 <tr><th>Social insurance</th><td>${escapeHtml(line.socialInsuranceAmount)}</td></tr>
 <tr><th>Net</th><td><strong>${escapeHtml(line.netAmount)}</strong></td></tr>
 <tr><th>Minimum wage</th><td>${escapeHtml(line.minimumMonthlyWage)} (${line.minimumWagePassed ? "passed" : "FAILED"})</td></tr>
+<tr><th>Deduction cap</th><td>${escapeHtml(line.deductionCapAmount)} at ${escapeHtml(line.deductionCapRate)} (${line.deductionCapPassed ? "passed" : "FAILED"})</td></tr>
 </table>
 </body></html>`;
 }

@@ -22,6 +22,11 @@ const DashboardPage = lazy(() =>
     default: module.DashboardPage,
   })),
 );
+const AdverseActionsPage = lazy(() =>
+  import("./pages/AdverseActionsPage.js").then((module) => ({
+    default: module.AdverseActionsPage,
+  })),
+);
 const AiPage = lazy(() =>
   import("./pages/AiPage.js").then((module) => ({
     default: module.AiPage,
@@ -60,6 +65,11 @@ const IntegrationsPage = lazy(() =>
 const PayrollPage = lazy(() =>
   import("./pages/PayrollPage.js").then((module) => ({
     default: module.PayrollPage,
+  })),
+);
+const MyAiPage = lazy(() =>
+  import("./pages/MyAiPage.js").then((module) => ({
+    default: module.MyAiPage,
   })),
 );
 const PeoplePage = lazy(() =>
@@ -163,12 +173,14 @@ export function App() {
                     <Route path="/payroll" element={<PayrollPage />} />
                     <Route path="/rewards" element={<RewardsPage />} />
                     <Route path="/settlements" element={<SettlementsPage />} />
+                    <Route path="/adverse-actions" element={<AdverseActionsPage />} />
                     <Route path="/ai" element={<AiPage />} />
                     <Route path="/policy" element={<PolicyPage />} />
                     <Route path="/exceptions" element={<ExceptionsPage />} />
                     <Route path="/audit" element={<AuditPage />} />
                     <Route path="/integrations" element={<IntegrationsPage />} />
                     <Route path="/people" element={<PeoplePage />} />
+                    <Route path="/my-ai" element={<MyAiPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                   </Routes>

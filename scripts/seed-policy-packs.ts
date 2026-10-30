@@ -24,6 +24,7 @@ interface PackManifest {
   policyVersionId?: string;
   policy?: string;
   corePolicyCode?: string;
+  applicability?: Record<string, unknown>;
 }
 
 const pool = new Pool({ connectionString: databaseUrl });
@@ -55,10 +56,11 @@ try {
       `INSERT INTO policy_versions
         (id, tenant_id, policy_code, version, scope, status, effective_from,
          rule_ast, rule_schema_version, content_hash, approved_by,
-         approved_at, published_at)
+         approved_at, published_at, applicability)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'policy-definition/v1',$9,$10,
                CASE WHEN $10::uuid IS NULL THEN NULL ELSE now() END,
-               CASE WHEN $10::uuid IS NULL THEN NULL ELSE now() END)
+               CASE WHEN $10::uuid IS NULL THEN NULL ELSE now() END,
+               $11::jsonb)
        ON CONFLICT DO NOTHING`,
       [
         manifest.policyVersionId,
@@ -71,6 +73,7 @@ try {
         JSON.stringify(policy),
         contentHash,
         approvedBy ?? null,
+        JSON.stringify(manifest.applicability ?? {}),
       ],
     );
       console.log(

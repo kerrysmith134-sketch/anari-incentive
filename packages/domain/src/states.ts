@@ -227,3 +227,24 @@ export function isTerminal<S extends string>(
 ): boolean {
   return map[state].length === 0;
 }
+
+export const adverseActionStatuses = [
+  "DRAFT",
+  "LEGAL_REVIEW",
+  "APPROVED",
+  "REJECTED",
+  "ACTIVE",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+export type AdverseActionStatus = (typeof adverseActionStatuses)[number];
+
+export const adverseActionTransitions: TransitionMap<AdverseActionStatus> = {
+  DRAFT: ["LEGAL_REVIEW", "CANCELLED"],
+  LEGAL_REVIEW: ["APPROVED", "REJECTED"],
+  APPROVED: ["ACTIVE", "CANCELLED"],
+  REJECTED: [],
+  ACTIVE: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};

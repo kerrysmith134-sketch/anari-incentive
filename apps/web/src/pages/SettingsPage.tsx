@@ -14,6 +14,7 @@ import {
   TextInput,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -158,6 +159,10 @@ export function SettingsPage() {
             mode the server ignores these headers and derives identity from the
             signed token.
           </InfoNotice>
+          <Link className="btn btn--secondary" to="/my-ai">
+            <Icon name="ai" size={16} />
+            <span>Open my AI record</span>
+          </Link>
         </Panel>
 
         <div className="stack">

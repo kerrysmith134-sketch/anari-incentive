@@ -166,6 +166,10 @@
           <label>批准人 ID</label>
           <input id="policyApprover" value="00000000-0000-4000-8000-000000000003" />
         </div>
+        <div>
+          <label>适用性（法人/法域/工作地/员工类别/工时类型 JSON）</label>
+          <textarea id="policyApplicability">{"legalEntity":"Anari Energy Equipment Co., Ltd.","jurisdictions":["CN"],"workLocations":["Shanghai"],"employeeCategories":["FULL_TIME"],"workTimeTypes":["FULL_TIME"]}</textarea>
+        </div>
         <div style="display:flex;align-items:flex-end">
           <button class="primary" id="publishPolicy" style="width:100%">发布政策</button>
         </div>
@@ -2137,9 +2141,11 @@ order-batch-2,80000</textarea>
         if (!Number.isInteger(version) || version < 1) {
           throw new Error("版本号必须是正整数");
         }
+        const applicability = JSON.parse($("policyApplicability").value);
         await api("/api/v1/policy-versions", {
           method: "POST",
           body: JSON.stringify({
+            applicability,
             policy: {
               code: $("policyCode").value.trim(),
               version,

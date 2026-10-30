@@ -17,6 +17,14 @@ const MEMBER = "00000000-0000-4000-8000-000000000002";
 const ADJUDICATOR = "00000000-0000-4000-8000-000000000003";
 const CYCLE = "00000000-0000-4000-8000-000000000020";
 
+const TEST_APPLICABILITY = {
+  legalEntity: "N-Perform Test Entity",
+  jurisdictions: ["CN"],
+  workLocations: ["Shanghai"],
+  employeeCategories: ["FULL_TIME"],
+  workTimeTypes: ["FULL_TIME"],
+};
+
 let app: FastifyInstance;
 let appStore: Store;
 
@@ -239,6 +247,7 @@ describe("authentication", () => {
         },
         effectiveFrom: "2026-11-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       },
     } as never);
     expect(publish.statusCode).toBe(403);
@@ -2393,6 +2402,7 @@ describe("payroll", () => {
         taxRate: "0.1",
         socialInsuranceRate: "0.05",
         bankAccountRef: "BANK-001",
+        consentSignatureRef: "ESIGN-001",
       },
     );
     expect(contract.status).toBe(201);
@@ -2408,6 +2418,7 @@ describe("payroll", () => {
         currency: "CNY",
         fixedMonthlySalary: "8000",
         minimumMonthlyWage: "2690",
+        consentSignatureRef: "ESIGN-001",
       },
     );
     expect(duplicate.status).toBe(409);
@@ -2500,6 +2511,7 @@ describe("payroll", () => {
       currency: "CNY",
       fixedMonthlySalary: "1000",
       minimumMonthlyWage: "2690",
+      consentSignatureRef: "ESIGN-002",
     });
     const blockedRun = await call("POST", "/api/v1/payroll-runs", {
       cycleId: CYCLE,
@@ -2520,6 +2532,166 @@ describe("payroll", () => {
       { approvedBy: OWNER },
     );
     expect(blockedApproval.status).toBe(409);
+  });
+
+  it("records contract amendments only with consent evidence", async () => {
+    const contract = await call("POST", "/api/v1/employment-contracts", {
+      personId: OWNER,
+      contractCode: "CT-AMEND-2026",
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "9000",
+      minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
+      consentSignatureRef: "ESIGN-AMEND-1",
+    });
+    expect(contract.status).toBe(201);
+    const contractId = contract.body.data.id as string;
+
+    const future = await call(
+      "POST",
+      `/api/v1/employment-contracts/${contractId}/amendments`,
+      {
+        fixedMonthlySalary: "10000",
+        minimumMonthlyWage: "2800",
+        taxRate: "0.12",
+        socialInsuranceRate: "0.06",
+        deductionCapRate: "0.2",
+        effectiveFrom: "2027-01-01T00:00:00Z",
+        consentSignatureRef: "ESIGN-AMEND-2",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(future.status).toBe(409);
+    expect(future.body.error.message).toContain(
+      "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+    );
+
+    const amended = await call(
+      "POST",
+      `/api/v1/employment-contracts/${contractId}/amendments`,
+      {
+        fixedMonthlySalary: "10000",
+        minimumMonthlyWage: "2800",
+        taxRate: "0.12",
+        socialInsuranceRate: "0.06",
+        deductionCapRate: "0.2",
+        effectiveFrom: "2026-01-01T00:00:00Z",
+        consentSignatureRef: "ESIGN-AMEND-2",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(amended.status).toBe(200);
+    expect(amended.body.data.fixedMonthlySalary).toBe("10000");
+    expect(amended.body.data.payPlanVersion).toBe(2);
+    expect(amended.body.data.version).toBe(2);
+    expect(amended.body.data.consentSignatureRef).toBe("ESIGN-AMEND-2");
+
+    const history = await call(
+      "GET",
+      `/api/v1/employment-contracts/${contractId}/amendments`,
+    );
+    expect(history.status).toBe(200);
+    expect(history.body.data).toHaveLength(1);
+    expect(history.body.data[0].beforeTerms.fixedMonthlySalary).toBe("9000");
+    expect(history.body.data[0].afterTerms.fixedMonthlySalary).toBe("10000");
+  });
+});
+
+describe("adverse action workflow", () => {
+  it("requires independent legal review and approval, and never self-approves", async () => {
+    const approver = await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/persons",
+      {
+        employeeCode: "ADV-4",
+        displayName: "Independent Approver",
+      },
+    );
+    expect(approver.status).toBe(201);
+    const approverId = approver.body.data.id as string;
+
+    const created = await call("POST", "/api/v1/adverse-actions", {
+      personId: MEMBER,
+      actionType: "PIP",
+      reason: "Repeated missed handovers",
+      performanceBasis: "Two consecutive review cycles and a documented coaching plan",
+      evidenceRefs: [],
+      requestedBy: ADJUDICATOR,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    const actionId = created.body.data.id as string;
+
+    const selfReview = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/legal-review`,
+      {
+        legalReviewerId: ADJUDICATOR,
+        legalReviewRef: "LEGAL-SELF",
+        decision: "APPROVE",
+      },
+    );
+    expect(selfReview.status).toBe(409);
+    expect(selfReview.body.error.message).toContain(
+      "ADVERSE_ACTION_SELF_REVIEW",
+    );
+
+    const reviewed = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/legal-review`,
+      {
+        legalReviewerId: OWNER,
+        legalReviewRef: "LEGAL-2026-01",
+        decision: "APPROVE",
+      },
+    );
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body.data.status).toBe("LEGAL_REVIEW");
+
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(selfApproval.status).toBe(409);
+    expect(selfApproval.body.error.message).toContain(
+      "ADVERSE_ACTION_SEPARATION_REQUIRED",
+    );
+
+    const approved = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/approve`,
+      { approvedBy: approverId },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+
+    const activated = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/activate`,
+      { effectiveFrom: "2026-10-01T00:00:00Z" },
+    );
+    expect(activated.status).toBe(200);
+    expect(activated.body.data.status).toBe("ACTIVE");
+
+    const completed = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/complete`,
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.data.status).toBe("COMPLETED");
+
+    const cancelAfterComplete = await call(
+      "POST",
+      `/api/v1/adverse-actions/${actionId}/cancel`,
+      { reason: "Too late" },
+    );
+    expect(cancelAfterComplete.status).toBe(409);
   });
 });
 
@@ -2958,11 +3130,45 @@ describe("AI suggestion logs and workflow runs", () => {
       harnessVersion: "ai-gate-v1",
       humanHumanAgreement: 1,
     });
+    const reviewEvidence = {
+      independentScores: proposal.body.data.scores as Record<string, number>,
+      reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+      evidenceOpened: 2,
+      blindReview: true,
+    };
+
+    const missingIndependent = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      {
+        decision: "ACCEPT",
+        decidedBy: ADJUDICATOR,
+        reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    );
+    expect(missingIndependent.status).toBe(400);
+
+    const overrideWithoutReason = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      {
+        decision: "ACCEPT",
+        decidedBy: ADJUDICATOR,
+        ...reviewEvidence,
+        independentScores: Object.fromEntries(
+          Object.keys(proposal.body.data.scores).map((key) => [key, 0]),
+        ),
+      },
+    );
+    expect(overrideWithoutReason.status).toBe(409);
+    expect(overrideWithoutReason.body.error.message).toContain(
+      "AI_OVERRIDE_REASON_REQUIRED",
+    );
 
     const selfDecision = await call(
       "POST",
       `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      { decision: "ACCEPT", decidedBy: OWNER },
+      { decision: "ACCEPT", decidedBy: OWNER, ...reviewEvidence },
     );
     expect(selfDecision.status).toBe(409);
     expect(selfDecision.body.error.message).toContain(
@@ -2976,18 +3182,41 @@ describe("AI suggestion logs and workflow runs", () => {
         decision: "ACCEPT",
         decidedBy: ADJUDICATOR,
         note: "Evidence supports the proposal",
+        ...reviewEvidence,
       },
     );
     expect(accepted.status).toBe(200);
+    expect(accepted.body.data.override).toBe(false);
+    expect(accepted.body.data.evidenceOpened).toBe(2);
+    expect(accepted.body.data.blindReview).toBe(true);
     expect(accepted.body.data.status).toBe("ACCEPTED");
     expect(accepted.body.data.decidedBy).toBe(ADJUDICATOR);
 
     const redecided = await call(
       "POST",
       `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      { decision: "REJECT", decidedBy: ADJUDICATOR },
+      { decision: "REJECT", decidedBy: ADJUDICATOR, ...reviewEvidence },
     );
     expect(redecided.status).toBe(409);
+
+    const explanation = await call(
+      "GET",
+      `/api/v1/me/ai-explanations?personId=${OWNER}`,
+    );
+    expect(explanation.status).toBe(200);
+    expect(explanation.body.data.personId).toBe(OWNER);
+    expect(explanation.body.data.aiUsed).toBe(true);
+    expect(explanation.body.data.aiScoreProposals).toHaveLength(1);
+    expect(explanation.body.data.explanation.autonomousDecision).toBe(false);
+    expect(explanation.body.data.explanation.humanReviewRequired).toBe(true);
+
+    const reviewMetrics = await call("GET", "/api/v1/ai-review-metrics");
+    expect(reviewMetrics.status).toBe(200);
+    expect(reviewMetrics.body.data.decided).toBe(1);
+    expect(reviewMetrics.body.data.accepted).toBe(1);
+    expect(reviewMetrics.body.data.overrideRate).toBe(0);
+    expect(reviewMetrics.body.data.blindReviewCount).toBe(1);
+    expect(reviewMetrics.body.data.rubberStampAlert).toBe(false);
 
     const acceptedList = await call(
       "GET",
@@ -3821,6 +4050,7 @@ describe("observability", () => {
         },
         effectiveFrom: "2026-11-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       },
     } as never);
     expect(denied.statusCode).toBe(409);
@@ -3849,6 +4079,7 @@ describe("observability", () => {
       },
       effectiveFrom: "2026-11-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(denied.status).toBe(409);
     expect(denied.body.error.message).toContain("APPROVAL_REQUIRED");
@@ -3867,11 +4098,13 @@ describe("observability", () => {
       policy: { ...base, version: 1 },
       effectiveFrom: "2027-01-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     await appStore.publishPolicy({
       policy: { ...base, version: 2, poolRate: "0.07" },
       effectiveFrom: "2027-02-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     await call(
       "POST",
@@ -3885,6 +4118,7 @@ describe("observability", () => {
       {
         effectiveFrom: "2027-03-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       },
     );
     expect(denied.status).toBe(409);
@@ -3920,6 +4154,7 @@ describe("observability", () => {
         newPolicyVersionId,
         effectiveFrom: "2027-03-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
         approvalRequestId: approval.body.data.id,
       },
     );
@@ -4341,6 +4576,7 @@ describe("vertical slice", () => {
       },
       effectiveFrom: "2026-12-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     const policyVersionId = published.body.data.policyVersionId as string;
     await call(
@@ -5576,6 +5812,23 @@ describe("vertical slice", () => {
     expect(simulation.body.data.deltaTotal).toBe("1000");
   });
 
+  it("rejects policy publication without legal applicability", async () => {
+    const missing = await call("POST", "/api/v1/policy-versions", {
+      policy: {
+        code: "APPLICABILITY_REQUIRED_POLICY",
+        version: 1,
+        currency: "CNY",
+        poolRate: "0.05",
+        poolCap: "1000",
+        rounding: "HALF_UP",
+        calculator: "SIMPLE_POOL",
+      },
+      effectiveFrom: "2026-11-01T00:00:00Z",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(missing.status).toBe(400);
+  });
+
   it("publishes a policy version and rejects duplicates", async () => {
     const policy = {
       code: "GENERIC_CONTRIBUTION_V1",
@@ -5616,6 +5869,7 @@ describe("vertical slice", () => {
       policyVersionId,
       effectiveFrom: "2026-11-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
       approvalRequestId: publishApproval.body.data.id,
     });
     expect(published.status).toBe(201);
@@ -5630,12 +5884,12 @@ describe("vertical slice", () => {
 
     const versions = await call("GET", "/api/v1/policy-versions");
     expect(versions.status).toBe(200);
-    expect(
-      versions.body.data.some(
-        (version: { policyVersionId: string }) =>
-          version.policyVersionId === published.body.data.policyVersionId,
-      ),
-    ).toBe(true);
+    const publishedVersion = versions.body.data.find(
+      (version: { policyVersionId: string }) =>
+        version.policyVersionId === published.body.data.policyVersionId,
+    );
+    expect(publishedVersion).toBeTruthy();
+    expect(publishedVersion.applicability).toEqual(TEST_APPLICABILITY);
 
     const diff = await call(
       "GET",
@@ -5681,6 +5935,7 @@ describe("vertical slice", () => {
       policy,
       effectiveFrom: "2026-12-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(duplicate.status).toBe(409);
     expect(duplicate.body.error.code).toBe("CONFLICT");
@@ -5699,6 +5954,7 @@ describe("vertical slice", () => {
       },
       effectiveFrom: "2027-01-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(published.status).toBe(201);
     const versions = (await call("GET", "/api/v1/policy-versions")).body
@@ -5733,12 +5989,14 @@ describe("vertical slice", () => {
       policy: { ...base, version: 1 },
       effectiveFrom: "2027-01-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(first.status).toBe(201);
     const second = await call("POST", "/api/v1/policy-versions", {
       policy: { ...base, version: 2, poolRate: "0.07" },
       effectiveFrom: "2027-02-01T00:00:00Z",
       approvedBy: ADJUDICATOR,
+      applicability: TEST_APPLICABILITY,
     });
     expect(second.status).toBe(201);
 
@@ -5768,6 +6026,7 @@ describe("vertical slice", () => {
       {
         effectiveFrom: "2027-03-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       },
     );
     expect(rollback.status).toBe(201);
@@ -5798,6 +6057,7 @@ describe("vertical slice", () => {
       {
         effectiveFrom: "2027-04-01T00:00:00Z",
         approvedBy: ADJUDICATOR,
+        applicability: TEST_APPLICABILITY,
       },
     );
     expect(missing.status).toBe(404);
@@ -6224,6 +6484,25 @@ describe("vertical slice", () => {
       overdue: 1,
       escalated: 0,
     });
+  });
+
+  it("reports annual policy review metrics and validates the window", async () => {
+    const report = await call("GET", "/api/v1/reports/policy-review");
+    expect(report.status).toBe(200);
+    expect(report.body.data.from).toBeTruthy();
+    expect(report.body.data.to).toBeTruthy();
+    expect(report.body.data.policies.versionsInScope).toBeGreaterThan(0);
+    expect(report.body.data.claims).toEqual({ total: 0, decided: 0 });
+    expect(report.body.data.aiReview.decided).toBe(0);
+    expect(report.body.data.trustSurvey.available).toBe(false);
+    expect(report.body.data.subgroupImpact.available).toBe(false);
+
+    const invalid = await call(
+      "GET",
+      "/api/v1/reports/policy-review?from=not-a-date",
+    );
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe("INVALID_REPORT_WINDOW");
   });
 
   it("runs a proactive agent scan across the tenant", async () => {

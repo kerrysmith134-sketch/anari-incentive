@@ -247,9 +247,17 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /bounties/:id/submit` | manager/finance, CLAIMED, caller is assignee | Sets SUBMITTED with a submission reference |
 | `POST /bounties/:id/accept` | manager/finance, SUBMITTED, reviewer ≠ assignee | Sets ACCEPTED with reviewer, timestamp and optional payment reference |
 | `POST /bounties/:id/cancel` | admin, not ACCEPTED/CANCELLED | Sets CANCELLED |
-| `POST /employment-contracts` | admin, person exists, unique contract code | Creates an ACTIVE contract with declared fixed salary and legal minimum |
+| `POST /adverse-actions` | manager, performance basis required | Opens a human-only PIP/adverse-action case; no automated evaluation path |
+| `POST /adverse-actions/:id/legal-review` | admin, requester ≠ legal reviewer | Records legal review; APPROVE moves to LEGAL_REVIEW, REJECT closes as REJECTED |
+| `POST /adverse-actions/:id/approve` | admin, approver ≠ requester and ≠ legal reviewer | APPROVED |
+| `POST /adverse-actions/:id/activate|complete|cancel` | admin, canonical state | ACTIVE / COMPLETED / CANCELLED with reason |
+| `GET /me/ai-explanations` | own person or privileged query | Employee-visible AI-use notices, drafts, decisions, advisory proposals and human-review explanation |
+| `GET /ai-review-metrics` | manager/finance | Review duration, evidence opened, override/acceptance rates, rubber-stamp alert |
+| `POST /employment-contracts` | admin, person exists, unique contract code, consent signature | Creates an ACTIVE contract with declared fixed salary, legal minimum, deduction cap and consent evidence |
+| `POST /employment-contracts/:id/amendments` | admin, ACTIVE, consent signature, non-future effective date | Updates the pay plan, increments the plan/contract version and writes before/after amendment history |
+| `GET /employment-contracts/:id/amendments` | manager/finance | Lists immutable contract amendment history |
 | `POST /payroll-runs` | manager/finance, preparer exists, valid period | Creates a DRAFT payroll run |
-| `POST /payroll-runs/:id/calculate` | manager/finance, DRAFT/CALCULATED/BLOCKED | Combines fixed salary, declared tax/social-insurance rates and LOCKED ledger entries; sub-minimum net pay marks the run BLOCKED |
+| `POST /payroll-runs/:id/calculate` | manager/finance, DRAFT/CALCULATED/BLOCKED | Combines fixed salary, declared tax/social-insurance rates and LOCKED ledger entries; sub-minimum net pay or ledger deductions above the contract cap (default 20% of gross) marks the run BLOCKED |
 | `POST /payroll-runs/:id/approve` | admin/finance, CALCULATED, preparer ≠ approver | Sets APPROVED |
 | `POST /payroll-runs/:id/pay` | finance, APPROVED | Sets PAID |
 | `POST /payroll-runs/:id/reverse` | finance/admin, APPROVED/PAID, reversedBy exists | Sets REVERSED with reason and timestamp |

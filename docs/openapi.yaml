@@ -2384,6 +2384,53 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/me/ai-explanations:
+    get:
+      tags: [Agent]
+      summary: Read my AI involvement and explanation record
+      description: >
+        Returns the authenticated person's AI-use notices and acknowledgement
+        state, evaluation drafts and decisions, advisory score proposals, model
+        names, human-review explanation and appealable decision ids. Employees
+        may only read their own record; privileged callers may pass personId.
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: AI explanation record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/ai-review-metrics:
+    get:
+      tags: [Agent]
+      summary: Human review oversight metrics for AI score proposals
+      description: >
+        Acceptance/override rates, blind-review counts, review duration,
+        evidence-opened count and a rubber-stamp alert when at least 20
+        proposals were decided with more than 95% acceptance.
+      responses:
+        "200":
+          description: Review metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/ai-score-proposals:
     get:
       tags: [Agent]
@@ -3240,6 +3287,194 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/adverse-actions:
+    get:
+      tags: [Payroll]
+      summary: List human-only PIP/adverse-action cases
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Open a human PIP/adverse-action case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdverseAction"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/adverse-actions/{id}:
+    get:
+      tags: [Payroll]
+      summary: Read a PIP/adverse-action case
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/adverse-actions/{id}/legal-review:
+    post:
+      tags: [Payroll]
+      summary: Record independent legal review
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewAdverseAction"
+      responses:
+        "200":
+          description: Reviewed case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/adverse-actions/{id}/approve:
+    post:
+      tags: [Payroll]
+      summary: Approve a reviewed PIP/adverse action
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveAdverseAction"
+      responses:
+        "200":
+          description: Approved case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/adverse-actions/{id}/activate:
+    post:
+      tags: [Payroll]
+      summary: Activate an approved case on its effective date
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateAdverseAction"
+      responses:
+        "200":
+          description: Active case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/adverse-actions/{id}/complete:
+    post:
+      tags: [Payroll]
+      summary: Complete an active case
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Completed case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/adverse-actions/{id}/cancel:
+    post:
+      tags: [Payroll]
+      summary: Cancel a PIP/adverse action with a reason
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelAdverseAction"
+      responses:
+        "200":
+          description: Cancelled case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/employment-contracts:
     get:
       tags: [Payroll]
@@ -3273,6 +3508,54 @@ paths:
       responses:
         "201":
           description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/employment-contracts/{id}/amendments:
+    get:
+      tags: [Payroll]
+      summary: List contract amendment history
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Amendments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Payroll]
+      summary: Amend an employment contract with employee consent evidence
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AmendEmploymentContract"
+      responses:
+        "200":
+          description: Amended contract
           content:
             application/json:
               schema:
@@ -4753,6 +5036,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/reports/policy-review:
+    get:
+      tags: [Reporting]
+      summary: Report rolling annual policy-review evidence
+      description: |
+        Aggregates published policy versions, notice acknowledgement coverage,
+        appeals (including SLA breaches and outcomes), evaluation drafts and
+        decisions, AI proposal acceptance/override/blind-review counts, data
+        quality, DSARs, DPIAs and harness evaluation runs for a date window.
+        `trustSurvey` and `subgroupImpact` are explicitly reported as
+        unavailable until those instruments are collected; this endpoint does
+        not itself constitute the annual policy review sign-off.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Annual policy-review report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7021,10 +7343,70 @@ components:
         paymentRef:
           type: string
 
+    CreateAdverseAction:
+      type: object
+      required: [personId, actionType, reason, performanceBasis, requestedBy]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        actionType:
+          type: string
+          enum:
+            [PIP, TRAINING, REASSIGNMENT, DEMOTION, PAY_REDUCTION, TERMINATION]
+        reason:
+          type: string
+          minLength: 3
+        performanceBasis:
+          type: string
+          minLength: 3
+        evidenceRefs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ReviewAdverseAction:
+      type: object
+      required: [legalReviewerId, legalReviewRef, decision]
+      properties:
+        legalReviewerId:
+          $ref: "#/components/schemas/Uuid"
+        legalReviewRef:
+          type: string
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        note:
+          type: string
+
+    ApproveAdverseAction:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ActivateAdverseAction:
+      type: object
+      required: [effectiveFrom]
+      properties:
+        effectiveFrom:
+          type: string
+          format: date-time
+
+    CancelAdverseAction:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+
     CreateEmploymentContract:
       type: object
       required:
-        [personId, contractCode, employmentType, startDate, workLocation, currency, fixedMonthlySalary, minimumMonthlyWage]
+        [personId, contractCode, employmentType, startDate, workLocation, currency, fixedMonthlySalary, minimumMonthlyWage, consentSignatureRef]
       properties:
         personId:
           $ref: "#/components/schemas/Uuid"
@@ -7053,8 +7435,40 @@ components:
           $ref: "#/components/schemas/Decimal"
         socialInsuranceRate:
           $ref: "#/components/schemas/Decimal"
+        deductionCapRate:
+          $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string
+        consentSignatureRef:
+          type: string
+        consentSignedAt:
+          type: string
+          format: date-time
+
+    AmendEmploymentContract:
+      type: object
+      required:
+        [fixedMonthlySalary, minimumMonthlyWage, taxRate, socialInsuranceRate, deductionCapRate, effectiveFrom, consentSignatureRef, approvedBy]
+      properties:
+        fixedMonthlySalary:
+          $ref: "#/components/schemas/Decimal"
+        minimumMonthlyWage:
+          $ref: "#/components/schemas/Decimal"
+        taxRate:
+          $ref: "#/components/schemas/Decimal"
+        socialInsuranceRate:
+          $ref: "#/components/schemas/Decimal"
+        deductionCapRate:
+          $ref: "#/components/schemas/Decimal"
+        bankAccountRef:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date-time
+        consentSignatureRef:
+          type: string
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CalculateCnIit:
       type: object
@@ -7810,7 +8224,7 @@ components:
 
     PublishPolicy:
       type: object
-      required: [policy, effectiveFrom, approvedBy]
+      required: [policy, effectiveFrom, approvedBy, applicability]
       properties:
         policy:
           $ref: "#/components/schemas/PolicyDefinition"
@@ -7824,10 +8238,40 @@ components:
         scope:
           type: object
           additionalProperties: true
+        applicability:
+          $ref: "#/components/schemas/PolicyApplicability"
         approvalRequestId:
           allOf:
             - $ref: "#/components/schemas/Uuid"
           description: When supplied, policyVersionId is required and the approved POLICY_PUBLISH request for that version is consumed.
+
+    PolicyApplicability:
+      type: object
+      required:
+        [legalEntity, jurisdictions, workLocations, employeeCategories, workTimeTypes]
+      properties:
+        legalEntity:
+          type: string
+        jurisdictions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        workLocations:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        employeeCategories:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        workTimeTypes:
+          type: array
+          minItems: 1
+          items:
+            type: string
 
     RollbackPolicy:
       type: object

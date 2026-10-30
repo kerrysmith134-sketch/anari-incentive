@@ -42,6 +42,7 @@ const NAV: NavGroup[] = [
       { to: "/ai", label: "AI assurance", icon: "ai" },
       { to: "/policy", label: "Policy", icon: "policy" },
       { to: "/exceptions", label: "Exceptions", icon: "alert-circle" },
+      { to: "/adverse-actions", label: "Adverse actions", icon: "user" },
       { to: "/audit", label: "Audit", icon: "shield" },
     ],
   },
@@ -66,9 +67,11 @@ const TITLES: Record<string, string> = {
   "/ai": "AI assurance",
   "/policy": "Policy",
   "/exceptions": "Exceptions",
+  "/adverse-actions": "Adverse actions",
   "/audit": "Audit",
   "/integrations": "Integrations",
   "/people": "People",
+  "/my-ai": "My AI record",
   "/settings": "Settings",
 };
 
