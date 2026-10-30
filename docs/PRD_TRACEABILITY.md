@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（249 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（57 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（250 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（57 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -99,7 +99,7 @@
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
 | AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；本轮新增 gold-set 注册（code/version/sample/holdout/label source/owner/next refresh）与 `requireRegisteredGoldSet` 强制校验；canary 与供应商变更回归仍未实现 |
-| AI-03 人工监督 | 🟡 | 已强制先录独立分数/理由再揭示 AI，记录时长/证据打开/override 理由/盲审标记，并提供 >95% rubber-stamp 预警；本轮新增盲审抽样（所有 override 必抽 + 可配置随机比例）、第二复核人独立评分、AGREE/DISAGREE 与一致率指标；仍是决策后抽样，不是决策前强制双人复核 |
+| AI-03 人工监督 | 🟡 | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、第二复核与一致率已有；本轮新增 `riskTier=HIGH/CRITICAL` 的决策前强制第二复核（独立评分，不一致则 409），audit sampling 与 pre-decision double review 都已落地；审阅耗时前端分析面板仍可继续增强 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；本轮 provider policy 覆盖 egress allowlist、DPA、零留存、区域推理并在开启时强制校验；reader/actor 强制隔离与红队记录仍未实现 |
 
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **249 unit/API + 57 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **250 unit/API + 57 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -203,6 +203,8 @@
 32. **ATT-09 reviewer consistency**：年度审查报告新增按 adjudicator 的一致性/结果/时长统计与重复决策/结果变化计数，Policy Annual review 展示；子群体影响仍因不采集受保护属性而不可用。
 
 33. **LG-05 future-dated amendments**：合同修订支持 ≤180 天未来生效；SCHEDULED 不改变当前条款，payroll 计算前自动应用到期修订，支持取消；迁移 `049_contract_amendment_scheduling.sql`。外部电子签仍缺。
+
+34. **AI-03 pre-decision high-risk review**：AI proposal 增加 `riskTier`；HIGH/CRITICAL 必须在 decide 时提供第二复核人独立分数/理由，第二结论不一致返回 `AI_SECOND_REVIEW_DISAGREES`，并记录复核字段；迁移 `050_ai_high_risk_review.sql`，console 复核弹窗支持填写。
 
 ## 仍建议按 P0 顺序补做
 

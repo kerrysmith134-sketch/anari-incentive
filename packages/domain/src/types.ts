@@ -1276,6 +1276,8 @@ export interface AiScoreProposal {
   evidenceRefs: string[];
   evidenceSnapshotHash: string;
   gateMetrics: Record<string, unknown>;
+  riskTier: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  secondReviewRequired: boolean;
   status: AiScoreProposalStatus;
   requestedBy?: UUID;
   decidedBy?: UUID;

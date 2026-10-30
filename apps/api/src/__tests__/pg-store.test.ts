@@ -2203,9 +2203,11 @@ describePg("PgStore vertical slice", () => {
       evidenceRefs: ["pg-score-e1"],
       evidenceSnapshotHash: "sha256:pg-score",
       gateMetrics: { kappa: 0.8 },
+      riskTier: "HIGH",
       requestedBy: OWNER,
     });
     expect(scoreProposal.status).toBe("PENDING");
+    expect(scoreProposal.secondReviewRequired).toBe(true);
     const decidedScore = await platform.decideAiScoreProposal({
       tenantId: DEMO_TENANT_ID,
       proposalId: scoreProposal.id,
@@ -2218,25 +2220,19 @@ describePg("PgStore vertical slice", () => {
       evidenceOpened: 1,
       override: false,
       blindReview: true,
-      auditSample: true,
+      auditSample: false,
+      secondReviewerPersonId: MEMBER,
+      secondIndependentScores: { QUALITY: 4.5 },
+      secondIndependentRationale: "Second reviewer agrees",
+      secondReviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
+      secondEvidenceOpened: 1,
+      secondReviewOutcome: "AGREE",
+      secondReviewAgreementRate: 1,
     });
     expect(decidedScore.status).toBe("ACCEPTED");
-    expect(decidedScore.auditSample).toBe(true);
-    const auditedScore = await platform.recordAiScoreAuditReview({
-      tenantId: DEMO_TENANT_ID,
-      proposalId: scoreProposal.id,
-      reviewerPersonId: MEMBER,
-      scores: { QUALITY: 4.5 },
-      rationale: "Second reviewer agrees",
-      reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
-      reviewDurationSeconds: 30,
-      evidenceOpened: 1,
-      outcome: "AGREE",
-      agreementRate: 1,
-    });
-    expect(auditedScore.secondReviewerPersonId).toBe(MEMBER);
-    expect(auditedScore.secondReviewOutcome).toBe("AGREE");
-    expect(auditedScore.secondReviewAgreementRate).toBe(1);
+    expect(decidedScore.auditSample).toBe(false);
+    expect(decidedScore.secondReviewerPersonId).toBe(MEMBER);
+    expect(decidedScore.secondReviewOutcome).toBe("AGREE");
     expect(
       (
         await platform.listAiScoreProposals(DEMO_TENANT_ID, {

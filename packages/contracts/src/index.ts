@@ -854,6 +854,7 @@ export const createAiScoreProposalSchema = z.object({
   modelPromptId: uuidSchema.optional(),
   dimensions: z.array(z.string().min(1)).min(1),
   evidence: z.array(scoringEvidenceSchema).min(1),
+  riskTier: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
   requestedBy: uuidSchema.optional(),
 });
 export type CreateAiScoreProposalBody = z.infer<
@@ -870,6 +871,11 @@ export const decideAiScoreProposalSchema = z.object({
   evidenceOpened: z.number().int().min(0).default(0),
   overrideReason: z.string().optional(),
   blindReview: z.boolean().default(false),
+  secondReviewerPersonId: uuidSchema.optional(),
+  secondIndependentScores: z.record(z.number().min(0).max(5)).optional(),
+  secondIndependentRationale: z.string().optional(),
+  secondReviewStartedAt: z.string().datetime().optional(),
+  secondEvidenceOpened: z.number().int().min(0).default(0),
 });
 export type DecideAiScoreProposalBody = z.infer<
   typeof decideAiScoreProposalSchema

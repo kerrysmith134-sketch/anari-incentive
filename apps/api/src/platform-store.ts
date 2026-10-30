@@ -823,6 +823,7 @@ export interface PlatformStore {
     evidenceRefs: string[];
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
+    riskTier?: AiScoreProposal["riskTier"];
     requestedBy?: string;
   }): Promise<AiScoreProposal>;
   listAiScoreProposals(
@@ -852,6 +853,13 @@ export interface PlatformStore {
     overrideReason?: string;
     blindReview: boolean;
     auditSample: boolean;
+    secondReviewerPersonId?: string;
+    secondIndependentScores?: Record<string, number>;
+    secondIndependentRationale?: string;
+    secondReviewStartedAt?: string;
+    secondEvidenceOpened?: number;
+    secondReviewOutcome?: "AGREE" | "DISAGREE";
+    secondReviewAgreementRate?: number;
   }): Promise<AiScoreProposal>;
   recordAiScoreAuditReview(input: {
     tenantId: string;
@@ -4649,6 +4657,7 @@ export class MemoryPlatformStore implements PlatformStore {
     evidenceRefs: string[];
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
+    riskTier?: AiScoreProposal["riskTier"];
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
     if (!this.tenants.has(input.tenantId)) {
@@ -4676,6 +4685,9 @@ export class MemoryPlatformStore implements PlatformStore {
       evidenceRefs: [...input.evidenceRefs],
       evidenceSnapshotHash: input.evidenceSnapshotHash,
       gateMetrics: structuredClone(input.gateMetrics),
+      riskTier: input.riskTier ?? "MEDIUM",
+      secondReviewRequired:
+        input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
       status: "PENDING",
       requestedBy: input.requestedBy,
       auditSample: false,
@@ -4731,6 +4743,13 @@ export class MemoryPlatformStore implements PlatformStore {
     overrideReason?: string;
     blindReview: boolean;
     auditSample: boolean;
+    secondReviewerPersonId?: string;
+    secondIndependentScores?: Record<string, number>;
+    secondIndependentRationale?: string;
+    secondReviewStartedAt?: string;
+    secondEvidenceOpened?: number;
+    secondReviewOutcome?: "AGREE" | "DISAGREE";
+    secondReviewAgreementRate?: number;
   }): Promise<AiScoreProposal> {
     const proposal = await this.getAiScoreProposal(
       input.tenantId,
@@ -4759,6 +4778,18 @@ export class MemoryPlatformStore implements PlatformStore {
     proposal.override = input.override;
     proposal.overrideReason = input.overrideReason;
     proposal.blindReview = input.blindReview;
+    if (input.secondReviewerPersonId) {
+      proposal.secondReviewerPersonId = input.secondReviewerPersonId;
+      proposal.secondIndependentScores = input.secondIndependentScores;
+      proposal.secondIndependentRationale =
+        input.secondIndependentRationale;
+      proposal.secondReviewStartedAt = input.secondReviewStartedAt;
+      proposal.secondReviewCompletedAt = now();
+      proposal.secondReviewEvidenceOpened = input.secondEvidenceOpened ?? 0;
+      proposal.secondReviewOutcome = input.secondReviewOutcome;
+      proposal.secondReviewAgreementRate =
+        input.secondReviewAgreementRate;
+    }
     proposal.auditSample = input.auditSample;
     proposal.auditSampledAt = input.auditSample ? now() : undefined;
     return proposal;
@@ -10618,6 +10649,7 @@ export class PgPlatformStore implements PlatformStore {
     evidenceRefs: string[];
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
+    riskTier?: AiScoreProposal["riskTier"];
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
     await this.assertTenant(input.tenantId);
@@ -10627,10 +10659,10 @@ export class PgPlatformStore implements PlatformStore {
           (id, tenant_id, cycle_id, person_id, evaluation_run_id,
            model_prompt_id, model_provider, model_name, prompt_version,
            dimensions, scores, overall_score, confidence, rationale,
-           evidence_refs, evidence_snapshot_hash, gate_metrics, status,
-           requested_by)
+           evidence_refs, evidence_snapshot_hash, gate_metrics, risk_tier,
+           second_review_required, status, requested_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-                 'PENDING',$18)
+                 $18,$19,'PENDING',$20)
          RETURNING *`,
         [
           randomUUID(),
@@ -10650,6 +10682,8 @@ export class PgPlatformStore implements PlatformStore {
           JSON.stringify(input.evidenceRefs),
           input.evidenceSnapshotHash,
           JSON.stringify(input.gateMetrics),
+          input.riskTier ?? "MEDIUM",
+          input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
           input.requestedBy ?? null,
         ],
       );
@@ -10720,6 +10754,13 @@ export class PgPlatformStore implements PlatformStore {
     overrideReason?: string;
     blindReview: boolean;
     auditSample: boolean;
+    secondReviewerPersonId?: string;
+    secondIndependentScores?: Record<string, number>;
+    secondIndependentRationale?: string;
+    secondReviewStartedAt?: string;
+    secondEvidenceOpened?: number;
+    secondReviewOutcome?: "AGREE" | "DISAGREE";
+    secondReviewAgreementRate?: number;
   }): Promise<AiScoreProposal> {
     return this.transaction(async (client) => {
       const { rows } = await client.query(
@@ -10747,7 +10788,16 @@ export class PgPlatformStore implements PlatformStore {
                 review_started_at=$8, review_duration_seconds=$9,
                 evidence_opened=$10, override=$11, override_reason=$12,
                 blind_review=$13, audit_sample=$14,
-                audit_sampled_at=CASE WHEN $14 THEN now() ELSE audit_sampled_at END
+                audit_sampled_at=CASE WHEN $14 THEN now() ELSE audit_sampled_at END,
+                second_reviewer_person_id=$15::uuid,
+                second_independent_scores=$16::jsonb,
+                second_independent_rationale=$17,
+                second_review_started_at=$18,
+                second_review_evidence_opened=$19,
+                second_review_outcome=$20,
+                second_review_agreement_rate=$21,
+                second_review_completed_at=CASE WHEN $15::uuid IS NOT NULL
+                  THEN now() ELSE second_review_completed_at END
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -10765,6 +10815,15 @@ export class PgPlatformStore implements PlatformStore {
           input.overrideReason ?? null,
           input.blindReview,
           input.auditSample,
+          input.secondReviewerPersonId ?? null,
+          input.secondIndependentScores
+            ? JSON.stringify(input.secondIndependentScores)
+            : null,
+          input.secondIndependentRationale ?? null,
+          input.secondReviewStartedAt ?? null,
+          input.secondEvidenceOpened ?? null,
+          input.secondReviewOutcome ?? null,
+          input.secondReviewAgreementRate ?? null,
         ],
       );
       return this.mapAiScoreProposal(updated[0]);
@@ -13804,6 +13863,8 @@ export class PgPlatformStore implements PlatformStore {
       evidenceRefs: row.evidence_refs ?? [],
       evidenceSnapshotHash: row.evidence_snapshot_hash,
       gateMetrics: row.gate_metrics ?? {},
+      riskTier: row.risk_tier ?? "MEDIUM",
+      secondReviewRequired: Boolean(row.second_review_required),
       status: row.status,
       requestedBy: row.requested_by ?? undefined,
       decidedBy: row.decided_by ?? undefined,

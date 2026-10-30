@@ -8679,6 +8679,10 @@ components:
           minItems: 1
           items:
             $ref: "#/components/schemas/ScoringEvidence"
+        riskTier:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+          default: MEDIUM
         requestedBy:
           $ref: "#/components/schemas/Uuid"
 
@@ -8707,7 +8711,7 @@ components:
 
     DecideAiScoreProposal:
       type: object
-      required: [decision, decidedBy]
+      required: [decision, decidedBy, independentScores, reviewStartedAt]
       properties:
         decision:
           type: string
@@ -8716,6 +8720,39 @@ components:
           $ref: "#/components/schemas/Uuid"
         note:
           type: string
+        independentScores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 5
+        independentRationale:
+          type: string
+        reviewStartedAt:
+          type: string
+          format: date-time
+        evidenceOpened:
+          type: integer
+          minimum: 0
+          default: 0
+        overrideReason:
+          type: string
+        blindReview:
+          type: boolean
+          default: false
+        secondReviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        secondIndependentScores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 5
+        secondIndependentRationale:
+          type: string
+        secondReviewStartedAt:
+          type: string
+          format: date-time
 
     RunModelEvaluation:
       type: object

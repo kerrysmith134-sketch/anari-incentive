@@ -5142,6 +5142,7 @@ export function buildApp(
       evidenceRefs: scored.citations,
       evidenceSnapshotHash: sha256(body.evidence),
       gateMetrics: evaluation.metrics,
+      riskTier: body.riskTier ?? "MEDIUM",
       requestedBy: body.requestedBy,
     });
     countEvent("ai_score_proposal_created");
@@ -5368,6 +5369,79 @@ export function buildApp(
       0,
       Math.round((Date.now() - reviewStartedMs) / 1000),
     );
+    let secondReviewerPersonId: string | undefined;
+    let secondIndependentScores: Record<string, number> | undefined;
+    let secondIndependentRationale: string | undefined;
+    let secondReviewStartedAt: string | undefined;
+    let secondEvidenceOpened: number | undefined;
+    let secondReviewOutcome: "AGREE" | "DISAGREE" | undefined;
+    let secondReviewAgreementRate: number | undefined;
+    if (existing.secondReviewRequired) {
+      if (
+        !body.secondReviewerPersonId ||
+        !body.secondIndependentScores ||
+        !body.secondIndependentRationale?.trim() ||
+        !body.secondReviewStartedAt
+      ) {
+        throw new ConflictError(
+          "AI_SECOND_REVIEW_REQUIRED: high-risk proposals need a second independent review",
+        );
+      }
+      if (!persons.some((person) => person.id === body.secondReviewerPersonId)) {
+        throw new NotFoundError(
+          `Person ${body.secondReviewerPersonId} not found`,
+        );
+      }
+      if (
+        body.secondReviewerPersonId === body.decidedBy ||
+        body.secondReviewerPersonId === existing.requestedBy
+      ) {
+        throw new ConflictError(
+          "AI_SECOND_REVIEWER_CONFLICT: second reviewer must differ from requester and first reviewer",
+        );
+      }
+      for (const dimension of existing.dimensions) {
+        if (
+          typeof body.secondIndependentScores[dimension] !== "number"
+        ) {
+          throw new ConflictError(
+            `AI_SECOND_REVIEW_SCORES_REQUIRED: missing ${dimension}`,
+          );
+        }
+      }
+      const secondStartedMs = Date.parse(body.secondReviewStartedAt);
+      if (
+        !Number.isFinite(secondStartedMs) ||
+        secondStartedMs > Date.now()
+      ) {
+        throw new ConflictError("AI_SECOND_REVIEW_STARTED_AT_INVALID");
+      }
+      const matched = existing.dimensions.filter(
+        (dimension) =>
+          Math.abs(
+            (body.secondIndependentScores?.[dimension] ?? 0) -
+              (existing.scores[dimension] ?? 0),
+          ) <= 0.05,
+      ).length;
+      const secondDecision =
+        matched === existing.dimensions.length ? "ACCEPTED" : "REJECTED";
+      if (
+        secondDecision !==
+        (body.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED")
+      ) {
+        throw new ConflictError(
+          "AI_SECOND_REVIEW_DISAGREES: the second reviewer reached a different decision",
+        );
+      }
+      secondReviewerPersonId = body.secondReviewerPersonId;
+      secondIndependentScores = body.secondIndependentScores;
+      secondIndependentRationale = body.secondIndependentRationale;
+      secondReviewStartedAt = body.secondReviewStartedAt;
+      secondEvidenceOpened = body.secondEvidenceOpened ?? 0;
+      secondReviewOutcome = "AGREE";
+      secondReviewAgreementRate =
+        matched / existing.dimensions.length;
+    }
     const tenant = await platformStore.getTenant(tenantId);
     const configuredRate = Number(
       (tenant.settings as { aiAuditSampleRate?: unknown })
@@ -5376,7 +5450,9 @@ export function buildApp(
     const auditSampleRate = Number.isFinite(configuredRate)
       ? Math.min(1, Math.max(0, configuredRate))
       : 0.1;
-    const auditSample = override || Math.random() < auditSampleRate;
+    const auditSample = existing.secondReviewRequired
+      ? false
+      : override || Math.random() < auditSampleRate;
     const proposal = await platformStore.decideAiScoreProposal({
       tenantId,
       proposalId: idOf(request),
@@ -5392,6 +5468,13 @@ export function buildApp(
       overrideReason: body.overrideReason,
       blindReview: body.blindReview ?? false,
       auditSample,
+      secondReviewerPersonId,
+      secondIndependentScores,
+      secondIndependentRationale,
+      secondReviewStartedAt,
+      secondEvidenceOpened,
+      secondReviewOutcome,
+      secondReviewAgreementRate,
     });
     countEvent(
       proposal.status === "ACCEPTED"

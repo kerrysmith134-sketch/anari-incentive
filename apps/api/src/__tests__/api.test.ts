@@ -6810,6 +6810,72 @@ describe("vertical slice", () => {
     expect(retired.body.data.status).toBe("RETIRED");
   });
 
+  it("requires a second independent review before deciding high-risk AI proposals", async () => {
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "high-risk-set",
+    );
+    const createBody = {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.body.data.id,
+      dimensions: ["QUALITY"],
+      evidence: [
+        {
+          id: "high-risk-e1",
+          type: "DELIVERY",
+          text: "Signed acceptance",
+          dimension: "QUALITY",
+          quality: "VALID" as const,
+        },
+      ],
+      riskTier: "HIGH",
+      requestedBy: OWNER,
+    };
+    const proposal = await call(
+      "POST",
+      "/api/v1/ai-score-proposals",
+      createBody,
+    );
+    expect(proposal.status).toBe(201);
+    expect(proposal.body.data.riskTier).toBe("HIGH");
+    expect(proposal.body.data.secondReviewRequired).toBe(true);
+    const baseDecision = {
+      decision: "ACCEPT",
+      decidedBy: ADJUDICATOR,
+      independentScores: proposal.body.data.scores,
+      reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+    };
+    const missingSecond = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      baseDecision,
+    );
+    expect(missingSecond.status).toBe(409);
+    expect(missingSecond.body.error.message).toContain(
+      "AI_SECOND_REVIEW_REQUIRED",
+    );
+    const deciding = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      {
+        ...baseDecision,
+        secondReviewerPersonId: MEMBER,
+        secondIndependentScores: proposal.body.data.scores,
+        secondIndependentRationale: "Second reviewer independently agrees",
+        secondReviewStartedAt: new Date(
+          Date.now() - 30_000,
+        ).toISOString(),
+      },
+    );
+    expect(deciding.status).toBe(200);
+    expect(deciding.body.data.secondReviewOutcome).toBe("AGREE");
+    expect(deciding.body.data.secondReviewerPersonId).toBe(MEMBER);
+    expect(deciding.body.data.auditSample).toBe(false);
+  });
+
   it("enforces model-provider policies when the tenant requires them", async () => {
     await call(
       "POST",

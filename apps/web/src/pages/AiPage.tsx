@@ -80,6 +80,12 @@ export function AiPage() {
   const [evidenceOpened, setEvidenceOpened] = useState(0);
   const [blindReview, setBlindReview] = useState(true);
   const [overrideReason, setOverrideReason] = useState("");
+  const [secondReviewer, setSecondReviewer] = useState("");
+  const [secondScores, setSecondScores] = useState<Record<string, string>>(
+    {},
+  );
+  const [secondRationale, setSecondRationale] = useState("");
+  const [secondStartedAt, setSecondStartedAt] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [promptDetail, setPromptDetail] = useState<ModelPrompt | null>(null);
   const [evaluationDetail, setEvaluationDetail] =
@@ -207,6 +213,21 @@ export function AiPage() {
       ),
     );
     setIndependentRationale(proposal.independentRationale ?? "");
+    setSecondReviewer(proposal.secondReviewerPersonId ?? "");
+    setSecondScores(
+      Object.fromEntries(
+        proposal.dimensions.map((dimension) => [
+          dimension,
+          proposal.secondIndependentScores?.[dimension] !== undefined
+            ? String(proposal.secondIndependentScores[dimension])
+            : "",
+        ]),
+      ),
+    );
+    setSecondRationale(proposal.secondIndependentRationale ?? "");
+    setSecondStartedAt(
+      proposal.secondReviewStartedAt ?? new Date().toISOString(),
+    );
     setEvidenceOpened(proposal.evidenceOpened ?? 0);
     setBlindReview(proposal.blindReview ?? true);
     setOverrideReason(proposal.overrideReason ?? "");
@@ -322,6 +343,25 @@ export function AiPage() {
       setActionError("Explain why your independent score differs from the AI proposal.");
       return;
     }
+    if (selected.secondReviewRequired) {
+      if (!secondReviewer) {
+        setActionError("Select a second reviewer for this high-risk proposal.");
+        return;
+      }
+      if (secondRationale.trim().length < 3) {
+        setActionError("A second-review rationale is required.");
+        return;
+      }
+      for (const dimension of selected.dimensions) {
+        const value = Number(secondScores[dimension]);
+        if (!Number.isFinite(value) || value < 0 || value > 5) {
+          setActionError(
+            `Enter a second-review score for ${titleCase(dimension)}.`,
+          );
+          return;
+        }
+      }
+    }
     setSubmitting(true);
     setActionError(null);
     try {
@@ -342,6 +382,19 @@ export function AiPage() {
           evidenceOpened,
           overrideReason: overrideReason.trim() || undefined,
           blindReview,
+          ...(selected.secondReviewRequired
+            ? {
+                secondReviewerPersonId: secondReviewer,
+                secondIndependentScores: Object.fromEntries(
+                  selected.dimensions.map((dimension) => [
+                    dimension,
+                    Number(secondScores[dimension]),
+                  ]),
+                ),
+                secondIndependentRationale: secondRationale.trim(),
+                secondReviewStartedAt: secondStartedAt,
+              }
+            : {}),
         },
       });
       toast.success(
@@ -1289,6 +1342,65 @@ export function AiPage() {
                     </InfoNotice>
                   )}
                 </div>
+
+                {selected.secondReviewRequired ? (
+                  <div className="detail-section">
+                    <div className="detail-section__title">
+                      High-risk second review
+                    </div>
+                    <InfoNotice tone="warning">
+                      This proposal is marked {titleCase(selected.riskTier)} risk.
+                      A second reviewer must independently score every dimension
+                      and agree with the decision before it can be recorded.
+                    </InfoNotice>
+                    <FormField
+                      label="Second reviewer"
+                      htmlFor="ai-second-reviewer"
+                    >
+                      <PersonSelect
+                        id="ai-second-reviewer"
+                        value={secondReviewer}
+                        onChange={setSecondReviewer}
+                      />
+                    </FormField>
+                    <div className="form-grid">
+                      {selected.dimensions.map((dimension) => (
+                        <FormField
+                          key={dimension}
+                          label={`${titleCase(dimension)} score (0–5)`}
+                          htmlFor={`second-${dimension}`}
+                        >
+                          <TextInput
+                            id={`second-${dimension}`}
+                            type="number"
+                            min="0"
+                            max="5"
+                            step="0.01"
+                            value={secondScores[dimension] ?? ""}
+                            onChange={(event) =>
+                              setSecondScores((current) => ({
+                                ...current,
+                                [dimension]: event.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                      ))}
+                    </div>
+                    <FormField
+                      label="Second-review rationale"
+                      htmlFor="second-rationale"
+                    >
+                      <Textarea
+                        id="second-rationale"
+                        value={secondRationale}
+                        onChange={(event) =>
+                          setSecondRationale(event.target.value)
+                        }
+                      />
+                    </FormField>
+                  </div>
+                ) : null}
 
                 {selected.status === "PENDING" ? (
                   <div className="detail-section">
