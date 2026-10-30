@@ -30,6 +30,7 @@ export interface ScoreEvidenceResult {
   citations: string[];
   rationale: string;
   evidenceCount: number;
+  insufficientEvidence: string[];
 }
 
 const QUALITY_WEIGHT: Record<ScoringEvidenceQuality, number> = {
@@ -64,6 +65,7 @@ export function scoreEvidence(
 
   const scores: Record<string, number> = {};
   const rationale: string[] = [];
+  const insufficientEvidence: string[] = [];
   for (const dimension of input.dimensions) {
     const relevant = input.evidence.filter(
       (item) => !item.dimension || item.dimension === dimension,
@@ -73,6 +75,7 @@ export function scoreEvidence(
         sum + (QUALITY_WEIGHT[item.quality ?? "UNVERIFIED"] ?? 0),
       0,
     );
+    if (weighted === 0) insufficientEvidence.push(dimension);
     const coverage = Math.min(1, weighted / 3);
     scores[dimension] = round(scale * coverage);
     rationale.push(
@@ -100,5 +103,6 @@ export function scoreEvidence(
     citations: input.evidence.map((item) => item.id),
     rationale: rationale.join("; "),
     evidenceCount: input.evidence.length,
+    insufficientEvidence,
   };
 }

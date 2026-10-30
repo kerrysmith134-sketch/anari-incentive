@@ -5010,6 +5010,17 @@ export function buildApp(
       },
       gate,
     );
+    const tenant = await platformStore.getTenant(tenantId);
+    const evidenceRule =
+      (tenant.settings as { evidenceDefaultRule?: unknown })
+        .evidenceDefaultRule === "ZERO"
+        ? "ZERO"
+        : "BLOCK";
+    if (scored.insufficientEvidence.length > 0 && evidenceRule === "BLOCK") {
+      throw new ConflictError(
+        `AI_EVIDENCE_INSUFFICIENT:${scored.insufficientEvidence.join(",")}; add evidence or set evidenceDefaultRule=ZERO`,
+      );
+    }
     const proposal = await platformStore.createAiScoreProposal({
       tenantId,
       cycleId: body.cycleId,

@@ -30,6 +30,26 @@ describe("AI numeric scoring gate", () => {
     expect(result.confidence).toBeGreaterThan(0);
   });
 
+  it("flags dimensions without usable evidence instead of silently zeroing", () => {
+    const result = scoreEvidence(
+      {
+        dimensions: ["QUALITY", "COLLABORATION"],
+        evidence: [
+          {
+            id: "e1",
+            type: "DELIVERY",
+            text: "Signed",
+            dimension: "QUALITY",
+            quality: "VALID",
+          },
+        ],
+      },
+      passedGate,
+    );
+    expect(result.insufficientEvidence).toEqual(["COLLABORATION"]);
+    expect(result.scores.COLLABORATION).toBe(0);
+  });
+
   it("refuses to score when the gate failed", () => {
     expect(() =>
       scoreEvidence(

@@ -6705,6 +6705,45 @@ describe("vertical slice", () => {
     expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
+  it("blocks AI scoring for dimensions without evidence unless zeroing is configured", async () => {
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "evidence-rule-set",
+    );
+    const evidence = [
+      {
+        id: "evidence-rule-1",
+        type: "DELIVERY",
+        text: "Signed acceptance",
+        dimension: "QUALITY",
+        quality: "VALID",
+      },
+    ];
+    const body = {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.body.data.id,
+      dimensions: ["QUALITY", "COLLABORATION"],
+      evidence,
+      requestedBy: OWNER,
+    };
+    const blocked = await call("POST", "/api/v1/ai-score-proposals", body);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain(
+      "AI_EVIDENCE_INSUFFICIENT",
+    );
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { evidenceDefaultRule: "ZERO" },
+    );
+    const allowed = await call("POST", "/api/v1/ai-score-proposals", body);
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.data.scores.COLLABORATION).toBe(0);
+  });
+
   it("requires a registered gold set when evaluation enforcement is enabled", async () => {
     await call(
       "POST",
