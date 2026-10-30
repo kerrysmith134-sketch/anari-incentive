@@ -7605,6 +7605,8 @@ components:
           $ref: "#/components/schemas/Decimal"
         deductionCapRate:
           $ref: "#/components/schemas/Decimal"
+        variableShareCapRate:
+          $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string
         consentSignatureRef:
@@ -7616,7 +7618,7 @@ components:
     AmendEmploymentContract:
       type: object
       required:
-        [fixedMonthlySalary, minimumMonthlyWage, taxRate, socialInsuranceRate, deductionCapRate, effectiveFrom, consentSignatureRef, approvedBy]
+        [fixedMonthlySalary, minimumMonthlyWage, taxRate, socialInsuranceRate, deductionCapRate, variableShareCapRate, effectiveFrom, consentSignatureRef, approvedBy]
       properties:
         fixedMonthlySalary:
           $ref: "#/components/schemas/Decimal"
@@ -7627,6 +7629,8 @@ components:
         socialInsuranceRate:
           $ref: "#/components/schemas/Decimal"
         deductionCapRate:
+          $ref: "#/components/schemas/Decimal"
+        variableShareCapRate:
           $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string

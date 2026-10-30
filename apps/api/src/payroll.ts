@@ -79,8 +79,16 @@ export function calculatePayroll(input: {
     );
     const deductionCapAmount = (gross * deductionCapRate) / 1_000_000n;
     const deductionCapPassed = deductions <= deductionCapAmount;
+    const variableShareRate = gross > 0n ? (incentive * 1_000_000n) / gross : 0n;
+    const variableShareCapRate = parseDecimal(
+      contract.variableShareCapRate || "1",
+    );
+    const variableShareCapAmount =
+      (gross * variableShareCapRate) / 1_000_000n;
+    const variableSharePassed = incentive <= variableShareCapAmount;
     const minimumWagePassed = net >= minimum;
-    const passed = minimumWagePassed && deductionCapPassed;
+    const passed =
+      minimumWagePassed && deductionCapPassed && variableSharePassed;
     if (!passed) blockedCount += 1;
     totalGross += gross;
     totalDeductions += deductions + tax + socialInsurance;
@@ -103,6 +111,10 @@ export function calculatePayroll(input: {
       deductionCapRate: formatDecimal(deductionCapRate),
       deductionCapAmount: formatDecimal(deductionCapAmount),
       deductionCapPassed,
+      variableShareRate: formatDecimal(variableShareRate),
+      variableShareCapRate: formatDecimal(variableShareCapRate),
+      variableShareCapAmount: formatDecimal(variableShareCapAmount),
+      variableSharePassed,
       bankAccountRef: contract.bankAccountRef,
     });
   }
@@ -126,7 +138,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,bank_account_ref";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -144,6 +156,10 @@ export function payrollCsv(run: PayrollRun): string {
       line.deductionCapRate,
       line.deductionCapAmount,
       line.deductionCapPassed,
+      line.variableShareRate,
+      line.variableShareCapRate,
+      line.variableShareCapAmount,
+      line.variableSharePassed,
       line.bankAccountRef,
     ]
       .map(csvField)
@@ -195,6 +211,7 @@ export function payrollPayslipHtml(
 <tr><th>Net</th><td><strong>${escapeHtml(line.netAmount)}</strong></td></tr>
 <tr><th>Minimum wage</th><td>${escapeHtml(line.minimumMonthlyWage)} (${line.minimumWagePassed ? "passed" : "FAILED"})</td></tr>
 <tr><th>Deduction cap</th><td>${escapeHtml(line.deductionCapAmount)} at ${escapeHtml(line.deductionCapRate)} (${line.deductionCapPassed ? "passed" : "FAILED"})</td></tr>
+<tr><th>Variable share</th><td>${escapeHtml(line.variableShareRate)} at cap ${escapeHtml(line.variableShareCapRate)} (${line.variableSharePassed ? "passed" : "FAILED"})</td></tr>
 </table>
 </body></html>`;
 }

@@ -19,6 +19,7 @@ const contract: EmploymentContract = {
   taxRate: "0.1",
   socialInsuranceRate: "0.05",
   deductionCapRate: "0.2",
+  variableShareCapRate: "1",
   bankAccountRef: "BANK-1",
   payPlanVersion: 1,
   consentSignatureRef: "ESIGN-CAP-1",
@@ -58,6 +59,37 @@ function calculate(negativeAmount: string) {
     periodEnd: "2026-10-31T23:59:59.000Z",
   });
 }
+
+describe("payroll variable-share cap", () => {
+  it("blocks a line when incentive exceeds the configured variable-share cap", () => {
+    const result = calculatePayroll({
+      contracts: [{ ...contract, variableShareCapRate: "0.2" }],
+      ledger: [ledger("5000")],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.grossAmount).toBe("13000");
+    expect(result.lines[0]?.variableShareCapAmount).toBe("2600");
+    expect(result.lines[0]?.variableSharePassed).toBe(false);
+    expect(result.blockedCount).toBe(1);
+  });
+
+  it("allows variable pay within the cap", () => {
+    const result = calculatePayroll({
+      contracts: [{ ...contract, variableShareCapRate: "0.5" }],
+      ledger: [ledger("5000")],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.variableShareCapAmount).toBe("6500");
+    expect(result.lines[0]?.variableSharePassed).toBe(true);
+    expect(result.blockedCount).toBe(0);
+  });
+});
 
 describe("payroll deduction cap", () => {
   it("blocks a line when ledger deductions exceed the contract cap", () => {

@@ -817,6 +817,7 @@ export interface PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -836,6 +837,7 @@ export interface PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -4180,6 +4182,7 @@ export class MemoryPlatformStore implements PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -4229,6 +4232,12 @@ export class MemoryPlatformStore implements PlatformStore {
       throw new ConflictError("CONTRACT_DEDUCTION_CAP_OUT_OF_RANGE");
     }
     if (
+      parseDecimal(input.variableShareCapRate) < 0n ||
+      parseDecimal(input.variableShareCapRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_VARIABLE_SHARE_CAP_OUT_OF_RANGE");
+    }
+    if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
     ) {
@@ -4258,6 +4267,9 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionCapRate: formatDecimal(
         parseDecimal(input.deductionCapRate),
       ),
+      variableShareCapRate: formatDecimal(
+        parseDecimal(input.variableShareCapRate),
+      ),
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
       consentSignatureRef: input.consentSignatureRef,
@@ -4279,6 +4291,7 @@ export class MemoryPlatformStore implements PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -4313,6 +4326,7 @@ export class MemoryPlatformStore implements PlatformStore {
       ["taxRate", input.taxRate],
       ["socialInsuranceRate", input.socialInsuranceRate],
       ["deductionCapRate", input.deductionCapRate],
+      ["variableShareCapRate", input.variableShareCapRate],
     ] as const) {
       const parsed = parseDecimal(value);
       if (parsed < 0n || parsed > 1_000_000n) {
@@ -4325,6 +4339,7 @@ export class MemoryPlatformStore implements PlatformStore {
       taxRate: contract.taxRate,
       socialInsuranceRate: contract.socialInsuranceRate,
       deductionCapRate: contract.deductionCapRate,
+      variableShareCapRate: contract.variableShareCapRate,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -4341,6 +4356,9 @@ export class MemoryPlatformStore implements PlatformStore {
     contract.deductionCapRate = formatDecimal(
       parseDecimal(input.deductionCapRate),
     );
+    contract.variableShareCapRate = formatDecimal(
+      parseDecimal(input.variableShareCapRate),
+    );
     contract.bankAccountRef = input.bankAccountRef;
     contract.payPlanVersion += 1;
     contract.consentSignatureRef = input.consentSignatureRef;
@@ -4353,6 +4371,7 @@ export class MemoryPlatformStore implements PlatformStore {
       taxRate: contract.taxRate,
       socialInsuranceRate: contract.socialInsuranceRate,
       deductionCapRate: contract.deductionCapRate,
+      variableShareCapRate: contract.variableShareCapRate,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -9011,6 +9030,7 @@ export class PgPlatformStore implements PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -9042,6 +9062,12 @@ export class PgPlatformStore implements PlatformStore {
       throw new ConflictError("CONTRACT_DEDUCTION_CAP_OUT_OF_RANGE");
     }
     if (
+      parseDecimal(input.variableShareCapRate) < 0n ||
+      parseDecimal(input.variableShareCapRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_VARIABLE_SHARE_CAP_OUT_OF_RANGE");
+    }
+    if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
     ) {
@@ -9053,10 +9079,10 @@ export class PgPlatformStore implements PlatformStore {
           (id, tenant_id, person_id, contract_code, employment_type,
            start_date, end_date, work_location, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
-           social_insurance_rate, deduction_cap_rate, bank_account_ref,
-           pay_plan_version, consent_signature_ref, consent_signed_at,
-           status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1,$16,$17,'ACTIVE',1)
+           social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
+           bank_account_ref, pay_plan_version, consent_signature_ref,
+           consent_signed_at, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,1,$17,$18,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -9073,6 +9099,7 @@ export class PgPlatformStore implements PlatformStore {
           input.taxRate,
           input.socialInsuranceRate,
           input.deductionCapRate,
+          input.variableShareCapRate,
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
           input.consentSignedAt ?? new Date().toISOString(),
@@ -9100,6 +9127,7 @@ export class PgPlatformStore implements PlatformStore {
     taxRate: string;
     socialInsuranceRate: string;
     deductionCapRate: string;
+    variableShareCapRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -9123,6 +9151,7 @@ export class PgPlatformStore implements PlatformStore {
       ["taxRate", input.taxRate],
       ["socialInsuranceRate", input.socialInsuranceRate],
       ["deductionCapRate", input.deductionCapRate],
+      ["variableShareCapRate", input.variableShareCapRate],
     ] as const) {
       const parsed = parseDecimal(value);
       if (parsed < 0n || parsed > 1_000_000n) {
@@ -9147,6 +9176,9 @@ export class PgPlatformStore implements PlatformStore {
         taxRate: decimalText(String(row.tax_rate)),
         socialInsuranceRate: decimalText(String(row.social_insurance_rate)),
         deductionCapRate: decimalText(String(row.deduction_cap_rate)),
+        variableShareCapRate: decimalText(
+          String(row.variable_share_cap_rate),
+        ),
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
@@ -9155,9 +9187,9 @@ export class PgPlatformStore implements PlatformStore {
         `UPDATE employment_contracts
             SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
                 tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
-                bank_account_ref=$8, pay_plan_version=$9,
-                consent_signature_ref=$10, consent_signed_at=$11,
-                version=version+1, updated_at=now()
+                variable_share_cap_rate=$8, bank_account_ref=$9,
+                pay_plan_version=$10, consent_signature_ref=$11,
+                consent_signed_at=$12, version=version+1, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -9168,6 +9200,7 @@ export class PgPlatformStore implements PlatformStore {
           input.taxRate,
           input.socialInsuranceRate,
           input.deductionCapRate,
+          input.variableShareCapRate,
           input.bankAccountRef ?? null,
           payPlanVersion,
           input.consentSignatureRef,
@@ -9187,6 +9220,9 @@ export class PgPlatformStore implements PlatformStore {
         ),
         deductionCapRate: decimalText(
           String(updated[0]?.deduction_cap_rate),
+        ),
+        variableShareCapRate: decimalText(
+          String(updated[0]?.variable_share_cap_rate),
         ),
         bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
         payPlanVersion,
@@ -9608,8 +9644,10 @@ export class PgPlatformStore implements PlatformStore {
              fixed_amount, incentive_amount, gross_amount, deduction_amount,
              tax_amount, social_insurance_amount, net_amount,
              minimum_monthly_wage, minimum_wage_passed, deduction_cap_rate,
-             deduction_cap_amount, deduction_cap_passed, bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+             deduction_cap_amount, deduction_cap_passed, variable_share_rate,
+             variable_share_cap_rate, variable_share_cap_amount,
+             variable_share_passed, bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
           [
             randomUUID(),
             input.tenantId,
@@ -9629,6 +9667,10 @@ export class PgPlatformStore implements PlatformStore {
             line.deductionCapRate,
             line.deductionCapAmount,
             line.deductionCapPassed,
+            line.variableShareRate,
+            line.variableShareCapRate,
+            line.variableShareCapAmount,
+            line.variableSharePassed,
             line.bankAccountRef ?? null,
           ],
         );
@@ -10859,6 +10901,8 @@ export class PgPlatformStore implements PlatformStore {
         decimalText(String(row.social_insurance_rate)) ?? "0",
       deductionCapRate:
         decimalText(String(row.deduction_cap_rate)) ?? "0.2",
+      variableShareCapRate:
+        decimalText(String(row.variable_share_cap_rate)) ?? "1",
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
       consentSignatureRef: row.consent_signature_ref,
@@ -10912,6 +10956,13 @@ export class PgPlatformStore implements PlatformStore {
       deductionCapAmount:
         decimalText(String(row.deduction_cap_amount)) ?? "0",
       deductionCapPassed: row.deduction_cap_passed,
+      variableShareRate:
+        decimalText(String(row.variable_share_rate)) ?? "0",
+      variableShareCapRate:
+        decimalText(String(row.variable_share_cap_rate)) ?? "1",
+      variableShareCapAmount:
+        decimalText(String(row.variable_share_cap_amount)) ?? "0",
+      variableSharePassed: row.variable_share_passed,
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

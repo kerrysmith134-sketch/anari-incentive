@@ -686,6 +686,13 @@ function RunsTab({
                                     ? "Within deduction cap"
                                     : "Deduction cap exceeded"}
                                 </Badge>
+                                <Badge
+                                  tone={line.variableSharePassed ? "success" : "danger"}
+                                >
+                                  {line.variableSharePassed
+                                    ? "Variable share within cap"
+                                    : "Variable share exceeded"}
+                                </Badge>
                               </div>
                             </td>
                             <td className="cell-actions">
@@ -952,6 +959,7 @@ function ContractsTab({
   const [taxRatePercent, setTaxRatePercent] = useState("0");
   const [socialRatePercent, setSocialRatePercent] = useState("0");
   const [deductionCapPercent, setDeductionCapPercent] = useState("20");
+  const [variableCapPercent, setVariableCapPercent] = useState("100");
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -964,6 +972,7 @@ function ContractsTab({
   const [amendTax, setAmendTax] = useState("0");
   const [amendSocial, setAmendSocial] = useState("0");
   const [amendCap, setAmendCap] = useState("20");
+  const [amendVariableCap, setAmendVariableCap] = useState("100");
   const [amendEffective, setAmendEffective] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -984,6 +993,7 @@ function ContractsTab({
     setTaxRatePercent("0");
     setSocialRatePercent("0");
     setDeductionCapPercent("20");
+    setVariableCapPercent("100");
     setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
@@ -1010,6 +1020,7 @@ function ContractsTab({
           taxRate: String(toNumber(taxRatePercent) / 100),
           socialInsuranceRate: String(toNumber(socialRatePercent) / 100),
           deductionCapRate: String(toNumber(deductionCapPercent) / 100),
+          variableShareCapRate: String(toNumber(variableCapPercent) / 100),
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
         },
@@ -1033,6 +1044,7 @@ function ContractsTab({
     setAmendTax(String(toNumber(contract.taxRate) * 100));
     setAmendSocial(String(toNumber(contract.socialInsuranceRate) * 100));
     setAmendCap(String(toNumber(contract.deductionCapRate) * 100));
+    setAmendVariableCap(String(toNumber(contract.variableShareCapRate) * 100));
     setAmendEffective(new Date().toISOString().slice(0, 10));
     setAmendConsent("");
     setAmendApprover(session.personId);
@@ -1053,6 +1065,7 @@ function ContractsTab({
           taxRate: String(toNumber(amendTax) / 100),
           socialInsuranceRate: String(toNumber(amendSocial) / 100),
           deductionCapRate: String(toNumber(amendCap) / 100),
+          variableShareCapRate: String(toNumber(amendVariableCap) / 100),
           effectiveFrom: toIsoDate(amendEffective),
           consentSignatureRef: amendConsent.trim(),
           approvedBy: amendApprover,
@@ -1328,6 +1341,21 @@ function ContractsTab({
               onChange={(event) => setDeductionCapPercent(event.target.value)}
             />
           </FormField>
+          <FormField
+            label="Variable-share cap (% of gross)"
+            htmlFor="contract-variable-cap"
+            hint="Incentive above this share of gross pay blocks the payroll line. Default 100%."
+          >
+            <TextInput
+              id="contract-variable-cap"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={variableCapPercent}
+              onChange={(event) => setVariableCapPercent(event.target.value)}
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
@@ -1437,6 +1465,17 @@ function ContractsTab({
               step="0.01"
               value={amendCap}
               onChange={(event) => setAmendCap(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Variable-share cap (%)" htmlFor="amend-variable-cap">
+            <TextInput
+              id="amend-variable-cap"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={amendVariableCap}
+              onChange={(event) => setAmendVariableCap(event.target.value)}
             />
           </FormField>
           <FormField label="Effective date" htmlFor="amend-effective">

@@ -63,6 +63,10 @@ export interface PayrollLine {
   deductionCapRate: DecimalString;
   deductionCapAmount: DecimalString;
   deductionCapPassed: boolean;
+  variableShareRate: DecimalString;
+  variableShareCapRate: DecimalString;
+  variableShareCapAmount: DecimalString;
+  variableSharePassed: boolean;
   bankAccountRef?: string;
   createdAt: string;
 }
@@ -112,6 +116,7 @@ export interface EmploymentContract {
   taxRate: DecimalString;
   socialInsuranceRate: DecimalString;
   deductionCapRate: DecimalString;
+  variableShareCapRate: DecimalString;
   bankAccountRef?: string;
   payPlanVersion: number;
   consentSignatureRef: string;
