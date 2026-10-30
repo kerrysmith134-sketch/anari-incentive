@@ -350,6 +350,21 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface PilotEnrollment {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  pilotCode: string;
+  scope: string;
+  consentSignatureRef: string;
+  consentSignedAt: string;
+  status: "ACTIVE" | "WITHDRAWN";
+  withdrawnAt?: string;
+  withdrawalReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ManagerTrainingRecord {
   id: UUID;
   tenantId: UUID;

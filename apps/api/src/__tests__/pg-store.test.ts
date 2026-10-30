@@ -3180,6 +3180,39 @@ describePg("PgStore vertical slice", () => {
     ).toContain(calibration.id);
   });
 
+  it("persists voluntary pilot enrollment and withdrawal", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const enrollment = await platform.createPilotEnrollment({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      pilotCode: "PG-PILOT",
+      scope: "PG pilot cohort",
+      consentSignatureRef: "PG-PILOT-ESIGN",
+    });
+    expect(enrollment.status).toBe("ACTIVE");
+    await expect(
+      platform.createPilotEnrollment({
+        tenantId: DEMO_TENANT_ID,
+        personId: OWNER,
+        pilotCode: "PG-PILOT",
+        scope: "PG pilot cohort",
+        consentSignatureRef: "PG-PILOT-ESIGN",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const withdrawn = await platform.withdrawPilotEnrollment({
+      tenantId: DEMO_TENANT_ID,
+      enrollmentId: enrollment.id,
+      reason: "Voluntary withdrawal",
+    });
+    expect(withdrawn.status).toBe("WITHDRAWN");
+    expect(withdrawn.withdrawalReason).toBe("Voluntary withdrawal");
+    expect(
+      (await platform.listPilotEnrollments(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(enrollment.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

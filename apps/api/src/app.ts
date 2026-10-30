@@ -29,6 +29,8 @@ import {
   createFairnessCommitmentSchema,
   createManagerTrainingRecordSchema,
   createCalibrationSessionSchema,
+  createPilotEnrollmentSchema,
+  withdrawPilotEnrollmentSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -2954,6 +2956,67 @@ export function buildApp(
     requireRoles(request, "manager", "finance");
     return data(
       await platformStore.listCalibrationSessions(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/pilot-enrollments", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createPilotEnrollmentSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createPilotEnrollment({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          pilotCode: body.pilotCode,
+          scope: body.scope,
+          consentSignatureRef: body.consentSignatureRef,
+          consentSignedAt: body.consentSignedAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/pilot-enrollments", async (request) => {
+    const person = personFilter(request);
+    return data(
+      await platformStore.listPilotEnrollments(
+        tenantOf(request),
+        person,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/pilot-enrollments/:id/withdraw", async (request) => {
+    const body = parse(withdrawPilotEnrollmentSchema, request.body);
+    const own = ownPersonId(request);
+    const tenantId = tenantOf(request);
+    const enrollment = (
+      await platformStore.listPilotEnrollments(tenantId)
+    ).find((candidate) => candidate.id === idOf(request));
+    if (!enrollment) {
+      throw new NotFoundError(`PilotEnrollment ${idOf(request)} not found`);
+    }
+    const requester = own ?? body.personId;
+    if (!requester) {
+      throw new ForbiddenError(
+        "participant identity is required to withdraw",
+      );
+    }
+    if (
+      enrollment.personId !== requester &&
+      !isPrivileged(request)
+    ) {
+      throw new ForbiddenError("cannot withdraw another person's enrollment");
+    }
+    return data(
+      await platformStore.withdrawPilotEnrollment({
+        tenantId,
+        enrollmentId: idOf(request),
+        reason: body.reason,
+      }),
       request,
     );
   });

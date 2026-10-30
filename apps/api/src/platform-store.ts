@@ -53,6 +53,7 @@ import type {
   PlatformUser,
   PayrollLine,
   PayrollRun,
+  PilotEnrollment,
   PolicyAcknowledgement,
   PolicyConsultation,
   PolicyNotice,
@@ -345,6 +346,23 @@ export interface PlatformStore {
     notes?: string;
   }): Promise<CalibrationSession>;
   listCalibrationSessions(tenantId: string): Promise<CalibrationSession[]>;
+  createPilotEnrollment(input: {
+    tenantId: string;
+    personId: string;
+    pilotCode: string;
+    scope: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
+  }): Promise<PilotEnrollment>;
+  listPilotEnrollments(
+    tenantId: string,
+    personId?: string,
+  ): Promise<PilotEnrollment[]>;
+  withdrawPilotEnrollment(input: {
+    tenantId: string;
+    enrollmentId: string;
+    reason?: string;
+  }): Promise<PilotEnrollment>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1211,6 +1229,7 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     CalibrationSession
   >();
+  private readonly pilotEnrollments = new Map<string, PilotEnrollment>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -2547,6 +2566,87 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.calibrationSessions.values()]
       .filter((session) => session.tenantId === tenantId)
       .sort((a, b) => b.heldAt.localeCompare(a.heldAt));
+  }
+
+  async createPilotEnrollment(input: {
+    tenantId: string;
+    personId: string;
+    pilotCode: string;
+    scope: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
+  }): Promise<PilotEnrollment> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("PILOT_CONSENT_SIGNATURE_REQUIRED");
+    }
+    if (
+      [...this.pilotEnrollments.values()].some(
+        (enrollment) =>
+          enrollment.tenantId === input.tenantId &&
+          enrollment.personId === input.personId &&
+          enrollment.pilotCode === input.pilotCode &&
+          enrollment.status === "ACTIVE",
+      )
+    ) {
+      throw new ConflictError(
+        "PILOT_ENROLLMENT_EXISTS: this person is already enrolled",
+      );
+    }
+    const timestamp = now();
+    const enrollment: PilotEnrollment = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      pilotCode: input.pilotCode,
+      scope: input.scope,
+      consentSignatureRef: input.consentSignatureRef,
+      consentSignedAt: input.consentSignedAt ?? timestamp,
+      status: "ACTIVE",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.pilotEnrollments.set(enrollment.id, enrollment);
+    return enrollment;
+  }
+
+  async listPilotEnrollments(
+    tenantId: string,
+    personId?: string,
+  ): Promise<PilotEnrollment[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.pilotEnrollments.values()]
+      .filter(
+        (enrollment) =>
+          enrollment.tenantId === tenantId &&
+          (!personId || enrollment.personId === personId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async withdrawPilotEnrollment(input: {
+    tenantId: string;
+    enrollmentId: string;
+    reason?: string;
+  }): Promise<PilotEnrollment> {
+    const enrollment = this.pilotEnrollments.get(input.enrollmentId);
+    if (!enrollment || enrollment.tenantId !== input.tenantId) {
+      notFound("PilotEnrollment", input.enrollmentId);
+    }
+    if (enrollment.status === "WITHDRAWN") {
+      throw new ConflictError(
+        `pilot enrollment ${enrollment.id} is already withdrawn`,
+      );
+    }
+    enrollment.status = "WITHDRAWN";
+    enrollment.withdrawnAt = now();
+    enrollment.withdrawalReason = input.reason;
+    enrollment.updatedAt = enrollment.withdrawnAt;
+    return enrollment;
   }
 
   async createApprovalRequest(input: {
@@ -7384,6 +7484,95 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapCalibrationSession(row));
   }
 
+  async createPilotEnrollment(input: {
+    tenantId: string;
+    personId: string;
+    pilotCode: string;
+    scope: string;
+    consentSignatureRef: string;
+    consentSignedAt?: string;
+  }): Promise<PilotEnrollment> {
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("PILOT_CONSENT_SIGNATURE_REQUIRED");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO pilot_enrollments
+          (id, tenant_id, person_id, pilot_code, scope,
+           consent_signature_ref, consent_signed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()))
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.pilotCode,
+          input.scope,
+          input.consentSignatureRef,
+          input.consentSignedAt ?? null,
+        ],
+      );
+      return this.mapPilotEnrollment(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          "PILOT_ENROLLMENT_EXISTS: this person is already enrolled",
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or person ${input.personId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listPilotEnrollments(
+    tenantId: string,
+    personId?: string,
+  ): Promise<PilotEnrollment[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM pilot_enrollments WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapPilotEnrollment(row));
+  }
+
+  async withdrawPilotEnrollment(input: {
+    tenantId: string;
+    enrollmentId: string;
+    reason?: string;
+  }): Promise<PilotEnrollment> {
+    const { rows } = await this.pool.query(
+      `UPDATE pilot_enrollments
+          SET status='WITHDRAWN', withdrawn_at=now(),
+              withdrawal_reason=$3, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.enrollmentId, input.reason ?? null],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM pilot_enrollments WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.enrollmentId],
+      );
+      if (!current.rows[0]) {
+        notFound("PilotEnrollment", input.enrollmentId);
+      }
+      throw new ConflictError(
+        `pilot enrollment ${input.enrollmentId} is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapPilotEnrollment(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -11583,6 +11772,24 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapPilotEnrollment(row: QueryResultRow): PilotEnrollment {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      pilotCode: row.pilot_code,
+      scope: row.scope,
+      consentSignatureRef: row.consent_signature_ref,
+      consentSignedAt:
+        iso(row.consent_signed_at) ?? new Date().toISOString(),
+      status: row.status,
+      withdrawnAt: iso(row.withdrawn_at),
+      withdrawalReason: row.withdrawal_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

@@ -562,6 +562,90 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/pilot-enrollments:
+    get:
+      tags: [Compliance]
+      summary: List voluntary pilot enrollments
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Pilot enrollments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Enroll a volunteer in a pilot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePilotEnrollment"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/pilot-enrollments/{id}/withdraw:
+    post:
+      tags: [Compliance]
+      summary: Withdraw from a pilot
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                personId:
+                  $ref: "#/components/schemas/Uuid"
+                reason:
+                  type: string
+                  minLength: 3
+      responses:
+        "200":
+          description: Withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/manager-training-records:
     get:
       tags: [Compliance]
@@ -7061,6 +7145,22 @@ components:
           items:
             type: string
         dueAt:
+          type: string
+          format: date-time
+
+    CreatePilotEnrollment:
+      type: object
+      required: [personId, pilotCode, scope, consentSignatureRef]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        pilotCode:
+          type: string
+        scope:
+          type: string
+        consentSignatureRef:
+          type: string
+        consentSignedAt:
           type: string
           format: date-time
 

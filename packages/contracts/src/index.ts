@@ -92,6 +92,25 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createPilotEnrollmentSchema = z.object({
+  personId: uuidSchema,
+  pilotCode: z.string().min(1),
+  scope: z.string().min(1),
+  consentSignatureRef: z.string().min(1),
+  consentSignedAt: z.string().datetime().optional(),
+});
+export type CreatePilotEnrollmentBody = z.infer<
+  typeof createPilotEnrollmentSchema
+>;
+
+export const withdrawPilotEnrollmentSchema = z.object({
+  personId: uuidSchema.optional(),
+  reason: z.string().min(3).optional(),
+});
+export type WithdrawPilotEnrollmentBody = z.infer<
+  typeof withdrawPilotEnrollmentSchema
+>;
+
 export const createManagerTrainingRecordSchema = z.object({
   personId: uuidSchema,
   trainingCode: z.string().min(1),

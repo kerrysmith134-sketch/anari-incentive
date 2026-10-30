@@ -72,6 +72,7 @@ export function SettingsPage() {
   const calibrations = useApiQuery<CalibrationSession[]>(
     "/api/v1/calibration-sessions",
   );
+  const pilots = useApiQuery<PilotEnrollment[]>("/api/v1/pilot-enrollments");
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -183,6 +184,13 @@ export function SettingsPage() {
     [],
   );
   const [calibrationNotes, setCalibrationNotes] = useState("");
+  const [pilotOpen, setPilotOpen] = useState(false);
+  const [pilotSaving, setPilotSaving] = useState(false);
+  const [pilotError, setPilotError] = useState<string | null>(null);
+  const [pilotPerson, setPilotPerson] = useState(session.personId);
+  const [pilotCode, setPilotCode] = useState("PILOT-2026");
+  const [pilotScope, setPilotScope] = useState("");
+  const [pilotConsent, setPilotConsent] = useState("");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -430,6 +438,65 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openPilotForm() {
+    setPilotPerson(session.personId);
+    setPilotCode("PILOT-2026");
+    setPilotScope("");
+    setPilotConsent("");
+    setPilotError(null);
+    setPilotOpen(true);
+  }
+
+  async function savePilot(event: FormEvent) {
+    event.preventDefault();
+    setPilotSaving(true);
+    setPilotError(null);
+    try {
+      await api("/api/v1/pilot-enrollments", {
+        method: "POST",
+        body: {
+          personId: pilotPerson,
+          pilotCode: pilotCode.trim(),
+          scope: pilotScope.trim(),
+          consentSignatureRef: pilotConsent.trim(),
+        },
+      });
+      toast.success("Pilot enrollment recorded");
+      setPilotOpen(false);
+      pilots.reload();
+    } catch (error) {
+      setPilotError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the enrollment.",
+      );
+    } finally {
+      setPilotSaving(false);
+    }
+  }
+
+  async function withdrawPilot(enrollment: PilotEnrollment) {
+    setPilotSaving(true);
+    try {
+      await api(`/api/v1/pilot-enrollments/${enrollment.id}/withdraw`, {
+        method: "POST",
+        body: {
+          personId: enrollment.personId,
+          reason: "Voluntary withdrawal from the console",
+        },
+      });
+      toast.success("Pilot enrollment withdrawn");
+      pilots.reload();
+    } catch (error) {
+      toast.error(
+        "Could not withdraw enrollment",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setPilotSaving(false);
     }
   }
 
@@ -2330,6 +2397,143 @@ export function SettingsPage() {
               id="calibration-notes"
               value={calibrationNotes}
               onChange={(event) => setCalibrationNotes(event.target.value)}
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Pilot enrollments"
+        subtitle="Voluntary cohorts with evidence of consent and scope"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openPilotForm}
+          >
+            Enroll
+          </Button>
+        }
+        flush
+      >
+        {pilots.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={pilots.error} onRetry={pilots.reload} />
+          </div>
+        ) : pilots.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (pilots.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="people"
+            title="No pilot enrollment"
+            description="Enroll volunteers with a consent signature reference and a defined pilot scope."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Pilot</th>
+                  <th>Scope</th>
+                  <th>Consent</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {pilots.data?.map((enrollment) => (
+                  <tr key={enrollment.id}>
+                    <td>{displayName(enrollment.personId, people)}</td>
+                    <td className="mono">{enrollment.pilotCode}</td>
+                    <td>{enrollment.scope}</td>
+                    <td className="mono">
+                      {shortId(enrollment.consentSignatureRef, 12)}
+                    </td>
+                    <td>
+                      <Badge status={enrollment.status} />
+                    </td>
+                    <td className="cell-actions">
+                      {enrollment.status === "ACTIVE" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void withdrawPilot(enrollment)}
+                          loading={pilotSaving}
+                        >
+                          Withdraw
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={pilotOpen}
+        title="Enroll in pilot"
+        description="Only voluntary participation with a recorded consent reference is accepted."
+        onClose={() => setPilotOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPilotOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="pilot-form"
+              loading={pilotSaving}
+            >
+              Enroll
+            </Button>
+          </>
+        }
+      >
+        <form id="pilot-form" className="stack" onSubmit={savePilot}>
+          {pilotError ? (
+            <InfoNotice tone="warning">{pilotError}</InfoNotice>
+          ) : null}
+          <FormField label="Person" htmlFor="pilot-person">
+            <PersonSelect
+              id="pilot-person"
+              value={pilotPerson}
+              onChange={setPilotPerson}
+            />
+          </FormField>
+          <FormField label="Pilot code" htmlFor="pilot-code">
+            <TextInput
+              id="pilot-code"
+              value={pilotCode}
+              onChange={(event) => setPilotCode(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Scope" htmlFor="pilot-scope">
+            <TextInput
+              id="pilot-scope"
+              value={pilotScope}
+              onChange={(event) => setPilotScope(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Consent / e-signature reference"
+            htmlFor="pilot-consent"
+          >
+            <TextInput
+              id="pilot-consent"
+              value={pilotConsent}
+              onChange={(event) => setPilotConsent(event.target.value)}
+              required
             />
           </FormField>
         </form>

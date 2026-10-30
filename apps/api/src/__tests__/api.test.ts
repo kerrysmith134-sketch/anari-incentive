@@ -6854,6 +6854,44 @@ describe("vertical slice", () => {
     });
   });
 
+  it("records voluntary pilot enrollment and withdrawal", async () => {
+    const enrollment = await call("POST", "/api/v1/pilot-enrollments", {
+      personId: OWNER,
+      pilotCode: "PILOT-2026",
+      scope: "Shanghai sales team",
+      consentSignatureRef: "PILOT-ESIGN-1",
+    });
+    expect(enrollment.status).toBe(201);
+    expect(enrollment.body.data.status).toBe("ACTIVE");
+    const duplicate = await call("POST", "/api/v1/pilot-enrollments", {
+      personId: OWNER,
+      pilotCode: "PILOT-2026",
+      scope: "Shanghai sales team",
+      consentSignatureRef: "PILOT-ESIGN-1",
+    });
+    expect(duplicate.status).toBe(409);
+    const missingConsent = await call(
+      "POST",
+      "/api/v1/pilot-enrollments",
+      {
+        personId: MEMBER,
+        pilotCode: "PILOT-2026",
+        scope: "Shanghai sales team",
+        consentSignatureRef: "",
+      },
+    );
+    expect(missingConsent.status).toBe(400);
+    const withdrawn = await call(
+      "POST",
+      `/api/v1/pilot-enrollments/${enrollment.body.data.id}/withdraw`,
+      { personId: OWNER, reason: "Voluntary withdrawal" },
+    );
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body.data.status).toBe("WITHDRAWN");
+    const list = await call("GET", "/api/v1/pilot-enrollments");
+    expect(list.body.data[0].status).toBe("WITHDRAWN");
+  });
+
   it("records manager training and calibration sessions", async () => {
     const training = await call("POST", "/api/v1/manager-training-records", {
       personId: OWNER,

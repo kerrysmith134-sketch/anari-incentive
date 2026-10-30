@@ -583,6 +583,20 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface PilotEnrollment {
+  id: Uuid;
+  personId: Uuid;
+  pilotCode: string;
+  scope: string;
+  consentSignatureRef: string;
+  consentSignedAt: string;
+  status: "ACTIVE" | "WITHDRAWN";
+  withdrawnAt?: string;
+  withdrawalReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ManagerTrainingRecord {
   id: Uuid;
   personId: Uuid;
