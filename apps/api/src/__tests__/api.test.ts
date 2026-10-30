@@ -3329,6 +3329,11 @@ describe("admin view", () => {
     } as never);
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["content-security-policy"]).toContain(
+      "frame-ancestors 'none'",
+    );
     expect(response.body).toContain("N-Perform 管理端");
     expect(response.body).toContain("/api/v1/policy-simulations");
     expect(response.body).toContain("/api/v1/agent-tasks");

@@ -10,6 +10,11 @@ info:
     All `/api/v1` requests require authentication. In `AUTH_MODE=oidc` send a
     bearer JWT; in development the `X-Tenant-Id` / `X-User-Id` headers are
     accepted by `DevHeaderAuthenticator`.
+
+    When `RATE_LIMIT_PER_MINUTE` is enabled, `/api/v1` requests over the
+    per-actor limit return `429 RATE_LIMITED` with `Retry-After` and
+    `x-ratelimit-*` headers. Bodies over `BODY_LIMIT_BYTES` (default 1 MiB)
+    return `413 PAYLOAD_TOO_LARGE`. Both use the standard error envelope.
   license:
     name: Proprietary
 servers:
@@ -4818,6 +4823,31 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     InvariantViolation:
       description: Domain invariant violated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    TooManyRequests:
+      description: Per-actor rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds until the window resets
+          schema:
+            type: integer
+        x-ratelimit-limit:
+          description: Requests allowed per window
+          schema:
+            type: integer
+        x-ratelimit-remaining:
+          description: Requests remaining in the window
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PayloadTooLarge:
+      description: Request body exceeds BODY_LIMIT_BYTES
       content:
         application/json:
           schema:

@@ -712,6 +712,21 @@ export function buildApp(
 
   app.addHook("onSend", async (request, reply, payload) => {
     reply.header("x-request-id", request.id);
+    reply.header("x-content-type-options", "nosniff");
+    reply.header("x-frame-options", "DENY");
+    reply.header("referrer-policy", "no-referrer");
+    reply.header(
+      "permissions-policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
+    reply.header(
+      "content-security-policy",
+      "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; " +
+        "object-src 'none'; form-action 'self'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "script-src 'self' 'unsafe-inline'; connect-src 'self'; " +
+        "img-src 'self' data:",
+    );
     return payload;
   });
 
