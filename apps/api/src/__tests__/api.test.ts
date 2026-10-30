@@ -5193,6 +5193,36 @@ describe("vertical slice", () => {
     );
     expect(fetched.body.data.lines).toHaveLength(2);
 
+    const ledgerId = fetched.body.data.lines[0].ledgerId as string;
+    const blockedReversal = await call(
+      "POST",
+      `/api/v1/ledger/${ledgerId}/reverse`,
+      {
+        idempotencyKey: "retroactive-reversal-blocked",
+        reason: "Retroactive correction after settlement",
+        approvedBy: ADJUDICATOR,
+      },
+    );
+    expect(blockedReversal.status).toBe(409);
+    expect(blockedReversal.body.error.message).toContain(
+      "RETROACTIVE_ADJUSTMENT_BLOCKED",
+    );
+    const blockedAdjustment = await call(
+      "POST",
+      `/api/v1/ledger/${ledgerId}/adjustments`,
+      {
+        amount: "10",
+        reasonCode: "RETROACTIVE",
+        explanation: "Retroactive correction after settlement",
+        approvedBy: ADJUDICATOR,
+        idempotencyKey: "retroactive-adjustment-blocked",
+      },
+    );
+    expect(blockedAdjustment.status).toBe(409);
+    expect(blockedAdjustment.body.error.message).toContain(
+      "RETROACTIVE_ADJUSTMENT_BLOCKED",
+    );
+
     const adjustment = await call(
       "POST",
       `/api/v1/settlement-batches/${batchId}/commands`,

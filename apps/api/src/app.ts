@@ -581,6 +581,29 @@ export function buildApp(
     }
   }
 
+  async function assertNoRetroactiveAdjustment(
+    request: FastifyRequest,
+    ledgerEntryId: string,
+  ): Promise<void> {
+    const store = storeFor(request);
+    const [entries, batches] = await Promise.all([
+      store.listLedger(),
+      store.listSettlementBatches(),
+    ]);
+    const entry = entries.find((candidate) => candidate.id === ledgerEntryId);
+    if (!entry) return;
+    const acknowledged = batches.filter(
+      (batch) =>
+        batch.cycleId === entry.cycleId &&
+        batch.status === "ACKNOWLEDGED",
+    );
+    if (acknowledged.length > 0) {
+      throw new ConflictError(
+        `RETROACTIVE_ADJUSTMENT_BLOCKED: cycle ${entry.cycleId} has an acknowledged settlement batch (${acknowledged[0]?.batchNo}); record a correction cycle instead`,
+      );
+    }
+  }
+
   async function payrollRunForViewer(
     request: FastifyRequest,
     run: PayrollRun,
@@ -6016,6 +6039,7 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/adjustments", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(adjustLedgerEntrySchema, request.body);
+    await assertNoRetroactiveAdjustment(request, idOf(request));
     await ensureApproval(request, "LEDGER_ADJUSTMENT", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {
@@ -6531,6 +6555,7 @@ export function buildApp(
   app.post("/api/v1/ledger/:id/reverse", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(reverseLedgerEntrySchema, request.body);
+    await assertNoRetroactiveAdjustment(request, idOf(request));
     await ensureApproval(request, "LEDGER_REVERSAL", body.approvalRequestId);
     if (body.approvalRequestId) {
       await consumeApprovalForAction(request, {

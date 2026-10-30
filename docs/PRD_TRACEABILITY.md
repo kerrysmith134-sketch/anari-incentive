@@ -69,7 +69,7 @@
 |---|---|---|
 | INC-01 可配置≠正确 | ✅ | Policy Pack + 护栏文档/原则 |
 | INC-02 角色差异化结构 | 🟡 | Contract 有 employment type；Policy Pack 未提供 roles/薪酬结构模板契约 |
-| INC-03 平滑阈值/不追溯 | 🟡 | Policy simulation 可看边际变化；无 signed-cycle 锁定/追溯调整阻断 |
+| INC-03 平滑阈值/不追溯 | 🟡 | Policy simulation 可看边际变化；本轮新增“已 ACKNOWLEDGED 结算周期禁止 ledger adjustment/reversal”硬阻断（引导使用 correction cycle）；平滑阈值/跨周期分摊与 signed-cycle 全面锁定仍未实现 |
 | INC-04 浮动上限/最低工资 | ✅ | Pool cap、最低工资、合同级 ledger 扣款上限；本轮新增 `variableShareCapRate`，按 gross 计算个体浮动占比上限，超出则 payroll 行与 run 阻断 |
 | INC-05 团队池 | ✅ | Policy DSL 支持池分配/多人权重 |
 | INC-06 保护未计价工作 | 🟡 | Rubric dimensions 可配置，但无“未计价工作不得默认为 0”的强制规则 |
@@ -185,6 +185,8 @@
 22. **ORG-01 pilot enrollment**：新增 volunteer pilot enrollment（scope、consent signature、withdraw reason），唯一约束防止重复 active enrollment；迁移 `042_pilot_enrollments.sql`，Settings 可录入/撤回。
 
 23. **SEC-03 payroll field redaction / break-glass**：非 finance/admin 查看 payroll run/export 时隐藏他人 `bankAccountRef`；新增最长 24h、理由必填、grantee≠grantedBy 的 break-glass grant，console Settings 可授予/撤销；迁移 `043_break_glass.sql`。
+
+24. **INC-03 no-retroactive guard**：对已有 ACKNOWLEDGED settlement batch 的 cycle，ledger adjustment/reversal 直接返回 `RETROACTIVE_ADJUSTMENT_BLOCKED`，要求新建 correction cycle；平滑阈值仍未实现。
 
 ## 仍建议按 P0 顺序补做
 
