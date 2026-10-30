@@ -738,6 +738,33 @@ export function buildApp(
       if (request.authContext?.tenantId) {
         attributes["tenant.id"] = request.authContext.tenantId;
       }
+      if (request.authContext?.personId) {
+        attributes["person.id"] = request.authContext.personId;
+      }
+      const body =
+        request.body && typeof request.body === "object"
+          ? (request.body as Record<string, unknown>)
+          : undefined;
+      const query =
+        request.query && typeof request.query === "object"
+          ? (request.query as Record<string, unknown>)
+          : undefined;
+      const cycleId =
+        typeof body?.cycleId === "string"
+          ? body.cycleId
+          : typeof query?.cycleId === "string"
+            ? query.cycleId
+            : undefined;
+      if (cycleId) attributes["cycle.id"] = cycleId;
+      const policyVersionId =
+        typeof body?.policyVersionId === "string"
+          ? body.policyVersionId
+          : typeof query?.policyVersionId === "string"
+            ? query.policyVersionId
+            : undefined;
+      if (policyVersionId) {
+        attributes["policy.version_id"] = policyVersionId;
+      }
       options.tracer.record({
         traceId: trace.traceId,
         spanId: trace.spanId,

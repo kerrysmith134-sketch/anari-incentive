@@ -87,4 +87,55 @@ describe("OTLP tracing", () => {
     expect(spans[0]!.statusCode).toBe(1);
     expect(spans[0]!.attributes["http.status_code"]).toBe(200);
   });
+
+  it("correlates spans with tenant, person, cycle and policy", async () => {
+    const OWNER = "00000000-0000-4000-8000-000000000001";
+    const CYCLE = "00000000-0000-4000-8000-000000000020";
+    const POLICY = "00000000-0000-4000-8000-000000000100";
+    const spans: TraceSpan[] = [];
+    const recorder: SpanRecorder = {
+      record: (recorded) => spans.push(recorded),
+    };
+    const app = buildApp(
+      new Store(),
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: "tenant-demo",
+            userId: "trace-user",
+            personId: OWNER,
+            roles: ["admin"],
+          };
+        },
+      },
+      undefined,
+      { tracer: recorder },
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/work-packages",
+      payload: {
+        title: "Trace target",
+        objective: "Check span correlation",
+        ownerPersonId: OWNER,
+        members: [
+          {
+            personId: OWNER,
+            responsibilityCode: "OWNER",
+            expectedOutput: "Delivery",
+          },
+        ],
+        acceptanceCriteria: ["Accepted"],
+        cycleId: CYCLE,
+        policyVersionId: POLICY,
+      },
+    } as never);
+    expect(response.statusCode).toBe(201);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.attributes["tenant.id"]).toBe("tenant-demo");
+    expect(spans[0]!.attributes["person.id"]).toBe(OWNER);
+    expect(spans[0]!.attributes["cycle.id"]).toBe(CYCLE);
+    expect(spans[0]!.attributes["policy.version_id"]).toBe(POLICY);
+  });
 });
