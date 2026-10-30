@@ -1079,6 +1079,15 @@ export interface PlatformStore {
     tenantId: string,
     contractId: string,
   ): Promise<EmploymentContractAmendment[]>;
+  applyDueContractAmendments(
+    tenantId: string,
+  ): Promise<EmploymentContractAmendment[]>;
+  cancelContractAmendment(input: {
+    tenantId: string;
+    contractId: string;
+    amendmentId: string;
+    reason: string;
+  }): Promise<EmploymentContractAmendment>;
 
   createAdverseAction(input: {
     tenantId: string;
@@ -5662,9 +5671,11 @@ export class MemoryPlatformStore implements PlatformStore {
     if (contract.status !== "ACTIVE") {
       throw new ConflictError(`employment contract is ${contract.status}`);
     }
-    if (Date.parse(input.effectiveFrom) > Date.now()) {
+    const effectiveMs = Date.parse(input.effectiveFrom);
+    const future = effectiveMs > Date.now();
+    if (future && effectiveMs > Date.now() + 180 * 24 * 60 * 60 * 1000) {
       throw new ConflictError(
-        "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+        "CONTRACT_AMENDMENT_TOO_FAR_IN_FUTURE: maximum 180 days",
       );
     }
     if (!input.consentSignatureRef.trim()) {
@@ -5702,6 +5713,55 @@ export class MemoryPlatformStore implements PlatformStore {
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
+    if (future) {
+      const amendments = this.contractAmendments.get(contract.id) ?? [];
+      const payPlanVersion =
+        Math.max(
+          contract.payPlanVersion,
+          ...amendments
+            .filter((amendment) => amendment.status !== "CANCELLED")
+            .map((amendment) => amendment.payPlanVersion),
+        ) + 1;
+      const scheduledTerms = {
+        fixedMonthlySalary: formatDecimal(
+          parseDecimal(input.fixedMonthlySalary),
+        ),
+        minimumMonthlyWage: formatDecimal(
+          parseDecimal(input.minimumMonthlyWage),
+        ),
+        taxRate: formatDecimal(parseDecimal(input.taxRate)),
+        socialInsuranceRate: formatDecimal(
+          parseDecimal(input.socialInsuranceRate),
+        ),
+        deductionCapRate: formatDecimal(
+          parseDecimal(input.deductionCapRate),
+        ),
+        variableShareCapRate: formatDecimal(
+          parseDecimal(input.variableShareCapRate),
+        ),
+        deductionOrder:
+          input.deductionOrder.length > 0
+            ? [...input.deductionOrder]
+            : [...contract.deductionOrder],
+        bankAccountRef: input.bankAccountRef,
+        payPlanVersion,
+      };
+      amendments.push({
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        contractId: contract.id,
+        payPlanVersion,
+        beforeTerms,
+        afterTerms: scheduledTerms,
+        effectiveFrom: input.effectiveFrom,
+        consentSignatureRef: input.consentSignatureRef,
+        approvedBy: input.approvedBy,
+        status: "SCHEDULED",
+        createdAt: now(),
+      });
+      this.contractAmendments.set(contract.id, amendments);
+      return contract;
+    }
     contract.fixedMonthlySalary = formatDecimal(
       parseDecimal(input.fixedMonthlySalary),
     );
@@ -5722,7 +5782,15 @@ export class MemoryPlatformStore implements PlatformStore {
       contract.deductionOrder = [...input.deductionOrder];
     }
     contract.bankAccountRef = input.bankAccountRef;
-    contract.payPlanVersion += 1;
+    const existingAmendments =
+      this.contractAmendments.get(contract.id) ?? [];
+    contract.payPlanVersion =
+      Math.max(
+        contract.payPlanVersion,
+        ...existingAmendments
+          .filter((amendment) => amendment.status !== "CANCELLED")
+          .map((amendment) => amendment.payPlanVersion),
+      ) + 1;
     contract.consentSignatureRef = input.consentSignatureRef;
     contract.consentSignedAt = input.effectiveFrom;
     contract.version += 1;
@@ -5748,6 +5816,8 @@ export class MemoryPlatformStore implements PlatformStore {
       effectiveFrom: input.effectiveFrom,
       consentSignatureRef: input.consentSignatureRef,
       approvedBy: input.approvedBy,
+      status: "APPLIED",
+      appliedAt: now(),
       createdAt: now(),
     };
     const existing = this.contractAmendments.get(contract.id) ?? [];
@@ -5767,6 +5837,84 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...(this.contractAmendments.get(contractId) ?? [])].map(
       (amendment) => structuredClone(amendment),
     );
+  }
+
+  async applyDueContractAmendments(
+    tenantId: string,
+  ): Promise<EmploymentContractAmendment[]> {
+    const applied: EmploymentContractAmendment[] = [];
+    for (const contract of this.employmentContracts.values()) {
+      if (contract.tenantId !== tenantId) continue;
+      const amendments = this.contractAmendments.get(contract.id) ?? [];
+      const due = amendments
+        .filter(
+          (amendment) =>
+            amendment.status === "SCHEDULED" &&
+            Date.parse(amendment.effectiveFrom) <= Date.now(),
+        )
+        .sort((a, b) =>
+          a.effectiveFrom.localeCompare(b.effectiveFrom),
+        );
+      for (const amendment of due) {
+        const terms = amendment.afterTerms as Record<string, unknown>;
+        contract.fixedMonthlySalary = String(
+          terms.fixedMonthlySalary ?? contract.fixedMonthlySalary,
+        );
+        contract.minimumMonthlyWage = String(
+          terms.minimumMonthlyWage ?? contract.minimumMonthlyWage,
+        );
+        contract.taxRate = String(terms.taxRate ?? contract.taxRate);
+        contract.socialInsuranceRate = String(
+          terms.socialInsuranceRate ?? contract.socialInsuranceRate,
+        );
+        contract.deductionCapRate = String(
+          terms.deductionCapRate ?? contract.deductionCapRate,
+        );
+        contract.variableShareCapRate = String(
+          terms.variableShareCapRate ?? contract.variableShareCapRate,
+        );
+        if (Array.isArray(terms.deductionOrder)) {
+          contract.deductionOrder = terms.deductionOrder as string[];
+        }
+        contract.bankAccountRef =
+          typeof terms.bankAccountRef === "string"
+            ? terms.bankAccountRef
+            : undefined;
+        contract.payPlanVersion = amendment.payPlanVersion;
+        contract.consentSignatureRef = amendment.consentSignatureRef;
+        contract.consentSignedAt = amendment.effectiveFrom;
+        contract.version += 1;
+        contract.updatedAt = now();
+        amendment.status = "APPLIED";
+        amendment.appliedAt = now();
+        applied.push(structuredClone(amendment));
+      }
+    }
+    return applied;
+  }
+
+  async cancelContractAmendment(input: {
+    tenantId: string;
+    contractId: string;
+    amendmentId: string;
+    reason: string;
+  }): Promise<EmploymentContractAmendment> {
+    const amendments = this.contractAmendments.get(input.contractId) ?? [];
+    const amendment = amendments.find(
+      (candidate) =>
+        candidate.id === input.amendmentId &&
+        candidate.tenantId === input.tenantId,
+    );
+    if (!amendment) notFound("EmploymentContractAmendment", input.amendmentId);
+    if (amendment.status !== "SCHEDULED") {
+      throw new ConflictError(
+        `contract amendment is ${amendment.status}`,
+      );
+    }
+    amendment.status = "CANCELLED";
+    amendment.cancelledAt = now();
+    amendment.cancelReason = input.reason;
+    return structuredClone(amendment);
   }
 
   async createAdverseAction(input: {
@@ -11687,9 +11835,11 @@ export class PgPlatformStore implements PlatformStore {
     consentSignatureRef: string;
     approvedBy: string;
   }): Promise<EmploymentContract> {
-    if (Date.parse(input.effectiveFrom) > Date.now()) {
+    const effectiveMs = Date.parse(input.effectiveFrom);
+    const future = effectiveMs > Date.now();
+    if (future && effectiveMs > Date.now() + 180 * 24 * 60 * 60 * 1000) {
       throw new ConflictError(
-        "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+        "CONTRACT_AMENDMENT_TOO_FAR_IN_FUTURE: maximum 180 days",
       );
     }
     if (!input.consentSignatureRef.trim()) {
@@ -11711,6 +11861,74 @@ export class PgPlatformStore implements PlatformStore {
       if (parsed < 0n || parsed > 1_000_000n) {
         throw new ConflictError(`CONTRACT_${field}_OUT_OF_RANGE`);
       }
+    }
+    if (future) {
+      const { rows } = await this.pool.query(
+        `SELECT * FROM employment_contracts
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, input.contractId],
+      );
+      if (!rows[0]) notFound("EmploymentContract", input.contractId);
+      const row = rows[0];
+      if (row.status !== "ACTIVE") {
+        throw new ConflictError(`employment contract is ${row.status}`);
+      }
+      const versionResult = await this.pool.query(
+        `SELECT GREATEST(
+           $3::int,
+           COALESCE(MAX(pay_plan_version), 0)
+         ) + 1 AS version
+         FROM employment_contract_amendments
+         WHERE tenant_id=$1 AND contract_id=$2
+           AND status <> 'CANCELLED'`,
+        [input.tenantId, input.contractId, Number(row.pay_plan_version ?? 1)],
+      );
+      const payPlanVersion = Number(versionResult.rows[0]?.version ?? 1);
+      const beforeTerms = {
+        fixedMonthlySalary: decimalText(String(row.fixed_monthly_salary)),
+        minimumMonthlyWage: decimalText(String(row.minimum_monthly_wage)),
+        taxRate: decimalText(String(row.tax_rate)),
+        socialInsuranceRate: decimalText(String(row.social_insurance_rate)),
+        deductionCapRate: decimalText(String(row.deduction_cap_rate)),
+        variableShareCapRate: decimalText(
+          String(row.variable_share_cap_rate),
+        ),
+        deductionOrder: (row.deduction_order as string[] | null) ?? [],
+        bankAccountRef: row.bank_account_ref ?? undefined,
+        payPlanVersion: Number(row.pay_plan_version ?? 1),
+      };
+      const afterTerms = {
+        fixedMonthlySalary: input.fixedMonthlySalary,
+        minimumMonthlyWage: input.minimumMonthlyWage,
+        taxRate: input.taxRate,
+        socialInsuranceRate: input.socialInsuranceRate,
+        deductionCapRate: input.deductionCapRate,
+        variableShareCapRate: input.variableShareCapRate,
+        deductionOrder:
+          input.deductionOrder.length > 0
+            ? input.deductionOrder
+            : ((row.deduction_order as string[] | null) ?? []),
+        bankAccountRef: input.bankAccountRef,
+        payPlanVersion,
+      };
+      await this.pool.query(
+        `INSERT INTO employment_contract_amendments
+          (tenant_id, contract_id, pay_plan_version, before_terms,
+           after_terms, effective_from, consent_signature_ref, approved_by,
+           status)
+         VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,'SCHEDULED')`,
+        [
+          input.tenantId,
+          input.contractId,
+          payPlanVersion,
+          JSON.stringify(beforeTerms),
+          JSON.stringify(afterTerms),
+          input.effectiveFrom,
+          input.consentSignatureRef,
+          input.approvedBy,
+        ],
+      );
+      return this.mapEmploymentContract(row);
     }
     return this.transaction(async (client) => {
       const { rows } = await client.query(
@@ -11738,7 +11956,17 @@ export class PgPlatformStore implements PlatformStore {
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
-      const payPlanVersion = Number(row.pay_plan_version ?? 1) + 1;
+      const versionResult = await client.query(
+        `SELECT GREATEST(
+           $3::int,
+           COALESCE(MAX(pay_plan_version), 0)
+         ) + 1 AS version
+         FROM employment_contract_amendments
+         WHERE tenant_id=$1 AND contract_id=$2
+           AND status <> 'CANCELLED'`,
+        [input.tenantId, input.contractId, Number(row.pay_plan_version ?? 1)],
+      );
+      const payPlanVersion = Number(versionResult.rows[0]?.version ?? 1);
       const { rows: updated } = await client.query(
         `UPDATE employment_contracts
             SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
@@ -11794,8 +12022,9 @@ export class PgPlatformStore implements PlatformStore {
       await client.query(
         `INSERT INTO employment_contract_amendments
           (tenant_id, contract_id, pay_plan_version, before_terms,
-           after_terms, effective_from, consent_signature_ref, approved_by)
-         VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8)`,
+           after_terms, effective_from, consent_signature_ref, approved_by,
+           status, applied_at)
+         VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,'APPLIED',now())`,
         [
           input.tenantId,
           input.contractId,
@@ -11822,6 +12051,103 @@ export class PgPlatformStore implements PlatformStore {
       [tenantId, contractId],
     );
     return rows.map((row) => this.mapEmploymentContractAmendment(row));
+  }
+
+  async applyDueContractAmendments(
+    tenantId: string,
+  ): Promise<EmploymentContractAmendment[]> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM employment_contract_amendments
+          WHERE tenant_id=$1 AND status='SCHEDULED'
+            AND effective_from <= now()
+          ORDER BY effective_from
+          FOR UPDATE`,
+        [tenantId],
+      );
+      const applied: EmploymentContractAmendment[] = [];
+      for (const row of rows) {
+        const terms = row.after_terms as Record<string, unknown>;
+        await client.query(
+          `UPDATE employment_contracts
+              SET fixed_monthly_salary=$3,
+                  minimum_monthly_wage=$4,
+                  tax_rate=$5,
+                  social_insurance_rate=$6,
+                  deduction_cap_rate=$7,
+                  variable_share_cap_rate=$8,
+                  deduction_order=$9::jsonb,
+                  bank_account_ref=$10,
+                  pay_plan_version=$11,
+                  consent_signature_ref=$12,
+                  consent_signed_at=$13,
+                  version=version+1,
+                  updated_at=now()
+            WHERE tenant_id=$1 AND id=$2`,
+          [
+            tenantId,
+            row.contract_id,
+            String(terms.fixedMonthlySalary ?? "0"),
+            String(terms.minimumMonthlyWage ?? "0"),
+            String(terms.taxRate ?? "0"),
+            String(terms.socialInsuranceRate ?? "0"),
+            String(terms.deductionCapRate ?? "0"),
+            String(terms.variableShareCapRate ?? "1"),
+            JSON.stringify(terms.deductionOrder ?? []),
+            typeof terms.bankAccountRef === "string"
+              ? terms.bankAccountRef
+              : null,
+            Number(row.pay_plan_version),
+            row.consent_signature_ref,
+            row.effective_from,
+          ],
+        );
+        const { rows: updated } = await client.query(
+          `UPDATE employment_contract_amendments
+              SET status='APPLIED', applied_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [tenantId, row.id],
+        );
+        applied.push(this.mapEmploymentContractAmendment(updated[0]));
+      }
+      return applied;
+    });
+  }
+
+  async cancelContractAmendment(input: {
+    tenantId: string;
+    contractId: string;
+    amendmentId: string;
+    reason: string;
+  }): Promise<EmploymentContractAmendment> {
+    const { rows } = await this.pool.query(
+      `UPDATE employment_contract_amendments
+          SET status='CANCELLED', cancelled_at=now(), cancel_reason=$4
+        WHERE tenant_id=$1 AND contract_id=$2 AND id=$3
+          AND status='SCHEDULED'
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.contractId,
+        input.amendmentId,
+        input.reason,
+      ],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        `SELECT status FROM employment_contract_amendments
+          WHERE tenant_id=$1 AND contract_id=$2 AND id=$3`,
+        [input.tenantId, input.contractId, input.amendmentId],
+      );
+      if (!current.rows[0]) {
+        notFound("EmploymentContractAmendment", input.amendmentId);
+      }
+      throw new ConflictError(
+        `contract amendment is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapEmploymentContractAmendment(rows[0]);
   }
 
   async createAdverseAction(input: {
@@ -13738,6 +14064,10 @@ export class PgPlatformStore implements PlatformStore {
       effectiveFrom: iso(row.effective_from) ?? new Date().toISOString(),
       consentSignatureRef: row.consent_signature_ref,
       approvedBy: row.approved_by,
+      status: row.status,
+      appliedAt: iso(row.applied_at),
+      cancelledAt: iso(row.cancelled_at),
+      cancelReason: row.cancel_reason ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

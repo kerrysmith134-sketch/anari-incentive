@@ -3408,6 +3408,58 @@ describePg("PgStore vertical slice", () => {
     expect(retired.status).toBe("RETIRED");
   });
 
+  it("schedules future contract amendments and cancels them before application", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const contract = await platform.createEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      contractCode: `PG-FUTURE-${Date.now()}`,
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "8000",
+      minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "1",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      consentSignatureRef: "PG-FUTURE-ESIGN-1",
+    });
+    const unchanged = await platform.amendEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      contractId: contract.id,
+      fixedMonthlySalary: "9000",
+      minimumMonthlyWage: "2800",
+      taxRate: "0.12",
+      socialInsuranceRate: "0.06",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "0.5",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      effectiveFrom: "2027-01-01T00:00:00Z",
+      consentSignatureRef: "PG-FUTURE-ESIGN-2",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(unchanged.fixedMonthlySalary).toBe("8000");
+    const amendments = await platform.listEmploymentContractAmendments(
+      DEMO_TENANT_ID,
+      contract.id,
+    );
+    expect(amendments).toHaveLength(1);
+    expect(amendments[0]?.status).toBe("SCHEDULED");
+    const applied = await platform.applyDueContractAmendments(DEMO_TENANT_ID);
+    expect(applied).toEqual([]);
+    const cancelled = await platform.cancelContractAmendment({
+      tenantId: DEMO_TENANT_ID,
+      contractId: contract.id,
+      amendmentId: amendments[0]!.id,
+      reason: "Terms superseded",
+    });
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.cancelReason).toBe("Terms superseded");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

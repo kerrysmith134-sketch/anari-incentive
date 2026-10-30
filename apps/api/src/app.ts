@@ -105,6 +105,7 @@ import {
   acceptBountySchema,
   createEmploymentContractSchema,
   amendEmploymentContractSchema,
+  cancelContractAmendmentSchema,
   createAdverseActionSchema,
   reviewAdverseActionSchema,
   approveAdverseActionSchema,
@@ -5975,6 +5976,14 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/employment-contracts/apply-due", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await platformStore.applyDueContractAmendments(tenantOf(request)),
+      request,
+    );
+  });
+
   app.post("/api/v1/employment-contracts", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createEmploymentContractSchema, request.body);
@@ -6028,6 +6037,20 @@ export function buildApp(
         effectiveFrom: body.effectiveFrom,
         consentSignatureRef: body.consentSignatureRef,
         approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/employment-contracts/:id/amendments/:amendmentId/cancel", async (request) => {
+    requireRoles(request, "manager");
+    const body = parse(cancelContractAmendmentSchema, request.body);
+    return data(
+      await platformStore.cancelContractAmendment({
+        tenantId: tenantOf(request),
+        contractId: idOf(request),
+        amendmentId: paramOf(request, "amendmentId"),
+        reason: body.reason,
       }),
       request,
     );
@@ -6200,6 +6223,7 @@ export function buildApp(
       tenantId,
       idOf(request),
     );
+    await platformStore.applyDueContractAmendments(tenantId);
     const contracts = await platformStore.listEmploymentContracts(
       tenantId,
     );

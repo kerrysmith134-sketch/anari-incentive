@@ -1133,6 +1133,13 @@ export type AmendEmploymentContractBody = z.infer<
   typeof amendEmploymentContractSchema
 >;
 
+export const cancelContractAmendmentSchema = z.object({
+  reason: z.string().min(3),
+});
+export type CancelContractAmendmentBody = z.infer<
+  typeof cancelContractAmendmentSchema
+>;
+
 export const createPayrollRunSchema = z.object({
   cycleId: uuidSchema,
   periodStart: z.string().datetime(),

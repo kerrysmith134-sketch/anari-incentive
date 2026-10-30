@@ -2573,10 +2573,27 @@ describe("payroll", () => {
         approvedBy: ADJUDICATOR,
       },
     );
-    expect(future.status).toBe(409);
-    expect(future.body.error.message).toContain(
-      "CONTRACT_AMENDMENT_FUTURE_EFFECTIVE_UNSUPPORTED",
+    expect(future.status).toBe(200);
+    expect(future.body.data.fixedMonthlySalary).toBe("9000");
+    const scheduledHistory = await call(
+      "GET",
+      `/api/v1/employment-contracts/${contractId}/amendments`,
     );
+    expect(scheduledHistory.body.data).toHaveLength(1);
+    expect(scheduledHistory.body.data[0].status).toBe("SCHEDULED");
+    const cancelled = await call(
+      "POST",
+      `/api/v1/employment-contracts/${contractId}/amendments/${scheduledHistory.body.data[0].id}/cancel`,
+      { reason: "Terms superseded before the effective date" },
+    );
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.status).toBe("CANCELLED");
+    const applyDue = await call(
+      "POST",
+      "/api/v1/employment-contracts/apply-due",
+    );
+    expect(applyDue.status).toBe(200);
+    expect(applyDue.body.data).toEqual([]);
 
     const amended = await call(
       "POST",
@@ -2604,9 +2621,17 @@ describe("payroll", () => {
       `/api/v1/employment-contracts/${contractId}/amendments`,
     );
     expect(history.status).toBe(200);
-    expect(history.body.data).toHaveLength(1);
-    expect(history.body.data[0].beforeTerms.fixedMonthlySalary).toBe("9000");
-    expect(history.body.data[0].afterTerms.fixedMonthlySalary).toBe("10000");
+    expect(history.body.data).toHaveLength(2);
+    const appliedAmendment = history.body.data.find(
+      (amendment: { status: string }) => amendment.status === "APPLIED",
+    );
+    expect(appliedAmendment.beforeTerms.fixedMonthlySalary).toBe("9000");
+    expect(appliedAmendment.afterTerms.fixedMonthlySalary).toBe("10000");
+    expect(
+      history.body.data.some(
+        (amendment: { status: string }) => amendment.status === "CANCELLED",
+      ),
+    ).toBe(true);
   });
 });
 

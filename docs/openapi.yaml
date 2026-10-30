@@ -4636,6 +4636,23 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/employment-contracts/apply-due:
+    post:
+      tags: [Payroll]
+      summary: Apply scheduled contract amendments that are now due
+      description: Called by payroll calculation; also exposed for operations.
+      responses:
+        "200":
+          description: Applied amendments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/employment-contracts/{id}/amendments:
     get:
       tags: [Payroll]
@@ -4658,6 +4675,10 @@ paths:
     post:
       tags: [Payroll]
       summary: Amend an employment contract with employee consent evidence
+      description: |
+        An effective date in the future (up to 180 days) records a SCHEDULED
+        amendment and leaves current terms unchanged until payroll applies it.
+        A current/past date applies immediately and records an APPLIED history.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -4669,6 +4690,41 @@ paths:
       responses:
         "200":
           description: Amended contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/employment-contracts/{id}/amendments/{amendmentId}/cancel:
+    post:
+      tags: [Payroll]
+      summary: Cancel a scheduled contract amendment
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: amendmentId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelContractAmendment"
+      responses:
+        "200":
+          description: Cancelled
           content:
             application/json:
               schema:
@@ -9058,6 +9114,14 @@ components:
         consentSignedAt:
           type: string
           format: date-time
+
+    CancelContractAmendment:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
 
     AmendEmploymentContract:
       type: object

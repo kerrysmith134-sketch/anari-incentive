@@ -1065,6 +1065,10 @@ export interface EmploymentContractAmendment {
   effectiveFrom: string;
   consentSignatureRef: string;
   approvedBy: UUID;
+  status: "APPLIED" | "SCHEDULED" | "CANCELLED";
+  appliedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
   createdAt: string;
 }
 
