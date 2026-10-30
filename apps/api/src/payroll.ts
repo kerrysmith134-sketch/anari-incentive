@@ -2,6 +2,7 @@ import type {
   AmountLedgerEntry,
   EmploymentContract,
   PayrollLine,
+  PayrollRun,
 } from "@anari/domain";
 import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
 
@@ -90,4 +91,32 @@ export function calculatePayroll(input: {
     totalNet: formatDecimal(totalNet),
     blockedCount,
   };
+}
+
+function csvField(value: unknown): string {
+  let text = value === undefined || value === null ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function payrollCsv(run: PayrollRun): string {
+  const header =
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,net_amount,minimum_wage,minimum_wage_passed";
+  const rows = (run.lines ?? []).map((line) =>
+    [
+      run.id,
+      line.personId,
+      line.currency,
+      line.fixedAmount,
+      line.incentiveAmount,
+      line.grossAmount,
+      line.deductionAmount,
+      line.netAmount,
+      line.minimumMonthlyWage,
+      line.minimumWagePassed,
+    ]
+      .map(csvField)
+      .join(","),
+  );
+  return [header, ...rows].join("\n") + "\n";
 }

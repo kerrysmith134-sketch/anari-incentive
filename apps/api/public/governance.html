@@ -2450,6 +2450,7 @@
             ${run.status === "APPROVED" ? `<button data-payroll="${run.id}" data-payroll-action="pay">发放</button>` : ""}
             ${!["PAID", "CANCELLED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="cancel">取消</button>` : ""}
             <button data-payroll="${run.id}" data-payroll-action="view">详情</button>
+            <a href="/api/v1/payroll-runs/${run.id}/export" download>导出</a>
           </td>
         </tr>`).join("");
         setStatus("payrollStatus", `共 ${runs.length} 个薪酬批次`, "ok");

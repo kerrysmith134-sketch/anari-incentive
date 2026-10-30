@@ -166,7 +166,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
-import { calculatePayroll } from "./payroll.js";
+import { calculatePayroll, payrollCsv } from "./payroll.js";
 import { runPolicyTestCase } from "./policy-test-runner.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import type { SpanRecorder } from "./tracing.js";
@@ -4052,6 +4052,21 @@ export function buildApp(
       ),
       request,
     );
+  });
+
+  app.get("/api/v1/payroll-runs/:id/export", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const run = await platformStore.getPayrollRun(
+      tenantOf(request),
+      idOf(request),
+    );
+    return reply
+      .type("text/csv; charset=utf-8")
+      .header(
+        "content-disposition",
+        `attachment; filename="payroll-${run.id}.csv"`,
+      )
+      .send(payrollCsv(run));
   });
 
   app.post("/api/v1/payroll-runs/:id/calculate", async (request) => {

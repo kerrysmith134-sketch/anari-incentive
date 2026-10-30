@@ -3321,6 +3321,26 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/payroll-runs/{id}/export:
+    get:
+      tags: [Payroll]
+      summary: Export payroll lines as CSV
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: CSV payroll file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/payroll-runs/{id}/calculate:
     post:
       tags: [Payroll]

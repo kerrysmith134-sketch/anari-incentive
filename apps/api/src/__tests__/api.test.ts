@@ -2407,6 +2407,16 @@ describe("payroll", () => {
     );
     expect(paid.status).toBe(200);
     expect(paid.body.data.status).toBe("PAID");
+    const exported = await app.inject({
+      method: "GET",
+      url: `/api/v1/payroll-runs/${runId}/export`,
+    } as never);
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toContain("text/csv");
+    expect(exported.body).toContain(
+      "run_id,person_id,currency,fixed_amount",
+    );
+    expect(exported.body).toContain(",8000,");
 
     await call("POST", "/api/v1/employment-contracts", {
       personId: MEMBER,
