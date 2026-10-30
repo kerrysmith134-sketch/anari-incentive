@@ -754,6 +754,9 @@ export interface EmploymentContract {
   currency: string;
   fixedMonthlySalary: DecimalString;
   minimumMonthlyWage: DecimalString;
+  taxRate: DecimalString;
+  socialInsuranceRate: DecimalString;
+  bankAccountRef?: string;
   status: EmploymentContractStatus;
   createdAt: string;
   updatedAt: string;
@@ -766,6 +769,7 @@ export type PayrollRunStatus =
   | "BLOCKED"
   | "APPROVED"
   | "PAID"
+  | "REVERSED"
   | "CANCELLED";
 
 export interface PayrollLine {
@@ -779,9 +783,12 @@ export interface PayrollLine {
   incentiveAmount: DecimalString;
   grossAmount: DecimalString;
   deductionAmount: DecimalString;
+  taxAmount: DecimalString;
+  socialInsuranceAmount: DecimalString;
   netAmount: DecimalString;
   minimumMonthlyWage: DecimalString;
   minimumWagePassed: boolean;
+  bankAccountRef?: string;
   createdAt: string;
 }
 
@@ -797,8 +804,13 @@ export interface PayrollRun {
   approvedBy?: UUID;
   approvedAt?: string;
   paidAt?: string;
+  reversedAt?: string;
+  reversedBy?: UUID;
+  reversalReason?: string;
   totalGross: DecimalString;
   totalDeductions: DecimalString;
+  totalTax: DecimalString;
+  totalSocialInsurance: DecimalString;
   totalNet: DecimalString;
   lineCount: number;
   blockedCount: number;

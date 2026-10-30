@@ -707,6 +707,9 @@ export const createEmploymentContractSchema = z.object({
   currency: z.string().length(3),
   fixedMonthlySalary: decimal,
   minimumMonthlyWage: decimal,
+  taxRate: decimal.default("0"),
+  socialInsuranceRate: decimal.default("0"),
+  bankAccountRef: z.string().min(1).optional(),
 });
 export type CreateEmploymentContractBody = z.infer<
   typeof createEmploymentContractSchema
@@ -735,9 +738,12 @@ export const payrollLineInputSchema = z.object({
   incentiveAmount: decimal,
   grossAmount: decimal,
   deductionAmount: decimal,
+  taxAmount: decimal,
+  socialInsuranceAmount: decimal,
   netAmount: decimal,
   minimumMonthlyWage: decimal,
   minimumWagePassed: z.boolean(),
+  bankAccountRef: z.string().min(1).optional(),
 });
 export type PayrollLineInput = z.infer<typeof payrollLineInputSchema>;
 
@@ -745,11 +751,21 @@ export const savePayrollCalculationSchema = z.object({
   lines: z.array(payrollLineInputSchema).min(1),
   totalGross: decimal,
   totalDeductions: decimal,
+  totalTax: decimal,
+  totalSocialInsurance: decimal,
   totalNet: decimal,
   blockedCount: z.number().int().min(0),
 });
 export type SavePayrollCalculationBody = z.infer<
   typeof savePayrollCalculationSchema
+>;
+
+export const reversePayrollRunSchema = z.object({
+  reason: z.string().min(1),
+  reversedBy: uuidSchema,
+});
+export type ReversePayrollRunBody = z.infer<
+  typeof reversePayrollRunSchema
 >;
 
 export const upsertExternalIdentitySchema = z.object({

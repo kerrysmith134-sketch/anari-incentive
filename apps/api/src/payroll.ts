@@ -15,6 +15,8 @@ export interface PayrollCalculation {
   lines: PayrollCalculatedLine[];
   totalGross: string;
   totalDeductions: string;
+  totalTax: string;
+  totalSocialInsurance: string;
   totalNet: string;
   blockedCount: number;
 }
@@ -37,6 +39,8 @@ export function calculatePayroll(input: {
   const lines: PayrollCalculatedLine[] = [];
   let totalGross = 0n;
   let totalDeductions = 0n;
+  let totalTax = 0n;
+  let totalSocialInsurance = 0n;
   let totalNet = 0n;
   let blockedCount = 0;
 
@@ -63,12 +67,19 @@ export function calculatePayroll(input: {
     }
     const fixed = parseDecimal(contract.fixedMonthlySalary);
     const gross = fixed + incentive;
-    const net = gross - deductions;
+    const tax =
+      (gross * parseDecimal(contract.taxRate || "0")) / 1_000_000n;
+    const socialInsurance =
+      (gross * parseDecimal(contract.socialInsuranceRate || "0")) /
+      1_000_000n;
+    const net = gross - deductions - tax - socialInsurance;
     const minimum = parseDecimal(contract.minimumMonthlyWage);
     const passed = net >= minimum;
     if (!passed) blockedCount += 1;
     totalGross += gross;
-    totalDeductions += deductions;
+    totalDeductions += deductions + tax + socialInsurance;
+    totalTax += tax;
+    totalSocialInsurance += socialInsurance;
     totalNet += net;
     lines.push({
       personId: contract.personId,
@@ -78,9 +89,12 @@ export function calculatePayroll(input: {
       incentiveAmount: formatDecimal(incentive),
       grossAmount: formatDecimal(gross),
       deductionAmount: formatDecimal(deductions),
+      taxAmount: formatDecimal(tax),
+      socialInsuranceAmount: formatDecimal(socialInsurance),
       netAmount: formatDecimal(net),
       minimumMonthlyWage: contract.minimumMonthlyWage,
       minimumWagePassed: passed,
+      bankAccountRef: contract.bankAccountRef,
     });
   }
 
@@ -88,6 +102,8 @@ export function calculatePayroll(input: {
     lines,
     totalGross: formatDecimal(totalGross),
     totalDeductions: formatDecimal(totalDeductions),
+    totalTax: formatDecimal(totalTax),
+    totalSocialInsurance: formatDecimal(totalSocialInsurance),
     totalNet: formatDecimal(totalNet),
     blockedCount,
   };
@@ -101,7 +117,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,net_amount,minimum_wage,minimum_wage_passed";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -111,12 +127,61 @@ export function payrollCsv(run: PayrollRun): string {
       line.incentiveAmount,
       line.grossAmount,
       line.deductionAmount,
+      line.taxAmount,
+      line.socialInsuranceAmount,
       line.netAmount,
       line.minimumMonthlyWage,
       line.minimumWagePassed,
+      line.bankAccountRef,
     ]
       .map(csvField)
       .join(","),
   );
   return [header, ...rows].join("\n") + "\n";
+}
+
+export function payrollBankFileCsv(run: PayrollRun): string {
+  const header = "run_id,person_id,currency,net_amount,bank_account_ref";
+  const rows = (run.lines ?? []).map((line) =>
+    [run.id, line.personId, line.currency, line.netAmount, line.bankAccountRef]
+      .map(csvField)
+      .join(","),
+  );
+  return [header, ...rows].join("\n") + "\n";
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]!);
+}
+
+export function payrollPayslipHtml(
+  run: PayrollRun,
+  line: PayrollLine,
+): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>Payslip ${escapeHtml(line.personId)}</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;color:#111}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}</style>
+</head><body>
+<h1>Payslip</h1>
+<p>Run ${escapeHtml(run.id)} · Cycle ${escapeHtml(run.cycleId)} · ${escapeHtml(run.periodStart)} – ${escapeHtml(run.periodEnd)}</p>
+<table>
+<tr><th>Person</th><td>${escapeHtml(line.personId)}</td></tr>
+<tr><th>Currency</th><td>${escapeHtml(line.currency)}</td></tr>
+<tr><th>Fixed</th><td>${escapeHtml(line.fixedAmount)}</td></tr>
+<tr><th>Incentive</th><td>${escapeHtml(line.incentiveAmount)}</td></tr>
+<tr><th>Gross</th><td>${escapeHtml(line.grossAmount)}</td></tr>
+<tr><th>Ledger deductions</th><td>${escapeHtml(line.deductionAmount)}</td></tr>
+<tr><th>Tax</th><td>${escapeHtml(line.taxAmount)}</td></tr>
+<tr><th>Social insurance</th><td>${escapeHtml(line.socialInsuranceAmount)}</td></tr>
+<tr><th>Net</th><td><strong>${escapeHtml(line.netAmount)}</strong></td></tr>
+<tr><th>Minimum wage</th><td>${escapeHtml(line.minimumMonthlyWage)} (${line.minimumWagePassed ? "passed" : "FAILED"})</td></tr>
+</table>
+</body></html>`;
 }

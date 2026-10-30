@@ -83,6 +83,7 @@ import {
   createEmploymentContractSchema,
   createPayrollRunSchema,
   approvePayrollRunSchema,
+  reversePayrollRunSchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -166,7 +167,12 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
-import { calculatePayroll, payrollCsv } from "./payroll.js";
+import {
+  calculatePayroll,
+  payrollBankFileCsv,
+  payrollCsv,
+  payrollPayslipHtml,
+} from "./payroll.js";
 import { runPolicyTestCase } from "./policy-test-runner.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import type { SpanRecorder } from "./tracing.js";
@@ -3995,6 +4001,9 @@ export function buildApp(
           currency: body.currency,
           fixedMonthlySalary: body.fixedMonthlySalary,
           minimumMonthlyWage: body.minimumMonthlyWage,
+          taxRate: body.taxRate ?? "0",
+          socialInsuranceRate: body.socialInsuranceRate ?? "0",
+          bankAccountRef: body.bankAccountRef,
         }),
         request,
       ),
@@ -4069,6 +4078,40 @@ export function buildApp(
       .send(payrollCsv(run));
   });
 
+  app.get("/api/v1/payroll-runs/:id/bank-file", async (request, reply) => {
+    requireRoles(request, "finance");
+    const run = await platformStore.getPayrollRun(
+      tenantOf(request),
+      idOf(request),
+    );
+    return reply
+      .type("text/csv; charset=utf-8")
+      .header(
+        "content-disposition",
+        `attachment; filename="payroll-bank-${run.id}.csv"`,
+      )
+      .send(payrollBankFileCsv(run));
+  });
+
+  app.get("/api/v1/payroll-runs/:id/payslips/:personId", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const run = await platformStore.getPayrollRun(
+      tenantOf(request),
+      idOf(request),
+    );
+    const line = (run.lines ?? []).find(
+      (candidate) => candidate.personId === paramOf(request, "personId"),
+    );
+    if (!line) {
+      throw new NotFoundError(
+        `PayrollLine ${paramOf(request, "personId")} not found`,
+      );
+    }
+    return reply.type("text/html; charset=utf-8").send(
+      payrollPayslipHtml(run, line),
+    );
+  });
+
   app.post("/api/v1/payroll-runs/:id/calculate", async (request) => {
     requireRoles(request, "manager", "finance");
     const tenantId = tenantOf(request);
@@ -4094,6 +4137,8 @@ export function buildApp(
       lines: calculation.lines,
       totalGross: calculation.totalGross,
       totalDeductions: calculation.totalDeductions,
+      totalTax: calculation.totalTax,
+      totalSocialInsurance: calculation.totalSocialInsurance,
       totalNet: calculation.totalNet,
       blockedCount: calculation.blockedCount,
     });
@@ -4121,6 +4166,19 @@ export function buildApp(
       runId: idOf(request),
     });
     countEvent("payroll_run_paid");
+    return data(run, request);
+  });
+
+  app.post("/api/v1/payroll-runs/:id/reverse", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = parse(reversePayrollRunSchema, request.body);
+    const run = await platformStore.reversePayrollRun({
+      tenantId: tenantOf(request),
+      runId: idOf(request),
+      reason: body.reason,
+      reversedBy: body.reversedBy,
+    });
+    countEvent("payroll_run_reversed");
     return data(run, request);
   });
 

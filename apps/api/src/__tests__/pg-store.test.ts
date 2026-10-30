@@ -2726,6 +2726,9 @@ describePg("PgStore vertical slice", () => {
       currency: "CNY",
       fixedMonthlySalary: "8000",
       minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      bankAccountRef: "PG-BANK-001",
     });
     const run = await platform.createPayrollRun({
       tenantId: DEMO_TENANT_ID,
@@ -2752,6 +2755,8 @@ describePg("PgStore vertical slice", () => {
       lines: calculation.lines,
       totalGross: calculation.totalGross,
       totalDeductions: calculation.totalDeductions,
+      totalTax: calculation.totalTax,
+      totalSocialInsurance: calculation.totalSocialInsurance,
       totalNet: calculation.totalNet,
       blockedCount: calculation.blockedCount,
     });
@@ -2768,6 +2773,14 @@ describePg("PgStore vertical slice", () => {
       runId: run.id,
     });
     expect(paid.status).toBe("PAID");
+    const reversed = await platform.reversePayrollRun({
+      tenantId: DEMO_TENANT_ID,
+      runId: run.id,
+      reason: "CORRECTION",
+      reversedBy: OWNER,
+    });
+    expect(reversed.status).toBe("REVERSED");
+    expect(reversed.reversalReason).toBe("CORRECTION");
   });
 
   it("applies RLS when the app role is not a superuser", async () => {

@@ -3341,6 +3341,81 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/payroll-runs/{id}/bank-file:
+    get:
+      tags: [Payroll]
+      summary: Export a bank payment file
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: CSV bank file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/payroll-runs/{id}/payslips/{personId}:
+    get:
+      tags: [Payroll]
+      summary: Render a printable payslip
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: personId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Payslip HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/payroll-runs/{id}/reverse:
+    post:
+      tags: [Payroll]
+      summary: Reverse an approved or paid payroll run
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReversePayrollRun"
+      responses:
+        "200":
+          description: Reversed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/payroll-runs/{id}/calculate:
     post:
       tags: [Payroll]
@@ -6806,6 +6881,12 @@ components:
           $ref: "#/components/schemas/Decimal"
         minimumMonthlyWage:
           $ref: "#/components/schemas/Decimal"
+        taxRate:
+          $ref: "#/components/schemas/Decimal"
+        socialInsuranceRate:
+          $ref: "#/components/schemas/Decimal"
+        bankAccountRef:
+          type: string
 
     CreatePayrollRun:
       type: object
@@ -6831,6 +6912,15 @@ components:
       required: [approvedBy]
       properties:
         approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ReversePayrollRun:
+      type: object
+      required: [reason, reversedBy]
+      properties:
+        reason:
+          type: string
+        reversedBy:
           $ref: "#/components/schemas/Uuid"
 
     CreateSyncRun:

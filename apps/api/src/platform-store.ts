@@ -779,6 +779,9 @@ export interface PlatformStore {
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    bankAccountRef?: string;
   }): Promise<EmploymentContract>;
   listEmploymentContracts(
     tenantId: string,
@@ -810,6 +813,8 @@ export interface PlatformStore {
     lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
     totalGross: string;
     totalDeductions: string;
+    totalTax: string;
+    totalSocialInsurance: string;
     totalNet: string;
     blockedCount: number;
   }): Promise<PayrollRun>;
@@ -821,6 +826,12 @@ export interface PlatformStore {
   payPayrollRun(input: {
     tenantId: string;
     runId: string;
+  }): Promise<PayrollRun>;
+  reversePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    reason: string;
+    reversedBy: string;
   }): Promise<PayrollRun>;
   cancelPayrollRun(input: {
     tenantId: string;
@@ -3958,6 +3969,9 @@ export class MemoryPlatformStore implements PlatformStore {
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    bankAccountRef?: string;
   }): Promise<EmploymentContract> {
     if (!this.tenants.has(input.tenantId)) {
       notFound("Tenant", input.tenantId);
@@ -3984,6 +3998,20 @@ export class MemoryPlatformStore implements PlatformStore {
       throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
     }
     if (
+      parseDecimal(input.taxRate) < 0n ||
+      parseDecimal(input.taxRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_TAX_RATE_OUT_OF_RANGE");
+    }
+    if (
+      parseDecimal(input.socialInsuranceRate) < 0n ||
+      parseDecimal(input.socialInsuranceRate) > 1_000_000n
+    ) {
+      throw new ConflictError(
+        "CONTRACT_SOCIAL_INSURANCE_RATE_OUT_OF_RANGE",
+      );
+    }
+    if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
     ) {
@@ -4006,6 +4034,11 @@ export class MemoryPlatformStore implements PlatformStore {
       minimumMonthlyWage: formatDecimal(
         parseDecimal(input.minimumMonthlyWage),
       ),
+      taxRate: formatDecimal(parseDecimal(input.taxRate)),
+      socialInsuranceRate: formatDecimal(
+        parseDecimal(input.socialInsuranceRate),
+      ),
+      bankAccountRef: input.bankAccountRef,
       status: "ACTIVE",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -4067,6 +4100,8 @@ export class MemoryPlatformStore implements PlatformStore {
       preparedBy: input.preparedBy,
       totalGross: "0",
       totalDeductions: "0",
+      totalTax: "0",
+      totalSocialInsurance: "0",
       totalNet: "0",
       lineCount: 0,
       blockedCount: 0,
@@ -4120,6 +4155,8 @@ export class MemoryPlatformStore implements PlatformStore {
     lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
     totalGross: string;
     totalDeductions: string;
+    totalTax: string;
+    totalSocialInsurance: string;
     totalNet: string;
     blockedCount: number;
   }): Promise<PayrollRun> {
@@ -4147,6 +4184,10 @@ export class MemoryPlatformStore implements PlatformStore {
     run.totalGross = formatDecimal(parseDecimal(input.totalGross));
     run.totalDeductions = formatDecimal(
       parseDecimal(input.totalDeductions),
+    );
+    run.totalTax = formatDecimal(parseDecimal(input.totalTax));
+    run.totalSocialInsurance = formatDecimal(
+      parseDecimal(input.totalSocialInsurance),
     );
     run.totalNet = formatDecimal(parseDecimal(input.totalNet));
     run.lineCount = lines.length;
@@ -4203,6 +4244,32 @@ export class MemoryPlatformStore implements PlatformStore {
     return run;
   }
 
+  async reversePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    reason: string;
+    reversedBy: string;
+  }): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(input.runId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("PayrollRun", input.runId);
+    }
+    if (run.status !== "APPROVED" && run.status !== "PAID") {
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    const person = this.persons.get(input.reversedBy);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.reversedBy);
+    }
+    run.status = "REVERSED";
+    run.reversedAt = now();
+    run.reversedBy = input.reversedBy;
+    run.reversalReason = input.reason;
+    run.updatedAt = run.reversedAt;
+    run.version += 1;
+    return run;
+  }
+
   async cancelPayrollRun(input: {
     tenantId: string;
     runId: string;
@@ -4211,7 +4278,11 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!run || run.tenantId !== input.tenantId) {
       notFound("PayrollRun", input.runId);
     }
-    if (run.status === "PAID" || run.status === "CANCELLED") {
+    if (
+      run.status === "PAID" ||
+      run.status === "REVERSED" ||
+      run.status === "CANCELLED"
+    ) {
       throw new ConflictError(`payroll run is ${run.status}`);
     }
     run.status = "CANCELLED";
@@ -8275,12 +8346,29 @@ export class PgPlatformStore implements PlatformStore {
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
+    taxRate: string;
+    socialInsuranceRate: string;
+    bankAccountRef?: string;
   }): Promise<EmploymentContract> {
     if (parseDecimal(input.fixedMonthlySalary) < 0n) {
       throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
     }
     if (parseDecimal(input.minimumMonthlyWage) < 0n) {
       throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
+    }
+    if (
+      parseDecimal(input.taxRate) < 0n ||
+      parseDecimal(input.taxRate) > 1_000_000n
+    ) {
+      throw new ConflictError("CONTRACT_TAX_RATE_OUT_OF_RANGE");
+    }
+    if (
+      parseDecimal(input.socialInsuranceRate) < 0n ||
+      parseDecimal(input.socialInsuranceRate) > 1_000_000n
+    ) {
+      throw new ConflictError(
+        "CONTRACT_SOCIAL_INSURANCE_RATE_OUT_OF_RANGE",
+      );
     }
     if (
       input.endDate &&
@@ -8293,8 +8381,9 @@ export class PgPlatformStore implements PlatformStore {
         `INSERT INTO employment_contracts
           (id, tenant_id, person_id, contract_code, employment_type,
            start_date, end_date, work_location, currency,
-           fixed_monthly_salary, minimum_monthly_wage, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',1)
+           fixed_monthly_salary, minimum_monthly_wage, tax_rate,
+           social_insurance_rate, bank_account_ref, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -8308,6 +8397,9 @@ export class PgPlatformStore implements PlatformStore {
           input.currency,
           input.fixedMonthlySalary,
           input.minimumMonthlyWage,
+          input.taxRate,
+          input.socialInsuranceRate,
+          input.bankAccountRef ?? null,
         ],
       );
       return this.mapEmploymentContract(rows[0]);
@@ -8443,6 +8535,8 @@ export class PgPlatformStore implements PlatformStore {
     lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
     totalGross: string;
     totalDeductions: string;
+    totalTax: string;
+    totalSocialInsurance: string;
     totalNet: string;
     blockedCount: number;
   }): Promise<PayrollRun> {
@@ -8466,8 +8560,9 @@ export class PgPlatformStore implements PlatformStore {
           `INSERT INTO payroll_lines
             (id, tenant_id, run_id, person_id, contract_id, currency,
              fixed_amount, incentive_amount, gross_amount, deduction_amount,
-             net_amount, minimum_monthly_wage, minimum_wage_passed)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+             tax_amount, social_insurance_amount, net_amount,
+             minimum_monthly_wage, minimum_wage_passed, bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [
             randomUUID(),
             input.tenantId,
@@ -8479,9 +8574,12 @@ export class PgPlatformStore implements PlatformStore {
             line.incentiveAmount,
             line.grossAmount,
             line.deductionAmount,
+            line.taxAmount,
+            line.socialInsuranceAmount,
             line.netAmount,
             line.minimumMonthlyWage,
             line.minimumWagePassed,
+            line.bankAccountRef ?? null,
           ],
         );
       }
@@ -8489,7 +8587,8 @@ export class PgPlatformStore implements PlatformStore {
       const { rows: updated } = await client.query(
         `UPDATE payroll_runs
             SET status=$3, total_gross=$4, total_deductions=$5,
-                total_net=$6, line_count=$7, blocked_count=$8,
+                total_tax=$6, total_social_insurance=$7, total_net=$8,
+                line_count=$9, blocked_count=$10,
                 updated_at=now(), version=version+1
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
@@ -8499,6 +8598,8 @@ export class PgPlatformStore implements PlatformStore {
           status,
           input.totalGross,
           input.totalDeductions,
+          input.totalTax,
+          input.totalSocialInsurance,
           input.totalNet,
           input.lines.length,
           input.blockedCount,
@@ -8573,6 +8674,37 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapPayrollRun(rows[0], []);
   }
 
+  async reversePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    reason: string;
+    reversedBy: string;
+  }): Promise<PayrollRun> {
+    const { rows: personRows } = await this.pool.query(
+      "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+      [input.tenantId, input.reversedBy],
+    );
+    if (!personRows[0]) notFound("Person", input.reversedBy);
+    const { rows } = await this.pool.query(
+      `UPDATE payroll_runs
+          SET status='REVERSED', reversed_at=now(), reversed_by=$3,
+              reversal_reason=$4, updated_at=now(), version=version+1
+        WHERE tenant_id=$1 AND id=$2 AND status IN ('APPROVED','PAID')
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.runId,
+        input.reversedBy,
+        input.reason,
+      ],
+    );
+    if (!rows[0]) {
+      const run = await this.getPayrollRun(input.tenantId, input.runId);
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    return this.mapPayrollRun(rows[0], []);
+  }
+
   async cancelPayrollRun(input: {
     tenantId: string;
     runId: string;
@@ -8581,7 +8713,7 @@ export class PgPlatformStore implements PlatformStore {
       `UPDATE payroll_runs
           SET status='CANCELLED', updated_at=now(), version=version+1
         WHERE tenant_id=$1 AND id=$2
-          AND status NOT IN ('PAID','CANCELLED')
+          AND status NOT IN ('PAID','REVERSED','CANCELLED')
         RETURNING *`,
       [input.tenantId, input.runId],
     );
@@ -9610,6 +9742,10 @@ export class PgPlatformStore implements PlatformStore {
         decimalText(String(row.fixed_monthly_salary)) ?? "0",
       minimumMonthlyWage:
         decimalText(String(row.minimum_monthly_wage)) ?? "0",
+      taxRate: decimalText(String(row.tax_rate)) ?? "0",
+      socialInsuranceRate:
+        decimalText(String(row.social_insurance_rate)) ?? "0",
+      bankAccountRef: row.bank_account_ref ?? undefined,
       status: row.status,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
@@ -9629,10 +9765,14 @@ export class PgPlatformStore implements PlatformStore {
       incentiveAmount: decimalText(String(row.incentive_amount)) ?? "0",
       grossAmount: decimalText(String(row.gross_amount)) ?? "0",
       deductionAmount: decimalText(String(row.deduction_amount)) ?? "0",
+      taxAmount: decimalText(String(row.tax_amount)) ?? "0",
+      socialInsuranceAmount:
+        decimalText(String(row.social_insurance_amount)) ?? "0",
       netAmount: decimalText(String(row.net_amount)) ?? "0",
       minimumMonthlyWage:
         decimalText(String(row.minimum_monthly_wage)) ?? "0",
       minimumWagePassed: row.minimum_wage_passed,
+      bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
@@ -9653,8 +9793,14 @@ export class PgPlatformStore implements PlatformStore {
       approvedBy: row.approved_by ?? undefined,
       approvedAt: iso(row.approved_at),
       paidAt: iso(row.paid_at),
+      reversedAt: iso(row.reversed_at),
+      reversedBy: row.reversed_by ?? undefined,
+      reversalReason: row.reversal_reason ?? undefined,
       totalGross: decimalText(String(row.total_gross)) ?? "0",
       totalDeductions: decimalText(String(row.total_deductions)) ?? "0",
+      totalTax: decimalText(String(row.total_tax)) ?? "0",
+      totalSocialInsurance:
+        decimalText(String(row.total_social_insurance)) ?? "0",
       totalNet: decimalText(String(row.total_net)) ?? "0",
       lineCount: Number(row.line_count),
       blockedCount: Number(row.blocked_count),

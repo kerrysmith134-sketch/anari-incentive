@@ -2350,6 +2350,9 @@ describe("payroll", () => {
         currency: "CNY",
         fixedMonthlySalary: "8000",
         minimumMonthlyWage: "2690",
+        taxRate: "0.1",
+        socialInsuranceRate: "0.05",
+        bankAccountRef: "BANK-001",
       },
     );
     expect(contract.status).toBe(201);
@@ -2386,7 +2389,9 @@ describe("payroll", () => {
     expect(calculated.body.data.status).toBe("CALCULATED");
     expect(calculated.body.data.lineCount).toBe(1);
     expect(calculated.body.data.totalGross).toBe("8000");
-    expect(calculated.body.data.totalNet).toBe("8000");
+    expect(calculated.body.data.totalTax).toBe("800");
+    expect(calculated.body.data.totalSocialInsurance).toBe("400");
+    expect(calculated.body.data.totalNet).toBe("6800");
     expect(calculated.body.data.blockedCount).toBe(0);
     const selfApproval = await call(
       "POST",
@@ -2417,6 +2422,34 @@ describe("payroll", () => {
       "run_id,person_id,currency,fixed_amount",
     );
     expect(exported.body).toContain(",8000,");
+    const bankFile = await app.inject({
+      method: "GET",
+      url: `/api/v1/payroll-runs/${runId}/bank-file`,
+    } as never);
+    expect(bankFile.statusCode).toBe(200);
+    expect(bankFile.body).toContain("6800");
+    expect(bankFile.body).toContain("BANK-001");
+    const payslip = await app.inject({
+      method: "GET",
+      url: `/api/v1/payroll-runs/${runId}/payslips/${OWNER}`,
+    } as never);
+    expect(payslip.statusCode).toBe(200);
+    expect(payslip.headers["content-type"]).toContain("text/html");
+    expect(payslip.body).toContain("Payslip");
+    expect(payslip.body).toContain("6800");
+    const reversed = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/reverse`,
+      { reason: "CORRECTION", reversedBy: OWNER },
+    );
+    expect(reversed.status).toBe(200);
+    expect(reversed.body.data.status).toBe("REVERSED");
+    const reReversed = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/reverse`,
+      { reason: "AGAIN", reversedBy: OWNER },
+    );
+    expect(reReversed.status).toBe(409);
 
     await call("POST", "/api/v1/employment-contracts", {
       personId: MEMBER,

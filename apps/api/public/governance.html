@@ -674,6 +674,12 @@
         <div><label>固定月薪</label><input id="contractFixed" value="8000" /></div>
         <div><label>法定最低月薪</label><input id="contractMinimum" value="2690" /></div>
       </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>税率（0-1）</label><input id="contractTax" value="0.1" /></div>
+        <div><label>社保率（0-1）</label><input id="contractSocial" value="0.05" /></div>
+        <div><label>银行账户引用</label><input id="contractBank" value="BANK-001" /></div>
+        <div></div>
+      </div>
       <div class="actions">
         <button class="primary" id="createContract">创建合同</button>
         <button id="refreshContracts">刷新合同</button>
@@ -2427,6 +2433,10 @@
             currency: $("contractCurrency").value.trim(),
             fixedMonthlySalary: $("contractFixed").value.trim(),
             minimumMonthlyWage: $("contractMinimum").value.trim(),
+            taxRate: $("contractTax").value.trim() || "0",
+            socialInsuranceRate:
+              $("contractSocial").value.trim() || "0",
+            bankAccountRef: $("contractBank").value.trim() || undefined,
           }),
         });
         setStatus("payrollStatus", "合同已创建", "ok");
@@ -2448,9 +2458,12 @@
             ${["DRAFT", "CALCULATED", "BLOCKED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="calculate">计算</button>` : ""}
             ${run.status === "CALCULATED" ? `<button data-payroll="${run.id}" data-payroll-action="approve">批准</button>` : ""}
             ${run.status === "APPROVED" ? `<button data-payroll="${run.id}" data-payroll-action="pay">发放</button>` : ""}
-            ${!["PAID", "CANCELLED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="cancel">取消</button>` : ""}
+            ${["APPROVED", "PAID"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="reverse">冲销</button>` : ""}
+            ${!["PAID", "REVERSED", "CANCELLED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="cancel">取消</button>` : ""}
             <button data-payroll="${run.id}" data-payroll-action="view">详情</button>
             <a href="/api/v1/payroll-runs/${run.id}/export" download>导出</a>
+            <a href="/api/v1/payroll-runs/${run.id}/bank-file" download>银行文件</a>
+            ${run.lines && run.lines[0] ? `<a href="/api/v1/payroll-runs/${run.id}/payslips/${run.lines[0].personId}" target="_blank">工资单</a>` : ""}
           </td>
         </tr>`).join("");
         setStatus("payrollStatus", `共 ${runs.length} 个薪酬批次`, "ok");
@@ -2490,7 +2503,13 @@
         const body =
           action === "approve"
             ? { approvedBy: $("payrollApprover").value.trim() }
-            : {};
+            : action === "reverse"
+              ? {
+                  reason:
+                    window.prompt("冲销原因", "CORRECTION") || "",
+                  reversedBy: $("payrollApprover").value.trim(),
+                }
+              : {};
         await api(`/api/v1/payroll-runs/${id}/${action}`, {
           method: "POST",
           body: JSON.stringify(body),

@@ -247,10 +247,12 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /bounties/:id/cancel` | admin, not ACCEPTED/CANCELLED | Sets CANCELLED |
 | `POST /employment-contracts` | admin, person exists, unique contract code | Creates an ACTIVE contract with declared fixed salary and legal minimum |
 | `POST /payroll-runs` | manager/finance, preparer exists, valid period | Creates a DRAFT payroll run |
-| `POST /payroll-runs/:id/calculate` | manager/finance, DRAFT/CALCULATED/BLOCKED | Combines fixed salary and LOCKED ledger entries; sub-minimum net pay marks the run BLOCKED |
+| `POST /payroll-runs/:id/calculate` | manager/finance, DRAFT/CALCULATED/BLOCKED | Combines fixed salary, declared tax/social-insurance rates and LOCKED ledger entries; sub-minimum net pay marks the run BLOCKED |
 | `POST /payroll-runs/:id/approve` | admin/finance, CALCULATED, preparer ≠ approver | Sets APPROVED |
 | `POST /payroll-runs/:id/pay` | finance, APPROVED | Sets PAID |
-| `POST /payroll-runs/:id/cancel` | admin, not PAID/CANCELLED | Sets CANCELLED |
+| `POST /payroll-runs/:id/reverse` | finance/admin, APPROVED/PAID, reversedBy exists | Sets REVERSED with reason and timestamp |
+| `POST /payroll-runs/:id/cancel` | admin, not PAID/REVERSED/CANCELLED | Sets CANCELLED |
+| `GET /payroll-runs/:id/export\|bank-file\|payslips/:personId` | manager/finance or finance for bank file | CSV lines, CSV bank file, printable payslip HTML |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
