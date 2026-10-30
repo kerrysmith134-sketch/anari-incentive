@@ -92,6 +92,18 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createModelProviderPolicySchema = z.object({
+  provider: z.string().min(1),
+  zeroRetentionConfirmed: z.boolean(),
+  dpaRef: z.string().min(1),
+  inferenceRegion: z.string().min(1),
+  egressAllowlist: z.array(z.string().min(1)).min(1),
+  approvedBy: uuidSchema,
+});
+export type CreateModelProviderPolicyBody = z.infer<
+  typeof createModelProviderPolicySchema
+>;
+
 export const createDiscretionaryPoolReviewSchema = z
   .object({
     committeePersonIds: z.array(uuidSchema).min(2),

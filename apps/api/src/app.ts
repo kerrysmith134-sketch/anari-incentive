@@ -36,6 +36,7 @@ import {
   approveClawbackCaseSchema,
   closeClawbackCaseSchema,
   createDiscretionaryPoolReviewSchema,
+  createModelProviderPolicySchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -604,6 +605,37 @@ export function buildApp(
     if (acknowledged.length > 0) {
       throw new ConflictError(
         `RETROACTIVE_ADJUSTMENT_BLOCKED: cycle ${entry.cycleId} has an acknowledged settlement batch (${acknowledged[0]?.batchNo}); record a correction cycle instead`,
+      );
+    }
+  }
+
+  async function assertModelProviderPolicy(
+    request: FastifyRequest,
+    provider: string,
+  ): Promise<void> {
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    const required = Boolean(
+      (tenant.settings as { requireModelProviderPolicy?: unknown })
+        .requireModelProviderPolicy,
+    );
+    if (!required) return;
+    const policy = await platformStore.getActiveModelProviderPolicy(
+      tenantOf(request),
+      provider,
+    );
+    if (!policy) {
+      throw new ConflictError(
+        `MODEL_PROVIDER_POLICY_REQUIRED: no active policy for ${provider}`,
+      );
+    }
+    if (!policy.zeroRetentionConfirmed || !policy.dpaRef) {
+      throw new ConflictError(
+        `MODEL_PROVIDER_POLICY_INCOMPLETE: zero retention and DPA are required for ${provider}`,
+      );
+    }
+    if (policy.egressAllowlist.length === 0) {
+      throw new ConflictError(
+        `MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED: ${provider}`,
       );
     }
   }
@@ -3259,6 +3291,44 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/model-provider-policies", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createModelProviderPolicySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createModelProviderPolicy({
+          tenantId: tenantOf(request),
+          provider: body.provider,
+          zeroRetentionConfirmed: body.zeroRetentionConfirmed,
+          dpaRef: body.dpaRef,
+          inferenceRegion: body.inferenceRegion,
+          egressAllowlist: body.egressAllowlist,
+          approvedBy: body.approvedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/model-provider-policies", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listModelProviderPolicies(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-provider-policies/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retireModelProviderPolicy({
+        tenantId: tenantOf(request),
+        policyId: idOf(request),
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/trust-surveys", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createTrustSurveySchema, request.body);
@@ -4797,6 +4867,11 @@ export function buildApp(
       body.evaluationRunId,
     );
     assertHarnessEvaluation(evaluation);
+    const existingPrompt = await platformStore.getModelPrompt(
+      tenantOf(request),
+      idOf(request),
+    );
+    await assertModelProviderPolicy(request, existingPrompt.modelProvider);
     const prompt = await platformStore.activateModelPrompt({
       tenantId: tenantOf(request),
       promptId: idOf(request),
@@ -4829,6 +4904,7 @@ export function buildApp(
       body.evaluationRunId,
     );
     assertHarnessEvaluation(evaluation);
+    await assertModelProviderPolicy(request, evaluation.modelProvider);
     if (!evaluation.passed) {
       throw new ConflictError(
         `AI_EVALUATION_GATE_NOT_PASSED: ${

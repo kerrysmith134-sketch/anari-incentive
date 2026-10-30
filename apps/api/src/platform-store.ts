@@ -45,6 +45,7 @@ import type {
   MetricDefinition,
   ModelEvaluationRun,
   ModelPrompt,
+  ModelProviderPolicy,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -426,6 +427,26 @@ export interface PlatformStore {
     tenantId: string,
     poolId?: string,
   ): Promise<DiscretionaryPoolReview[]>;
+  createModelProviderPolicy(input: {
+    tenantId: string;
+    provider: string;
+    zeroRetentionConfirmed: boolean;
+    dpaRef: string;
+    inferenceRegion: string;
+    egressAllowlist: string[];
+    approvedBy: string;
+  }): Promise<ModelProviderPolicy>;
+  listModelProviderPolicies(
+    tenantId: string,
+  ): Promise<ModelProviderPolicy[]>;
+  getActiveModelProviderPolicy(
+    tenantId: string,
+    provider: string,
+  ): Promise<ModelProviderPolicy | undefined>;
+  retireModelProviderPolicy(input: {
+    tenantId: string;
+    policyId: string;
+  }): Promise<ModelProviderPolicy>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1298,6 +1319,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly discretionaryPoolReviews = new Map<
     string,
     DiscretionaryPoolReview
+  >();
+  private readonly modelProviderPolicies = new Map<
+    string,
+    ModelProviderPolicy
   >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
@@ -2987,6 +3012,99 @@ export class MemoryPlatformStore implements PlatformStore {
           (!poolId || review.poolId === poolId),
       )
       .sort((a, b) => b.reviewedAt.localeCompare(a.reviewedAt));
+  }
+
+  async createModelProviderPolicy(input: {
+    tenantId: string;
+    provider: string;
+    zeroRetentionConfirmed: boolean;
+    dpaRef: string;
+    inferenceRegion: string;
+    egressAllowlist: string[];
+    approvedBy: string;
+  }): Promise<ModelProviderPolicy> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    if (!input.egressAllowlist.length) {
+      throw new ConflictError("MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED");
+    }
+    const timestamp = now();
+    const existing = [...this.modelProviderPolicies.values()].find(
+      (policy) =>
+        policy.tenantId === input.tenantId &&
+        policy.provider === input.provider,
+    );
+    if (existing) {
+      existing.zeroRetentionConfirmed = input.zeroRetentionConfirmed;
+      existing.dpaRef = input.dpaRef;
+      existing.inferenceRegion = input.inferenceRegion;
+      existing.egressAllowlist = [...input.egressAllowlist];
+      existing.approvedBy = input.approvedBy;
+      existing.approvedAt = timestamp;
+      existing.status = "ACTIVE";
+      existing.retiredAt = undefined;
+      existing.updatedAt = timestamp;
+      return existing;
+    }
+    const policy: ModelProviderPolicy = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      provider: input.provider,
+      zeroRetentionConfirmed: input.zeroRetentionConfirmed,
+      dpaRef: input.dpaRef,
+      inferenceRegion: input.inferenceRegion,
+      egressAllowlist: [...input.egressAllowlist],
+      approvedBy: input.approvedBy,
+      approvedAt: timestamp,
+      status: "ACTIVE",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.modelProviderPolicies.set(policy.id, policy);
+    return policy;
+  }
+
+  async listModelProviderPolicies(
+    tenantId: string,
+  ): Promise<ModelProviderPolicy[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelProviderPolicies.values()]
+      .filter((policy) => policy.tenantId === tenantId)
+      .sort((a, b) => a.provider.localeCompare(b.provider));
+  }
+
+  async getActiveModelProviderPolicy(
+    tenantId: string,
+    provider: string,
+  ): Promise<ModelProviderPolicy | undefined> {
+    return [...this.modelProviderPolicies.values()].find(
+      (policy) =>
+        policy.tenantId === tenantId &&
+        policy.provider === provider &&
+        policy.status === "ACTIVE",
+    );
+  }
+
+  async retireModelProviderPolicy(input: {
+    tenantId: string;
+    policyId: string;
+  }): Promise<ModelProviderPolicy> {
+    const policy = this.modelProviderPolicies.get(input.policyId);
+    if (!policy || policy.tenantId !== input.tenantId) {
+      notFound("ModelProviderPolicy", input.policyId);
+    }
+    if (policy.status === "RETIRED") {
+      throw new ConflictError(
+        `model provider policy ${policy.id} is already retired`,
+      );
+    }
+    policy.status = "RETIRED";
+    policy.retiredAt = now();
+    policy.updatedAt = policy.retiredAt;
+    return policy;
   }
 
   async createApprovalRequest(input: {
@@ -8240,6 +8358,109 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapDiscretionaryPoolReview(row));
   }
 
+  async createModelProviderPolicy(input: {
+    tenantId: string;
+    provider: string;
+    zeroRetentionConfirmed: boolean;
+    dpaRef: string;
+    inferenceRegion: string;
+    egressAllowlist: string[];
+    approvedBy: string;
+  }): Promise<ModelProviderPolicy> {
+    if (!input.egressAllowlist.length) {
+      throw new ConflictError("MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_provider_policies
+          (id, tenant_id, provider, zero_retention_confirmed, dpa_ref,
+           inference_region, egress_allowlist, approved_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+         ON CONFLICT (tenant_id, provider) DO UPDATE SET
+           zero_retention_confirmed=EXCLUDED.zero_retention_confirmed,
+           dpa_ref=EXCLUDED.dpa_ref,
+           inference_region=EXCLUDED.inference_region,
+           egress_allowlist=EXCLUDED.egress_allowlist,
+           approved_by=EXCLUDED.approved_by,
+           approved_at=now(),
+           status='ACTIVE',
+           retired_at=NULL,
+           updated_at=now()
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.provider,
+          input.zeroRetentionConfirmed,
+          input.dpaRef,
+          input.inferenceRegion,
+          JSON.stringify(input.egressAllowlist),
+          input.approvedBy,
+        ],
+      );
+      return this.mapModelProviderPolicy(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or approver ${input.approvedBy} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listModelProviderPolicies(
+    tenantId: string,
+  ): Promise<ModelProviderPolicy[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_provider_policies
+        WHERE tenant_id=$1
+        ORDER BY provider`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapModelProviderPolicy(row));
+  }
+
+  async getActiveModelProviderPolicy(
+    tenantId: string,
+    provider: string,
+  ): Promise<ModelProviderPolicy | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_provider_policies
+        WHERE tenant_id=$1 AND provider=$2 AND status='ACTIVE'
+        LIMIT 1`,
+      [tenantId, provider],
+    );
+    return rows[0] ? this.mapModelProviderPolicy(rows[0]) : undefined;
+  }
+
+  async retireModelProviderPolicy(input: {
+    tenantId: string;
+    policyId: string;
+  }): Promise<ModelProviderPolicy> {
+    const { rows } = await this.pool.query(
+      `UPDATE model_provider_policies
+          SET status='RETIRED', retired_at=now(), updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.policyId],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM model_provider_policies WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.policyId],
+      );
+      if (!current.rows[0]) {
+        notFound("ModelProviderPolicy", input.policyId);
+      }
+      throw new ConflictError(
+        `model provider policy ${input.policyId} is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapModelProviderPolicy(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -12439,6 +12660,26 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapModelProviderPolicy(
+    row: QueryResultRow,
+  ): ModelProviderPolicy {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      provider: row.provider,
+      zeroRetentionConfirmed: Boolean(row.zero_retention_confirmed),
+      dpaRef: row.dpa_ref,
+      inferenceRegion: row.inference_region,
+      egressAllowlist: (row.egress_allowlist as string[] | null) ?? [],
+      approvedBy: row.approved_by,
+      approvedAt: iso(row.approved_at) ?? new Date().toISOString(),
+      status: row.status,
+      retiredAt: iso(row.retired_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

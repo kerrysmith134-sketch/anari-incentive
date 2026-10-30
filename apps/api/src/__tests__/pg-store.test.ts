@@ -3330,6 +3330,40 @@ describePg("PgStore vertical slice", () => {
     expect(listed.map((row) => row.id)).toContain(review.id);
   });
 
+  it("persists model-provider zero-retention and egress policies", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const policy = await platform.createModelProviderPolicy({
+      tenantId: DEMO_TENANT_ID,
+      provider: "anthropic",
+      zeroRetentionConfirmed: true,
+      dpaRef: "PG-DPA-2026",
+      inferenceRegion: "cn-shanghai",
+      egressAllowlist: ["api.anthropic.com"],
+      approvedBy: OWNER,
+    });
+    expect(policy.status).toBe("ACTIVE");
+    expect(policy.egressAllowlist).toEqual(["api.anthropic.com"]);
+    expect(
+      (
+        await platform.getActiveModelProviderPolicy(
+          DEMO_TENANT_ID,
+          "anthropic",
+        )
+      )?.dpaRef,
+    ).toBe("PG-DPA-2026");
+    const retired = await platform.retireModelProviderPolicy({
+      tenantId: DEMO_TENANT_ID,
+      policyId: policy.id,
+    });
+    expect(retired.status).toBe("RETIRED");
+    expect(
+      await platform.getActiveModelProviderPolicy(
+        DEMO_TENANT_ID,
+        "anthropic",
+      ),
+    ).toBeUndefined();
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

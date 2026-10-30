@@ -6705,6 +6705,67 @@ describe("vertical slice", () => {
     expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
+  it("enforces model-provider policies when the tenant requires them", async () => {
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requireModelProviderPolicy: true },
+    );
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "provider-policy-set",
+    );
+    const evidence = [
+      {
+        id: "provider-e1",
+        type: "DELIVERY",
+        text: "Signed acceptance",
+        dimension: "QUALITY",
+        quality: "VALID",
+      },
+    ];
+    const blocked = await call("POST", "/api/v1/ai-score-proposals", {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.body.data.id,
+      dimensions: ["QUALITY"],
+      evidence,
+      requestedBy: OWNER,
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain(
+      "MODEL_PROVIDER_POLICY_REQUIRED",
+    );
+    const policy = await call("POST", "/api/v1/model-provider-policies", {
+      provider: "anthropic",
+      zeroRetentionConfirmed: true,
+      dpaRef: "DPA-2026-01",
+      inferenceRegion: "cn-shanghai",
+      egressAllowlist: ["api.anthropic.com"],
+      approvedBy: OWNER,
+    });
+    expect(policy.status).toBe(201);
+    expect(policy.body.data.status).toBe("ACTIVE");
+    const allowed = await call("POST", "/api/v1/ai-score-proposals", {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.body.data.id,
+      dimensions: ["QUALITY"],
+      evidence,
+      requestedBy: OWNER,
+    });
+    expect(allowed.status).toBe(201);
+    const list = await call("GET", "/api/v1/model-provider-policies");
+    expect(list.body.data).toHaveLength(1);
+    const retired = await call(
+      "POST",
+      `/api/v1/model-provider-policies/${policy.body.data.id}/retire`,
+    );
+    expect(retired.body.data.status).toBe("RETIRED");
+  });
+
   it("returns an audit anchor manifest for external timestamping", async () => {
     const anchor = await call("GET", "/api/v1/audit-events/anchor");
     expect(anchor.status).toBe(200);

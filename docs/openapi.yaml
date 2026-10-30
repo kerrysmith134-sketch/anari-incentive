@@ -996,6 +996,68 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/model-provider-policies:
+    get:
+      tags: [Agent]
+      summary: List model-provider policies
+      responses:
+        "200":
+          description: Policies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Record or replace a model-provider policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelProviderPolicy"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/model-provider-policies/{id}/retire:
+    post:
+      tags: [Agent]
+      summary: Retire a model-provider policy
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/trust-surveys:
     get:
       tags: [Compliance]
@@ -7597,6 +7659,27 @@ components:
           type: array
           items:
             type: string
+
+    CreateModelProviderPolicy:
+      type: object
+      required:
+        [provider, zeroRetentionConfirmed, dpaRef, inferenceRegion, egressAllowlist, approvedBy]
+      properties:
+        provider:
+          type: string
+        zeroRetentionConfirmed:
+          type: boolean
+        dpaRef:
+          type: string
+        inferenceRegion:
+          type: string
+        egressAllowlist:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateTrustSurvey:
       type: object

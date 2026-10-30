@@ -82,6 +82,9 @@ export function SettingsPage() {
   const poolReviews = useApiQuery<DiscretionaryPoolReview[]>(
     "/api/v1/discretionary-pool-reviews",
   );
+  const providerPolicies = useApiQuery<ModelProviderPolicy[]>(
+    "/api/v1/model-provider-policies",
+  );
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -236,6 +239,15 @@ export function SettingsPage() {
   const [poolReviewReviewer, setPoolReviewReviewer] = useState(
     session.personId,
   );
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [policyProvider, setPolicyProvider] = useState("anthropic");
+  const [policyZeroRetention, setPolicyZeroRetention] = useState(true);
+  const [policyDpa, setPolicyDpa] = useState("");
+  const [policyRegion, setPolicyRegion] = useState("cn-shanghai");
+  const [policyEgress, setPolicyEgress] = useState("api.anthropic.com");
+  const [policyApprover, setPolicyApprover] = useState(session.personId);
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -483,6 +495,68 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openPolicyForm() {
+    setPolicyProvider("anthropic");
+    setPolicyZeroRetention(true);
+    setPolicyDpa("");
+    setPolicyRegion("cn-shanghai");
+    setPolicyEgress("api.anthropic.com");
+    setPolicyApprover(session.personId);
+    setPolicyError(null);
+    setPolicyOpen(true);
+  }
+
+  async function savePolicy(event: FormEvent) {
+    event.preventDefault();
+    setPolicySaving(true);
+    setPolicyError(null);
+    try {
+      await api("/api/v1/model-provider-policies", {
+        method: "POST",
+        body: {
+          provider: policyProvider.trim(),
+          zeroRetentionConfirmed: policyZeroRetention,
+          dpaRef: policyDpa.trim(),
+          inferenceRegion: policyRegion.trim(),
+          egressAllowlist: policyEgress
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          approvedBy: policyApprover,
+        },
+      });
+      toast.success("Provider policy recorded");
+      setPolicyOpen(false);
+      providerPolicies.reload();
+    } catch (error) {
+      setPolicyError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the policy.",
+      );
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function retirePolicy(policy: ModelProviderPolicy) {
+    setPolicySaving(true);
+    try {
+      await api(`/api/v1/model-provider-policies/${policy.id}/retire`, {
+        method: "POST",
+      });
+      toast.success("Provider policy retired");
+      providerPolicies.reload();
+    } catch (error) {
+      toast.error(
+        "Could not retire policy",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setPolicySaving(false);
     }
   }
 
@@ -3361,6 +3435,178 @@ export function SettingsPage() {
               required
             />
           </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Model provider policies"
+        subtitle="Zero-retention, DPA, inference region and egress allowlist per provider"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openPolicyForm}
+          >
+            Record policy
+          </Button>
+        }
+        flush
+      >
+        {providerPolicies.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice
+              error={providerPolicies.error}
+              onRetry={providerPolicies.reload}
+            />
+          </div>
+        ) : providerPolicies.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (providerPolicies.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="ai"
+            title="No provider policy"
+            description="Record zero-retention confirmation, DPA reference, region and egress allowlist before enabling provider-policy enforcement."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Zero retention</th>
+                  <th>DPA</th>
+                  <th>Region</th>
+                  <th>Egress</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {providerPolicies.data?.map((policy) => (
+                  <tr key={policy.id}>
+                    <td className="mono">{policy.provider}</td>
+                    <td>
+                      <Badge
+                        tone={
+                          policy.zeroRetentionConfirmed ? "success" : "danger"
+                        }
+                      >
+                        {policy.zeroRetentionConfirmed ? "Confirmed" : "Missing"}
+                      </Badge>
+                    </td>
+                    <td className="mono">{policy.dpaRef}</td>
+                    <td>{policy.inferenceRegion}</td>
+                    <td>{policy.egressAllowlist.join(", ")}</td>
+                    <td>
+                      <Badge status={policy.status} />
+                    </td>
+                    <td className="cell-actions">
+                      {policy.status === "ACTIVE" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void retirePolicy(policy)}
+                          loading={policySaving}
+                        >
+                          Retire
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={policyOpen}
+        title="Record model-provider policy"
+        description="Enforcement is enabled per tenant with requireModelProviderPolicy."
+        onClose={() => setPolicyOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPolicyOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="provider-policy-form"
+              loading={policySaving}
+            >
+              Record policy
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="provider-policy-form"
+          className="stack"
+          onSubmit={savePolicy}
+        >
+          {policyError ? (
+            <InfoNotice tone="warning">{policyError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Provider" htmlFor="policy-provider">
+              <TextInput
+                id="policy-provider"
+                value={policyProvider}
+                onChange={(event) => setPolicyProvider(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Inference region" htmlFor="policy-region">
+              <TextInput
+                id="policy-region"
+                value={policyRegion}
+                onChange={(event) => setPolicyRegion(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="DPA reference" htmlFor="policy-dpa">
+              <TextInput
+                id="policy-dpa"
+                value={policyDpa}
+                onChange={(event) => setPolicyDpa(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Approver" htmlFor="policy-approver">
+              <PersonSelect
+                id="policy-approver"
+                value={policyApprover}
+                onChange={setPolicyApprover}
+              />
+            </FormField>
+          </div>
+          <FormField
+            label="Egress allowlist (comma separated)"
+            htmlFor="policy-egress"
+          >
+            <TextInput
+              id="policy-egress"
+              value={policyEgress}
+              onChange={(event) => setPolicyEgress(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={policyZeroRetention}
+              onChange={(event) =>
+                setPolicyZeroRetention(event.target.checked)
+              }
+            />
+            <span>Provider contract confirms zero retention.</span>
+          </label>
         </form>
       </Modal>
 

@@ -350,6 +350,22 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface ModelProviderPolicy {
+  id: UUID;
+  tenantId: UUID;
+  provider: string;
+  zeroRetentionConfirmed: boolean;
+  dpaRef: string;
+  inferenceRegion: string;
+  egressAllowlist: string[];
+  approvedBy: UUID;
+  approvedAt: string;
+  status: "ACTIVE" | "RETIRED";
+  retiredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiscretionaryPoolReview {
   id: UUID;
   tenantId: UUID;

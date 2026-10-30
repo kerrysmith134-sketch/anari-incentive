@@ -583,6 +583,21 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ModelProviderPolicy {
+  id: Uuid;
+  provider: string;
+  zeroRetentionConfirmed: boolean;
+  dpaRef: string;
+  inferenceRegion: string;
+  egressAllowlist: string[];
+  approvedBy: Uuid;
+  approvedAt: string;
+  status: "ACTIVE" | "RETIRED";
+  retiredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiscretionaryPoolReview {
   id: Uuid;
   poolId: Uuid;
