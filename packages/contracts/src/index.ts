@@ -92,6 +92,37 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createClawbackCaseSchema = z.object({
+  personId: uuidSchema,
+  amount: decimal,
+  currency: z.string().length(3),
+  reasonCode: z.string().min(1),
+  explanation: z.string().min(3),
+  consentSignatureRef: z.string().min(1),
+  installmentMonths: z.number().int().min(1).max(12).default(1),
+  hardshipWaiver: z.boolean().default(false),
+  hardshipReason: z.string().min(3).optional(),
+  requestedBy: uuidSchema,
+});
+export type CreateClawbackCaseBody = z.infer<
+  typeof createClawbackCaseSchema
+>;
+
+export const approveClawbackCaseSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveClawbackCaseBody = z.infer<
+  typeof approveClawbackCaseSchema
+>;
+
+export const closeClawbackCaseSchema = z.object({
+  reason: z.string().min(3),
+  actorPersonId: uuidSchema,
+});
+export type CloseClawbackCaseBody = z.infer<
+  typeof closeClawbackCaseSchema
+>;
+
 export const createBreakGlassGrantSchema = z.object({
   scope: z.enum(["PAYROLL_BANK_ACCOUNT"]),
   granteePersonId: uuidSchema,

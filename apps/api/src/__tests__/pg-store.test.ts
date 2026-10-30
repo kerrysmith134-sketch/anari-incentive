@@ -3258,6 +3258,50 @@ describePg("PgStore vertical slice", () => {
     ).toBeUndefined();
   });
 
+  it("persists clawback terms, approval and waiver", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const clawback = await platform.createClawbackCase({
+      tenantId: DEMO_TENANT_ID,
+      personId: MEMBER,
+      amount: "500",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Duplicate incentive",
+      consentSignatureRef: "PG-CLAWBACK-ESIGN",
+      installmentMonths: 3,
+      hardshipWaiver: false,
+      requestedBy: OWNER,
+    });
+    expect(clawback.status).toBe("DRAFT");
+    await expect(
+      platform.approveClawbackCase({
+        tenantId: DEMO_TENANT_ID,
+        caseId: clawback.id,
+        approvedBy: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const approved = await platform.approveClawbackCase({
+      tenantId: DEMO_TENANT_ID,
+      caseId: clawback.id,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(approved.status).toBe("APPROVED");
+    const waived = await platform.closeClawbackCase({
+      tenantId: DEMO_TENANT_ID,
+      caseId: clawback.id,
+      action: "WAIVE",
+      reason: "Documented hardship",
+      actorPersonId: ADJUDICATOR,
+    });
+    expect(waived.status).toBe("WAIVED");
+    expect(waived.waiverReason).toBe("Documented hardship");
+    expect(
+      (await platform.listClawbackCases(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(clawback.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

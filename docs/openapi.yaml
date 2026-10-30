@@ -562,6 +562,143 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/clawback-cases:
+    get:
+      tags: [Payroll]
+      summary: List clawback cases
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Clawback cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Record clawback terms and consent
+      description: |
+        Records written consent, installment months and optional hardship
+        terms. It does not itself move money; recovery still uses a
+        settlement-recovery batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClawbackCase"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/clawback-cases/{id}/approve:
+    post:
+      tags: [Payroll]
+      summary: Approve clawback terms
+      description: The requester cannot approve the case.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveClawbackCase"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/clawback-cases/{id}/waive:
+    post:
+      tags: [Payroll]
+      summary: Waive a clawback
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseClawbackCase"
+      responses:
+        "200":
+          description: Waived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/clawback-cases/{id}/cancel:
+    post:
+      tags: [Payroll]
+      summary: Cancel a clawback
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseClawbackCase"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/break-glass-grants:
     get:
       tags: [Compliance]
@@ -7253,6 +7390,56 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateClawbackCase:
+      type: object
+      required:
+        [personId, amount, currency, reasonCode, explanation, consentSignatureRef, requestedBy]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        amount:
+          $ref: "#/components/schemas/Decimal"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        reasonCode:
+          type: string
+        explanation:
+          type: string
+          minLength: 3
+        consentSignatureRef:
+          type: string
+        installmentMonths:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 1
+        hardshipWaiver:
+          type: boolean
+          default: false
+        hardshipReason:
+          type: string
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ApproveClawbackCase:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CloseClawbackCase:
+      type: object
+      required: [reason, actorPersonId]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+        actorPersonId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateBreakGlassGrant:
       type: object

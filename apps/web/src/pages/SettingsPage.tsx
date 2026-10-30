@@ -29,6 +29,7 @@ import { api, DEFAULT_SESSION } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDate,
+  formatMoney,
   shortId,
   titleCase,
 } from "../lib/format.js";
@@ -76,6 +77,7 @@ export function SettingsPage() {
   const grants = useApiQuery<BreakGlassGrant[]>(
     "/api/v1/break-glass-grants",
   );
+  const clawbacks = useApiQuery<ClawbackCase[]>("/api/v1/clawback-cases");
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -201,6 +203,22 @@ export function SettingsPage() {
   const [grantedById, setGrantedById] = useState(session.personId);
   const [grantReason, setGrantReason] = useState("");
   const [grantHours, setGrantHours] = useState("1");
+  const [clawbackOpen, setClawbackOpen] = useState(false);
+  const [clawbackSaving, setClawbackSaving] = useState(false);
+  const [clawbackError, setClawbackError] = useState<string | null>(null);
+  const [clawbackPerson, setClawbackPerson] = useState(session.personId);
+  const [clawbackAmount, setClawbackAmount] = useState("");
+  const [clawbackReasonCode, setClawbackReasonCode] = useState("OVERPAYMENT");
+  const [clawbackExplanation, setClawbackExplanation] = useState("");
+  const [clawbackConsent, setClawbackConsent] = useState("");
+  const [clawbackInstallments, setClawbackInstallments] = useState("1");
+  const [clawbackHardship, setClawbackHardship] = useState(false);
+  const [clawbackHardshipReason, setClawbackHardshipReason] = useState("");
+  const [clawbackRequester, setClawbackRequester] = useState(
+    session.personId,
+  );
+  const [waiveTarget, setWaiveTarget] = useState<ClawbackCase | null>(null);
+  const [waiveReason, setWaiveReason] = useState("");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -448,6 +466,101 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openClawbackForm() {
+    setClawbackPerson(session.personId);
+    setClawbackAmount("");
+    setClawbackReasonCode("OVERPAYMENT");
+    setClawbackExplanation("");
+    setClawbackConsent("");
+    setClawbackInstallments("1");
+    setClawbackHardship(false);
+    setClawbackHardshipReason("");
+    setClawbackRequester(session.personId);
+    setClawbackError(null);
+    setClawbackOpen(true);
+  }
+
+  async function saveClawback(event: FormEvent) {
+    event.preventDefault();
+    setClawbackSaving(true);
+    setClawbackError(null);
+    try {
+      await api("/api/v1/clawback-cases", {
+        method: "POST",
+        body: {
+          personId: clawbackPerson,
+          amount: clawbackAmount,
+          currency: "CNY",
+          reasonCode: clawbackReasonCode.trim(),
+          explanation: clawbackExplanation.trim(),
+          consentSignatureRef: clawbackConsent.trim(),
+          installmentMonths: Number(clawbackInstallments),
+          hardshipWaiver: clawbackHardship,
+          hardshipReason: clawbackHardship
+            ? clawbackHardshipReason.trim()
+            : undefined,
+          requestedBy: clawbackRequester,
+        },
+      });
+      toast.success("Clawback case recorded");
+      setClawbackOpen(false);
+      clawbacks.reload();
+    } catch (error) {
+      setClawbackError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the clawback.",
+      );
+    } finally {
+      setClawbackSaving(false);
+    }
+  }
+
+  async function approveClawback(clawback: ClawbackCase) {
+    setClawbackSaving(true);
+    try {
+      await api(`/api/v1/clawback-cases/${clawback.id}/approve`, {
+        method: "POST",
+        body: { approvedBy: session.personId },
+      });
+      toast.success("Clawback approved");
+      clawbacks.reload();
+    } catch (error) {
+      toast.error(
+        "Could not approve clawback",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setClawbackSaving(false);
+    }
+  }
+
+  async function waiveClawback(event: FormEvent) {
+    event.preventDefault();
+    if (!waiveTarget) return;
+    setClawbackSaving(true);
+    try {
+      await api(`/api/v1/clawback-cases/${waiveTarget.id}/waive`, {
+        method: "POST",
+        body: {
+          reason: waiveReason.trim(),
+          actorPersonId: session.personId,
+        },
+      });
+      toast.success("Clawback waived");
+      setWaiveTarget(null);
+      setWaiveReason("");
+      clawbacks.reload();
+    } catch (error) {
+      toast.error(
+        "Could not waive clawback",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setClawbackSaving(false);
     }
   }
 
@@ -2735,6 +2848,254 @@ export function SettingsPage() {
               max={24}
               value={grantHours}
               onChange={(event) => setGrantHours(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Clawback cases"
+        subtitle="Consent, installment and hardship terms before any recovery settlement"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openClawbackForm}
+          >
+            Record clawback
+          </Button>
+        }
+        flush
+      >
+        {clawbacks.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={clawbacks.error} onRetry={clawbacks.reload} />
+          </div>
+        ) : clawbacks.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (clawbacks.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="money"
+            title="No clawback case"
+            description="Record written consent, installment or hardship terms before recovering an incentive."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th className="cell-num">Amount</th>
+                  <th>Reason</th>
+                  <th className="cell-num">Installments</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {clawbacks.data?.map((clawback) => (
+                  <tr key={clawback.id}>
+                    <td>{displayName(clawback.personId, people)}</td>
+                    <td className="cell-num">
+                      {formatMoney(clawback.amount, clawback.currency)}
+                    </td>
+                    <td>
+                      <span className="cell-primary">{clawback.reasonCode}</span>
+                      <span className="cell-sub">{clawback.explanation}</span>
+                    </td>
+                    <td className="cell-num">{clawback.installmentMonths}</td>
+                    <td>
+                      <Badge status={clawback.status} />
+                    </td>
+                    <td className="cell-actions">
+                      <div className="row-actions">
+                        {clawback.status === "DRAFT" ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void approveClawback(clawback)}
+                            loading={clawbackSaving}
+                          >
+                            Approve
+                          </Button>
+                        ) : null}
+                        {clawback.status === "DRAFT" ||
+                        clawback.status === "APPROVED" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setWaiveTarget(clawback);
+                              setWaiveReason("");
+                            }}
+                          >
+                            Waive
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={clawbackOpen}
+        title="Record clawback terms"
+        description="Written consent is required. Recovery still requires a separate settlement-recovery batch."
+        onClose={() => setClawbackOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setClawbackOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="clawback-form"
+              loading={clawbackSaving}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <form id="clawback-form" className="stack" onSubmit={saveClawback}>
+          {clawbackError ? (
+            <InfoNotice tone="warning">{clawbackError}</InfoNotice>
+          ) : null}
+          <FormField label="Person" htmlFor="clawback-person">
+            <PersonSelect
+              id="clawback-person"
+              value={clawbackPerson}
+              onChange={setClawbackPerson}
+            />
+          </FormField>
+          <div className="form-grid">
+            <FormField label="Amount (CNY)" htmlFor="clawback-amount">
+              <TextInput
+                id="clawback-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={clawbackAmount}
+                onChange={(event) => setClawbackAmount(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Reason code" htmlFor="clawback-reason-code">
+              <TextInput
+                id="clawback-reason-code"
+                value={clawbackReasonCode}
+                onChange={(event) =>
+                  setClawbackReasonCode(event.target.value)
+                }
+                required
+              />
+            </FormField>
+            <FormField
+              label="Installments (1–12)"
+              htmlFor="clawback-installments"
+            >
+              <TextInput
+                id="clawback-installments"
+                type="number"
+                min={1}
+                max={12}
+                value={clawbackInstallments}
+                onChange={(event) =>
+                  setClawbackInstallments(event.target.value)
+                }
+                required
+              />
+            </FormField>
+            <FormField label="Requester" htmlFor="clawback-requester">
+              <PersonSelect
+                id="clawback-requester"
+                value={clawbackRequester}
+                onChange={setClawbackRequester}
+              />
+            </FormField>
+          </div>
+          <FormField label="Explanation" htmlFor="clawback-explanation">
+            <Textarea
+              id="clawback-explanation"
+              value={clawbackExplanation}
+              onChange={(event) => setClawbackExplanation(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Consent / e-signature reference"
+            htmlFor="clawback-consent"
+          >
+            <TextInput
+              id="clawback-consent"
+              value={clawbackConsent}
+              onChange={(event) => setClawbackConsent(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={clawbackHardship}
+              onChange={(event) => setClawbackHardship(event.target.checked)}
+            />
+            <span>Apply a hardship waiver</span>
+          </label>
+          {clawbackHardship ? (
+            <FormField
+              label="Hardship reason"
+              htmlFor="clawback-hardship"
+            >
+              <TextInput
+                id="clawback-hardship"
+                value={clawbackHardshipReason}
+                onChange={(event) =>
+                  setClawbackHardshipReason(event.target.value)
+                }
+                required
+              />
+            </FormField>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(waiveTarget)}
+        title="Waive clawback"
+        onClose={() => setWaiveTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWaiveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              type="submit"
+              form="waive-form"
+              loading={clawbackSaving}
+            >
+              Waive
+            </Button>
+          </>
+        }
+      >
+        <form id="waive-form" className="stack" onSubmit={waiveClawback}>
+          <FormField label="Waiver reason" htmlFor="waive-reason">
+            <TextInput
+              id="waive-reason"
+              value={waiveReason}
+              onChange={(event) => setWaiveReason(event.target.value)}
               required
             />
           </FormField>

@@ -583,6 +583,29 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ClawbackCase {
+  id: Uuid;
+  personId: Uuid;
+  amount: DecimalString;
+  currency: string;
+  reasonCode: string;
+  explanation: string;
+  consentSignatureRef: string;
+  installmentMonths: number;
+  hardshipWaiver: boolean;
+  hardshipReason?: string;
+  status: "DRAFT" | "APPROVED" | "WAIVED" | "CANCELLED";
+  requestedBy: Uuid;
+  approvedBy?: Uuid;
+  approvedAt?: string;
+  waivedAt?: string;
+  waiverReason?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BreakGlassGrant {
   id: Uuid;
   scope: "PAYROLL_BANK_ACCOUNT";

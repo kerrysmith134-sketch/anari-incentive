@@ -32,6 +32,9 @@ import {
   createPilotEnrollmentSchema,
   withdrawPilotEnrollmentSchema,
   createBreakGlassGrantSchema,
+  createClawbackCaseSchema,
+  approveClawbackCaseSchema,
+  closeClawbackCaseSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -3134,6 +3137,84 @@ export function buildApp(
     });
     countEvent("break_glass_grant_revoked");
     return data(grant, request);
+  });
+
+  app.post("/api/v1/clawback-cases", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(createClawbackCaseSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createClawbackCase({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          amount: body.amount,
+          currency: body.currency,
+          reasonCode: body.reasonCode,
+          explanation: body.explanation,
+          consentSignatureRef: body.consentSignatureRef,
+          installmentMonths: body.installmentMonths ?? 1,
+          hardshipWaiver: body.hardshipWaiver ?? false,
+          hardshipReason: body.hardshipReason,
+          requestedBy: body.requestedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/clawback-cases", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listClawbackCases(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/clawback-cases/:id/approve", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(approveClawbackCaseSchema, request.body);
+    return data(
+      await platformStore.approveClawbackCase({
+        tenantId: tenantOf(request),
+        caseId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/clawback-cases/:id/waive", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(closeClawbackCaseSchema, request.body);
+    return data(
+      await platformStore.closeClawbackCase({
+        tenantId: tenantOf(request),
+        caseId: idOf(request),
+        action: "WAIVE",
+        reason: body.reason,
+        actorPersonId: body.actorPersonId,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/clawback-cases/:id/cancel", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(closeClawbackCaseSchema, request.body);
+    return data(
+      await platformStore.closeClawbackCase({
+        tenantId: tenantOf(request),
+        caseId: idOf(request),
+        action: "CANCEL",
+        reason: body.reason,
+        actorPersonId: body.actorPersonId,
+      }),
+      request,
+    );
   });
 
   app.post("/api/v1/trust-surveys", async (request, reply) => {

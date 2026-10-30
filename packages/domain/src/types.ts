@@ -350,6 +350,33 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export type ClawbackStatus = "DRAFT" | "APPROVED" | "WAIVED" | "CANCELLED";
+
+/** Recorded clawback terms and consent; execution remains a settlement-recovery action. */
+export interface ClawbackCase {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  amount: DecimalString;
+  currency: string;
+  reasonCode: string;
+  explanation: string;
+  consentSignatureRef: string;
+  installmentMonths: number;
+  hardshipWaiver: boolean;
+  hardshipReason?: string;
+  status: ClawbackStatus;
+  requestedBy: UUID;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  waivedAt?: string;
+  waiverReason?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type BreakGlassScope = "PAYROLL_BANK_ACCOUNT";
 
 export interface BreakGlassGrant {

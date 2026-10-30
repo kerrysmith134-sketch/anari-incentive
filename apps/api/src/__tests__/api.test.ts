@@ -6538,6 +6538,73 @@ describe("vertical slice", () => {
     );
   });
 
+  it("records clawback terms with consent, approval and hardship handling", async () => {
+    const clawback = await call("POST", "/api/v1/clawback-cases", {
+      personId: MEMBER,
+      amount: "500",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Incentive was calculated twice for the same delivery",
+      consentSignatureRef: "CLAWBACK-ESIGN-1",
+      installmentMonths: 3,
+      requestedBy: OWNER,
+    });
+    expect(clawback.status).toBe(201);
+    expect(clawback.body.data.status).toBe("DRAFT");
+    expect(clawback.body.data.installmentMonths).toBe(3);
+    const missingConsent = await call("POST", "/api/v1/clawback-cases", {
+      personId: MEMBER,
+      amount: "500",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Missing consent",
+      consentSignatureRef: "",
+      requestedBy: OWNER,
+    });
+    expect(missingConsent.status).toBe(400);
+    const hardshipWithoutReason = await call(
+      "POST",
+      "/api/v1/clawback-cases",
+      {
+        personId: MEMBER,
+        amount: "500",
+        currency: "CNY",
+        reasonCode: "OVERPAYMENT",
+        explanation: "Hardship without reason",
+        consentSignatureRef: "CLAWBACK-ESIGN-2",
+        hardshipWaiver: true,
+        requestedBy: OWNER,
+      },
+    );
+    expect(hardshipWithoutReason.status).toBe(409);
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/clawback-cases/${clawback.body.data.id}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(selfApproval.status).toBe(409);
+    const approved = await call(
+      "POST",
+      `/api/v1/clawback-cases/${clawback.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    const waived = await call(
+      "POST",
+      `/api/v1/clawback-cases/${clawback.body.data.id}/waive`,
+      {
+        reason: "Documented hardship and reduced income",
+        actorPersonId: ADJUDICATOR,
+      },
+    );
+    expect(waived.status).toBe(200);
+    expect(waived.body.data.status).toBe("WAIVED");
+    expect(waived.body.data.waiverReason).toContain("hardship");
+    const list = await call("GET", "/api/v1/clawback-cases");
+    expect(list.body.data).toHaveLength(1);
+  });
+
   it("grants time-bound break-glass access and redacts payroll bank fields", async () => {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const selfGrant = await call("POST", "/api/v1/break-glass-grants", {

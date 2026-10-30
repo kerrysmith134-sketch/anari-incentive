@@ -15,6 +15,7 @@ import type {
   Bounty,
   BreakGlassGrant,
   CashGateInput,
+  ClawbackCase,
   ConsultationOutcome,
   ConflictDeclaration,
   ConsultationType,
@@ -382,6 +383,35 @@ export interface PlatformStore {
     granteePersonId: string,
     scope: BreakGlassGrant["scope"],
   ): Promise<BreakGlassGrant | undefined>;
+  createClawbackCase(input: {
+    tenantId: string;
+    personId: string;
+    amount: string;
+    currency: string;
+    reasonCode: string;
+    explanation: string;
+    consentSignatureRef: string;
+    installmentMonths: number;
+    hardshipWaiver: boolean;
+    hardshipReason?: string;
+    requestedBy: string;
+  }): Promise<ClawbackCase>;
+  listClawbackCases(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ClawbackCase[]>;
+  approveClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    approvedBy: string;
+  }): Promise<ClawbackCase>;
+  closeClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    action: "WAIVE" | "CANCEL";
+    reason: string;
+    actorPersonId: string;
+  }): Promise<ClawbackCase>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1250,6 +1280,7 @@ export class MemoryPlatformStore implements PlatformStore {
   >();
   private readonly pilotEnrollments = new Map<string, PilotEnrollment>();
   private readonly breakGlassGrants = new Map<string, BreakGlassGrant>();
+  private readonly clawbackCases = new Map<string, ClawbackCase>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -2747,6 +2778,134 @@ export class MemoryPlatformStore implements PlatformStore {
         grant.status === "ACTIVE" &&
         Date.parse(grant.expiresAt) > Date.now(),
     );
+  }
+
+  async createClawbackCase(input: {
+    tenantId: string;
+    personId: string;
+    amount: string;
+    currency: string;
+    reasonCode: string;
+    explanation: string;
+    consentSignatureRef: string;
+    installmentMonths: number;
+    hardshipWaiver: boolean;
+    hardshipReason?: string;
+    requestedBy: string;
+  }): Promise<ClawbackCase> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    for (const personId of [input.personId, input.requestedBy]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    if (parseDecimal(input.amount) <= 0n) {
+      throw new ConflictError("CLAWBACK_AMOUNT_MUST_BE_POSITIVE");
+    }
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("CLAWBACK_CONSENT_REQUIRED");
+    }
+    if (input.installmentMonths < 1 || input.installmentMonths > 12) {
+      throw new ConflictError("CLAWBACK_INSTALLMENTS_OUT_OF_RANGE");
+    }
+    if (input.hardshipWaiver && !input.hardshipReason?.trim()) {
+      throw new ConflictError("CLAWBACK_HARDSHIP_REASON_REQUIRED");
+    }
+    const timestamp = now();
+    const clawback: ClawbackCase = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      amount: formatDecimal(parseDecimal(input.amount)),
+      currency: input.currency,
+      reasonCode: input.reasonCode,
+      explanation: input.explanation,
+      consentSignatureRef: input.consentSignatureRef,
+      installmentMonths: input.installmentMonths,
+      hardshipWaiver: input.hardshipWaiver,
+      hardshipReason: input.hardshipReason,
+      status: "DRAFT",
+      requestedBy: input.requestedBy,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.clawbackCases.set(clawback.id, clawback);
+    return clawback;
+  }
+
+  async listClawbackCases(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ClawbackCase[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.clawbackCases.values()]
+      .filter(
+        (clawback) =>
+          clawback.tenantId === tenantId &&
+          (!personId || clawback.personId === personId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async approveClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    approvedBy: string;
+  }): Promise<ClawbackCase> {
+    const clawback = this.clawbackCases.get(input.caseId);
+    if (!clawback || clawback.tenantId !== input.tenantId) {
+      notFound("ClawbackCase", input.caseId);
+    }
+    if (clawback.status !== "DRAFT") {
+      throw new ConflictError(`clawback case is ${clawback.status}`);
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    if (input.approvedBy === clawback.requestedBy) {
+      throw new ConflictError(
+        "CLAWBACK_SELF_APPROVAL: requester cannot approve the case",
+      );
+    }
+    clawback.status = "APPROVED";
+    clawback.approvedBy = input.approvedBy;
+    clawback.approvedAt = now();
+    clawback.updatedAt = clawback.approvedAt;
+    return clawback;
+  }
+
+  async closeClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    action: "WAIVE" | "CANCEL";
+    reason: string;
+    actorPersonId: string;
+  }): Promise<ClawbackCase> {
+    const clawback = this.clawbackCases.get(input.caseId);
+    if (!clawback || clawback.tenantId !== input.tenantId) {
+      notFound("ClawbackCase", input.caseId);
+    }
+    if (!["DRAFT", "APPROVED"].includes(clawback.status)) {
+      throw new ConflictError(`clawback case is ${clawback.status}`);
+    }
+    const actor = this.persons.get(input.actorPersonId);
+    if (!actor || actor.tenantId !== input.tenantId) {
+      notFound("Person", input.actorPersonId);
+    }
+    if (input.action === "WAIVE") {
+      clawback.status = "WAIVED";
+      clawback.waivedAt = now();
+      clawback.waiverReason = input.reason;
+      clawback.updatedAt = clawback.waivedAt;
+    } else {
+      clawback.status = "CANCELLED";
+      clawback.cancelledAt = now();
+      clawback.cancelReason = input.reason;
+      clawback.updatedAt = clawback.cancelledAt;
+    }
+    return clawback;
   }
 
   async createApprovalRequest(input: {
@@ -7774,6 +7933,155 @@ export class PgPlatformStore implements PlatformStore {
     return rows[0] ? this.mapBreakGlassGrant(rows[0]) : undefined;
   }
 
+  async createClawbackCase(input: {
+    tenantId: string;
+    personId: string;
+    amount: string;
+    currency: string;
+    reasonCode: string;
+    explanation: string;
+    consentSignatureRef: string;
+    installmentMonths: number;
+    hardshipWaiver: boolean;
+    hardshipReason?: string;
+    requestedBy: string;
+  }): Promise<ClawbackCase> {
+    if (parseDecimal(input.amount) <= 0n) {
+      throw new ConflictError("CLAWBACK_AMOUNT_MUST_BE_POSITIVE");
+    }
+    if (!input.consentSignatureRef.trim()) {
+      throw new ConflictError("CLAWBACK_CONSENT_REQUIRED");
+    }
+    if (input.installmentMonths < 1 || input.installmentMonths > 12) {
+      throw new ConflictError("CLAWBACK_INSTALLMENTS_OUT_OF_RANGE");
+    }
+    if (input.hardshipWaiver && !input.hardshipReason?.trim()) {
+      throw new ConflictError("CLAWBACK_HARDSHIP_REASON_REQUIRED");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO clawback_cases
+          (id, tenant_id, person_id, amount, currency, reason_code,
+           explanation, consent_signature_ref, installment_months,
+           hardship_waiver, hardship_reason, requested_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          formatDecimal(parseDecimal(input.amount)),
+          input.currency,
+          input.reasonCode,
+          input.explanation,
+          input.consentSignatureRef,
+          input.installmentMonths,
+          input.hardshipWaiver,
+          input.hardshipReason ?? null,
+          input.requestedBy,
+        ],
+      );
+      return this.mapClawbackCase(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant, person or requester not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listClawbackCases(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ClawbackCase[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM clawback_cases WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapClawbackCase(row));
+  }
+
+  async approveClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    approvedBy: string;
+  }): Promise<ClawbackCase> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM clawback_cases
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.caseId],
+      );
+      if (!rows[0]) notFound("ClawbackCase", input.caseId);
+      const clawback = this.mapClawbackCase(rows[0]);
+      if (clawback.status !== "DRAFT") {
+        throw new ConflictError(`clawback case is ${clawback.status}`);
+      }
+      if (input.approvedBy === clawback.requestedBy) {
+        throw new ConflictError(
+          "CLAWBACK_SELF_APPROVAL: requester cannot approve the case",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE clawback_cases
+            SET status='APPROVED', approved_by=$3, approved_at=now(),
+                updated_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.caseId, input.approvedBy],
+      );
+      return this.mapClawbackCase(updated[0]);
+    });
+  }
+
+  async closeClawbackCase(input: {
+    tenantId: string;
+    caseId: string;
+    action: "WAIVE" | "CANCEL";
+    reason: string;
+    actorPersonId: string;
+  }): Promise<ClawbackCase> {
+    const status = input.action === "WAIVE" ? "WAIVED" : "CANCELLED";
+    const { rows } = await this.pool.query(
+      `UPDATE clawback_cases
+          SET status=$3,
+              waived_at=CASE WHEN $4 THEN now() ELSE waived_at END,
+              waiver_reason=CASE WHEN $4 THEN $5 ELSE waiver_reason END,
+              cancelled_at=CASE WHEN $4 THEN cancelled_at ELSE now() END,
+              cancel_reason=CASE WHEN $4 THEN cancel_reason ELSE $5 END,
+              updated_at=now()
+        WHERE tenant_id=$1 AND id=$2
+          AND status IN ('DRAFT','APPROVED')
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.caseId,
+        status,
+        input.action === "WAIVE",
+        input.reason,
+      ],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.caseId],
+      );
+      if (!current.rows[0]) notFound("ClawbackCase", input.caseId);
+      throw new ConflictError(
+        `clawback case is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapClawbackCase(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -11973,6 +12281,32 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapClawbackCase(row: QueryResultRow): ClawbackCase {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      amount: decimalText(String(row.amount)) ?? "0",
+      currency: String(row.currency).trim(),
+      reasonCode: row.reason_code,
+      explanation: row.explanation,
+      consentSignatureRef: row.consent_signature_ref,
+      installmentMonths: Number(row.installment_months),
+      hardshipWaiver: Boolean(row.hardship_waiver),
+      hardshipReason: row.hardship_reason ?? undefined,
+      status: row.status,
+      requestedBy: row.requested_by,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      waivedAt: iso(row.waived_at),
+      waiverReason: row.waiver_reason ?? undefined,
+      cancelledAt: iso(row.cancelled_at),
+      cancelReason: row.cancel_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 
