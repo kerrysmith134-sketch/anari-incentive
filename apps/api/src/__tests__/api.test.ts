@@ -6538,6 +6538,49 @@ describe("vertical slice", () => {
     );
   });
 
+  it("records discretionary pool committee and observer governance", async () => {
+    const pool = await call("POST", "/api/v1/budget-pools", {
+      cycleId: CYCLE,
+      code: "DISCRETIONARY-2026",
+      name: "Discretionary recognition",
+      poolType: "DISCRETIONARY",
+      currency: "CNY",
+      approvedAmount: "10000",
+    });
+    expect(pool.status).toBe(201);
+    const review = await call(
+      "POST",
+      `/api/v1/budget-pools/${pool.body.data.id}/discretionary-reviews`,
+      {
+        committeePersonIds: [OWNER, MEMBER],
+        employeeObserverPersonId: ADJUDICATOR,
+        selectionCriteria: "Documented exceptional contribution",
+        decisionNotes: "Committee reviewed the candidate slate.",
+        reviewedBy: ADJUDICATOR,
+      },
+    );
+    expect(review.status).toBe(201);
+    expect(review.body.data.committeePersonIds).toEqual([OWNER, MEMBER]);
+    expect(review.body.data.employeeObserverPersonId).toBe(ADJUDICATOR);
+    const observerConflict = await call(
+      "POST",
+      `/api/v1/budget-pools/${pool.body.data.id}/discretionary-reviews`,
+      {
+        committeePersonIds: [OWNER, MEMBER],
+        employeeObserverPersonId: OWNER,
+        selectionCriteria: "Conflicted observer",
+        decisionNotes: "Should fail",
+        reviewedBy: ADJUDICATOR,
+      },
+    );
+    expect(observerConflict.status).toBe(400);
+    const list = await call(
+      "GET",
+      `/api/v1/budget-pools/${pool.body.data.id}/discretionary-reviews`,
+    );
+    expect(list.body.data).toHaveLength(1);
+  });
+
   it("records clawback terms with consent, approval and hardship handling", async () => {
     const clawback = await call("POST", "/api/v1/clawback-cases", {
       personId: MEMBER,

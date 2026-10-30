@@ -350,6 +350,19 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface DiscretionaryPoolReview {
+  id: UUID;
+  tenantId: UUID;
+  poolId: UUID;
+  committeePersonIds: UUID[];
+  employeeObserverPersonId?: UUID;
+  selectionCriteria: string;
+  decisionNotes: string;
+  reviewedBy: UUID;
+  reviewedAt: string;
+  createdAt: string;
+}
+
 export type ClawbackStatus = "DRAFT" | "APPROVED" | "WAIVED" | "CANCELLED";
 
 /** Recorded clawback terms and consent; execution remains a settlement-recovery action. */

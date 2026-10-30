@@ -2341,6 +2341,71 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/budget-pools/{id}/discretionary-reviews:
+    get:
+      tags: [Budget]
+      summary: List discretionary reviews for a pool
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Budget]
+      summary: Record a discretionary pool review
+      description: |
+        Requires at least two committee members. An employee observer is
+        optional but must be independent of the committee.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDiscretionaryPoolReview"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/discretionary-pool-reviews:
+    get:
+      tags: [Budget]
+      summary: List all discretionary pool reviews
+      responses:
+        "200":
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/budget-allocations/{id}/release:
     post:
       tags: [Budget]
@@ -8056,6 +8121,27 @@ components:
       required: [approvedBy]
       properties:
         approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    CreateDiscretionaryPoolReview:
+      type: object
+      required:
+        [committeePersonIds, selectionCriteria, decisionNotes, reviewedBy]
+      properties:
+        committeePersonIds:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/Uuid"
+        employeeObserverPersonId:
+          $ref: "#/components/schemas/Uuid"
+        selectionCriteria:
+          type: string
+          minLength: 3
+        decisionNotes:
+          type: string
+          minLength: 3
+        reviewedBy:
           $ref: "#/components/schemas/Uuid"
 
     CreateBudgetAllocation:

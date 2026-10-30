@@ -92,6 +92,30 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createDiscretionaryPoolReviewSchema = z
+  .object({
+    committeePersonIds: z.array(uuidSchema).min(2),
+    employeeObserverPersonId: uuidSchema.optional(),
+    selectionCriteria: z.string().min(3),
+    decisionNotes: z.string().min(3),
+    reviewedBy: uuidSchema,
+  })
+  .superRefine((value, context) => {
+    if (
+      value.employeeObserverPersonId &&
+      value.committeePersonIds.includes(value.employeeObserverPersonId)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["employeeObserverPersonId"],
+        message: "the employee observer must be independent of the committee",
+      });
+    }
+  });
+export type CreateDiscretionaryPoolReviewBody = z.infer<
+  typeof createDiscretionaryPoolReviewSchema
+>;
+
 export const createClawbackCaseSchema = z.object({
   personId: uuidSchema,
   amount: decimal,

@@ -78,6 +78,10 @@ export function SettingsPage() {
     "/api/v1/break-glass-grants",
   );
   const clawbacks = useApiQuery<ClawbackCase[]>("/api/v1/clawback-cases");
+  const pools = useApiQuery<BudgetPool[]>("/api/v1/budget-pools");
+  const poolReviews = useApiQuery<DiscretionaryPoolReview[]>(
+    "/api/v1/discretionary-pool-reviews",
+  );
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -219,6 +223,19 @@ export function SettingsPage() {
   );
   const [waiveTarget, setWaiveTarget] = useState<ClawbackCase | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
+  const [poolReviewOpen, setPoolReviewOpen] = useState(false);
+  const [poolReviewSaving, setPoolReviewSaving] = useState(false);
+  const [poolReviewError, setPoolReviewError] = useState<string | null>(null);
+  const [poolReviewPool, setPoolReviewPool] = useState("");
+  const [poolReviewCommittee, setPoolReviewCommittee] = useState<string[]>(
+    [],
+  );
+  const [poolReviewObserver, setPoolReviewObserver] = useState("");
+  const [poolReviewCriteria, setPoolReviewCriteria] = useState("");
+  const [poolReviewNotes, setPoolReviewNotes] = useState("");
+  const [poolReviewReviewer, setPoolReviewReviewer] = useState(
+    session.personId,
+  );
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -466,6 +483,55 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  async function openPoolReviewForm() {
+    const poolList = pools.data ?? [];
+    if (poolList.length === 0) {
+      toast.error("No budget pool", "Create a pool before reviewing it.");
+      return;
+    }
+    setPoolReviewPool(poolList[0]?.id ?? "");
+    setPoolReviewCommittee([]);
+    setPoolReviewObserver("");
+    setPoolReviewCriteria("");
+    setPoolReviewNotes("");
+    setPoolReviewReviewer(session.personId);
+    setPoolReviewError(null);
+    setPoolReviewOpen(true);
+  }
+
+  async function savePoolReview(event: FormEvent) {
+    event.preventDefault();
+    setPoolReviewSaving(true);
+    setPoolReviewError(null);
+    try {
+      await api(
+        `/api/v1/budget-pools/${poolReviewPool}/discretionary-reviews`,
+        {
+          method: "POST",
+          body: {
+            committeePersonIds: poolReviewCommittee,
+            employeeObserverPersonId:
+              poolReviewObserver || undefined,
+            selectionCriteria: poolReviewCriteria.trim(),
+            decisionNotes: poolReviewNotes.trim(),
+            reviewedBy: poolReviewReviewer,
+          },
+        },
+      );
+      toast.success("Discretionary review recorded");
+      setPoolReviewOpen(false);
+      poolReviews.reload();
+    } catch (error) {
+      setPoolReviewError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the review.",
+      );
+    } finally {
+      setPoolReviewSaving(false);
     }
   }
 
@@ -3096,6 +3162,202 @@ export function SettingsPage() {
               id="waive-reason"
               value={waiveReason}
               onChange={(event) => setWaiveReason(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Discretionary pool reviews"
+        subtitle="Committee decisions with an independent employee observer"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={() => void openPoolReviewForm()}
+          >
+            Record review
+          </Button>
+        }
+        flush
+      >
+        {poolReviews.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice
+              error={poolReviews.error}
+              onRetry={poolReviews.reload}
+            />
+          </div>
+        ) : poolReviews.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (poolReviews.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="budget"
+            title="No discretionary review"
+            description="Record the committee, employee observer and selection criteria used for a discretionary pool."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Pool</th>
+                  <th>Committee</th>
+                  <th>Observer</th>
+                  <th>Criteria</th>
+                  <th>Reviewed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {poolReviews.data?.map((review) => {
+                  const pool = pools.data?.find(
+                    (candidate) => candidate.id === review.poolId,
+                  );
+                  return (
+                    <tr key={review.id}>
+                      <td>
+                        <span className="cell-primary">
+                          {pool?.name ?? shortId(review.poolId, 10)}
+                        </span>
+                        <span className="cell-sub mono">
+                          {pool?.code ?? ""}
+                        </span>
+                      </td>
+                      <td>{review.committeePersonIds.length} members</td>
+                      <td>
+                        {review.employeeObserverPersonId
+                          ? displayName(
+                              review.employeeObserverPersonId,
+                              people,
+                            )
+                          : "None"}
+                      </td>
+                      <td>{review.selectionCriteria}</td>
+                      <td className="nowrap">
+                        {formatDate(review.reviewedAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={poolReviewOpen}
+        title="Record discretionary pool review"
+        description="At least two committee members and an optional independent employee observer."
+        onClose={() => setPoolReviewOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPoolReviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="pool-review-form"
+              loading={poolReviewSaving}
+            >
+              Record review
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="pool-review-form"
+          className="stack"
+          onSubmit={savePoolReview}
+        >
+          {poolReviewError ? (
+            <InfoNotice tone="warning">{poolReviewError}</InfoNotice>
+          ) : null}
+          <FormField label="Budget pool" htmlFor="pool-review-pool">
+            <Select
+              id="pool-review-pool"
+              value={poolReviewPool}
+              onChange={(event) => setPoolReviewPool(event.target.value)}
+              required
+            >
+              <option value="">Select a pool…</option>
+              {pools.data?.map((pool) => (
+                <option key={pool.id} value={pool.id}>
+                  {pool.name} · {pool.code}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <div className="detail-section">
+            <div className="detail-section__title">
+              Committee (select at least two)
+            </div>
+            <div className="stack">
+              {people.map((person) => (
+                <label className="checkbox" key={person.id}>
+                  <input
+                    type="checkbox"
+                    checked={poolReviewCommittee.includes(person.id)}
+                    onChange={(event) =>
+                      setPoolReviewCommittee((current) =>
+                        event.target.checked
+                          ? [...current, person.id]
+                          : current.filter((id) => id !== person.id),
+                      )
+                    }
+                  />
+                  <span>{person.displayName}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <FormField
+            label="Employee observer (independent, optional)"
+            htmlFor="pool-review-observer"
+          >
+            <Select
+              id="pool-review-observer"
+              value={poolReviewObserver}
+              onChange={(event) => setPoolReviewObserver(event.target.value)}
+            >
+              <option value="">No observer</option>
+              {people.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.displayName}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Reviewed by" htmlFor="pool-review-reviewer">
+            <PersonSelect
+              id="pool-review-reviewer"
+              value={poolReviewReviewer}
+              onChange={setPoolReviewReviewer}
+            />
+          </FormField>
+          <FormField
+            label="Selection criteria"
+            htmlFor="pool-review-criteria"
+          >
+            <Textarea
+              id="pool-review-criteria"
+              value={poolReviewCriteria}
+              onChange={(event) => setPoolReviewCriteria(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Decision notes" htmlFor="pool-review-notes">
+            <Textarea
+              id="pool-review-notes"
+              value={poolReviewNotes}
+              onChange={(event) => setPoolReviewNotes(event.target.value)}
               required
             />
           </FormField>

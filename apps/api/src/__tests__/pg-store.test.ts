@@ -3302,6 +3302,34 @@ describePg("PgStore vertical slice", () => {
     ).toContain(clawback.id);
   });
 
+  it("persists discretionary pool reviews with an independent observer", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const pool = await platform.createBudgetPool({
+      tenantId: DEMO_TENANT_ID,
+      cycleId: CYCLE,
+      code: `PG-DISC-${Date.now()}`,
+      name: "PG discretionary pool",
+      poolType: "DISCRETIONARY",
+      currency: "CNY",
+      approvedAmount: "10000",
+    });
+    const review = await platform.createDiscretionaryPoolReview({
+      tenantId: DEMO_TENANT_ID,
+      poolId: pool.id,
+      committeePersonIds: [OWNER, MEMBER],
+      employeeObserverPersonId: ADJUDICATOR,
+      selectionCriteria: "Documented exceptional contribution",
+      decisionNotes: "Committee reviewed the slate.",
+      reviewedBy: ADJUDICATOR,
+    });
+    expect(review.employeeObserverPersonId).toBe(ADJUDICATOR);
+    const listed = await platform.listDiscretionaryPoolReviews(
+      DEMO_TENANT_ID,
+      pool.id,
+    );
+    expect(listed.map((row) => row.id)).toContain(review.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

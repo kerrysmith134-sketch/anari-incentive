@@ -35,6 +35,7 @@ import {
   createClawbackCaseSchema,
   approveClawbackCaseSchema,
   closeClawbackCaseSchema,
+  createDiscretionaryPoolReviewSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -3213,6 +3214,47 @@ export function buildApp(
         reason: body.reason,
         actorPersonId: body.actorPersonId,
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/budget-pools/:id/discretionary-reviews", async (request, reply) => {
+      requireRoles(request, "manager", "finance");
+      const body = parse(
+        createDiscretionaryPoolReviewSchema,
+        request.body,
+      );
+      return reply.status(201).send(
+        data(
+          await platformStore.createDiscretionaryPoolReview({
+            tenantId: tenantOf(request),
+            poolId: idOf(request),
+            committeePersonIds: body.committeePersonIds,
+            employeeObserverPersonId: body.employeeObserverPersonId,
+            selectionCriteria: body.selectionCriteria,
+            decisionNotes: body.decisionNotes,
+            reviewedBy: body.reviewedBy,
+          }),
+          request,
+        ),
+      );
+  });
+
+  app.get("/api/v1/budget-pools/:id/discretionary-reviews", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listDiscretionaryPoolReviews(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/discretionary-pool-reviews", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listDiscretionaryPoolReviews(tenantOf(request)),
       request,
     );
   });

@@ -583,6 +583,18 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface DiscretionaryPoolReview {
+  id: Uuid;
+  poolId: Uuid;
+  committeePersonIds: Uuid[];
+  employeeObserverPersonId?: Uuid;
+  selectionCriteria: string;
+  decisionNotes: string;
+  reviewedBy: Uuid;
+  reviewedAt: string;
+  createdAt: string;
+}
+
 export interface ClawbackCase {
   id: Uuid;
   personId: Uuid;

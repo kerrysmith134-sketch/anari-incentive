@@ -23,6 +23,7 @@ import type {
   DataSourceField,
   Deliverable,
   DpiaAssessmentType,
+  DiscretionaryPoolReview,
   DpiaRecord,
   DsarRequest,
   DsarRequestType,
@@ -412,6 +413,19 @@ export interface PlatformStore {
     reason: string;
     actorPersonId: string;
   }): Promise<ClawbackCase>;
+  createDiscretionaryPoolReview(input: {
+    tenantId: string;
+    poolId: string;
+    committeePersonIds: string[];
+    employeeObserverPersonId?: string;
+    selectionCriteria: string;
+    decisionNotes: string;
+    reviewedBy: string;
+  }): Promise<DiscretionaryPoolReview>;
+  listDiscretionaryPoolReviews(
+    tenantId: string,
+    poolId?: string,
+  ): Promise<DiscretionaryPoolReview[]>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1281,6 +1295,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly pilotEnrollments = new Map<string, PilotEnrollment>();
   private readonly breakGlassGrants = new Map<string, BreakGlassGrant>();
   private readonly clawbackCases = new Map<string, ClawbackCase>();
+  private readonly discretionaryPoolReviews = new Map<
+    string,
+    DiscretionaryPoolReview
+  >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -2906,6 +2924,69 @@ export class MemoryPlatformStore implements PlatformStore {
       clawback.updatedAt = clawback.cancelledAt;
     }
     return clawback;
+  }
+
+  async createDiscretionaryPoolReview(input: {
+    tenantId: string;
+    poolId: string;
+    committeePersonIds: string[];
+    employeeObserverPersonId?: string;
+    selectionCriteria: string;
+    decisionNotes: string;
+    reviewedBy: string;
+  }): Promise<DiscretionaryPoolReview> {
+    const pool = await this.getBudgetPool(input.tenantId, input.poolId);
+    if (input.committeePersonIds.length < 2) {
+      throw new ConflictError("DISCRETIONARY_COMMITTEE_MIN_TWO");
+    }
+    if (
+      input.employeeObserverPersonId &&
+      input.committeePersonIds.includes(input.employeeObserverPersonId)
+    ) {
+      throw new ConflictError(
+        "DISCRETIONARY_OBSERVER_MUST_BE_INDEPENDENT",
+      );
+    }
+    for (const personId of [
+      ...input.committeePersonIds,
+      ...(input.employeeObserverPersonId
+        ? [input.employeeObserverPersonId]
+        : []),
+      input.reviewedBy,
+    ]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    const review: DiscretionaryPoolReview = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      poolId: pool.id,
+      committeePersonIds: [...input.committeePersonIds],
+      employeeObserverPersonId: input.employeeObserverPersonId,
+      selectionCriteria: input.selectionCriteria,
+      decisionNotes: input.decisionNotes,
+      reviewedBy: input.reviewedBy,
+      reviewedAt: now(),
+      createdAt: now(),
+    };
+    this.discretionaryPoolReviews.set(review.id, review);
+    return review;
+  }
+
+  async listDiscretionaryPoolReviews(
+    tenantId: string,
+    poolId?: string,
+  ): Promise<DiscretionaryPoolReview[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.discretionaryPoolReviews.values()]
+      .filter(
+        (review) =>
+          review.tenantId === tenantId &&
+          (!poolId || review.poolId === poolId),
+      )
+      .sort((a, b) => b.reviewedAt.localeCompare(a.reviewedAt));
   }
 
   async createApprovalRequest(input: {
@@ -8082,6 +8163,83 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapClawbackCase(rows[0]);
   }
 
+  async createDiscretionaryPoolReview(input: {
+    tenantId: string;
+    poolId: string;
+    committeePersonIds: string[];
+    employeeObserverPersonId?: string;
+    selectionCriteria: string;
+    decisionNotes: string;
+    reviewedBy: string;
+  }): Promise<DiscretionaryPoolReview> {
+    const pool = await this.getBudgetPool(input.tenantId, input.poolId);
+    if (input.committeePersonIds.length < 2) {
+      throw new ConflictError("DISCRETIONARY_COMMITTEE_MIN_TWO");
+    }
+    if (
+      input.employeeObserverPersonId &&
+      input.committeePersonIds.includes(input.employeeObserverPersonId)
+    ) {
+      throw new ConflictError(
+        "DISCRETIONARY_OBSERVER_MUST_BE_INDEPENDENT",
+      );
+    }
+    const personIds = [
+      ...new Set([
+        ...input.committeePersonIds,
+        ...(input.employeeObserverPersonId
+          ? [input.employeeObserverPersonId]
+          : []),
+        input.reviewedBy,
+      ]),
+    ];
+    const persons = await this.pool.query(
+      `SELECT id FROM people WHERE tenant_id=$1 AND id = ANY($2::uuid[])`,
+      [input.tenantId, personIds],
+    );
+    if (persons.rows.length !== personIds.length) {
+      throw new NotFoundError(
+        `One or more committee, observer or reviewer people not found`,
+      );
+    }
+    const { rows } = await this.pool.query(
+      `INSERT INTO discretionary_pool_reviews
+        (id, tenant_id, pool_id, committee_person_ids,
+         employee_observer_person_id, selection_criteria, decision_notes,
+         reviewed_by)
+       VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        randomUUID(),
+        input.tenantId,
+        pool.id,
+        JSON.stringify(input.committeePersonIds),
+        input.employeeObserverPersonId ?? null,
+        input.selectionCriteria,
+        input.decisionNotes,
+        input.reviewedBy,
+      ],
+    );
+    return this.mapDiscretionaryPoolReview(rows[0]);
+  }
+
+  async listDiscretionaryPoolReviews(
+    tenantId: string,
+    poolId?: string,
+  ): Promise<DiscretionaryPoolReview[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql =
+      "SELECT * FROM discretionary_pool_reviews WHERE tenant_id=$1";
+    if (poolId) {
+      params.push(poolId);
+      sql += " AND pool_id=$2";
+    }
+    sql += " ORDER BY reviewed_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapDiscretionaryPoolReview(row));
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -12281,6 +12439,25 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapDiscretionaryPoolReview(
+    row: QueryResultRow,
+  ): DiscretionaryPoolReview {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      poolId: row.pool_id,
+      committeePersonIds:
+        (row.committee_person_ids as string[] | null) ?? [],
+      employeeObserverPersonId:
+        row.employee_observer_person_id ?? undefined,
+      selectionCriteria: row.selection_criteria,
+      decisionNotes: row.decision_notes,
+      reviewedBy: row.reviewed_by,
+      reviewedAt: iso(row.reviewed_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 
