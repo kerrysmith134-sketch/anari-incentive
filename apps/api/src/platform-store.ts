@@ -24,6 +24,7 @@ import type {
   ExternalIdentity,
   FinancialFact,
   IntegrationConnection,
+  IntegrationMapping,
   InboxMessage,
   MetricDefinition,
   ModelEvaluationRun,
@@ -630,6 +631,30 @@ export interface PlatformStore {
     connectionId: string;
     status: string;
   }): Promise<IntegrationConnection>;
+  createIntegrationMapping(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    mappingType: IntegrationMapping["mappingType"];
+    sourceSystem: string;
+    targetType: string;
+    fieldMap: Record<string, string>;
+    config: Record<string, unknown>;
+    version: number;
+  }): Promise<IntegrationMapping>;
+  listIntegrationMappings(
+    tenantId: string,
+    connectionId: string,
+    status?: IntegrationMapping["status"],
+  ): Promise<IntegrationMapping[]>;
+  getIntegrationMapping(
+    tenantId: string,
+    mappingId: string,
+  ): Promise<IntegrationMapping>;
+  retireIntegrationMapping(input: {
+    tenantId: string;
+    mappingId: string;
+  }): Promise<IntegrationMapping>;
   createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -741,6 +766,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly integrationConnections = new Map<
     string,
     IntegrationConnection
+  >();
+  private readonly integrationMappings = new Map<
+    string,
+    IntegrationMapping
   >();
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
@@ -3141,6 +3170,111 @@ export class MemoryPlatformStore implements PlatformStore {
     connection.status = input.status;
     connection.updatedAt = now();
     return connection;
+  }
+
+  async createIntegrationMapping(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    mappingType: IntegrationMapping["mappingType"];
+    sourceSystem: string;
+    targetType: string;
+    fieldMap: Record<string, string>;
+    config: Record<string, unknown>;
+    version: number;
+  }): Promise<IntegrationMapping> {
+    await this.getIntegrationConnection(
+      input.tenantId,
+      input.connectionId,
+    );
+    const duplicate = [...this.integrationMappings.values()].find(
+      (mapping) =>
+        mapping.tenantId === input.tenantId &&
+        mapping.connectionId === input.connectionId &&
+        mapping.name === input.name &&
+        mapping.version === input.version,
+    );
+    if (duplicate) {
+      throw new ConflictError(
+        `Integration mapping ${input.name}:${input.version} already exists`,
+      );
+    }
+    const active = [...this.integrationMappings.values()].find(
+      (mapping) =>
+        mapping.tenantId === input.tenantId &&
+        mapping.connectionId === input.connectionId &&
+        mapping.name === input.name &&
+        mapping.status === "ACTIVE",
+    );
+    if (active) {
+      throw new ConflictError(
+        `INTEGRATION_MAPPING_ALREADY_ACTIVE: ${input.name}:${active.version}`,
+      );
+    }
+    const mapping: IntegrationMapping = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      connectionId: input.connectionId,
+      name: input.name,
+      mappingType: input.mappingType,
+      sourceSystem: input.sourceSystem,
+      targetType: input.targetType,
+      fieldMap: { ...input.fieldMap },
+      config: structuredClone(input.config),
+      version: input.version,
+      status: "ACTIVE",
+      createdAt: now(),
+    };
+    this.integrationMappings.set(mapping.id, mapping);
+    return mapping;
+  }
+
+  async listIntegrationMappings(
+    tenantId: string,
+    connectionId: string,
+    status?: IntegrationMapping["status"],
+  ): Promise<IntegrationMapping[]> {
+    await this.getIntegrationConnection(tenantId, connectionId);
+    return [...this.integrationMappings.values()]
+      .filter(
+        (mapping) =>
+          mapping.tenantId === tenantId &&
+          mapping.connectionId === connectionId &&
+          (!status || mapping.status === status),
+      )
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) || b.version - a.version,
+      );
+  }
+
+  async getIntegrationMapping(
+    tenantId: string,
+    mappingId: string,
+  ): Promise<IntegrationMapping> {
+    const mapping = this.integrationMappings.get(mappingId);
+    if (!mapping || mapping.tenantId !== tenantId) {
+      notFound("IntegrationMapping", mappingId);
+    }
+    return mapping;
+  }
+
+  async retireIntegrationMapping(input: {
+    tenantId: string;
+    mappingId: string;
+  }): Promise<IntegrationMapping> {
+    const mapping = await this.getIntegrationMapping(
+      input.tenantId,
+      input.mappingId,
+    );
+    if (mapping.status !== "ACTIVE") {
+      throw new ConflictError(
+        `integration mapping ${mapping.id} is ${mapping.status}`,
+      );
+    }
+    mapping.status = "RETIRED";
+    mapping.retiredAt = now();
+    return mapping;
   }
 
   async createSyncRun(input: {
@@ -6427,6 +6561,116 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapIntegrationConnection(rows[0]);
   }
 
+  async createIntegrationMapping(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    mappingType: IntegrationMapping["mappingType"];
+    sourceSystem: string;
+    targetType: string;
+    fieldMap: Record<string, string>;
+    config: Record<string, unknown>;
+    version: number;
+  }): Promise<IntegrationMapping> {
+    await this.getIntegrationConnection(
+      input.tenantId,
+      input.connectionId,
+    );
+    const { rows: active } = await this.pool.query(
+      `SELECT version FROM integration_mappings
+        WHERE tenant_id=$1 AND connection_id=$2 AND name=$3
+          AND status='ACTIVE'`,
+      [input.tenantId, input.connectionId, input.name],
+    );
+    if (active[0]) {
+      throw new ConflictError(
+        `INTEGRATION_MAPPING_ALREADY_ACTIVE: ${input.name}:${active[0].version}`,
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO integration_mappings
+          (id, tenant_id, connection_id, name, mapping_type, source_system,
+           target_type, field_map, config, version, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE')
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.connectionId,
+          input.name,
+          input.mappingType,
+          input.sourceSystem,
+          input.targetType,
+          JSON.stringify(input.fieldMap),
+          JSON.stringify(input.config),
+          input.version,
+        ],
+      );
+      return this.mapIntegrationMapping(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `Integration mapping ${input.name}:${input.version} already exists`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listIntegrationMappings(
+    tenantId: string,
+    connectionId: string,
+    status?: IntegrationMapping["status"],
+  ): Promise<IntegrationMapping[]> {
+    await this.getIntegrationConnection(tenantId, connectionId);
+    const params: string[] = [tenantId, connectionId];
+    let sql =
+      "SELECT * FROM integration_mappings WHERE tenant_id=$1 AND connection_id=$2";
+    if (status) {
+      params.push(status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY name, version DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapIntegrationMapping(row));
+  }
+
+  async getIntegrationMapping(
+    tenantId: string,
+    mappingId: string,
+  ): Promise<IntegrationMapping> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM integration_mappings WHERE tenant_id=$1 AND id=$2",
+      [tenantId, mappingId],
+    );
+    if (!rows[0]) notFound("IntegrationMapping", mappingId);
+    return this.mapIntegrationMapping(rows[0]);
+  }
+
+  async retireIntegrationMapping(input: {
+    tenantId: string;
+    mappingId: string;
+  }): Promise<IntegrationMapping> {
+    const { rows } = await this.pool.query(
+      `UPDATE integration_mappings
+          SET status='RETIRED', retired_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.mappingId],
+    );
+    if (!rows[0]) {
+      const mapping = await this.getIntegrationMapping(
+        input.tenantId,
+        input.mappingId,
+      );
+      throw new ConflictError(
+        `integration mapping ${mapping.id} is ${mapping.status}`,
+      );
+    }
+    return this.mapIntegrationMapping(rows[0]);
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -7327,6 +7571,24 @@ export class PgPlatformStore implements PlatformStore {
       lastSyncAt: iso(row.last_sync_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapIntegrationMapping(row: QueryResultRow): IntegrationMapping {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      connectionId: row.connection_id,
+      name: row.name,
+      mappingType: row.mapping_type,
+      sourceSystem: row.source_system,
+      targetType: row.target_type,
+      fieldMap: row.field_map ?? {},
+      config: row.config ?? {},
+      version: Number(row.version),
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      retiredAt: iso(row.retired_at),
     };
   }
 

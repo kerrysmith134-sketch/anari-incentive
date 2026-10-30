@@ -2623,6 +2623,82 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/integration-connections/{id}/mappings:
+    get:
+      tags: [Ingestion]
+      summary: List versioned field mappings for a connection
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ACTIVE, RETIRED]
+      responses:
+        "200":
+          description: Integration mappings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Ingestion]
+      summary: Create a versioned integration field mapping
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIntegrationMapping"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/integration-mappings/{id}/retire:
+    post:
+      tags: [Ingestion]
+      summary: Retire an active integration mapping
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/integration-connections/{id}/sync-runs:
     get:
       tags: [Ingestion]
@@ -5807,6 +5883,31 @@ components:
       properties:
         status:
           type: string
+
+    CreateIntegrationMapping:
+      type: object
+      required: [name, mappingType, sourceSystem, targetType, fieldMap]
+      properties:
+        name:
+          type: string
+        mappingType:
+          type: string
+          enum: [CSV, HTTP_JSON]
+        sourceSystem:
+          type: string
+        targetType:
+          type: string
+        fieldMap:
+          type: object
+          additionalProperties:
+            type: string
+        config:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+          minimum: 1
+          default: 1
 
     CreateSyncRun:
       type: object

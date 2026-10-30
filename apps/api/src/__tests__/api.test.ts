@@ -2644,6 +2644,72 @@ describe("integrations", () => {
     expect(paused.status).toBe(200);
     expect(paused.body.data.status).toBe("PAUSED");
 
+    const mapping = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/mappings`,
+      {
+        name: "orders-v1",
+        mappingType: "CSV",
+        sourceSystem: "crm",
+        targetType: "EVIDENCE",
+        fieldMap: {
+          order_id: "sourceRecordId",
+          amount: "grossProfit",
+        },
+        config: { pageSize: 50 },
+        version: 1,
+      },
+    );
+    expect(mapping.status).toBe(201);
+    expect(mapping.body.data.status).toBe("ACTIVE");
+    expect(mapping.body.data.fieldMap.order_id).toBe("sourceRecordId");
+    const conflictingActive = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/mappings`,
+      {
+        name: "orders-v1",
+        mappingType: "CSV",
+        sourceSystem: "crm",
+        targetType: "EVIDENCE",
+        fieldMap: { order_id: "sourceRecordId" },
+        version: 2,
+      },
+    );
+    expect(conflictingActive.status).toBe(409);
+    expect(conflictingActive.body.error.message).toContain(
+      "INTEGRATION_MAPPING_ALREADY_ACTIVE",
+    );
+    const listedMappings = await call(
+      "GET",
+      `/api/v1/integration-connections/${connectionId}/mappings`,
+    );
+    expect(listedMappings.body.data).toHaveLength(1);
+    const retiredMapping = await call(
+      "POST",
+      `/api/v1/integration-mappings/${mapping.body.data.id}/retire`,
+    );
+    expect(retiredMapping.status).toBe(200);
+    expect(retiredMapping.body.data.status).toBe("RETIRED");
+    const secondMapping = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/mappings`,
+      {
+        name: "orders-v1",
+        mappingType: "CSV",
+        sourceSystem: "crm",
+        targetType: "EVIDENCE",
+        fieldMap: { order_id: "sourceRecordId" },
+        version: 2,
+      },
+    );
+    expect(secondMapping.status).toBe(201);
+    const activeMappings = await call(
+      "GET",
+      `/api/v1/integration-connections/${connectionId}/mappings?status=ACTIVE`,
+    );
+    expect(activeMappings.body.data).toHaveLength(1);
+    expect(activeMappings.body.data[0].version).toBe(2);
+
     const syncRun = await call(
       "POST",
       `/api/v1/integration-connections/${connectionId}/sync-runs`,

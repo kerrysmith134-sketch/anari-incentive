@@ -229,6 +229,8 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /workflow-runs` | manager/finance, agent task exists | Records a workflow run with state |
 | `POST /workflow-runs/:id/finish` | manager/finance, not finished | Sets status, current step and `finishedAt` |
 | `POST /integration-connections` | admin | Creates an ACTIVE connection with a credential reference |
+| `POST /integration-connections/:id/mappings` | admin, connection exists, no ACTIVE mapping with the same name | Creates an ACTIVE versioned CSV/HTTP field mapping |
+| `POST /integration-mappings/:id/retire` | admin, ACTIVE | Sets RETIRED and records `retiredAt` |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |

@@ -584,6 +584,22 @@ export type SetIntegrationConnectionStatusBody = z.infer<
   typeof setIntegrationConnectionStatusSchema
 >;
 
+export const createIntegrationMappingSchema = z.object({
+  name: z.string().min(1),
+  mappingType: z.enum(["CSV", "HTTP_JSON"]),
+  sourceSystem: z.string().min(1),
+  targetType: z.string().min(1),
+  fieldMap: z.record(z.string().min(1)).refine(
+    (value) => Object.keys(value).length > 0,
+    "fieldMap must contain at least one mapping",
+  ),
+  config: z.record(z.unknown()).default({}),
+  version: z.number().int().positive().default(1),
+});
+export type CreateIntegrationMappingBody = z.infer<
+  typeof createIntegrationMappingSchema
+>;
+
 export const createSyncRunSchema = z.object({
   status: z.string().min(1).default("QUEUED"),
   cursorBefore: z.record(z.unknown()).optional(),

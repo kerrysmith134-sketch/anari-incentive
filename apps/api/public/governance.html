@@ -386,6 +386,26 @@
         <tbody id="connectionRows"></tbody>
       </table>
       <div class="grid" style="margin-top:12px">
+        <div><label>映射连接</label><select id="mappingConnection"></select></div>
+        <div><label>映射名称</label><input id="mappingName" value="orders-v1" /></div>
+        <div><label>类型</label><select id="mappingType"><option>CSV</option><option>HTTP_JSON</option></select></div>
+        <div><label>源系统</label><input id="mappingSource" value="crm" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>目标类型</label><input id="mappingTarget" value="EVIDENCE" /></div>
+        <div><label>版本</label><input id="mappingVersion" value="1" /></div>
+        <div><label>字段映射（JSON）</label><input id="mappingFields" value='{"order_id":"sourceRecordId","amount":"grossProfit"}' /></div>
+        <div><label>配置（JSON）</label><input id="mappingConfig" value="{}" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createMapping">创建字段映射</button>
+        <button id="refreshMappings">刷新映射</button>
+      </div>
+      <table>
+        <thead><tr><th>名称</th><th>类型</th><th>目标</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="mappingRows"></tbody>
+      </table>
+      <div class="grid" style="margin-top:12px">
         <div><label>同步连接</label><select id="syncConnection"></select></div>
         <div><label>同步状态</label><input id="syncStatusValue" value="RUNNING" /></div>
         <div style="display:flex;align-items:flex-end"><button class="primary" id="createSyncRun" style="width:100%">创建同步运行</button></div>
@@ -1335,6 +1355,10 @@
           (item) =>
             `<option value="${item.id}">${escapeHtml(item.connectionName)}</option>`,
         ).join("");
+        $("mappingConnection").innerHTML = connections.map(
+          (item) =>
+            `<option value="${item.id}">${escapeHtml(item.connectionName)}</option>`,
+        ).join("");
         setStatus(
           "integrationStatus",
           `共 ${connections.length} 个连接`,
@@ -1373,6 +1397,75 @@
         });
         setStatus("integrationStatus", "连接状态已更新", "ok");
         await loadConnections();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadMappings() {
+      const connectionId = $("mappingConnection").value;
+      if (!connectionId) {
+        setStatus("integrationStatus", "请先创建集成连接", "bad");
+        return;
+      }
+      try {
+        const mappings = await api(
+          `/api/v1/integration-connections/${connectionId}/mappings`,
+        );
+        $("mappingRows").innerHTML = mappings.map((mapping) => `<tr>
+          <td>${escapeHtml(mapping.name)}</td>
+          <td>${escapeHtml(mapping.mappingType)}</td>
+          <td>${escapeHtml(mapping.targetType)}</td>
+          <td>v${mapping.version}</td>
+          <td><span class="pill">${escapeHtml(mapping.status)}</span></td>
+          <td>${mapping.status === "ACTIVE" ? `<button data-retire-mapping="${mapping.id}">停用</button>` : "—"}</td>
+        </tr>`).join("");
+        setStatus(
+          "integrationStatus",
+          `共 ${mappings.length} 个字段映射`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createMapping() {
+      const connectionId = $("mappingConnection").value;
+      if (!connectionId) {
+        setStatus("integrationStatus", "请先创建集成连接", "bad");
+        return;
+      }
+      try {
+        await api(
+          `/api/v1/integration-connections/${connectionId}/mappings`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: $("mappingName").value.trim(),
+              mappingType: $("mappingType").value,
+              sourceSystem: $("mappingSource").value.trim(),
+              targetType: $("mappingTarget").value.trim(),
+              fieldMap: jsonValue("mappingFields", {}),
+              config: jsonValue("mappingConfig", {}),
+              version: Number($("mappingVersion").value),
+            }),
+          },
+        );
+        setStatus("integrationStatus", "字段映射已创建", "ok");
+        await loadMappings();
+      } catch (error) {
+        setStatus("integrationStatus", String(error.message), "bad");
+      }
+    }
+
+    async function retireMapping(id) {
+      try {
+        await api(`/api/v1/integration-mappings/${id}/retire`, {
+          method: "POST",
+        });
+        setStatus("integrationStatus", "字段映射已停用", "ok");
+        await loadMappings();
       } catch (error) {
         setStatus("integrationStatus", String(error.message), "bad");
       }
@@ -2045,6 +2138,12 @@
       if (button) {
         toggleConnection(button.dataset.toggleConnection, button.dataset.status);
       }
+    });
+    $("createMapping").addEventListener("click", createMapping);
+    $("refreshMappings").addEventListener("click", loadMappings);
+    $("mappingRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-retire-mapping]");
+      if (button) retireMapping(button.dataset.retireMapping);
     });
     $("createSyncRun").addEventListener("click", createSyncRun);
     $("loadSyncRuns").addEventListener("click", loadSyncRuns);

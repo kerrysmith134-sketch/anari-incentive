@@ -818,6 +818,25 @@ export interface IntegrationConnection {
   updatedAt: string;
 }
 
+export type IntegrationMappingType = "CSV" | "HTTP_JSON";
+export type IntegrationMappingStatus = "ACTIVE" | "RETIRED";
+
+export interface IntegrationMapping {
+  id: UUID;
+  tenantId: UUID;
+  connectionId: UUID;
+  name: string;
+  mappingType: IntegrationMappingType;
+  sourceSystem: string;
+  targetType: string;
+  fieldMap: Record<string, string>;
+  config: Record<string, unknown>;
+  version: number;
+  status: IntegrationMappingStatus;
+  createdAt: string;
+  retiredAt?: string;
+}
+
 export interface SyncRun {
   id: UUID;
   tenantId: UUID;

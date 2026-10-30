@@ -2264,6 +2264,45 @@ describePg("PgStore vertical slice", () => {
     });
     expect(connection.status).toBe("ACTIVE");
 
+    const mapping = await platform.createIntegrationMapping({
+      tenantId: DEMO_TENANT_ID,
+      connectionId: connection.id,
+      name: "pg-orders",
+      mappingType: "CSV",
+      sourceSystem: "pg-crm",
+      targetType: "EVIDENCE",
+      fieldMap: { order_id: "sourceRecordId" },
+      config: { pageSize: 50 },
+      version: 1,
+    });
+    expect(mapping.status).toBe("ACTIVE");
+    await expect(
+      platform.createIntegrationMapping({
+        tenantId: DEMO_TENANT_ID,
+        connectionId: connection.id,
+        name: "pg-orders",
+        mappingType: "CSV",
+        sourceSystem: "pg-crm",
+        targetType: "EVIDENCE",
+        fieldMap: { order_id: "sourceRecordId" },
+        config: {},
+        version: 2,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (
+        await platform.listIntegrationMappings(
+          DEMO_TENANT_ID,
+          connection.id,
+        )
+      ).map((candidate) => candidate.id),
+    ).toEqual([mapping.id]);
+    const retiredMapping = await platform.retireIntegrationMapping({
+      tenantId: DEMO_TENANT_ID,
+      mappingId: mapping.id,
+    });
+    expect(retiredMapping.status).toBe("RETIRED");
+
     const run = await platform.createSyncRun({
       tenantId: DEMO_TENANT_ID,
       connectionId: connection.id,

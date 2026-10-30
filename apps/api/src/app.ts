@@ -67,6 +67,7 @@ import {
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
   createIntegrationConnectionSchema,
+  createIntegrationMappingSchema,
   setIntegrationConnectionStatusSchema,
   createSyncRunSchema,
   finishSyncRunSchema,
@@ -3645,6 +3646,53 @@ export function buildApp(
         tenantId: tenantOf(request),
         connectionId: idOf(request),
         status: body.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-connections/:id/mappings", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createIntegrationMappingSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createIntegrationMapping({
+          tenantId: tenantOf(request),
+          connectionId: idOf(request),
+          name: body.name,
+          mappingType: body.mappingType,
+          sourceSystem: body.sourceSystem,
+          targetType: body.targetType,
+          fieldMap: body.fieldMap,
+          config: body.config ?? {},
+          version: body.version ?? 1,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/integration-connections/:id/mappings", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as {
+      status?: "ACTIVE" | "RETIRED";
+    };
+    return data(
+      await platformStore.listIntegrationMappings(
+        tenantOf(request),
+        idOf(request),
+        query.status,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-mappings/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retireIntegrationMapping({
+        tenantId: tenantOf(request),
+        mappingId: idOf(request),
       }),
       request,
     );
