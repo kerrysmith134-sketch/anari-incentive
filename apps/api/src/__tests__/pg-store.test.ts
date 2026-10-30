@@ -2783,6 +2783,25 @@ describePg("PgStore vertical slice", () => {
     expect(reversed.reversalReason).toBe("CORRECTION");
   });
 
+  it("persists appeal evidence refs and SLA due dates", async () => {
+    const dueAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+    const evidenceRef = "00000000-0000-4000-8000-0000000000ab";
+    const appeal = await store.createAppeal({
+      appellantPersonId: OWNER,
+      targetType: "CALCULATION",
+      targetId: "00000000-0000-4000-8000-0000000000ac",
+      reasonCode: "SLA_TEST",
+      statement: "The calculation omitted a delivery.",
+      evidenceRefs: [evidenceRef],
+      dueAt,
+    });
+    expect(appeal.dueAt).toBe(dueAt);
+    expect(appeal.evidenceRefs).toEqual([evidenceRef]);
+    const loaded = await store.getAppeal(appeal.id);
+    expect(loaded.dueAt).toBe(dueAt);
+    expect(loaded.evidenceRefs).toEqual([evidenceRef]);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

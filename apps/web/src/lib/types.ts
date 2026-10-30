@@ -375,6 +375,18 @@ export interface OperationsCoverageReport {
     accepted: number;
     withEvidence: number;
     evidenceCoverageRate: number;
+    coverageByResponsibility: Array<{
+      responsibilityCode: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
+    coverageByOrderType: Array<{
+      orderType: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
   };
   claims: {
     total: number;
@@ -401,6 +413,13 @@ export interface OperationsCoverageReport {
     escalated: number;
   };
   dsars?: { total: number; open: number; overdue: number };
+  appeals?: {
+    total: number;
+    open: number;
+    overdue: number;
+    closed: number;
+    appealRate: number;
+  };
   [key: string]: unknown;
 }
 
@@ -723,9 +742,27 @@ export interface AppealCase {
   targetId: Uuid;
   reasonCode: string;
   statement: string;
+  evidenceRefs?: Uuid[];
   status: string;
   reviewerPersonId?: Uuid;
   resolution?: string;
+  dueAt?: string;
   createdAt: string;
   resolvedAt?: string;
+}
+
+export interface ModelEvaluationRun {
+  id: Uuid;
+  evaluationType: string;
+  modelProvider: string;
+  modelName: string;
+  promptVersion: string;
+  datasetRef: string;
+  sampleSize: number;
+  metrics: Record<string, unknown>;
+  subgroupMetrics: Record<string, unknown>;
+  passed: boolean;
+  blockers: string[];
+  evaluatedAt: string;
+  createdAt: string;
 }

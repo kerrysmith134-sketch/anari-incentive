@@ -64,6 +64,7 @@ import {
   createModelEvaluationRunSchema,
   createModelPromptSchema,
   activateModelPromptSchema,
+  runModelEvaluationSchema,
   createAiScoreProposalSchema,
   decideAiScoreProposalSchema,
   createWorkflowRunSchema,
@@ -140,7 +141,12 @@ import {
   type PolicyTestSuiteResult,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
-import { scoreEvidence, type EvaluationGate } from "@anari/ai-gate";
+import {
+  DEFAULT_THRESHOLDS,
+  evaluateGate,
+  scoreEvidence,
+  type EvaluationGate,
+} from "@anari/ai-gate";
 import { calculateCumulativeIit } from "@anari/payroll-tax";
 import {
   FIELD_MAPPING_PRESETS,
@@ -299,6 +305,16 @@ function requireRoles(request: FastifyRequest, ...allowed: string[]): void {
   throw new ForbiddenError(
     `requires one of: ${allowed.join(", ")} (or admin)`,
   );
+}
+
+function assertHarnessEvaluation(evaluation: {
+  metrics: Record<string, unknown>;
+}): void {
+  if (evaluation.metrics.harnessVersion !== "ai-gate-v1") {
+    throw new ConflictError(
+      "MODEL_EVALUATION_NOT_HARNESS_VERIFIED: evaluation must be produced by the gated evaluation harness",
+    );
+  }
 }
 
 function isPrivileged(request: FastifyRequest): boolean {
@@ -1861,6 +1877,8 @@ export function buildApp(
       approvals,
       dsars,
       dataQualityIssues,
+      appeals,
+      runs,
     ] = await Promise.all([
       store.listWorkPackages(),
       store.listClaims(),
@@ -1869,6 +1887,8 @@ export function buildApp(
       platformStore.listApprovalRequests(tenantId),
       platformStore.listDsars(tenantId),
       store.listDataQualityIssues(),
+      store.listAppeals(),
+      store.listRuns(),
     ]);
     const acceptedPackages = workPackages.filter(
       (workPackage) => workPackage.status === "ACCEPTED",
@@ -1881,6 +1901,56 @@ export function buildApp(
     );
     const packagesWithEvidence = acceptedPackages.filter((workPackage) =>
       evidenceSubjects.has(workPackage.id),
+    ).length;
+    const orderTypeByPackage = new Map<string, string>();
+    for (const run of runs) {
+      for (const participant of run.inputSnapshot.participants) {
+        if (!orderTypeByPackage.has(participant.workPackageId)) {
+          orderTypeByPackage.set(
+            participant.workPackageId,
+            run.inputSnapshot.order.projectType ?? "UNSPECIFIED",
+          );
+        }
+      }
+    }
+    const responsibilityCoverage = new Map<
+      string,
+      { total: number; withEvidence: number }
+    >();
+    const orderTypeCoverage = new Map<
+      string,
+      { total: number; withEvidence: number }
+    >();
+    for (const workPackage of acceptedPackages) {
+      const hasEvidence = evidenceSubjects.has(workPackage.id);
+      const roles = new Set(
+        workPackage.members.map((member) => member.responsibilityCode),
+      );
+      for (const role of roles) {
+        const current = responsibilityCoverage.get(role) ?? {
+          total: 0,
+          withEvidence: 0,
+        };
+        current.total += 1;
+        if (hasEvidence) current.withEvidence += 1;
+        responsibilityCoverage.set(role, current);
+      }
+      const orderType = orderTypeByPackage.get(workPackage.id) ?? "UNLINKED";
+      const currentOrder = orderTypeCoverage.get(orderType) ?? {
+        total: 0,
+        withEvidence: 0,
+      };
+      currentOrder.total += 1;
+      if (hasEvidence) currentOrder.withEvidence += 1;
+      orderTypeCoverage.set(orderType, currentOrder);
+    }
+    const openAppeals = appeals.filter(
+      (appeal) => appeal.status !== "CLOSED",
+    );
+    const overdueAppeals = openAppeals.filter(
+      (appeal) =>
+        Boolean(appeal.dueAt) &&
+        new Date(appeal.dueAt as string).getTime() < Date.now(),
     ).length;
     const confirmedClaims = claims.filter(
       (claim) =>
@@ -1923,6 +1993,24 @@ export function buildApp(
           packagesWithEvidence,
           acceptedPackages.length,
         ),
+        coverageByResponsibility: [...responsibilityCoverage.entries()]
+          .map(([responsibilityCode, value]) => ({
+            responsibilityCode,
+            total: value.total,
+            withEvidence: value.withEvidence,
+            coverageRate: ratio(value.withEvidence, value.total),
+          }))
+          .sort((a, b) =>
+            a.responsibilityCode.localeCompare(b.responsibilityCode),
+          ),
+        coverageByOrderType: [...orderTypeCoverage.entries()]
+          .map(([orderType, value]) => ({
+            orderType,
+            total: value.total,
+            withEvidence: value.withEvidence,
+            coverageRate: ratio(value.withEvidence, value.total),
+          }))
+          .sort((a, b) => a.orderType.localeCompare(b.orderType)),
       },
       claims: {
         total: claims.length,
@@ -1970,6 +2058,13 @@ export function buildApp(
         rejected: dsars.filter(
           (request) => request.status === "REJECTED",
         ).length,
+      },
+      appeals: {
+        total: appeals.length,
+        open: openAppeals.length,
+        overdue: overdueAppeals,
+        closed: appeals.filter((appeal) => appeal.status === "CLOSED").length,
+        appealRate: ratio(appeals.length, Math.max(claims.length, 1)),
       },
     };
     return data(report, request);
@@ -3403,6 +3498,36 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/model-evaluation-runs:evaluate", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(runModelEvaluationSchema, request.body);
+    const thresholds = {
+      ...DEFAULT_THRESHOLDS,
+      ...(body.thresholds ?? {}),
+    };
+    const gate = evaluateGate(body.samples, thresholds);
+    const evaluation = await platformStore.createModelEvaluationRun({
+      tenantId: tenantOf(request),
+      evaluationType: body.evaluationType,
+      modelProvider: body.modelProvider,
+      modelName: body.modelName,
+      promptVersion: body.promptVersion,
+      datasetRef: body.datasetRef,
+      sampleSize: gate.sampleSize,
+      metrics: {
+        ...gate.metrics,
+        harnessVersion: "ai-gate-v1",
+        thresholds,
+      },
+      subgroupMetrics: {},
+      passed: gate.passed,
+      blockers: gate.blockers,
+    });
+    countEvent("model_evaluation_harness_run");
+    if (!gate.passed) countEvent("model_evaluation_harness_blocked");
+    return reply.status(201).send(data(evaluation, request));
+  });
+
   app.post("/api/v1/model-evaluation-runs", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createModelEvaluationRunSchema, request.body);
@@ -3487,6 +3612,11 @@ export function buildApp(
   app.post("/api/v1/model-prompts/:id/activate", async (request) => {
     requireRoles(request, "admin");
     const body = parse(activateModelPromptSchema, request.body);
+    const evaluation = await platformStore.getModelEvaluationRun(
+      tenantOf(request),
+      body.evaluationRunId,
+    );
+    assertHarnessEvaluation(evaluation);
     const prompt = await platformStore.activateModelPrompt({
       tenantId: tenantOf(request),
       promptId: idOf(request),
@@ -3518,6 +3648,7 @@ export function buildApp(
       tenantId,
       body.evaluationRunId,
     );
+    assertHarnessEvaluation(evaluation);
     if (!evaluation.passed) {
       throw new ConflictError(
         `AI_EVALUATION_GATE_NOT_PASSED: ${
@@ -4663,6 +4794,245 @@ export function buildApp(
     );
   });
 
+  app.get("/api/v1/evidence-packages/:cycleId", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const cycleId = paramOf(request, "cycleId");
+    const store = storeFor(request);
+    const cycle = await store.getEvaluationCycle(cycleId);
+    const [
+      allWorkPackages,
+      allClaims,
+      allAttributionDecisions,
+      drafts,
+      evaluationDecisions,
+      allRuns,
+      allConfirmations,
+      allEvidence,
+      allAuditEvents,
+      allSettlements,
+      allLedger,
+      allAppeals,
+      allApprovals,
+      allNotices,
+      allDpias,
+      allDsars,
+      allDataQualityIssues,
+      retentionPolicies,
+      representations,
+      policyVersions,
+    ] = await Promise.all([
+      store.listWorkPackages(),
+      store.listClaims(),
+      store.listDecisions(),
+      store.listEvaluationDrafts({ cycleId }),
+      store.listEvaluationDecisions({ cycleId }),
+      store.listRuns(),
+      store.listConfirmations(),
+      store.listEvidence(),
+      store.listAuditEvents(1000),
+      store.listSettlementBatches(),
+      store.listLedger(),
+      store.listAppeals(),
+      platformStore.listApprovalRequests(tenantId),
+      platformStore.listNotices(tenantId),
+      platformStore.listDpias(tenantId),
+      platformStore.listDsars(tenantId),
+      store.listDataQualityIssues(),
+      platformStore.listRetentionPolicies(tenantId),
+      platformStore.listRepresentations(tenantId),
+      store.listPolicyVersions(),
+    ]);
+
+    const runs = allRuns.filter((run) => run.cycleId === cycleId);
+    const runIds = new Set(runs.map((run) => run.id));
+    const workPackageIds = new Set(
+      runs.flatMap((run) =>
+        run.inputSnapshot.participants.map(
+          (participant) => participant.workPackageId,
+        ),
+      ),
+    );
+    const workPackages = allWorkPackages.filter((workPackage) =>
+      workPackageIds.has(workPackage.id),
+    );
+    const claims = allClaims.filter((claim) =>
+      workPackageIds.has(claim.workPackageId),
+    );
+    const claimIds = new Set(claims.map((claim) => claim.id));
+    const attributionDecisions = allAttributionDecisions.filter((decision) =>
+      claimIds.has(decision.claimId),
+    );
+    const settlementBatches = allSettlements.filter(
+      (batch) => batch.cycleId === cycleId,
+    );
+    const settlementDetails = await Promise.all(
+      settlementBatches.map((batch) => store.getSettlementBatch(batch.id)),
+    );
+    const settlementIds = new Set(
+      settlementBatches.map((batch) => batch.id),
+    );
+    const settlementExports = (
+      await Promise.all(
+        [...settlementIds].map((batchId) =>
+          platformStore.listSettlementExports(tenantId, batchId),
+        ),
+      )
+    ).flat();
+    const ledgerEntries = allLedger.filter(
+      (entry) => entry.cycleId === cycleId,
+    );
+    const ledgerIds = new Set(ledgerEntries.map((entry) => entry.id));
+    const evidenceSubjects = new Set([
+      ...workPackageIds,
+      ...claimIds,
+      ...runIds,
+    ]);
+    const evidenceNodes = allEvidence.filter((node) =>
+      evidenceSubjects.has(node.subjectId),
+    );
+    const evidenceLinks = (
+      await Promise.all(
+        evidenceNodes.map((node) => store.listEvidenceLinks(node.id)),
+      )
+    ).flat();
+    const confirmationTargets = new Set([
+      ...runIds,
+      ...settlementIds,
+      ...ledgerIds,
+      ...claimIds,
+    ]);
+    const confirmations = allConfirmations.filter((confirmation) =>
+      confirmationTargets.has(confirmation.targetId),
+    );
+    const appeals = allAppeals.filter((appeal) =>
+      confirmationTargets.has(appeal.targetId),
+    );
+    const policyVersionIds = new Set(
+      [
+        cycle.policyVersionId,
+        ...runs.map((run) => run.policyVersionId),
+      ].filter((value): value is string => Boolean(value)),
+    );
+    const policies = policyVersions.filter((policy) =>
+      policyVersionIds.has(policy.policyVersionId),
+    );
+    const policyDetails = await Promise.all(
+      policies.map(async (policy) => {
+        const [legalGate, testCases, testRuns, policyNotices, consultations] =
+          await Promise.all([
+            store.getLegalGate(policy.policyVersionId),
+            platformStore.listPolicyTestCases(tenantId, policy.policyVersionId),
+            platformStore.listPolicyTestRuns(
+              tenantId,
+              policy.policyVersionId,
+              100,
+            ),
+            platformStore.listPolicyNotices(tenantId, policy.policyVersionId),
+            platformStore.listConsultations(tenantId, policy.policyVersionId),
+          ]);
+        return {
+          ...policy,
+          legalGate,
+          testCases,
+          testRuns,
+          policyNotices,
+          consultations,
+        };
+      }),
+    );
+    const notices = allNotices.filter(
+      (notice) =>
+        notice.policyVersionId &&
+        policyVersionIds.has(notice.policyVersionId),
+    );
+    const noticesWithAcknowledgements = await Promise.all(
+      notices.map(async (notice) => ({
+        notice,
+        acknowledgements: await platformStore.listAcknowledgements(
+          tenantId,
+          notice.id,
+        ),
+      })),
+    );
+    const knownTargetIds = new Set<string>([
+      cycle.id,
+      ...policyVersionIds,
+      ...workPackageIds,
+      ...claimIds,
+      ...attributionDecisions.map((decision) => decision.id),
+      ...drafts.map((draft) => draft.id),
+      ...evaluationDecisions.map((decision) => decision.id),
+      ...runIds,
+      ...confirmationTargets,
+      ...settlementIds,
+      ...ledgerIds,
+      ...appeals.map((appeal) => appeal.id),
+      ...notices.map((notice) => notice.id),
+    ]);
+    const approvals = allApprovals.filter((approval) =>
+      knownTargetIds.has(approval.targetId),
+    );
+    const knownIds = new Set<string>([
+      ...knownTargetIds,
+      ...approvals.map((approval) => approval.id),
+    ]);
+    const dataQualityIssues = allDataQualityIssues.filter((issue) =>
+      knownTargetIds.has(issue.objectId),
+    );
+    const auditEvents = allAuditEvents.filter(
+      (event) => event.objectId && knownIds.has(event.objectId),
+    );
+    const [auditChainValid, ledgerValid] = await Promise.all([
+      store.verifyAuditChain(),
+      store.verifyLedger(),
+    ]);
+    const packageBody = {
+      schemaVersion: "n-perform.evidence-package/v1",
+      generatedAt: new Date().toISOString(),
+      tenantId,
+      cycle,
+      policies: policyDetails,
+      workPackages,
+      evidence: {
+        nodes: evidenceNodes,
+        links: evidenceLinks,
+      },
+      contributionClaims: claims,
+      attributionDecisions,
+      evaluation: {
+        drafts,
+        decisions: evaluationDecisions,
+      },
+      calculations: runs,
+      employeeConfirmations: confirmations,
+      appeals,
+      settlements: {
+        batches: settlementDetails,
+        exports: settlementExports,
+      },
+      ledgerEntries,
+      approvals,
+      dataQualityIssues,
+      notices: noticesWithAcknowledgements,
+      representations,
+      dataProtection: {
+        dpias: allDpias,
+        dsars: allDsars,
+        retentionPolicies,
+      },
+      auditEvents,
+      verification: {
+        auditChainValid,
+        ledgerValid,
+      },
+    };
+    return data(
+      { ...packageBody, packageHash: sha256(packageBody) },
+      request,
+    );
+  });
+
   app.get("/api/v1/audit-events", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { limit?: string };
@@ -4799,9 +5169,17 @@ export function buildApp(
     if (!isPrivileged(request) && !ownPersonId(request)) {
       throw new ForbiddenError("employee identity is required");
     }
+    const dueAt =
+      body.dueAt ??
+      new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
     return reply
       .status(201)
-      .send(data(await storeFor(request).createAppeal(body), request));
+      .send(
+        data(
+          await storeFor(request).createAppeal({ ...body, dueAt }),
+          request,
+        ),
+      );
   });
 
   app.get("/api/v1/appeals", async (request) => {

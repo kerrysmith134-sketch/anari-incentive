@@ -19,7 +19,7 @@ import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { ApiError, api } from "../lib/api.js";
+import { ApiError, api, downloadJson } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -72,6 +72,7 @@ export function CyclesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [detailDraft, setDetailDraft] = useState<EvaluationDraft | null>(null);
   const [reviewDraft, setReviewDraft] = useState<EvaluationDraft | null>(null);
   const [decision, setDecision] = useState<"APPROVE" | "REJECT">("APPROVE");
@@ -146,6 +147,31 @@ export function CyclesPage() {
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function exportEvidencePackage() {
+    if (!selectedId) return;
+    setExporting(true);
+    try {
+      const evidencePackage = await api<Record<string, unknown>>(
+        `/api/v1/evidence-packages/${selectedId}`,
+      );
+      downloadJson(
+        evidencePackage,
+        `evidence-package-${selectedId}.json`,
+      );
+      toast.success(
+        "Evidence package downloaded",
+        "Includes legal gates, decisions, settlements, ledger and audit events.",
+      );
+    } catch (caught) {
+      toast.error(
+        "Could not build the evidence package",
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -269,6 +295,15 @@ export function CyclesPage() {
               loading={cycles.loading}
             >
               Refresh
+            </Button>
+            <Button
+              variant="secondary"
+              icon="download"
+              onClick={exportEvidencePackage}
+              loading={exporting}
+              disabled={!selectedId}
+            >
+              Evidence pack
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
               New cycle

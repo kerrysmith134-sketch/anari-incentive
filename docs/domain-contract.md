@@ -220,7 +220,8 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /deliverables/:id/acceptance` | manager/finance, SUBMITTED, reviewer ≠ owner | Records acceptance evidence and sets ACCEPTED or REJECTED |
 | `POST /ai-suggestion-logs` | manager/finance, agent task exists | Records prompt/model/input hash, output and validation status; an optional `modelPromptId` must be ACTIVE and its provider/model must match |
 | `POST /ai-suggestion-logs/:id/accept` | not already accepted, person exists | Records one-time human acceptance |
-| `POST /model-evaluation-runs` | manager/finance | Records metrics, subgroup metrics, pass/fail and blockers |
+| `POST /model-evaluation-runs:evaluate` | manager/finance | Runs the server-side harness and records computed pass/fail, metrics and blockers |
+| `POST /model-evaluation-runs` | manager/finance | Imports an external record; it cannot unlock prompt activation or score proposals |
 | `POST /model-prompts` | admin | Creates a DRAFT versioned prompt with a template hash |
 | `POST /model-prompts/:id/activate` | admin, DRAFT, passed evaluation for the same provider/model, no other ACTIVE version of the code | Sets ACTIVE, links the evaluation and records `activatedAt` |
 | `POST /model-prompts/:id/retire` | admin, ACTIVE | Sets RETIRED and records `retiredAt` |
@@ -268,10 +269,10 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /data-quality-issues` | manager | Creates an OPEN/ASSIGNED issue with optional `dueAt` |
 | `POST /data-quality-issues/:id/commands` | canonical issue state | ASSIGN (assignee), START, RESOLVE, WAIVE (approver + reason), REOPEN, ESCALATE (reason; records escalation without changing status; closed issues reject escalation) |
 | `POST /employee-confirmations` | target exists | VIEWED / CONFIRMED / OBJECTED |
-| `POST /appeals` | — | OPEN |
+| `POST /appeals` | — | OPEN, with evidence refs and a default 10-day SLA due date |
 | `POST /appeals/:id/triage` | OPEN, reviewer ≠ appellant | TRIAGED |
 | `POST /appeals/:id/review` | TRIAGED | UNDER_REVIEW |
-| `POST /appeals/:id/resolve` | UNDER_REVIEW, reviewer ≠ appellant | CLOSED or RECALCULATION_REQUIRED |
+| `POST /appeals/:id/resolve` | UNDER_REVIEW, reviewer ≠ appellant | CLOSED, RECALCULATION_REQUIRED or DECIDED |
 | `POST /recalculation-requests` | manager/finance; target exists | Creates an OPEN request for EVIDENCE/ATTRIBUTION/EVALUATION/LEDGER |
 | `POST /recalculation-requests/:id/approve` | finance, request is OPEN | APPROVED with approver and timestamp |
 | `POST /recalculation-requests/:id/reject` | finance, request is OPEN | REJECTED with reviewer and timestamp |
@@ -533,6 +534,9 @@ Calculation runs are further redacted for employees: `lines` and `inputSnapshot.
 - **Design system.** CSS custom properties define light and dark palettes, status, spatial and typography tokens. Dark mode is a selected palette, not an inversion. Components use semantic classes; there is no utility-CSS or component-library dependency. The shell collapses to an off-canvas navigation and single-column layouts on narrow screens.
 - **Data access.** `lib/api.ts` attaches the development tenant/user/person headers, an optional OIDC bearer token, unwraps the `{data, meta}` envelope, maps errors to `ApiError` and downloads protected exports as blobs. Queries abort on unmount. Session identity is stored locally and can be changed in Settings; OIDC mode ignores the development headers but accepts the saved bearer token.
 - **Functional surfaces.** Overview, approvals (decide and consume), evaluation cycles (create, cycle readiness, draft review and human decisions), contribution (work packages, claims and attribution decisions), payroll (runs, contracts, workflow, exports, statutory tax studio), rewards (equity vesting/exercises and bounty lifecycle), settlements (batch commands, ledger chain and budget pools), integrations (connections, field-map presets, schedules, sync runs), AI proposals/prompt registry, policy readiness, legal-gate recording and test suite, exceptions (data-quality remediation and appeals), audit trail inspection, people directory, and assurance registers. AI score acceptance is explicitly human and one-time; the console never auto-accepts a proposal.
+- **AI evaluation harness.** `POST /api/v1/model-evaluation-runs:evaluate` accepts labelled samples and computes human-human and AI-human agreement, subgroup error gap, counterfactual stability, prompt-injection pass rate and holdout size. A run that fails any threshold is stored as BLOCKED; prompt activation and score proposals require a harness-produced evaluation, not a caller-asserted pass.
+- **Evidence package.** A cycle evidence package is a JSON, cycle-scoped bundle with policy/legal controls, work-package/evidence/claim/decision lineage, calculations, confirmations, appeals, settlements, ledger, approvals, notices, privacy registers, data-quality issues and related audit events. It includes a SHA-256 package hash and verification flags; it is not a legal opinion or an immutable WORM archive.
+
 - **Tax boundary.** `packages/payroll-tax` uses the public annualized China cumulative brackets and quick deductions with BigInt decimal arithmetic. The calculator is an estimate: payroll runs still use declared contract rates, and YTD aggregation, special-additional-deduction evidence, local filing formats and jurisdiction-specific submission remain follow-up work.
 
 ## 14. Contract and CI

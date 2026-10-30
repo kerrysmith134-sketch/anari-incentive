@@ -16,6 +16,9 @@ export interface EvaluationGate {
     counterfactualStability?: number;
     promptInjectionPassRate?: number;
     humanAiAgreement?: number;
+    humanHumanAgreement?: number;
+    holdoutSampleSize?: number;
+    harnessVersion?: string;
   };
   blockers: string[];
 }

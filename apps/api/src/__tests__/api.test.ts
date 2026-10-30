@@ -29,6 +29,46 @@ async function call(
   return { status: response.statusCode, body: response.json() };
 }
 
+function harnessSamples(passed: boolean, count = 100) {
+  return Array.from({ length: count }, (_, index) => {
+    const score = (index % 5) + 1;
+    return {
+      sampleId: `harness-${index}`,
+      subgroup: index % 2 === 0 ? "ROLE_A" : "ROLE_B",
+      humanScoreA: passed ? score : index % 2 === 0 ? 1 : 5,
+      humanScoreB: passed ? score : index % 2 === 0 ? 5 : 1,
+      aiScore: passed ? score : index % 2 === 0 ? 1 : 5,
+      counterfactualScores: [passed ? score : index % 2 === 0 ? 1 : 5],
+      promptInjectionPassed: true,
+      holdout: index % 5 === 0,
+    };
+  });
+}
+
+function createHarnessEvaluation(
+  evaluationType: string,
+  modelName: string,
+  passed: boolean,
+  datasetRef = "gold-set-1",
+) {
+  return call("POST", "/api/v1/model-evaluation-runs:evaluate", {
+    evaluationType,
+    modelProvider: "anthropic",
+    modelName,
+    promptVersion: "v1",
+    datasetRef,
+    samples: harnessSamples(passed),
+    thresholds: {
+      minSampleSize: 10,
+      minKappa: 0.6,
+      maxSubgroupErrorGap: 0.1,
+      minCounterfactualStability: 0.95,
+      minPromptInjectionPassRate: 1,
+      minHoldoutSampleSize: 10,
+    },
+  });
+}
+
 async function createAcceptedWorkPackage() {
   const created = await call("POST", "/api/v1/work-packages", {
     title: "Cross-team order delivery",
@@ -2660,20 +2700,10 @@ describe("AI suggestion logs and workflow runs", () => {
     );
     expect(reaccepted.status).toBe(409);
 
-    const evaluation = await call(
-      "POST",
-      "/api/v1/model-evaluation-runs",
-      {
-        evaluationType: "IRR",
-        modelProvider: "anthropic",
-        modelName: "claude",
-        promptVersion: "v1",
-        datasetRef: "gold-set-1",
-        sampleSize: 50,
-        metrics: { kappa: 0.8 },
-        subgroupMetrics: { by_tenure: { gap: 0.02 } },
-        passed: true,
-      },
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
     );
     expect(evaluation.status).toBe(201);
     expect(evaluation.body.data.passed).toBe(true);
@@ -2739,18 +2769,7 @@ describe("AI suggestion logs and workflow runs", () => {
     expect(duplicate.status).toBe(409);
 
     const evaluation = (modelName: string, passed: boolean) =>
-      call("POST", "/api/v1/model-evaluation-runs", {
-        evaluationType: "IRR",
-        modelProvider: "anthropic",
-        modelName,
-        promptVersion: "v1",
-        datasetRef: "gold-set-1",
-        sampleSize: 50,
-        metrics: { kappa: passed ? 0.8 : 0.3 },
-        subgroupMetrics: {},
-        passed,
-        blockers: passed ? [] : ["KAPPA_BELOW_THRESHOLD"],
-      });
+      createHarnessEvaluation("IRR", modelName, passed);
     const failedEvaluation = await evaluation("claude", false);
     const failedActivation = await call(
       "POST",
@@ -2863,22 +2882,45 @@ describe("AI suggestion logs and workflow runs", () => {
     );
   });
 
-  it("creates gated AI score proposals with human decisions", async () => {
-    const evaluation = await call(
+  it("rejects an unverified evaluation record for activation", async () => {
+    const prompt = await call("POST", "/api/v1/model-prompts", {
+      promptCode: "UNVERIFIED_TEST",
+      version: 1,
+      purpose: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      template: "Summarize evidence.",
+    });
+    const legacy = await call("POST", "/api/v1/model-evaluation-runs", {
+      evaluationType: "IRR",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      datasetRef: "legacy",
+      sampleSize: 100,
+      metrics: {},
+      subgroupMetrics: {},
+      passed: true,
+      blockers: [],
+    });
+    expect(legacy.status).toBe(201);
+    const activation = await call(
       "POST",
-      "/api/v1/model-evaluation-runs",
-      {
-        evaluationType: "IRR",
-        modelProvider: "anthropic",
-        modelName: "claude",
-        promptVersion: "v1",
-        datasetRef: "score-gold-set",
-        sampleSize: 50,
-        metrics: { kappa: 0.8 },
-        subgroupMetrics: {},
-        passed: true,
-        blockers: [],
-      },
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: legacy.body.data.id },
+    );
+    expect(activation.status).toBe(409);
+    expect(activation.body.error.message).toContain(
+      "MODEL_EVALUATION_NOT_HARNESS_VERIFIED",
+    );
+  });
+
+  it("creates gated AI score proposals with human decisions", async () => {
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "score-gold-set",
     );
     const evidence = [
       {
@@ -2912,7 +2954,10 @@ describe("AI suggestion logs and workflow runs", () => {
       "score-e1",
       "score-e2",
     ]);
-    expect(proposal.body.data.gateMetrics).toEqual({ kappa: 0.8 });
+    expect(proposal.body.data.gateMetrics).toMatchObject({
+      harnessVersion: "ai-gate-v1",
+      humanHumanAgreement: 1,
+    });
 
     const selfDecision = await call(
       "POST",
@@ -2950,21 +2995,11 @@ describe("AI suggestion logs and workflow runs", () => {
     );
     expect(acceptedList.body.data).toHaveLength(1);
 
-    const failedEvaluation = await call(
-      "POST",
-      "/api/v1/model-evaluation-runs",
-      {
-        evaluationType: "IRR",
-        modelProvider: "anthropic",
-        modelName: "claude",
-        promptVersion: "v1",
-        datasetRef: "score-gold-set",
-        sampleSize: 50,
-        metrics: { kappa: 0.2 },
-        subgroupMetrics: {},
-        passed: false,
-        blockers: ["HUMAN_IRR_TOO_LOW"],
-      },
+    const failedEvaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      false,
+      "score-gold-set",
     );
     const blocked = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
@@ -4961,6 +4996,20 @@ describe("vertical slice", () => {
     expect(result.body.data.valid).toBe(true);
   });
 
+  it("builds a verifiable cycle evidence package", async () => {
+    const result = await call("GET", `/api/v1/evidence-packages/${CYCLE}`);
+    expect(result.status).toBe(200);
+    expect(result.body.data.schemaVersion).toBe(
+      "n-perform.evidence-package/v1",
+    );
+    expect(result.body.data.cycle.id).toBe(CYCLE);
+    expect(result.body.data.verification.auditChainValid).toBe(true);
+    expect(result.body.data.verification.ledgerValid).toBe(true);
+    expect(result.body.data.packageHash).toMatch(/^sha256:/);
+    expect(Array.isArray(result.body.data.policies)).toBe(true);
+    expect(Array.isArray(result.body.data.auditEvents)).toBe(true);
+  });
+
   it("creates and lists evaluation cycles", async () => {
     const created = await call("POST", "/api/v1/evaluation-cycles", {
       name: "2027 Q1 cycle",
@@ -6130,6 +6179,16 @@ describe("vertical slice", () => {
     expect(before.body.data.deliverables.pendingAcceptance).toBe(0);
     expect(before.body.data.approvals.pending).toBe(0);
     expect(before.body.data.dsars.open).toBe(0);
+    expect(before.body.data.appeals).toEqual({
+      total: 0,
+      open: 0,
+      overdue: 0,
+      closed: 0,
+      appealRate: 0,
+    });
+    expect(
+      before.body.data.workPackages.coverageByResponsibility.length,
+    ).toBeGreaterThan(0);
 
     await call("POST", "/api/v1/evidence", {
       evidenceType: "DELIVERY_RECORD",
@@ -6153,6 +6212,12 @@ describe("vertical slice", () => {
     expect(after.body.data.evidence.workPackage).toBe(1);
     expect(after.body.data.workPackages.withEvidence).toBe(1);
     expect(after.body.data.workPackages.evidenceCoverageRate).toBe(1);
+    expect(
+      after.body.data.workPackages.coverageByResponsibility.every(
+        (row: { coverageRate: number }) => row.coverageRate === 1,
+      ),
+    ).toBe(true);
+    expect(after.body.data.workPackages.coverageByOrderType.length).toBe(1);
     expect(after.body.data.dataQuality).toEqual({
       total: 1,
       open: 1,
@@ -6281,14 +6346,21 @@ describe("vertical slice", () => {
   it("runs an independent appeal review and preserves the original decision", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     const { claimId, decisionId } = await createConfirmedClaim(workPackageId, OWNER);
+    const appealDueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString();
+    const appealEvidenceRef = "00000000-0000-4000-8000-0000000000aa";
     const appeal = await call("POST", "/api/v1/appeals", {
       appellantPersonId: OWNER,
       targetType: "ATTRIBUTION",
       targetId: decisionId,
       reasonCode: "EVIDENCE_NOT_CONSIDERED",
       statement: "A key delivery was not included in the decision",
+      evidenceRefs: [appealEvidenceRef],
+      dueAt: appealDueAt,
     });
     expect(appeal.status).toBe(201);
+    expect(appeal.body.data.dueAt).toBe(appealDueAt);
+    expect(appeal.body.data.evidenceRefs).toEqual([appealEvidenceRef]);
     const appealId = appeal.body.data.id as string;
 
     const selfTriage = await call("POST", `/api/v1/appeals/${appealId}/triage`, {

@@ -544,16 +544,19 @@ export class AppealSlaSkill implements AgentSkill {
         (appeal) =>
           appeal.status !== "CLOSED" && appeal.status !== "DECIDED",
       )
-      .filter(
-        (appeal) =>
-          now - Date.parse(appeal.createdAt) > slaDays * 24 * 60 * 60 * 1000,
+      .filter((appeal) =>
+        appeal.dueAt
+          ? Date.parse(appeal.dueAt) < now
+          : now - Date.parse(appeal.createdAt) > slaDays * 24 * 60 * 60 * 1000,
       )
       .map((appeal) => ({
         code: "APPEAL_SLA_BREACH",
         severity: "WARNING" as const,
         subjectType: "APPEAL",
         subjectId: appeal.id,
-        message: `Appeal has been open longer than ${slaDays} days.`,
+        message: appeal.dueAt
+          ? `Appeal SLA breached on ${appeal.dueAt}.`
+          : `Appeal has been open longer than ${slaDays} days.`,
         suggestedAction: "Escalate to the appeal reviewer.",
       }));
   }

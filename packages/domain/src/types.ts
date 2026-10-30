@@ -612,6 +612,18 @@ export interface OperationsCoverageReport {
     accepted: number;
     withEvidence: number;
     evidenceCoverageRate: number;
+    coverageByResponsibility: Array<{
+      responsibilityCode: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
+    coverageByOrderType: Array<{
+      orderType: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
   };
   claims: {
     total: number;
@@ -645,6 +657,13 @@ export interface OperationsCoverageReport {
     open: number;
     resolved: number;
     rejected: number;
+  };
+  appeals: {
+    total: number;
+    open: number;
+    overdue: number;
+    closed: number;
+    appealRate: number;
   };
 }
 
@@ -1379,9 +1398,11 @@ export interface AppealCase {
   targetId: UUID;
   reasonCode: string;
   statement: string;
+  evidenceRefs?: UUID[];
   status: AppealCaseStatus;
   reviewerPersonId?: UUID;
   resolution?: string;
+  dueAt?: string;
   createdAt: string;
   resolvedAt?: string;
 }

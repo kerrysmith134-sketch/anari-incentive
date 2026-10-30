@@ -154,6 +154,20 @@ export async function downloadFile(
   URL.revokeObjectURL(url);
 }
 
+export function downloadJson(value: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Build a query string, omitting empty values. */
 export function qs(
   params: Record<string, string | number | undefined | null>,

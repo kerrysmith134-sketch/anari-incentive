@@ -144,6 +144,8 @@ export interface IncentiveStore {
     targetId: string;
     reasonCode: string;
     statement: string;
+    evidenceRefs?: string[];
+    dueAt?: string;
   }): Promise<AppealCase>;
   getAppeal(id: string): Promise<AppealCase>;
   listAppeals(): Promise<AppealCase[]>;

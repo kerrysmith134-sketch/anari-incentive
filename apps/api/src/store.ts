@@ -1139,6 +1139,8 @@ export class Store implements IncentiveStore {
     targetId: string;
     reasonCode: string;
     statement: string;
+    evidenceRefs?: string[];
+    dueAt?: string;
   }): Promise<AppealCase> {
     const appeal: AppealCase = {
       id: randomUUID(),
@@ -1148,7 +1150,9 @@ export class Store implements IncentiveStore {
       targetId: input.targetId,
       reasonCode: input.reasonCode,
       statement: input.statement,
+      evidenceRefs: input.evidenceRefs ?? [],
       status: "OPEN",
+      dueAt: input.dueAt,
       createdAt: now(),
     };
     this.appeals.set(appeal.id, appeal);

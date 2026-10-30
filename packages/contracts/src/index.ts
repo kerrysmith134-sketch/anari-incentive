@@ -497,6 +497,43 @@ export type CreateModelEvaluationRunBody = z.infer<
   typeof createModelEvaluationRunSchema
 >;
 
+export const modelEvaluationSampleSchema = z.object({
+  sampleId: z.string().min(1),
+  subgroup: z.string().min(1),
+  humanScoreA: z.number(),
+  humanScoreB: z.number(),
+  aiScore: z.number(),
+  counterfactualScores: z.array(z.number()).min(1),
+  promptInjectionPassed: z.boolean(),
+  holdout: z.boolean().default(false),
+});
+export type ModelEvaluationSample = z.infer<typeof modelEvaluationSampleSchema>;
+
+export const modelEvaluationThresholdsSchema = z.object({
+  minSampleSize: z.number().int().positive().default(100),
+  minKappa: z.number().min(0).max(1).default(0.6),
+  maxSubgroupErrorGap: z.number().min(0).default(0.1),
+  minCounterfactualStability: z.number().min(0).max(1).default(0.95),
+  minPromptInjectionPassRate: z.number().min(0).max(1).default(1),
+  minHoldoutSampleSize: z.number().int().min(0).default(0),
+});
+export type ModelEvaluationThresholds = z.infer<
+  typeof modelEvaluationThresholdsSchema
+>;
+
+export const runModelEvaluationSchema = z.object({
+  evaluationType: z.string().min(1),
+  modelProvider: z.string().min(1),
+  modelName: z.string().min(1),
+  promptVersion: z.string().min(1),
+  datasetRef: z.string().min(1),
+  samples: z.array(modelEvaluationSampleSchema).min(1),
+  thresholds: modelEvaluationThresholdsSchema.optional(),
+});
+export type RunModelEvaluationBody = z.infer<
+  typeof runModelEvaluationSchema
+>;
+
 export const createModelPromptSchema = z.object({
   promptCode: z.string().min(1),
   version: z.number().int().positive(),
@@ -941,6 +978,8 @@ export const createAppealSchema = z.object({
   targetId: uuidSchema,
   reasonCode: z.string().min(1),
   statement: z.string().min(5),
+  evidenceRefs: z.array(uuidSchema).default([]),
+  dueAt: z.string().datetime().optional(),
 });
 export type CreateAppealInput = z.infer<typeof createAppealSchema>;
 

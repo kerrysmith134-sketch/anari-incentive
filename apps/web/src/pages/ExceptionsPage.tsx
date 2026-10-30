@@ -383,7 +383,7 @@ export function ExceptionsPage() {
                       <th>Appellant</th>
                       <th>Target</th>
                       <th>Status</th>
-                      <th>Created</th>
+                      <th>Due</th>
                       <th>Reviewer</th>
                       <th />
                     </tr>
@@ -408,9 +408,20 @@ export function ExceptionsPage() {
                         </td>
                         <td>
                           <Badge status={appeal.status} />
+                          <span className="cell-sub">
+                            opened {formatRelative(appeal.createdAt)}
+                          </span>
                         </td>
-                        <td className="nowrap">
-                          {formatRelative(appeal.createdAt)}
+                        <td
+                          className={
+                            appeal.dueAt &&
+                            new Date(appeal.dueAt).getTime() < Date.now() &&
+                            !["CLOSED", "DECIDED"].includes(appeal.status)
+                              ? "text-danger nowrap"
+                              : "nowrap"
+                          }
+                        >
+                          {appeal.dueAt ? formatDate(appeal.dueAt) : "No SLA"}
                         </td>
                         <td>
                           {appeal.reviewerPersonId
@@ -594,8 +605,23 @@ export function ExceptionsPage() {
                   value: `${titleCase(appealTarget.targetType)} ${shortId(appealTarget.targetId, 12)}`,
                 },
                 { label: "Status", value: <Badge status={appealTarget.status} /> },
+                {
+                  label: "SLA due",
+                  value: appealTarget.dueAt
+                    ? formatDateTime(appealTarget.dueAt)
+                    : "No SLA recorded",
+                },
               ]}
             />
+            {appealTarget.evidenceRefs && appealTarget.evidenceRefs.length > 0 ? (
+              <div className="chip-row">
+                {appealTarget.evidenceRefs.map((reference) => (
+                  <span className="chip" key={reference}>
+                    {reference}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {appealTarget.status !== "TRIAGED" ? (
               <FormField label="Reviewer" htmlFor="appeal-reviewer">
                 <PersonSelect

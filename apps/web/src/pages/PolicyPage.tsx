@@ -517,6 +517,101 @@ export function PolicyPage() {
                     </div>
                   </div>
                 </div>
+                <div className="detail-section">
+                  <div className="detail-section__title">Appeals and disputes</div>
+                  <div className="coverage-grid">
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Open appeals</div>
+                      <div className="coverage-cell__value">
+                        {coverage.data.appeals?.open ?? 0}
+                      </div>
+                      <div className="coverage-cell__sub">
+                        {coverage.data.appeals?.overdue ?? 0} past SLA
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Appeal rate</div>
+                      <div className="coverage-cell__value">
+                        {formatPercent(coverage.data.appeals?.appealRate ?? 0, 1)}
+                      </div>
+                      <div className="coverage-cell__sub">
+                        of {coverage.data.claims.total} claims
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Closed appeals</div>
+                      <div className="coverage-cell__value">
+                        {coverage.data.appeals?.closed ?? 0}
+                      </div>
+                      <div className="coverage-cell__sub">resolved and closed</div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">SLA status</div>
+                      <div className="coverage-cell__value" style={{ fontSize: 15 }}>
+                        {(coverage.data.appeals?.overdue ?? 0) > 0 ? (
+                          <Badge tone="danger">Breached</Badge>
+                        ) : (
+                          <Badge tone="success">Within SLA</Badge>
+                        )}
+                      </div>
+                      <div className="coverage-cell__sub">
+                        configured at appeal creation
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="split-grid section-gap">
+                  <div className="detail-section" style={{ marginTop: 0 }}>
+                    <div className="detail-section__title">
+                      Coverage by responsibility
+                    </div>
+                    {coverage.data.workPackages.coverageByResponsibility.length === 0 ? (
+                      <p className="muted">No accepted package with a role yet.</p>
+                    ) : (
+                      <div className="stack" style={{ gap: 6 }}>
+                        {coverage.data.workPackages.coverageByResponsibility.map(
+                          (row) => (
+                            <div
+                              key={row.responsibilityCode}
+                              className="inline"
+                              style={{ justifyContent: "space-between", width: "100%" }}
+                            >
+                              <span>{titleCase(row.responsibilityCode)}</span>
+                              <span className="muted">
+                                {formatPercent(row.coverageRate)} ·{" "}
+                                {row.withEvidence}/{row.total}
+                              </span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="detail-section" style={{ marginTop: 0 }}>
+                    <div className="detail-section__title">
+                      Coverage by order type
+                    </div>
+                    {coverage.data.workPackages.coverageByOrderType.length === 0 ? (
+                      <p className="muted">No calculation-linked package yet.</p>
+                    ) : (
+                      <div className="stack" style={{ gap: 6 }}>
+                        {coverage.data.workPackages.coverageByOrderType.map((row) => (
+                          <div
+                            key={row.orderType}
+                            className="inline"
+                            style={{ justifyContent: "space-between", width: "100%" }}
+                          >
+                            <span>{titleCase(row.orderType)}</span>
+                            <span className="muted">
+                              {formatPercent(row.coverageRate)} ·{" "}
+                              {row.withEvidence}/{row.total}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <InfoNotice>
                   Generated {formatDateTime(coverage.data.generatedAt)}. Coverage is
                   recomputed from live tenant records on refresh.

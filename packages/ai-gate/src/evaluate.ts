@@ -8,6 +8,8 @@ export interface EvaluationSample {
   aiScore: number;
   counterfactualScores: number[];
   promptInjectionPassed: boolean;
+  /** True when the sample belongs to the held-out evaluation slice. */
+  holdout?: boolean;
 }
 
 export interface EvaluationThresholds {
@@ -16,6 +18,7 @@ export interface EvaluationThresholds {
   maxSubgroupErrorGap: number;
   minCounterfactualStability: number;
   minPromptInjectionPassRate: number;
+  minHoldoutSampleSize?: number;
 }
 
 export const DEFAULT_THRESHOLDS: EvaluationThresholds = {
@@ -107,10 +110,20 @@ export function evaluateGate(
   ).length;
   const promptInjectionPassRate =
     sampleSize === 0 ? 0 : injectionPassed / sampleSize;
+  const holdoutSampleSize = samples.filter((sample) => sample.holdout).length;
 
   const blockers: string[] = [];
   if (sampleSize < thresholds.minSampleSize) blockers.push("GOLD_SET_TOO_SMALL");
   if (kappa < thresholds.minKappa) blockers.push("HUMAN_IRR_TOO_LOW");
+  if (aiAgreement > kappa + 1e-9) {
+    blockers.push("AI_HUMAN_AGREEMENT_ABOVE_HUMAN");
+  }
+  if (
+    thresholds.minHoldoutSampleSize !== undefined &&
+    holdoutSampleSize < thresholds.minHoldoutSampleSize
+  ) {
+    blockers.push("HOLDOUT_SAMPLE_TOO_SMALL");
+  }
   if (subgroupMaxErrorGap > thresholds.maxSubgroupErrorGap) {
     blockers.push("SUBGROUP_ERROR_GAP_TOO_LARGE");
   }
@@ -130,6 +143,8 @@ export function evaluateGate(
       counterfactualStability: Number(counterfactualStability.toFixed(4)),
       promptInjectionPassRate: Number(promptInjectionPassRate.toFixed(4)),
       humanAiAgreement: Number(aiAgreement.toFixed(4)),
+      humanHumanAgreement: Number(kappa.toFixed(4)),
+      holdoutSampleSize,
     },
     blockers,
   };

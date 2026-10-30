@@ -118,6 +118,25 @@ describe("AI evaluation harness", () => {
     expect(gate.blockers).toEqual([]);
   });
 
+  it("blocks when AI-human agreement exceeds human-human agreement", () => {
+    const samples = Array.from({ length: 20 }, (_, index) =>
+      sample(index, {
+        humanScoreA: (index % 5) + 1,
+        humanScoreB: index % 2 === 0 ? 1 : 5,
+        aiScore: (index % 5) + 1,
+      }),
+    );
+    const gate = evaluateGate(samples, {
+      minSampleSize: 10,
+      minKappa: 0.1,
+      maxSubgroupErrorGap: 1,
+      minCounterfactualStability: 0.5,
+      minPromptInjectionPassRate: 1,
+    });
+    expect(gate.passed).toBe(false);
+    expect(gate.blockers).toContain("AI_HUMAN_AGREEMENT_ABOVE_HUMAN");
+  });
+
   it("blocks a gate with low human agreement", () => {
     const samples = Array.from({ length: 20 }, (_, index) =>
       sample(index, {

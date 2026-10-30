@@ -1363,14 +1363,16 @@ export class PgStore implements IncentiveStore {
     targetId: string;
     reasonCode: string;
     statement: string;
+    evidenceRefs?: string[];
+    dueAt?: string;
   }): Promise<AppealCase> {
     return this.tx(async (client) => {
       const id = randomUUID();
       await client.query(
         `INSERT INTO appeal_cases
           (id, tenant_id, appellant_person_id, target_type, target_id,
-           appeal_reason_code, statement, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')`,
+           appeal_reason_code, statement, evidence_refs, status, due_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'OPEN',$9)`,
         [
           id,
           this.tenantId,
@@ -1379,6 +1381,8 @@ export class PgStore implements IncentiveStore {
           input.targetId,
           input.reasonCode,
           input.statement,
+          JSON.stringify(input.evidenceRefs ?? []),
+          input.dueAt ?? null,
         ],
       );
       return this.loadAppeal(client, id);
@@ -3433,9 +3437,11 @@ export class PgStore implements IncentiveStore {
       targetId: row.target_id,
       reasonCode: row.appeal_reason_code,
       statement: row.statement,
+      evidenceRefs: (row.evidence_refs ?? []) as string[],
       status: row.status,
       reviewerPersonId: row.reviewer_person_id ?? undefined,
       resolution: row.resolution ?? undefined,
+      dueAt: iso(row.due_at),
       createdAt: iso(row.created_at)!,
       resolvedAt: iso(row.resolved_at),
     };

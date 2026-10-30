@@ -29,7 +29,11 @@ import {
   shortId,
   titleCase,
 } from "../lib/format.js";
-import type { AiScoreProposal, ModelPrompt } from "../lib/types.js";
+import type {
+  AiScoreProposal,
+  ModelEvaluationRun,
+  ModelPrompt,
+} from "../lib/types.js";
 
 const TABS = [
   { id: "PENDING", label: "Pending" },
@@ -45,6 +49,9 @@ export function AiPage() {
   const { people } = usePeople();
   const proposals = useApiQuery<AiScoreProposal[]>("/api/v1/ai-score-proposals");
   const prompts = useApiQuery<ModelPrompt[]>("/api/v1/model-prompts");
+  const evaluations = useApiQuery<ModelEvaluationRun[]>(
+    "/api/v1/model-evaluation-runs",
+  );
   const [tab, setTab] = useState("proposals");
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [selected, setSelected] = useState<AiScoreProposal | null>(null);
@@ -54,9 +61,15 @@ export function AiPage() {
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [promptDetail, setPromptDetail] = useState<ModelPrompt | null>(null);
+  const [evaluationDetail, setEvaluationDetail] =
+    useState<ModelEvaluationRun | null>(null);
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
+  const evaluationList = evaluations.data ?? [];
+  const harnessPassed = evaluationList.filter(
+    (run) => run.metrics.harnessVersion === "ai-gate-v1" && run.passed,
+  ).length;
   const visible =
     statusFilter === "ALL"
       ? proposalList
@@ -127,8 +140,9 @@ export function AiPage() {
             onClick={() => {
               proposals.reload();
               prompts.reload();
+              evaluations.reload();
             }}
-            loading={proposals.loading || prompts.loading}
+            loading={proposals.loading || prompts.loading || evaluations.loading}
           >
             Refresh
           </Button>
@@ -158,7 +172,8 @@ export function AiPage() {
             {promptList.filter((prompt) => prompt.status === "ACTIVE").length}
           </div>
           <div className="stat-tile__detail">
-            {promptList.length} registered versions
+            {promptList.length} registered versions · {harnessPassed} harness
+            passes
           </div>
         </div>
       </div>
@@ -167,6 +182,11 @@ export function AiPage() {
         items={[
           { id: "proposals", label: "Score proposals", count: proposalList.length },
           { id: "prompts", label: "Prompt registry", count: promptList.length },
+          {
+            id: "evaluations",
+            label: "Evaluation runs",
+            count: evaluationList.length,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -281,7 +301,7 @@ export function AiPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "prompts" ? (
           <Panel
             title="Prompt registry"
             subtitle="Prompts activate only after an evaluation run passes"
@@ -356,7 +376,91 @@ export function AiPage() {
               </div>
             )}
           </Panel>
-        )}
+        ) : null}
+        {tab === "evaluations" ? (
+          <Panel
+            title="Evaluation runs"
+            subtitle="Pass/fail is computed by the gated harness; imported records cannot unlock activation or scoring"
+            flush
+          >
+            {evaluations.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={evaluations.error} onRetry={evaluations.reload} />
+              </div>
+            ) : evaluations.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={4} />
+              </div>
+            ) : evaluationList.length === 0 ? (
+              <EmptyState
+                icon="chart"
+                title="No evaluation run"
+                description="Run the harness with a labelled gold set before activating a prompt or using numeric score proposals."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Evaluation</th>
+                      <th>Model</th>
+                      <th className="cell-num">Samples</th>
+                      <th>Harness</th>
+                      <th>Result</th>
+                      <th>Evaluated</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evaluationList.map((run) => (
+                      <tr key={run.id}>
+                        <td>
+                          <span className="cell-primary">{run.evaluationType}</span>
+                          <span className="cell-sub mono">
+                            {run.datasetRef} · {shortId(run.id, 10)}
+                          </span>
+                        </td>
+                        <td>
+                          {run.modelName}
+                          <span className="cell-sub">
+                            {run.modelProvider} · prompt {run.promptVersion}
+                          </span>
+                        </td>
+                        <td className="cell-num">{run.sampleSize}</td>
+                        <td>
+                          {run.metrics.harnessVersion === "ai-gate-v1" ? (
+                            <Badge tone="accent">Verified</Badge>
+                          ) : (
+                            <Badge tone="warning">Imported</Badge>
+                          )}
+                        </td>
+                        <td>
+                          <Badge
+                            tone={run.passed ? "success" : "danger"}
+                          >
+                            {run.passed ? "Passed" : "Blocked"}
+                          </Badge>
+                        </td>
+                        <td className="nowrap">
+                          {formatRelative(run.evaluatedAt)}
+                        </td>
+                        <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEvaluationDetail(run)}
+                          >
+                            View
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : null}
       </div>
 
       <Modal
@@ -568,6 +672,75 @@ export function AiPage() {
               passed model evaluation. Existing proposals keep their original
               prompt version.
             </InfoNotice>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(evaluationDetail)}
+        title="Evaluation run"
+        description={
+          evaluationDetail
+            ? `${evaluationDetail.modelProvider} ${evaluationDetail.modelName} · ${evaluationDetail.datasetRef}`
+            : undefined
+        }
+        onClose={() => setEvaluationDetail(null)}
+        wide
+        footer={
+          <Button variant="secondary" onClick={() => setEvaluationDetail(null)}>
+            Close
+          </Button>
+        }
+      >
+        {evaluationDetail ? (
+          <div className="stack">
+            <DefinitionList
+              items={[
+                {
+                  label: "Harness",
+                  value:
+                    evaluationDetail.metrics.harnessVersion === "ai-gate-v1"
+                      ? "Verified (ai-gate-v1)"
+                      : "Imported record",
+                },
+                {
+                  label: "Result",
+                  value: (
+                    <Badge
+                      tone={evaluationDetail.passed ? "success" : "danger"}
+                    >
+                      {evaluationDetail.passed ? "Passed" : "Blocked"}
+                    </Badge>
+                  ),
+                },
+                {
+                  label: "Samples",
+                  value: evaluationDetail.sampleSize,
+                },
+                {
+                  label: "Evaluated",
+                  value: formatDateTime(evaluationDetail.evaluatedAt),
+                },
+              ]}
+            />
+            {evaluationDetail.blockers.length > 0 ? (
+              <div className="detail-section">
+                <div className="detail-section__title">Blockers</div>
+                <div className="chip-row">
+                  {evaluationDetail.blockers.map((blocker) => (
+                    <span className="chip" key={blocker}>
+                      {blocker}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="detail-section">
+              <div className="detail-section__title">Metrics</div>
+              <pre className="code-block">
+                {JSON.stringify(evaluationDetail.metrics, null, 2)}
+              </pre>
+            </div>
           </div>
         ) : null}
       </Modal>

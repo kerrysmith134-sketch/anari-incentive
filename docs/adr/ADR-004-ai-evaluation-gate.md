@@ -9,6 +9,7 @@
   - Human review must capture independent judgment before showing AI output; review time, evidence opened, override rate/reason and blind-audit samples are recorded.
   - The agent is optional: `AI disabled` is a supported operating mode.
   - Evidence documents are untrusted input. Content is separated from instructions; retrieved text cannot trigger tool calls; tool use is least-privilege and output is schema-validated.
+- **Implementation note (2026-10-30)**: the evaluation harness is now wired through `POST /model-evaluation-runs:evaluate`; prompt activation and score proposals reject imported/unverified records. Independent-first human judgment, review-time/evidence-opened capture, blind-audit sampling and rubber-stamp monitoring remain outstanding.
 - **Consequences**:
   - The first slice contains no AI scoring.
   - The evaluation harness becomes a prerequisite for the first AI-assisted evaluation, not a post-launch nice-to-have.
