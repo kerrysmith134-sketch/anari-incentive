@@ -33,6 +33,7 @@ import {
   createConsultationSchema,
   concludeConsultationSchema,
   createDpiaSchema,
+  createDataSourceSchema,
   approveDpiaSchema,
   createDsarSchema,
   resolveDsarSchema,
@@ -2954,6 +2955,129 @@ export function buildApp(
         retentionPolicyId: idOf(request),
         legalHold: body.legalHold,
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/data-sources", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createDataSourceSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createDataSource({
+          tenantId: tenantOf(request),
+          code: body.code,
+          name: body.name,
+          category: body.category,
+          ownerPersonId: body.ownerPersonId,
+          backupOwnerPersonId: body.backupOwnerPersonId,
+          slaHours: body.slaHours,
+          criticality: body.criticality,
+          containsPersonalData: body.containsPersonalData ?? true,
+          storageRegion: body.storageRegion,
+          crossBorderTransfers: body.crossBorderTransfers ?? false,
+          processorRefs: body.processorRefs ?? [],
+          fields: body.fields,
+          lastReviewedAt: body.lastReviewedAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/data-sources", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listDataSources(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/data-sources/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getDataSource(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/data-sources/:id/retire", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await platformStore.retireDataSource({
+        tenantId: tenantOf(request),
+        dataSourceId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/data-map", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const [sources, retention, dpias, dsars] = await Promise.all([
+      platformStore.listDataSources(tenantId),
+      platformStore.listRetentionPolicies(tenantId),
+      platformStore.listDpias(tenantId),
+      platformStore.listDsars(tenantId),
+    ]);
+    const reviewCutoff = 90 * 24 * 60 * 60 * 1000;
+    const mapped = sources.map((source) => {
+      const reviewedAt = Date.parse(
+        source.lastReviewedAt ?? source.createdAt,
+      );
+      const reviewDueAt = new Date(reviewedAt + reviewCutoff).toISOString();
+      return {
+        ...source,
+        reviewDueAt,
+        reviewOverdue:
+          source.status === "ACTIVE" && Date.parse(reviewDueAt) < Date.now(),
+      };
+    });
+    const active = mapped.filter((source) => source.status === "ACTIVE");
+    const classifications: Record<string, number> = {};
+    for (const source of mapped) {
+      for (const field of source.fields) {
+        classifications[field.classification] =
+          (classifications[field.classification] ?? 0) + 1;
+      }
+    }
+    const categories: Record<string, number> = {};
+    for (const source of active) {
+      categories[source.category] = (categories[source.category] ?? 0) + 1;
+    }
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        summary: {
+          sources: sources.length,
+          activeSources: active.length,
+          personalSources: active.filter(
+            (source) => source.containsPersonalData,
+          ).length,
+          crossBorderSources: active.filter(
+            (source) => source.crossBorderTransfers,
+          ).length,
+          processors: [
+            ...new Set(active.flatMap((source) => source.processorRefs)),
+          ],
+          fields: mapped.reduce(
+            (total, source) => total + source.fields.length,
+            0,
+          ),
+          classifications,
+          categories,
+          overdueReviews: active.filter((source) => source.reviewOverdue)
+            .length,
+          retentionPolicies: retention.length,
+          approvedDpias: dpias.filter((dpia) => dpia.status === "APPROVED")
+            .length,
+          openDataRequests: dsars.filter((dsar) => dsar.status === "OPEN")
+            .length,
+        },
+        sources: mapped,
+        retentionPolicies: retention,
+      },
       request,
     );
   });

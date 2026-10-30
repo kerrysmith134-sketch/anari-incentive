@@ -6505,6 +6505,100 @@ describe("vertical slice", () => {
     expect(invalid.body.error.code).toBe("INVALID_REPORT_WINDOW");
   });
 
+  it("registers data sources and reports the field-level data map", async () => {
+    const created = await call("POST", "/api/v1/data-sources", {
+      code: "CRM",
+      name: "Customer relationship system",
+      category: "SALES",
+      ownerPersonId: OWNER,
+      slaHours: 24,
+      criticality: "HIGH",
+      containsPersonalData: true,
+      storageRegion: "cn-shanghai",
+      crossBorderTransfers: false,
+      processorRefs: ["crm-vendor"],
+      fields: [
+        {
+          fieldName: "customer_contact",
+          classification: "PERSONAL",
+          purpose: "Order delivery contact",
+        },
+        {
+          fieldName: "order_value",
+          classification: "CONFIDENTIAL",
+          purpose: "Incentive calculation input",
+        },
+      ],
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("ACTIVE");
+    expect(created.body.data.fields).toHaveLength(2);
+
+    const duplicate = await call("POST", "/api/v1/data-sources", {
+      code: "CRM",
+      name: "Duplicate",
+      category: "SALES",
+      ownerPersonId: OWNER,
+      slaHours: 24,
+      criticality: "LOW",
+      containsPersonalData: false,
+      storageRegion: "cn-shanghai",
+      fields: [
+        {
+          fieldName: "id",
+          classification: "INTERNAL",
+          purpose: "Identity",
+        },
+      ],
+    });
+    expect(duplicate.status).toBe(409);
+
+    const invalid = await call("POST", "/api/v1/data-sources", {
+      code: "HRIS",
+      name: "HR system",
+      category: "PEOPLE",
+      ownerPersonId: OWNER,
+      slaHours: 24,
+      criticality: "HIGH",
+      containsPersonalData: true,
+      storageRegion: "cn-shanghai",
+      fields: [
+        {
+          fieldName: "employee_code",
+          classification: "INTERNAL",
+          purpose: "Payroll identity",
+        },
+      ],
+    });
+    expect(invalid.status).toBe(400);
+
+    const listed = await call("GET", "/api/v1/data-sources");
+    expect(listed.status).toBe(200);
+    expect(listed.body.data).toHaveLength(1);
+
+    const map = await call("GET", "/api/v1/data-map");
+    expect(map.status).toBe(200);
+    expect(map.body.data.summary.sources).toBe(1);
+    expect(map.body.data.summary.activeSources).toBe(1);
+    expect(map.body.data.summary.personalSources).toBe(1);
+    expect(map.body.data.summary.processors).toEqual(["crm-vendor"]);
+    expect(map.body.data.summary.fields).toBe(2);
+    expect(map.body.data.summary.classifications).toEqual({
+      PERSONAL: 1,
+      CONFIDENTIAL: 1,
+    });
+    expect(map.body.data.summary.categories).toEqual({ SALES: 1 });
+
+    const retired = await call(
+      "POST",
+      `/api/v1/data-sources/${created.body.data.id}/retire`,
+    );
+    expect(retired.status).toBe(200);
+    expect(retired.body.data.status).toBe("RETIRED");
+    const afterRetire = await call("GET", "/api/v1/data-map");
+    expect(afterRetire.body.data.summary.activeSources).toBe(0);
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",

@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（229 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（43 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（230 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（44 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -59,7 +59,7 @@
 | LG-05 合同/薪酬方案变更 | 🟡 | 新增必填 consent signature、payPlanVersion 和 amendment history；amend 需同意证据且拒绝未来生效日期。仍未接入真正电子签服务，也不支持未来生效排期 |
 | LG-06 最低工资/扣款 | 🟡 | 本轮新增 contract 级 ledger 扣款上限（默认 20%）并在 payroll 行阻断；仍无扣款类型/顺序与税费分类 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
-| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；数据地图、跨境/供应商清单、自动删除未闭环 |
+| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；本轮新增数据源登记（owner/SLA/存储区域/跨境/处理者）与字段级 data map；自动删除仍未启用 |
 | LG-09 AI 告知/解释 | ✅ | 新增 `GET /me/ai-explanations` 和 console `My AI record`：员工可见 AI 使用、模型、notice/ack、草稿/决策、建议分数、人工复核与可申诉目标 |
 | LG-10 证据包 | ✅ | 本轮新增 `GET /api/v1/evidence-packages/:cycleId` 和 console 下载：策略/法律门/测试/证据/claim/decision/计算/确认/申诉/结算/账本/DQ/审批/审计/哈希校验 |
 
@@ -128,8 +128,8 @@
 | DATA-01 分层覆盖率 | ✅/🟡 | 本轮新增角色/订单类型；任务类型、周期趋势仍缺 |
 | DATA-02 被动+自报+同伴+经理证明 | 🟡 | 被动 ingestion、员工自报有；同伴提名/经理证明无独立入口/模型 |
 | DATA-03 证据不足不默认 0 | 🟡 | NEEDS_EVIDENCE + DQ blocking；没有可配置默认补证策略 |
-| DATA-04 owner/SLA/升级 | 🟡 | DQ assignee/dueAt/escalate 有；无“每类数据源 owner/SLA 清单”对象 |
-| DATA-05 不采集活动量/最小化 | 🟡 | 无活动量字段、员工范围过滤；无数据地图与字段级最小化证明 |
+| DATA-04 owner/SLA/升级 | ✅ | 新增 `data_sources` 登记：owner/backup owner、响应 SLA、criticality、90 天复核到期与逾期统计；DQ 的 assignee/dueAt/escalate 继续独立存在 |
+| DATA-05 不采集活动量/最小化 | 🟡 | 新增字段级 data map（用途、分类、保留期）、跨境/处理者清单与最小化登记；仍无技术层面的活动量采集阻断或字段级最小化证明 |
 
 ### 8. 组织采用与安全
 
@@ -158,14 +158,16 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 新增 10 个 API/单元测试和 3 个 PG 测试（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、PG 合同同意/修订、PG adverse action），当前 **229 unit/API + 43 PG** 全绿。
+10. 新增 11 个 API/单元测试和 4 个 PG 测试（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **230 unit/API + 44 PG** 全绿。
+
+11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
 ## 仍建议按 P0 顺序补做
 
 1. **future-dated consent/e-signature**：合同未来生效排期与外部电子签服务。
 2. **扣款与不利决定**：扣款类型/顺序与税费分类；PIP/培训/调岗/adverse action 独立人工流程。
 3. **AI-03 residual**：随机盲审抽样、高风险双人复核、审阅耗时/证据打开的前端分析面板。
-5. **DATA/ORG**：数据源 owner/SLA、同伴提名/经理证明、员工/经理耗时与信任调查。
+5. **DATA/ORG**：同伴提名/经理证明、员工/经理耗时与信任调查。
 6. **SEC**：威胁模型、字段级 ABAC、break-glass、导出 DLP/水印、供应商与 egress 策略。
 7. **INC**：角色薪酬模板、平滑阈值/不追溯、机动池治理、clawback 条件；年度审查已有一致性报告，但员工信任调查和子群体影响仍缺。
 8. **DOM-01/MON-07**：字段级契约校验、WORM/双副本/外部锚定。

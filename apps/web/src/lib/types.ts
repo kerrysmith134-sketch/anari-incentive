@@ -557,6 +557,61 @@ export interface DsarRequest {
   createdAt: string;
 }
 
+export type DataClassification =
+  | "PUBLIC"
+  | "INTERNAL"
+  | "CONFIDENTIAL"
+  | "PERSONAL"
+  | "SENSITIVE";
+
+export interface DataSourceField {
+  fieldName: string;
+  classification: DataClassification;
+  purpose: string;
+  retentionMonths?: number;
+}
+
+export interface DataSource {
+  id: Uuid;
+  code: string;
+  name: string;
+  category: string;
+  ownerPersonId: Uuid;
+  backupOwnerPersonId?: Uuid;
+  slaHours: number;
+  criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  containsPersonalData: boolean;
+  storageRegion: string;
+  crossBorderTransfers: boolean;
+  processorRefs: string[];
+  fields: DataSourceField[];
+  status: "ACTIVE" | "RETIRED";
+  lastReviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface DataMapReport {
+  generatedAt: string;
+  summary: {
+    sources: number;
+    activeSources: number;
+    personalSources: number;
+    crossBorderSources: number;
+    processors: string[];
+    fields: number;
+    classifications: Record<string, number>;
+    categories: Record<string, number>;
+    overdueReviews: number;
+    retentionPolicies: number;
+    approvedDpias: number;
+    openDataRequests: number;
+  };
+  sources: Array<DataSource & { reviewDueAt: string; reviewOverdue: boolean }>;
+  retentionPolicies: RetentionPolicy[];
+}
+
 export interface RetentionPolicy {
   id: Uuid;
   dataCategory: string;

@@ -265,6 +265,55 @@ export type SetRetentionLegalHoldBody = z.infer<
   typeof setRetentionLegalHoldSchema
 >;
 
+export const dataSourceFieldSchema = z.object({
+  fieldName: z.string().min(1),
+  classification: z.enum([
+    "PUBLIC",
+    "INTERNAL",
+    "CONFIDENTIAL",
+    "PERSONAL",
+    "SENSITIVE",
+  ]),
+  purpose: z.string().min(1),
+  retentionMonths: z.number().int().positive().optional(),
+});
+export type DataSourceFieldBody = z.infer<typeof dataSourceFieldSchema>;
+
+export const createDataSourceSchema = z
+  .object({
+    code: z.string().min(1).max(80),
+    name: z.string().min(1),
+    category: z.string().min(1),
+    ownerPersonId: uuidSchema,
+    backupOwnerPersonId: uuidSchema.optional(),
+    slaHours: z.number().int().positive().max(8760),
+    criticality: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+    containsPersonalData: z.boolean().default(true),
+    storageRegion: z.string().min(1),
+    crossBorderTransfers: z.boolean().default(false),
+    processorRefs: z.array(z.string().min(1)).default([]),
+    fields: z.array(dataSourceFieldSchema).min(1),
+    lastReviewedAt: z.string().datetime().optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.containsPersonalData &&
+      !value.fields.some(
+        (field) =>
+          field.classification === "PERSONAL" ||
+          field.classification === "SENSITIVE",
+      )
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fields"],
+        message:
+          "containsPersonalData requires at least one PERSONAL or SENSITIVE field",
+      });
+    }
+  });
+export type CreateDataSourceBody = z.infer<typeof createDataSourceSchema>;
+
 export const createApprovalRequestSchema = z.object({
   actionType: z.string().min(1),
   targetType: z.string().min(1),

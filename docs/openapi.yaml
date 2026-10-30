@@ -1180,6 +1180,108 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/data-sources:
+    get:
+      tags: [Compliance]
+      summary: List registered data sources
+      responses:
+        "200":
+          description: Data-source registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Register a data source with owner, SLA and field map
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDataSource"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/data-sources/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read one registered data source
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Data source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/data-sources/{id}/retire:
+    post:
+      tags: [Compliance]
+      summary: Retire a data source
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/data-map:
+    get:
+      tags: [Reporting, Compliance]
+      summary: Report the field-level data map
+      description: |
+        Summarises active data sources, owners, 90-day review status,
+        cross-border processing, processors, field classifications, retention
+        policies, approved DPIAs and open data-subject requests.
+      responses:
+        "200":
+          description: Data map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/approval-requests:
     get:
       tags: [Approvals]
@@ -6652,6 +6754,72 @@ components:
       properties:
         legalHold:
           type: boolean
+
+    DataSourceField:
+      type: object
+      required: [fieldName, classification, purpose]
+      properties:
+        fieldName:
+          type: string
+        classification:
+          type: string
+          enum: [PUBLIC, INTERNAL, CONFIDENTIAL, PERSONAL, SENSITIVE]
+        purpose:
+          type: string
+        retentionMonths:
+          type: integer
+          minimum: 1
+
+    CreateDataSource:
+      type: object
+      required:
+        - code
+        - name
+        - category
+        - ownerPersonId
+        - slaHours
+        - criticality
+        - storageRegion
+        - fields
+      properties:
+        code:
+          type: string
+          maxLength: 80
+        name:
+          type: string
+        category:
+          type: string
+        ownerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        backupOwnerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        slaHours:
+          type: integer
+          minimum: 1
+          maximum: 8760
+        criticality:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        containsPersonalData:
+          type: boolean
+          default: true
+        storageRegion:
+          type: string
+        crossBorderTransfers:
+          type: boolean
+          default: false
+        processorRefs:
+          type: array
+          items:
+            type: string
+        fields:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/DataSourceField"
+        lastReviewedAt:
+          type: string
+          format: date-time
 
     CreateApprovalRequest:
       type: object

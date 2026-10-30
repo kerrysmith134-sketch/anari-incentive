@@ -16,6 +16,8 @@ import type {
   CashGateInput,
   ConsultationOutcome,
   ConsultationType,
+  DataSource,
+  DataSourceField,
   Deliverable,
   DpiaAssessmentType,
   DpiaRecord,
@@ -231,6 +233,28 @@ export interface PlatformStore {
     retentionPolicyId: string;
     legalHold: boolean;
   }): Promise<RetentionPolicy>;
+  createDataSource(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    category: string;
+    ownerPersonId: string;
+    backupOwnerPersonId?: string;
+    slaHours: number;
+    criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    containsPersonalData: boolean;
+    storageRegion: string;
+    crossBorderTransfers: boolean;
+    processorRefs: string[];
+    fields: DataSourceField[];
+    lastReviewedAt?: string;
+  }): Promise<DataSource>;
+  listDataSources(tenantId: string): Promise<DataSource[]>;
+  getDataSource(tenantId: string, dataSourceId: string): Promise<DataSource>;
+  retireDataSource(input: {
+    tenantId: string;
+    dataSourceId: string;
+  }): Promise<DataSource>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -998,6 +1022,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly dpias = new Map<string, DpiaRecord>();
   private readonly dsars = new Map<string, DsarRequest>();
   private readonly retentionPolicies = new Map<string, RetentionPolicy>();
+  private readonly dataSources = new Map<string, DataSource>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -1826,6 +1851,92 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     policy.legalHold = input.legalHold;
     return policy;
+  }
+
+  async createDataSource(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    category: string;
+    ownerPersonId: string;
+    backupOwnerPersonId?: string;
+    slaHours: number;
+    criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    containsPersonalData: boolean;
+    storageRegion: string;
+    crossBorderTransfers: boolean;
+    processorRefs: string[];
+    fields: DataSourceField[];
+    lastReviewedAt?: string;
+  }): Promise<DataSource> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.dataSources.values()].some(
+        (source) =>
+          source.tenantId === input.tenantId && source.code === input.code,
+      )
+    ) {
+      throw new ConflictError(`data source code ${input.code} already exists`);
+    }
+    const timestamp = now();
+    const source: DataSource = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      name: input.name,
+      category: input.category,
+      ownerPersonId: input.ownerPersonId,
+      backupOwnerPersonId: input.backupOwnerPersonId,
+      slaHours: input.slaHours,
+      criticality: input.criticality,
+      containsPersonalData: input.containsPersonalData,
+      storageRegion: input.storageRegion,
+      crossBorderTransfers: input.crossBorderTransfers,
+      processorRefs: [...input.processorRefs],
+      fields: input.fields.map((field) => ({ ...field })),
+      status: "ACTIVE",
+      lastReviewedAt: input.lastReviewedAt,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.dataSources.set(source.id, source);
+    return source;
+  }
+
+  async listDataSources(tenantId: string): Promise<DataSource[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.dataSources.values()]
+      .filter((source) => source.tenantId === tenantId)
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  async getDataSource(
+    tenantId: string,
+    dataSourceId: string,
+  ): Promise<DataSource> {
+    const source = this.dataSources.get(dataSourceId);
+    if (!source || source.tenantId !== tenantId) {
+      notFound("DataSource", dataSourceId);
+    }
+    return source;
+  }
+
+  async retireDataSource(input: {
+    tenantId: string;
+    dataSourceId: string;
+  }): Promise<DataSource> {
+    const source = await this.getDataSource(
+      input.tenantId,
+      input.dataSourceId,
+    );
+    if (source.status === "RETIRED") {
+      throw new ConflictError(`data source ${source.id} is already retired`);
+    }
+    source.status = "RETIRED";
+    source.updatedAt = now();
+    source.version += 1;
+    return source;
   }
 
   async createApprovalRequest(input: {
@@ -6018,6 +6129,102 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapRetentionPolicy(rows[0]);
   }
 
+  async createDataSource(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    category: string;
+    ownerPersonId: string;
+    backupOwnerPersonId?: string;
+    slaHours: number;
+    criticality: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    containsPersonalData: boolean;
+    storageRegion: string;
+    crossBorderTransfers: boolean;
+    processorRefs: string[];
+    fields: DataSourceField[];
+    lastReviewedAt?: string;
+  }): Promise<DataSource> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO data_sources
+          (id, tenant_id, code, name, category, owner_person_id,
+           backup_owner_person_id, sla_hours, criticality,
+           contains_personal_data, storage_region, cross_border_transfers,
+           processor_refs, fields, last_reviewed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.name,
+          input.category,
+          input.ownerPersonId,
+          input.backupOwnerPersonId ?? null,
+          input.slaHours,
+          input.criticality,
+          input.containsPersonalData,
+          input.storageRegion,
+          input.crossBorderTransfers,
+          JSON.stringify(input.processorRefs),
+          JSON.stringify(input.fields),
+          input.lastReviewedAt ?? null,
+        ],
+      );
+      return this.mapDataSource(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(`data source code ${input.code} already exists`);
+      }
+      if (code === "23503") {
+        throw new NotFoundError(
+          `Tenant, owner or backup owner for ${input.code} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listDataSources(tenantId: string): Promise<DataSource[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM data_sources
+        WHERE tenant_id=$1
+        ORDER BY code`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapDataSource(row));
+  }
+
+  async getDataSource(
+    tenantId: string,
+    dataSourceId: string,
+  ): Promise<DataSource> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM data_sources WHERE tenant_id=$1 AND id=$2",
+      [tenantId, dataSourceId],
+    );
+    if (!rows[0]) notFound("DataSource", dataSourceId);
+    return this.mapDataSource(rows[0]);
+  }
+
+  async retireDataSource(input: {
+    tenantId: string;
+    dataSourceId: string;
+  }): Promise<DataSource> {
+    const { rows } = await this.pool.query(
+      `UPDATE data_sources
+          SET status='RETIRED', updated_at=now(), version=version+1
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [input.tenantId, input.dataSourceId],
+    );
+    if (!rows[0]) notFound("DataSource", input.dataSourceId);
+    return this.mapDataSource(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -10093,6 +10300,30 @@ export class PgPlatformStore implements PlatformStore {
       legalBasis: row.legal_basis,
       legalHold: row.legal_hold,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapDataSource(row: QueryResultRow): DataSource {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      name: row.name,
+      category: row.category,
+      ownerPersonId: row.owner_person_id,
+      backupOwnerPersonId: row.backup_owner_person_id ?? undefined,
+      slaHours: Number(row.sla_hours),
+      criticality: row.criticality,
+      containsPersonalData: row.contains_personal_data,
+      storageRegion: row.storage_region,
+      crossBorderTransfers: row.cross_border_transfers,
+      processorRefs: (row.processor_refs as string[] | null) ?? [],
+      fields: (row.fields as DataSourceField[] | null) ?? [],
+      status: row.status,
+      lastReviewedAt: iso(row.last_reviewed_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
     };
   }
 

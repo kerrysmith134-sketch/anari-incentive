@@ -330,6 +330,50 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export type DataClassification =
+  | "PUBLIC"
+  | "INTERNAL"
+  | "CONFIDENTIAL"
+  | "PERSONAL"
+  | "SENSITIVE";
+
+export type DataSourceCriticality = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+/** A field-level entry in the tenant data map (PRD DATA-04/DATA-05). */
+export interface DataSourceField {
+  fieldName: string;
+  classification: DataClassification;
+  purpose: string;
+  retentionMonths?: number;
+}
+
+/**
+ * Registry entry for a system or dataset that supplies incentive evidence.
+ * Owner and response-time SLA are mandatory; fields capture the minimum data
+ * map needed to prove data minimisation and cross-border processing.
+ */
+export interface DataSource {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  name: string;
+  category: string;
+  ownerPersonId: UUID;
+  backupOwnerPersonId?: UUID;
+  slaHours: number;
+  criticality: DataSourceCriticality;
+  containsPersonalData: boolean;
+  storageRegion: string;
+  crossBorderTransfers: boolean;
+  processorRefs: string[];
+  fields: DataSourceField[];
+  status: "ACTIVE" | "RETIRED";
+  lastReviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
 export type ApprovalRiskTier = "T0" | "T1" | "T2" | "T3";
 
 export type ApprovalStatus =

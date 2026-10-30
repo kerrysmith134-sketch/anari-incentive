@@ -2903,6 +2903,71 @@ describePg("PgStore vertical slice", () => {
     expect(loaded.evidenceRefs).toEqual([evidenceRef]);
   });
 
+  it("persists data sources with owner, SLA and field classification", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const tenant = await platform.createTenant({
+      name: "PG data governance",
+      slug: `pg-data-${Date.now()}`,
+    });
+    const person = await platform.createPerson({
+      tenantId: tenant.id,
+      employeeCode: `E-DATA-${Date.now()}`,
+      displayName: "Data Owner",
+    });
+    const source = await platform.createDataSource({
+      tenantId: tenant.id,
+      code: "CRM-PG",
+      name: "CRM",
+      category: "SALES",
+      ownerPersonId: person.id,
+      slaHours: 12,
+      criticality: "HIGH",
+      containsPersonalData: true,
+      storageRegion: "cn-shanghai",
+      crossBorderTransfers: false,
+      processorRefs: ["crm-vendor"],
+      fields: [
+        {
+          fieldName: "contact",
+          classification: "PERSONAL",
+          purpose: "Order contact",
+        },
+      ],
+    });
+    expect(source.ownerPersonId).toBe(person.id);
+    expect(source.fields[0]!.classification).toBe("PERSONAL");
+    await expect(
+      platform.createDataSource({
+        tenantId: tenant.id,
+        code: "CRM-PG",
+        name: "Duplicate",
+        category: "SALES",
+        ownerPersonId: person.id,
+        slaHours: 12,
+        criticality: "LOW",
+        containsPersonalData: false,
+        storageRegion: "cn-shanghai",
+        crossBorderTransfers: false,
+        processorRefs: [],
+        fields: [
+          {
+            fieldName: "id",
+            classification: "INTERNAL",
+            purpose: "Identity",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const listed = await platform.listDataSources(tenant.id);
+    expect(listed.map((row) => row.code)).toEqual(["CRM-PG"]);
+    const retired = await platform.retireDataSource({
+      tenantId: tenant.id,
+      dataSourceId: source.id,
+    });
+    expect(retired.status).toBe("RETIRED");
+    expect(retired.version).toBe(2);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

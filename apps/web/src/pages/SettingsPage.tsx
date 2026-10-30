@@ -9,16 +9,19 @@ import {
   FormField,
   InfoNotice,
   LoadingRows,
+  Modal,
   PageHeader,
   Panel,
+  Select,
   TextInput,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { Link } from "react-router-dom";
+import { PersonSelect } from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { DEFAULT_SESSION } from "../lib/api.js";
+import { api, DEFAULT_SESSION } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDate,
@@ -26,6 +29,8 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  DataClassification,
+  DataMapReport,
   DpiaRecord,
   DsarRequest,
   PlatformIdentity,
@@ -45,11 +50,40 @@ export function SettingsPage() {
   const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
+  const dataMap = useApiQuery<DataMapReport>("/api/v1/data-map");
 
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
   const [personId, setPersonId] = useState(session.personId);
   const [token, setToken] = useState(session.token ?? "");
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceSaving, setSourceSaving] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const [sourceCode, setSourceCode] = useState("");
+  const [sourceName, setSourceName] = useState("");
+  const [sourceCategory, setSourceCategory] = useState("SALES");
+  const [sourceOwner, setSourceOwner] = useState(session.personId);
+  const [sourceSla, setSourceSla] = useState("24");
+  const [sourceCriticality, setSourceCriticality] = useState<
+    "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+  >("MEDIUM");
+  const [sourceRegion, setSourceRegion] = useState("cn-shanghai");
+  const [sourcePersonal, setSourcePersonal] = useState(true);
+  const [sourceCrossBorder, setSourceCrossBorder] = useState(false);
+  const [sourceProcessors, setSourceProcessors] = useState("");
+  const [sourceFields, setSourceFields] = useState<
+    Array<{
+      fieldName: string;
+      classification: DataClassification;
+      purpose: string;
+    }>
+  >([
+    {
+      fieldName: "",
+      classification: "INTERNAL",
+      purpose: "",
+    },
+  ]);
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -83,6 +117,66 @@ export function SettingsPage() {
   );
   const heldPolicies =
     retention.data?.filter((policy) => policy.legalHold) ?? [];
+
+  function resetDataSourceForm() {
+    setSourceCode("");
+    setSourceName("");
+    setSourceCategory("SALES");
+    setSourceOwner(session.personId);
+    setSourceSla("24");
+    setSourceCriticality("MEDIUM");
+    setSourceRegion("cn-shanghai");
+    setSourcePersonal(true);
+    setSourceCrossBorder(false);
+    setSourceProcessors("");
+    setSourceFields([
+      { fieldName: "", classification: "INTERNAL", purpose: "" },
+    ]);
+    setSourceError(null);
+  }
+
+  async function saveDataSource(event: FormEvent) {
+    event.preventDefault();
+    setSourceSaving(true);
+    setSourceError(null);
+    try {
+      await api("/api/v1/data-sources", {
+        method: "POST",
+        body: {
+          code: sourceCode.trim(),
+          name: sourceName.trim(),
+          category: sourceCategory.trim(),
+          ownerPersonId: sourceOwner,
+          slaHours: Number(sourceSla),
+          criticality: sourceCriticality,
+          containsPersonalData: sourcePersonal,
+          storageRegion: sourceRegion.trim(),
+          crossBorderTransfers: sourceCrossBorder,
+          processorRefs: sourceProcessors
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          fields: sourceFields
+            .filter((field) => field.fieldName.trim() && field.purpose.trim())
+            .map((field) => ({
+              fieldName: field.fieldName.trim(),
+              classification: field.classification,
+              purpose: field.purpose.trim(),
+            })),
+        },
+      });
+      toast.success("Data source registered", "The data map has been refreshed.");
+      setSourceOpen(false);
+      resetDataSourceForm();
+      dataMap.reload();
+    } catch (error) {
+      setSourceError(
+        error instanceof Error ? error.message : "Could not register the source.",
+      );
+    } finally {
+      setSourceSaving(false);
+    }
+  }
 
   return (
     <>
@@ -451,6 +545,386 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+
+      <Panel
+        title="Data-source registry"
+        subtitle="Owner, response SLA and field-level classification for every incentive data source"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={() => {
+              resetDataSourceForm();
+              setSourceOpen(true);
+            }}
+          >
+            Register source
+          </Button>
+        }
+        flush
+      >
+        {dataMap.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={dataMap.error} onRetry={dataMap.reload} />
+          </div>
+        ) : dataMap.loading || !dataMap.data ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={4} />
+          </div>
+        ) : dataMap.data.sources.length === 0 ? (
+          <EmptyState
+            icon="database"
+            title="No data source registered"
+            description="Register each system that supplies evidence, its accountable owner and the fields it contributes."
+          />
+        ) : (
+          <>
+            <div className="coverage-grid" style={{ padding: 16 }}>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Active sources</div>
+                <div className="coverage-cell__value">
+                  {dataMap.data.summary.activeSources}
+                </div>
+                <div className="coverage-cell__sub">
+                  {dataMap.data.summary.sources} registered
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Personal-data sources</div>
+                <div className="coverage-cell__value">
+                  {dataMap.data.summary.personalSources}
+                </div>
+                <div className="coverage-cell__sub">
+                  {dataMap.data.summary.fields} mapped fields
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Cross-border</div>
+                <div className="coverage-cell__value">
+                  {dataMap.data.summary.crossBorderSources}
+                </div>
+                <div className="coverage-cell__sub">
+                  {dataMap.data.summary.processors.length} processors
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Overdue reviews</div>
+                <div className="coverage-cell__value">
+                  {dataMap.data.summary.overdueReviews}
+                </div>
+                <div className="coverage-cell__sub">
+                  review cadence 90 days
+                </div>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Owner</th>
+                    <th className="cell-num">SLA</th>
+                    <th>Criticality</th>
+                    <th>Fields</th>
+                    <th>Review</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataMap.data.sources.map((source) => (
+                    <tr key={source.id}>
+                      <td>
+                        <span className="cell-primary">{source.name}</span>
+                        <span className="cell-sub mono">{source.code}</span>
+                      </td>
+                      <td className="mono">{shortId(source.ownerPersonId, 10)}</td>
+                      <td className="cell-num">{source.slaHours}h</td>
+                      <td>
+                        <Badge
+                          tone={
+                            source.criticality === "CRITICAL"
+                              ? "danger"
+                              : source.criticality === "HIGH"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
+                          {titleCase(source.criticality)}
+                        </Badge>
+                      </td>
+                      <td>
+                        {source.fields.length}
+                        {source.containsPersonalData ? (
+                          <span className="cell-sub">personal data</span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {source.reviewOverdue ? (
+                          <Badge tone="danger">Overdue</Badge>
+                        ) : (
+                          <span className="nowrap">
+                            {formatDate(source.reviewDueAt)}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <Badge status={source.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <Modal
+        open={sourceOpen}
+        title="Register data source"
+        description="Accountable owner, response SLA and the minimum fields this source contributes."
+        onClose={() => setSourceOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSourceOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="data-source-form"
+              icon="check"
+              loading={sourceSaving}
+            >
+              Register source
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="data-source-form"
+          className="stack"
+          onSubmit={saveDataSource}
+        >
+          <div className="form-grid">
+            <FormField label="Code" htmlFor="source-code">
+              <TextInput
+                id="source-code"
+                value={sourceCode}
+                onChange={(event) => setSourceCode(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Name" htmlFor="source-name">
+              <TextInput
+                id="source-name"
+                value={sourceName}
+                onChange={(event) => setSourceName(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Category" htmlFor="source-category">
+              <TextInput
+                id="source-category"
+                value={sourceCategory}
+                onChange={(event) => setSourceCategory(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Owner" htmlFor="source-owner">
+              <PersonSelect
+                id="source-owner"
+                value={sourceOwner}
+                onChange={setSourceOwner}
+              />
+            </FormField>
+            <FormField label="Response SLA (hours)" htmlFor="source-sla">
+              <TextInput
+                id="source-sla"
+                type="number"
+                min={1}
+                max={8760}
+                value={sourceSla}
+                onChange={(event) => setSourceSla(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Criticality" htmlFor="source-criticality">
+              <Select
+                id="source-criticality"
+                value={sourceCriticality}
+                onChange={(event) =>
+                  setSourceCriticality(
+                    event.target.value as
+                      | "LOW"
+                      | "MEDIUM"
+                      | "HIGH"
+                      | "CRITICAL",
+                  )
+                }
+              >
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="CRITICAL">Critical</option>
+              </Select>
+            </FormField>
+            <FormField label="Storage region" htmlFor="source-region">
+              <TextInput
+                id="source-region"
+                value={sourceRegion}
+                onChange={(event) => setSourceRegion(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField
+              label="Processors (comma separated)"
+              htmlFor="source-processors"
+            >
+              <TextInput
+                id="source-processors"
+                value={sourceProcessors}
+                onChange={(event) => setSourceProcessors(event.target.value)}
+                placeholder="vendor-a, vendor-b"
+              />
+            </FormField>
+          </div>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={sourcePersonal}
+              onChange={(event) => setSourcePersonal(event.target.checked)}
+            />
+            <span>This source contains personal data.</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={sourceCrossBorder}
+              onChange={(event) => setSourceCrossBorder(event.target.checked)}
+            />
+            <span>Data is transferred outside mainland China.</span>
+          </label>
+          <div className="detail-section">
+            <div className="detail-section__title">Field map</div>
+            <div className="stack">
+              {sourceFields.map((field, index) => (
+                <div className="form-grid" key={index}>
+                  <FormField label="Field" htmlFor={`source-field-${index}`}>
+                    <TextInput
+                      id={`source-field-${index}`}
+                      value={field.fieldName}
+                      onChange={(event) =>
+                        setSourceFields((current) =>
+                          current.map((candidate, fieldIndex) =>
+                            fieldIndex === index
+                              ? {
+                                  ...candidate,
+                                  fieldName: event.target.value,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                  </FormField>
+                  <FormField
+                    label="Classification"
+                    htmlFor={`source-class-${index}`}
+                  >
+                    <Select
+                      id={`source-class-${index}`}
+                      value={field.classification}
+                      onChange={(event) =>
+                        setSourceFields((current) =>
+                          current.map((candidate, fieldIndex) =>
+                            fieldIndex === index
+                              ? {
+                                  ...candidate,
+                                  classification: event.target
+                                    .value as DataClassification,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="PUBLIC">Public</option>
+                      <option value="INTERNAL">Internal</option>
+                      <option value="CONFIDENTIAL">Confidential</option>
+                      <option value="PERSONAL">Personal</option>
+                      <option value="SENSITIVE">Sensitive</option>
+                    </Select>
+                  </FormField>
+                  <FormField
+                    label="Purpose"
+                    htmlFor={`source-purpose-${index}`}
+                  >
+                    <TextInput
+                      id={`source-purpose-${index}`}
+                      value={field.purpose}
+                      onChange={(event) =>
+                        setSourceFields((current) =>
+                          current.map((candidate, fieldIndex) =>
+                            fieldIndex === index
+                              ? { ...candidate, purpose: event.target.value }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                  </FormField>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={sourceFields.length === 1}
+                    onClick={() =>
+                      setSourceFields((current) =>
+                        current.filter((_, fieldIndex) => fieldIndex !== index),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              icon="plus"
+              onClick={() =>
+                setSourceFields((current) => [
+                  ...current,
+                  {
+                    fieldName: "",
+                    classification: "INTERNAL",
+                    purpose: "",
+                  },
+                ])
+              }
+            >
+              Add field
+            </Button>
+          </div>
+          {sourcePersonal ? (
+            <InfoNotice>
+              At least one field must be classified PERSONAL or SENSITIVE when
+              the source contains personal data.
+            </InfoNotice>
+          ) : null}
+          {sourceError ? (
+            <InfoNotice tone="warning">{sourceError}</InfoNotice>
+          ) : null}
+        </form>
+      </Modal>
 
       <InfoNotice>
         <Icon name="shield" size={15} /> Automated retention deletion is not
