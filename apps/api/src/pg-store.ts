@@ -22,6 +22,7 @@ import {
   type CalculationInput,
   type CalculationRun,
   type CommitmentSnapshot,
+  type ContributionAttestation,
   type ContributionClaim,
   type DataQualityIssue,
   type EmployeeConfirmation,
@@ -51,6 +52,7 @@ import {
 import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
+  CreateContributionAttestationBody,
   CreateContributionClaimInput,
   CreateEvidenceInput,
   CreateEvidenceLinkInput,
@@ -594,6 +596,112 @@ export class PgStore implements IncentiveStore {
         );
       }
       return this.loadClaim(client, id);
+    });
+  }
+
+  async createContributionAttestation(
+    input: CreateContributionAttestationBody,
+  ): Promise<ContributionAttestation> {
+    return this.tx(async (client) => {
+      const workPackage = await this.loadWorkPackage(
+        client,
+        input.workPackageId,
+      );
+      const participants = new Set([
+        workPackage.ownerPersonId,
+        ...workPackage.members.map((member) => member.personId),
+      ]);
+      if (!participants.has(input.subjectPersonId)) {
+        throw new ConflictError(
+          "ATTESTATION_SUBJECT_NOT_PARTICIPANT: subject is not on the work package",
+        );
+      }
+      if (input.subjectPersonId === input.attesterPersonId) {
+        throw new ConflictError(
+          "ATTESTATION_SELF: a person cannot attest their own contribution",
+        );
+      }
+      const id = randomUUID();
+      try {
+        await client.query(
+          `INSERT INTO contribution_attestations
+            (id, tenant_id, work_package_id, subject_person_id,
+             attester_person_id, attestation_type, statement, evidence_refs)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+          [
+            id,
+            this.tenantId,
+            input.workPackageId,
+            input.subjectPersonId,
+            input.attesterPersonId,
+            input.attestationType,
+            input.statement,
+            JSON.stringify(input.evidenceRefs ?? []),
+          ],
+        );
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(
+            `Work package or attestation person not found`,
+          );
+        }
+        throw error;
+      }
+      return this.loadContributionAttestation(client, id);
+    });
+  }
+
+  async listContributionAttestations(filter?: {
+    workPackageId?: string;
+    subjectPersonId?: string;
+  }): Promise<ContributionAttestation[]> {
+    return this.tx(async (client) => {
+      const params: string[] = [this.tenantId];
+      let sql =
+        "SELECT id FROM contribution_attestations WHERE tenant_id=$1";
+      if (filter?.workPackageId) {
+        params.push(filter.workPackageId);
+        sql += ` AND work_package_id=$${params.length}`;
+      }
+      if (filter?.subjectPersonId) {
+        params.push(filter.subjectPersonId);
+        sql += ` AND subject_person_id=$${params.length}`;
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await client.query(sql, params);
+      const attestations: ContributionAttestation[] = [];
+      for (const row of rows) {
+        attestations.push(
+          await this.loadContributionAttestation(client, row.id),
+        );
+      }
+      return attestations;
+    });
+  }
+
+  async withdrawContributionAttestation(
+    id: string,
+    requesterPersonId: string,
+  ): Promise<ContributionAttestation> {
+    return this.tx(async (client) => {
+      const current = await this.loadContributionAttestation(client, id);
+      if (current.attesterPersonId !== requesterPersonId) {
+        throw new ConflictError(
+          "ATTESTATION_WITHDRAWAL_FORBIDDEN: only the attester can withdraw",
+        );
+      }
+      if (current.status === "WITHDRAWN") {
+        throw new ConflictError(
+          `contribution attestation ${id} is already withdrawn`,
+        );
+      }
+      await client.query(
+        `UPDATE contribution_attestations
+            SET status='WITHDRAWN', withdrawn_at=now(), updated_at=now()
+          WHERE tenant_id=$1 AND id=$2`,
+        [this.tenantId, id],
+      );
+      return this.loadContributionAttestation(client, id);
     });
   }
 
@@ -3285,6 +3393,33 @@ export class PgStore implements IncentiveStore {
       version: asNumber(row.version),
       createdAt: iso(row.created_at)!,
       updatedAt: iso(row.updated_at)!,
+    };
+  }
+
+  private async loadContributionAttestation(
+    client: PoolClient,
+    id: string,
+  ): Promise<ContributionAttestation> {
+    const { rows } = await client.query(
+      `SELECT * FROM contribution_attestations
+        WHERE tenant_id=$1 AND id=$2`,
+      [this.tenantId, id],
+    );
+    const row = rows[0];
+    if (!row) notFound("ContributionAttestation", id);
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      workPackageId: row.work_package_id,
+      subjectPersonId: row.subject_person_id,
+      attesterPersonId: row.attester_person_id,
+      attestationType: row.attestation_type,
+      statement: row.statement,
+      evidenceRefs: (row.evidence_refs as string[] | null) ?? [],
+      status: row.status,
+      withdrawnAt: iso(row.withdrawn_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

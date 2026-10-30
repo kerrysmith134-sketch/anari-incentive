@@ -3120,6 +3120,33 @@ describePg("PgStore vertical slice", () => {
     ).toBe(2);
   });
 
+  it("persists contribution attestations and withdrawal", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const attestation = await store.createContributionAttestation({
+      workPackageId,
+      subjectPersonId: OWNER,
+      attesterPersonId: MEMBER,
+      attestationType: "PEER",
+      statement: "Delivered the integration work.",
+      evidenceRefs: [],
+    });
+    expect(attestation.status).toBe("SUBMITTED");
+    const listed = await store.listContributionAttestations({
+      workPackageId,
+      subjectPersonId: OWNER,
+    });
+    expect(listed.map((row) => row.id)).toContain(attestation.id);
+    await expect(
+      store.withdrawContributionAttestation(attestation.id, OWNER),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const withdrawn = await store.withdrawContributionAttestation(
+      attestation.id,
+      MEMBER,
+    );
+    expect(withdrawn.status).toBe("WITHDRAWN");
+    expect(withdrawn.withdrawnAt).toBeTruthy();
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

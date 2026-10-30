@@ -123,6 +123,25 @@ export type SubmitTrustSurveyResponseBody = z.infer<
   typeof submitTrustSurveyResponseSchema
 >;
 
+export const createContributionAttestationSchema = z.object({
+  workPackageId: uuidSchema,
+  subjectPersonId: uuidSchema,
+  attesterPersonId: uuidSchema,
+  attestationType: z.enum(["PEER", "MANAGER"]),
+  statement: z.string().min(3),
+  evidenceRefs: z.array(z.string().min(1)).default([]),
+});
+export type CreateContributionAttestationBody = z.infer<
+  typeof createContributionAttestationSchema
+>;
+
+export const withdrawContributionAttestationSchema = z.object({
+  personId: uuidSchema.optional(),
+});
+export type WithdrawContributionAttestationBody = z.infer<
+  typeof withdrawContributionAttestationSchema
+>;
+
 export const createConflictDeclarationSchema = z
   .object({
     personId: uuidSchema,

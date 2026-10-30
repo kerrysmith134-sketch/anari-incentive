@@ -8,6 +8,7 @@ import type {
   CommitmentSnapshot,
   ConfirmationDecision,
   ConfirmationTargetType,
+  ContributionAttestation,
   ContributionClaim,
   DataQualityIssue,
   EmployeeConfirmation,
@@ -38,6 +39,7 @@ import type {
 import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
+  CreateContributionAttestationBody,
   CreateContributionClaimInput,
   CreateEvidenceInput,
   CreateEvidenceLinkInput,
@@ -102,6 +104,17 @@ export interface IncentiveStore {
   getClaim(id: string): Promise<ContributionClaim>;
   listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
+  createContributionAttestation(
+    input: CreateContributionAttestationBody,
+  ): Promise<ContributionAttestation>;
+  listContributionAttestations(filter?: {
+    workPackageId?: string;
+    subjectPersonId?: string;
+  }): Promise<ContributionAttestation[]>;
+  withdrawContributionAttestation(
+    id: string,
+    requesterPersonId: string,
+  ): Promise<ContributionAttestation>;
   createAttributionDecision(
     input: CreateAttributionDecisionInput,
   ): Promise<AttributionDecision>;

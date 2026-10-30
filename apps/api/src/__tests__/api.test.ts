@@ -6739,6 +6739,80 @@ describe("vertical slice", () => {
     expect(afterRetire.body.data.summary.activeSources).toBe(0);
   });
 
+  it("records peer and manager attestations and enforces withdrawal ownership", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const peer = await call("POST", "/api/v1/contribution-attestations", {
+      workPackageId,
+      subjectPersonId: OWNER,
+      attesterPersonId: ADJUDICATOR,
+      attestationType: "PEER",
+      statement: "Owned the customer acceptance end to end.",
+      evidenceRefs: ["attestation-evidence-1"],
+    });
+    expect(peer.status).toBe(201);
+    expect(peer.body.data.status).toBe("SUBMITTED");
+    expect(peer.body.data.evidenceRefs).toEqual(["attestation-evidence-1"]);
+
+    const self = await call("POST", "/api/v1/contribution-attestations", {
+      workPackageId,
+      subjectPersonId: OWNER,
+      attesterPersonId: OWNER,
+      attestationType: "PEER",
+      statement: "Self attestation",
+    });
+    expect(self.status).toBe(409);
+
+    const notManager = await call(
+      "POST",
+      "/api/v1/contribution-attestations",
+      {
+        workPackageId,
+        subjectPersonId: OWNER,
+        attesterPersonId: MEMBER,
+        attestationType: "MANAGER",
+        statement: "Manager attestation",
+      },
+    );
+    expect(notManager.status).toBe(409);
+    expect(notManager.body.error.message).toContain(
+      "ATTESTATION_MANAGER_RELATIONSHIP_REQUIRED",
+    );
+    await call(
+      "POST",
+      `/api/v1/platform/tenants/tenant-demo/persons/${OWNER}/manager`,
+      { managerPersonId: MEMBER },
+    );
+    const manager = await call(
+      "POST",
+      "/api/v1/contribution-attestations",
+      {
+        workPackageId,
+        subjectPersonId: OWNER,
+        attesterPersonId: MEMBER,
+        attestationType: "MANAGER",
+        statement: "Consistently delivered the committed scope.",
+      },
+    );
+    expect(manager.status).toBe(201);
+
+    const list = await call("GET", "/api/v1/contribution-attestations");
+    expect(list.body.data).toHaveLength(2);
+
+    const wrongWithdrawal = await call(
+      "POST",
+      `/api/v1/contribution-attestations/${peer.body.data.id}/withdraw`,
+      { personId: MEMBER },
+    );
+    expect(wrongWithdrawal.status).toBe(409);
+    const withdrawn = await call(
+      "POST",
+      `/api/v1/contribution-attestations/${peer.body.data.id}/withdraw`,
+      { personId: ADJUDICATOR },
+    );
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body.data.status).toBe("WITHDRAWN");
+  });
+
   it("publishes fairness commitments and public appeal statistics", async () => {
     const first = await call("POST", "/api/v1/fairness-commitments", {
       statement:

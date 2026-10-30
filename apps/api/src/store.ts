@@ -21,6 +21,7 @@ import {
   type CalculationInput,
   type CalculationRun,
   type CommitmentSnapshot,
+  type ContributionAttestation,
   type ContributionClaim,
   type DataQualityIssue,
   type EmployeeConfirmation,
@@ -49,6 +50,7 @@ import {
 import type {
   CreateAttributionDecisionInput,
   CreateCalculationRunInput,
+  CreateContributionAttestationBody,
   CreateContributionClaimInput,
   CreateEvidenceInput,
   CreateEvidenceLinkInput,
@@ -148,6 +150,7 @@ export class Store implements IncentiveStore {
     CommitmentSnapshot[]
   >();
   private readonly claims = new Map<string, ContributionClaim>();
+  private readonly attestations = new Map<string, ContributionAttestation>();
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
   private readonly appeals = new Map<string, AppealCase>();
@@ -602,6 +605,79 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  async createContributionAttestation(
+    input: CreateContributionAttestationBody,
+  ): Promise<ContributionAttestation> {
+    const workPackage = await this.getWorkPackage(input.workPackageId);
+    const participants = new Set([
+      workPackage.ownerPersonId,
+      ...workPackage.members.map((member) => member.personId),
+    ]);
+    if (!participants.has(input.subjectPersonId)) {
+      throw new ConflictError(
+        "ATTESTATION_SUBJECT_NOT_PARTICIPANT: subject is not on the work package",
+      );
+    }
+    if (input.subjectPersonId === input.attesterPersonId) {
+      throw new ConflictError(
+        "ATTESTATION_SELF: a person cannot attest their own contribution",
+      );
+    }
+    const timestamp = now();
+    const attestation: ContributionAttestation = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      workPackageId: input.workPackageId,
+      subjectPersonId: input.subjectPersonId,
+      attesterPersonId: input.attesterPersonId,
+      attestationType: input.attestationType,
+      statement: input.statement,
+      evidenceRefs: [...(input.evidenceRefs ?? [])],
+      status: "SUBMITTED",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.attestations.set(attestation.id, attestation);
+    return attestation;
+  }
+
+  async listContributionAttestations(filter?: {
+    workPackageId?: string;
+    subjectPersonId?: string;
+  }): Promise<ContributionAttestation[]> {
+    return [...this.attestations.values()]
+      .filter(
+        (attestation) =>
+          (!filter?.workPackageId ||
+            attestation.workPackageId === filter.workPackageId) &&
+          (!filter?.subjectPersonId ||
+            attestation.subjectPersonId === filter.subjectPersonId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async withdrawContributionAttestation(
+    id: string,
+    requesterPersonId: string,
+  ): Promise<ContributionAttestation> {
+    const attestation = this.attestations.get(id);
+    if (!attestation) notFound("ContributionAttestation", id);
+    if (attestation.attesterPersonId !== requesterPersonId) {
+      throw new ConflictError(
+        "ATTESTATION_WITHDRAWAL_FORBIDDEN: only the attester can withdraw",
+      );
+    }
+    if (attestation.status === "WITHDRAWN") {
+      throw new ConflictError(
+        `contribution attestation ${id} is already withdrawn`,
+      );
+    }
+    attestation.status = "WITHDRAWN";
+    attestation.withdrawnAt = now();
+    attestation.updatedAt = attestation.withdrawnAt;
+    return attestation;
   }
 
   async listClaims(): Promise<ContributionClaim[]> {

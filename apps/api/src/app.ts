@@ -20,6 +20,8 @@ import {
   createCalculationBatchSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
+  createContributionAttestationSchema,
+  withdrawContributionAttestationSchema,
   createConflictDeclarationSchema,
   revokeConflictDeclarationSchema,
   createTrustSurveySchema,
@@ -2671,6 +2673,92 @@ export function buildApp(
   app.post("/api/v1/contribution-claims/:id/submit", async (request) =>
     data(await storeFor(request).submitClaim(idOf(request)), request),
   );
+
+  app.post("/api/v1/contribution-attestations", async (request, reply) => {
+    const body = parse(createContributionAttestationSchema, request.body);
+    const persons = await platformStore.listPersons(tenantOf(request));
+    const subject = persons.find(
+      (person) => person.id === body.subjectPersonId,
+    );
+    const attester = persons.find(
+      (person) => person.id === body.attesterPersonId,
+    );
+    if (!subject) throw new NotFoundError(
+      `Person ${body.subjectPersonId} not found`,
+    );
+    if (!attester) throw new NotFoundError(
+      `Person ${body.attesterPersonId} not found`,
+    );
+    if (body.attestationType === "MANAGER") {
+      if (subject.managerPersonId !== body.attesterPersonId) {
+        throw new ConflictError(
+          "ATTESTATION_MANAGER_RELATIONSHIP_REQUIRED: attester is not the subject's manager",
+        );
+      }
+    }
+    const own = ownPersonId(request);
+    if (
+      own &&
+      body.attesterPersonId !== own &&
+      !isPrivileged(request)
+    ) {
+      throw new ForbiddenError("cannot attest on behalf of another person");
+    }
+    return reply.status(201).send(
+      data(
+        await storeFor(request).createContributionAttestation({
+          ...body,
+          evidenceRefs: body.evidenceRefs ?? [],
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/contribution-attestations", async (request) => {
+    const query = request.query as {
+      workPackageId?: string;
+      subjectPersonId?: string;
+    };
+    const person = personFilter(request);
+    const attestations = await storeFor(
+      request,
+    ).listContributionAttestations({
+      workPackageId: query.workPackageId,
+      subjectPersonId: query.subjectPersonId,
+    });
+    return data(
+      person
+        ? attestations.filter(
+            (attestation) =>
+              attestation.subjectPersonId === person ||
+              attestation.attesterPersonId === person,
+          )
+        : attestations,
+      request,
+    );
+  });
+
+  app.post("/api/v1/contribution-attestations/:id/withdraw", async (request) => {
+      const body = parse(withdrawContributionAttestationSchema, request.body);
+      const own = ownPersonId(request);
+      const requester = own ?? body.personId;
+      if (!requester) {
+        throw new ForbiddenError(
+          "attester identity is required to withdraw an attestation",
+        );
+      }
+      if (own && body.personId && body.personId !== own && !isPrivileged(request)) {
+        throw new ForbiddenError("cannot withdraw for another person");
+      }
+      return data(
+        await storeFor(request).withdrawContributionAttestation(
+          idOf(request),
+          requester,
+        ),
+        request,
+      );
+  });
 
   app.post("/api/v1/conflict-declarations", async (request, reply) => {
     requireRoles(request, "manager");

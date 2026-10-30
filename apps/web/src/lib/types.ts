@@ -862,6 +862,20 @@ export interface WorkPackage {
   updatedAt: string;
 }
 
+export interface ContributionAttestation {
+  id: Uuid;
+  workPackageId: Uuid;
+  subjectPersonId: Uuid;
+  attesterPersonId: Uuid;
+  attestationType: "PEER" | "MANAGER";
+  statement: string;
+  evidenceRefs: Uuid[];
+  status: "SUBMITTED" | "WITHDRAWN";
+  withdrawnAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ContributionClaim {
   id: Uuid;
   workPackageId: Uuid;

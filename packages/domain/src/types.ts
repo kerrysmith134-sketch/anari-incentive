@@ -57,6 +57,24 @@ export interface ClaimedContribution {
   summary: string;
 }
 
+export type ContributionAttestationType = "PEER" | "MANAGER";
+
+/** Peer or manager statement supporting a person's work-package contribution. */
+export interface ContributionAttestation {
+  id: UUID;
+  tenantId: UUID;
+  workPackageId: UUID;
+  subjectPersonId: UUID;
+  attesterPersonId: UUID;
+  attestationType: ContributionAttestationType;
+  statement: string;
+  evidenceRefs: UUID[];
+  status: "SUBMITTED" | "WITHDRAWN";
+  withdrawnAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ContributionClaim {
   id: UUID;
   tenantId: UUID;

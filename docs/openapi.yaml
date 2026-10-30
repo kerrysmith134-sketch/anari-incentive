@@ -394,6 +394,97 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/contribution-attestations:
+    get:
+      tags: [Contribution]
+      summary: List peer and manager attestations
+      parameters:
+        - name: workPackageId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: subjectPersonId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Attestations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Contribution]
+      summary: Record a peer or manager attestation
+      description: |
+        The subject must participate in the work package and cannot attest
+        their own contribution. A MANAGER attestation requires the attester to
+        be the subject's current manager.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContributionAttestation"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/contribution-attestations/{id}/withdraw:
+    post:
+      tags: [Contribution]
+      summary: Withdraw an attestation
+      description: Only the original attester can withdraw.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                personId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/conflict-declarations:
     get:
       tags: [Contribution]
@@ -6957,6 +7048,28 @@ components:
         reason:
           type: string
           minLength: 3
+
+    CreateContributionAttestation:
+      type: object
+      required:
+        [workPackageId, subjectPersonId, attesterPersonId, attestationType, statement]
+      properties:
+        workPackageId:
+          $ref: "#/components/schemas/Uuid"
+        subjectPersonId:
+          $ref: "#/components/schemas/Uuid"
+        attesterPersonId:
+          $ref: "#/components/schemas/Uuid"
+        attestationType:
+          type: string
+          enum: [PEER, MANAGER]
+        statement:
+          type: string
+          minLength: 3
+        evidenceRefs:
+          type: array
+          items:
+            type: string
 
     CreateContributionClaim:
       type: object

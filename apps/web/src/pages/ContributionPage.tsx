@@ -32,6 +32,7 @@ import {
 } from "../lib/format.js";
 import type {
   AttributionDecision,
+  ContributionAttestation,
   ContributionClaim,
   WorkPackage,
 } from "../lib/types.js";
@@ -51,6 +52,9 @@ export function ContributionPage() {
   const { people } = usePeople();
   const packages = useApiQuery<WorkPackage[]>("/api/v1/work-packages");
   const claims = useApiQuery<ContributionClaim[]>("/api/v1/contribution-claims");
+  const attestations = useApiQuery<ContributionAttestation[]>(
+    "/api/v1/contribution-attestations",
+  );
   const decisions = useApiQuery<AttributionDecision[]>(
     "/api/v1/attribution-decisions",
   );
@@ -97,6 +101,14 @@ export function ContributionPage() {
   const [claimRationale, setClaimRationale] = useState("");
   const [evidenceRefs, setEvidenceRefs] = useState("");
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [attestOpen, setAttestOpen] = useState(false);
+  const [attestPackageId, setAttestPackageId] = useState("");
+  const [attestSubject, setAttestSubject] = useState("");
+  const [attestAttester, setAttestAttester] = useState(session.personId);
+  const [attestType, setAttestType] = useState<"PEER" | "MANAGER">("PEER");
+  const [attestStatement, setAttestStatement] = useState("");
+  const [attestEvidence, setAttestEvidence] = useState("");
+  const [attestError, setAttestError] = useState<string | null>(null);
 
   const [adjudicateClaim, setAdjudicateClaim] =
     useState<ContributionClaim | null>(null);
@@ -116,6 +128,7 @@ export function ContributionPage() {
     (pkg) => pkg.status === "ACCEPTED",
   );
   const claimList = claims.data ?? [];
+  const attestationList = attestations.data ?? [];
   const decisionList = decisions.data ?? [];
   const awaitingAdjudication = claimList.filter(
     (claim) =>
@@ -309,6 +322,73 @@ export function ContributionPage() {
     setClaimOpen(true);
   }
 
+  function openAttestationForm() {
+    const pkg = packageList[0];
+    setAttestPackageId(pkg?.id ?? "");
+    setAttestSubject(pkg?.ownerPersonId ?? "");
+    setAttestAttester(session.personId);
+    setAttestType("PEER");
+    setAttestStatement("");
+    setAttestEvidence("");
+    setAttestError(null);
+    setAttestOpen(true);
+  }
+
+  async function createAttestation(event: FormEvent) {
+    event.preventDefault();
+    setAttestError(null);
+    setSubmitting(true);
+    try {
+      await api("/api/v1/contribution-attestations", {
+        method: "POST",
+        body: {
+          workPackageId: attestPackageId,
+          subjectPersonId: attestSubject,
+          attesterPersonId: attestAttester,
+          attestationType: attestType,
+          statement: attestStatement.trim(),
+          evidenceRefs: attestEvidence
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        },
+      });
+      toast.success("Attestation recorded");
+      setAttestOpen(false);
+      attestations.reload();
+    } catch (caught) {
+      setAttestError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not record the attestation.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function withdrawAttestation(attestation: ContributionAttestation) {
+    setSubmitting(true);
+    try {
+      await api(
+        `/api/v1/contribution-attestations/${attestation.id}/withdraw`,
+        {
+          method: "POST",
+          body: { personId: session.personId },
+        },
+      );
+      toast.success("Attestation withdrawn");
+      attestations.reload();
+    } catch (caught) {
+      toast.error(
+        "Could not withdraw attestation",
+        caught instanceof Error ? caught.message : "The action failed.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function createClaim(event: FormEvent) {
     event.preventDefault();
     setClaimError(null);
@@ -477,6 +557,7 @@ export function ContributionPage() {
               packages.reload();
               claims.reload();
               decisions.reload();
+              attestations.reload();
             }}
             loading={packages.loading || claims.loading}
           >
@@ -516,6 +597,11 @@ export function ContributionPage() {
         items={[
           { id: "packages", label: "Work packages", count: packageList.length },
           { id: "claims", label: "Claims", count: claimList.length },
+          {
+            id: "attestations",
+            label: "Attestations",
+            count: attestationList.length,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -648,7 +734,7 @@ export function ContributionPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "claims" ? (
           <Panel
             title="Contribution claims"
             subtitle="A claimant cannot adjudicate their own claim"
@@ -776,8 +862,210 @@ export function ContributionPage() {
               </div>
             )}
           </Panel>
+        ) : (
+          <Panel
+            title="Peer and manager attestations"
+            subtitle="Independent statements supporting a participant's contribution"
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={openAttestationForm}
+                disabled={packageList.length === 0}
+              >
+                New attestation
+              </Button>
+            }
+            flush
+          >
+            {attestations.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice
+                  error={attestations.error}
+                  onRetry={attestations.reload}
+                />
+              </div>
+            ) : attestations.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : attestationList.length === 0 ? (
+              <EmptyState
+                icon="people"
+                title="No attestation"
+                description="Peers and the subject's manager can add a statement supporting a work-package contribution."
+                action={
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon="plus"
+                    onClick={openAttestationForm}
+                    disabled={packageList.length === 0}
+                  >
+                    Create attestation
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Package</th>
+                      <th>Subject</th>
+                      <th>Attester</th>
+                      <th>Type</th>
+                      <th>Statement</th>
+                      <th>Status</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attestationList.map((attestation) => {
+                      const workPackage = packageList.find(
+                        (pkg) => pkg.id === attestation.workPackageId,
+                      );
+                      return (
+                        <tr key={attestation.id}>
+                          <td>
+                            {workPackage?.title ??
+                              shortId(attestation.workPackageId)}
+                          </td>
+                          <td>
+                            {displayName(attestation.subjectPersonId, people)}
+                          </td>
+                          <td>
+                            {displayName(attestation.attesterPersonId, people)}
+                          </td>
+                          <td>{titleCase(attestation.attestationType)}</td>
+                          <td>{attestation.statement}</td>
+                          <td>
+                            <Badge status={attestation.status} />
+                          </td>
+                          <td className="cell-actions">
+                            {attestation.status === "SUBMITTED" &&
+                            attestation.attesterPersonId ===
+                              session.personId ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  void withdrawAttestation(attestation)
+                                }
+                              >
+                                Withdraw
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
         )}
       </div>
+
+      <Modal
+        open={attestOpen}
+        title="New contribution attestation"
+        description="A manager attestation requires the attester to be the subject's current manager."
+        onClose={() => setAttestOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAttestOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="attestation-form"
+              loading={submitting}
+            >
+              Record attestation
+            </Button>
+          </>
+        }
+      >
+        <form id="attestation-form" className="stack" onSubmit={createAttestation}>
+          {attestError ? (
+            <InfoNotice tone="warning">{attestError}</InfoNotice>
+          ) : null}
+          <FormField label="Work package" htmlFor="attest-package">
+            <Select
+              id="attest-package"
+              value={attestPackageId}
+              onChange={(event) => {
+                const next = packageList.find(
+                  (pkg) => pkg.id === event.target.value,
+                );
+                setAttestPackageId(event.target.value);
+                setAttestSubject(next?.ownerPersonId ?? "");
+              }}
+              required
+            >
+              <option value="">Select a package…</option>
+              {packageList.map((pkg) => (
+                <option key={pkg.id} value={pkg.id}>
+                  {pkg.title} · {pkg.status}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Subject" htmlFor="attest-subject">
+            <PersonSelect
+              id="attest-subject"
+              value={attestSubject}
+              onChange={setAttestSubject}
+            />
+          </FormField>
+          <FormField label="Attester" htmlFor="attest-attester">
+            <PersonSelect
+              id="attest-attester"
+              value={attestAttester}
+              onChange={setAttestAttester}
+            />
+          </FormField>
+          <FormField label="Type" htmlFor="attest-type">
+            <Select
+              id="attest-type"
+              value={attestType}
+              onChange={(event) =>
+                setAttestType(event.target.value as "PEER" | "MANAGER")
+              }
+            >
+              <option value="PEER">Peer</option>
+              <option value="MANAGER">Manager</option>
+            </Select>
+          </FormField>
+          <FormField
+            label="Statement"
+            htmlFor="attest-statement"
+            className="field--full"
+          >
+            <Textarea
+              id="attest-statement"
+              value={attestStatement}
+              onChange={(event) => setAttestStatement(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Evidence references (comma separated)"
+            htmlFor="attest-evidence"
+            className="field--full"
+          >
+            <TextInput
+              id="attest-evidence"
+              value={attestEvidence}
+              onChange={(event) => setAttestEvidence(event.target.value)}
+            />
+          </FormField>
+        </form>
+      </Modal>
 
       <Modal
         open={createOpen}
