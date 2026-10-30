@@ -2699,6 +2699,132 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/integration-connections/{id}/schedules:
+    get:
+      tags: [Ingestion]
+      summary: List sync schedules for a connection
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Sync schedules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Ingestion]
+      summary: Create a sync schedule
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSyncSchedule"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/sync-schedules:
+    get:
+      tags: [Ingestion]
+      summary: List sync schedules
+      parameters:
+        - name: connectionId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Sync schedules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/sync-schedules/claim-due:
+    post:
+      tags: [Ingestion]
+      summary: Claim due sync schedules
+      description: |
+        Atomically claims enabled schedules whose nextRunAt is due and advances
+        nextRunAt by the interval. An external sync runner then creates a sync
+        run for each claimed schedule; connector execution remains provider-specific.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimDueSyncSchedules"
+      responses:
+        "200":
+          description: Claimed schedules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/sync-schedules/{id}/status:
+    post:
+      tags: [Ingestion]
+      summary: Enable or disable a sync schedule
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSyncScheduleEnabled"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/integration-connections/{id}/sync-runs:
     get:
       tags: [Ingestion]
@@ -5908,6 +6034,38 @@ components:
           type: integer
           minimum: 1
           default: 1
+
+    CreateSyncSchedule:
+      type: object
+      required: [name, intervalMinutes]
+      properties:
+        name:
+          type: string
+        intervalMinutes:
+          type: integer
+          minimum: 1
+        startAt:
+          type: string
+          format: date-time
+
+    SetSyncScheduleEnabled:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    ClaimDueSyncSchedules:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+        now:
+          type: string
+          format: date-time
 
     CreateSyncRun:
       type: object

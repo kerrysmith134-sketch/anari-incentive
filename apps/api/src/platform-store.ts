@@ -48,6 +48,7 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  SyncSchedule,
   SyncRun,
   WebhookInboxMessage,
   WorkflowRun,
@@ -655,6 +656,31 @@ export interface PlatformStore {
     tenantId: string;
     mappingId: string;
   }): Promise<IntegrationMapping>;
+  createSyncSchedule(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    intervalMinutes: number;
+    startAt?: string;
+  }): Promise<SyncSchedule>;
+  listSyncSchedules(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncSchedule[]>;
+  getSyncSchedule(
+    tenantId: string,
+    scheduleId: string,
+  ): Promise<SyncSchedule>;
+  setSyncScheduleEnabled(input: {
+    tenantId: string;
+    scheduleId: string;
+    enabled: boolean;
+  }): Promise<SyncSchedule>;
+  claimDueSyncSchedules(input: {
+    tenantId: string;
+    limit: number;
+    now?: string;
+  }): Promise<SyncSchedule[]>;
   createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -771,6 +797,7 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     IntegrationMapping
   >();
+  private readonly syncSchedules = new Map<string, SyncSchedule>();
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
@@ -3275,6 +3302,115 @@ export class MemoryPlatformStore implements PlatformStore {
     mapping.status = "RETIRED";
     mapping.retiredAt = now();
     return mapping;
+  }
+
+  async createSyncSchedule(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    intervalMinutes: number;
+    startAt?: string;
+  }): Promise<SyncSchedule> {
+    await this.getIntegrationConnection(
+      input.tenantId,
+      input.connectionId,
+    );
+    const duplicate = [...this.syncSchedules.values()].find(
+      (schedule) =>
+        schedule.tenantId === input.tenantId &&
+        schedule.connectionId === input.connectionId &&
+        schedule.name === input.name,
+    );
+    if (duplicate) {
+      throw new ConflictError(
+        `Sync schedule ${input.name} already exists for this connection`,
+      );
+    }
+    const timestamp = now();
+    const schedule: SyncSchedule = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      connectionId: input.connectionId,
+      name: input.name,
+      intervalMinutes: input.intervalMinutes,
+      enabled: true,
+      nextRunAt:
+        input.startAt ??
+        new Date(
+          Date.parse(timestamp) + input.intervalMinutes * 60_000,
+        ).toISOString(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.syncSchedules.set(schedule.id, schedule);
+    return schedule;
+  }
+
+  async listSyncSchedules(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncSchedule[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.syncSchedules.values()]
+      .filter(
+        (schedule) =>
+          schedule.tenantId === tenantId &&
+          (!connectionId || schedule.connectionId === connectionId),
+      )
+      .sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
+  }
+
+  async getSyncSchedule(
+    tenantId: string,
+    scheduleId: string,
+  ): Promise<SyncSchedule> {
+    const schedule = this.syncSchedules.get(scheduleId);
+    if (!schedule || schedule.tenantId !== tenantId) {
+      notFound("SyncSchedule", scheduleId);
+    }
+    return schedule;
+  }
+
+  async setSyncScheduleEnabled(input: {
+    tenantId: string;
+    scheduleId: string;
+    enabled: boolean;
+  }): Promise<SyncSchedule> {
+    const schedule = await this.getSyncSchedule(
+      input.tenantId,
+      input.scheduleId,
+    );
+    schedule.enabled = input.enabled;
+    schedule.updatedAt = now();
+    return schedule;
+  }
+
+  async claimDueSyncSchedules(input: {
+    tenantId: string;
+    limit: number;
+    now?: string;
+  }): Promise<SyncSchedule[]> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const current = new Date(input.now ?? new Date().toISOString());
+    const due = [...this.syncSchedules.values()]
+      .filter(
+        (schedule) =>
+          schedule.tenantId === input.tenantId &&
+          schedule.enabled &&
+          new Date(schedule.nextRunAt).getTime() <= current.getTime(),
+      )
+      .sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt))
+      .slice(0, input.limit);
+    for (const schedule of due) {
+      schedule.lastRunAt = current.toISOString();
+      schedule.nextRunAt = new Date(
+        current.getTime() + schedule.intervalMinutes * 60_000,
+      ).toISOString();
+      schedule.updatedAt = current.toISOString();
+    }
+    return due.map((schedule) => ({ ...schedule }));
   }
 
   async createSyncRun(input: {
@@ -6671,6 +6807,123 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapIntegrationMapping(rows[0]);
   }
 
+  async createSyncSchedule(input: {
+    tenantId: string;
+    connectionId: string;
+    name: string;
+    intervalMinutes: number;
+    startAt?: string;
+  }): Promise<SyncSchedule> {
+    await this.getIntegrationConnection(
+      input.tenantId,
+      input.connectionId,
+    );
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO sync_schedules
+          (id, tenant_id, connection_id, name, interval_minutes, enabled,
+           next_run_at)
+         VALUES ($1,$2,$3,$4,$5::int,true,
+                 COALESCE($6::timestamptz,
+                          now() + ($5::int * interval '1 minute')))
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.connectionId,
+          input.name,
+          input.intervalMinutes,
+          input.startAt ?? null,
+        ],
+      );
+      return this.mapSyncSchedule(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `Sync schedule ${input.name} already exists for this connection`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listSyncSchedules(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncSchedule[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM sync_schedules WHERE tenant_id=$1";
+    if (connectionId) {
+      params.push(connectionId);
+      sql += ` AND connection_id=$${params.length}`;
+    }
+    sql += " ORDER BY next_run_at";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapSyncSchedule(row));
+  }
+
+  async getSyncSchedule(
+    tenantId: string,
+    scheduleId: string,
+  ): Promise<SyncSchedule> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM sync_schedules WHERE tenant_id=$1 AND id=$2",
+      [tenantId, scheduleId],
+    );
+    if (!rows[0]) notFound("SyncSchedule", scheduleId);
+    return this.mapSyncSchedule(rows[0]);
+  }
+
+  async setSyncScheduleEnabled(input: {
+    tenantId: string;
+    scheduleId: string;
+    enabled: boolean;
+  }): Promise<SyncSchedule> {
+    const { rows } = await this.pool.query(
+      `UPDATE sync_schedules
+          SET enabled=$3, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [input.tenantId, input.scheduleId, input.enabled],
+    );
+    if (!rows[0]) notFound("SyncSchedule", input.scheduleId);
+    return this.mapSyncSchedule(rows[0]);
+  }
+
+  async claimDueSyncSchedules(input: {
+    tenantId: string;
+    limit: number;
+    now?: string;
+  }): Promise<SyncSchedule[]> {
+    return this.transaction(async (client) => {
+      const now = input.now ?? new Date().toISOString();
+      const { rows } = await client.query(
+        `SELECT * FROM sync_schedules
+          WHERE tenant_id=$1 AND enabled AND next_run_at <= $2
+          ORDER BY next_run_at
+          LIMIT $3
+          FOR UPDATE SKIP LOCKED`,
+        [input.tenantId, now, input.limit],
+      );
+      const claimed: SyncSchedule[] = [];
+      for (const row of rows) {
+        const { rows: updated } = await client.query(
+          `UPDATE sync_schedules
+              SET last_run_at=$3::timestamptz,
+                  next_run_at=$3::timestamptz +
+                    (interval_minutes * interval '1 minute'),
+                  updated_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [input.tenantId, row.id, now],
+        );
+        claimed.push(this.mapSyncSchedule(updated[0]));
+      }
+      return claimed;
+    });
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -7589,6 +7842,21 @@ export class PgPlatformStore implements PlatformStore {
       status: row.status,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       retiredAt: iso(row.retired_at),
+    };
+  }
+
+  private mapSyncSchedule(row: QueryResultRow): SyncSchedule {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      connectionId: row.connection_id,
+      name: row.name,
+      intervalMinutes: Number(row.interval_minutes),
+      enabled: row.enabled,
+      nextRunAt: iso(row.next_run_at) ?? new Date().toISOString(),
+      lastRunAt: iso(row.last_run_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

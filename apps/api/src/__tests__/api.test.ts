@@ -2710,6 +2710,50 @@ describe("integrations", () => {
     expect(activeMappings.body.data).toHaveLength(1);
     expect(activeMappings.body.data[0].version).toBe(2);
 
+    const schedule = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/schedules`,
+      {
+        name: "hourly-sync",
+        intervalMinutes: 60,
+        startAt: "2020-01-01T00:00:00Z",
+      },
+    );
+    expect(schedule.status).toBe(201);
+    expect(schedule.body.data.enabled).toBe(true);
+    const duplicateSchedule = await call(
+      "POST",
+      `/api/v1/integration-connections/${connectionId}/schedules`,
+      { name: "hourly-sync", intervalMinutes: 30 },
+    );
+    expect(duplicateSchedule.status).toBe(409);
+    const claimedSchedules = await call(
+      "POST",
+      "/api/v1/sync-schedules/claim-due",
+      { limit: 10, now: "2026-01-01T00:00:00Z" },
+    );
+    expect(claimedSchedules.status).toBe(200);
+    expect(claimedSchedules.body.data).toHaveLength(1);
+    expect(claimedSchedules.body.data[0].lastRunAt).toBe(
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(claimedSchedules.body.data[0].nextRunAt).toBe(
+      "2026-01-01T01:00:00.000Z",
+    );
+    const disabledSchedule = await call(
+      "POST",
+      `/api/v1/sync-schedules/${schedule.body.data.id}/status`,
+      { enabled: false },
+    );
+    expect(disabledSchedule.status).toBe(200);
+    expect(disabledSchedule.body.data.enabled).toBe(false);
+    const claimedAfterDisable = await call(
+      "POST",
+      "/api/v1/sync-schedules/claim-due",
+      { limit: 10, now: "2026-02-01T00:00:00Z" },
+    );
+    expect(claimedAfterDisable.body.data).toHaveLength(0);
+
     const syncRun = await call(
       "POST",
       `/api/v1/integration-connections/${connectionId}/sync-runs`,

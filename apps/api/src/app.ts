@@ -70,6 +70,9 @@ import {
   createIntegrationMappingSchema,
   setIntegrationConnectionStatusSchema,
   createSyncRunSchema,
+  createSyncScheduleSchema,
+  setSyncScheduleEnabledSchema,
+  claimDueSyncSchedulesSchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -3693,6 +3696,72 @@ export function buildApp(
       await platformStore.retireIntegrationMapping({
         tenantId: tenantOf(request),
         mappingId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/integration-connections/:id/schedules", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createSyncScheduleSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createSyncSchedule({
+          tenantId: tenantOf(request),
+          connectionId: idOf(request),
+          name: body.name,
+          intervalMinutes: body.intervalMinutes,
+          startAt: body.startAt,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/integration-connections/:id/schedules", async (request) => {
+    requireRoles(request, "admin", "integration");
+    return data(
+      await platformStore.listSyncSchedules(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/sync-schedules", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as { connectionId?: string };
+    return data(
+      await platformStore.listSyncSchedules(
+        tenantOf(request),
+        query.connectionId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/sync-schedules/claim-due", async (request) => {
+    requireRoles(request, "integration");
+    const body = parse(claimDueSyncSchedulesSchema, request.body ?? {});
+    return data(
+      await platformStore.claimDueSyncSchedules({
+        tenantId: tenantOf(request),
+        limit: body.limit ?? 10,
+        now: body.now,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/sync-schedules/:id/status", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(setSyncScheduleEnabledSchema, request.body);
+    return data(
+      await platformStore.setSyncScheduleEnabled({
+        tenantId: tenantOf(request),
+        scheduleId: idOf(request),
+        enabled: body.enabled,
       }),
       request,
     );

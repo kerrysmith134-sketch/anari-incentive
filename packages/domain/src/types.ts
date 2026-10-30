@@ -852,6 +852,19 @@ export interface SyncRun {
   createdAt: string;
 }
 
+export interface SyncSchedule {
+  id: UUID;
+  tenantId: UUID;
+  connectionId: UUID;
+  name: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ExternalIdentity {
   id: UUID;
   tenantId: UUID;

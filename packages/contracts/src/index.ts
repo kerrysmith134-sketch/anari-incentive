@@ -615,6 +615,30 @@ export const finishSyncRunSchema = z.object({
 });
 export type FinishSyncRunBody = z.infer<typeof finishSyncRunSchema>;
 
+export const createSyncScheduleSchema = z.object({
+  name: z.string().min(1),
+  intervalMinutes: z.number().int().min(1),
+  startAt: z.string().datetime().optional(),
+});
+export type CreateSyncScheduleBody = z.infer<
+  typeof createSyncScheduleSchema
+>;
+
+export const setSyncScheduleEnabledSchema = z.object({
+  enabled: z.boolean(),
+});
+export type SetSyncScheduleEnabledBody = z.infer<
+  typeof setSyncScheduleEnabledSchema
+>;
+
+export const claimDueSyncSchedulesSchema = z.object({
+  limit: z.number().int().min(1).max(100).default(10),
+  now: z.string().datetime().optional(),
+});
+export type ClaimDueSyncSchedulesBody = z.infer<
+  typeof claimDueSyncSchedulesSchema
+>;
+
 export const upsertExternalIdentitySchema = z.object({
   sourceSystem: z.string().min(1),
   externalId: z.string().min(1),

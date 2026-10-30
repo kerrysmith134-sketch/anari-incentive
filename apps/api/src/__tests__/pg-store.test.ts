@@ -2303,6 +2303,35 @@ describePg("PgStore vertical slice", () => {
     });
     expect(retiredMapping.status).toBe("RETIRED");
 
+    const schedule = await platform.createSyncSchedule({
+      tenantId: DEMO_TENANT_ID,
+      connectionId: connection.id,
+      name: "pg-hourly",
+      intervalMinutes: 60,
+      startAt: "2020-01-01T00:00:00Z",
+    });
+    expect(schedule.enabled).toBe(true);
+    const claimed = await platform.claimDueSyncSchedules({
+      tenantId: DEMO_TENANT_ID,
+      limit: 10,
+      now: "2026-01-01T00:00:00Z",
+    });
+    expect(claimed.map((candidate) => candidate.id)).toEqual([
+      schedule.id,
+    ]);
+    await platform.setSyncScheduleEnabled({
+      tenantId: DEMO_TENANT_ID,
+      scheduleId: schedule.id,
+      enabled: false,
+    });
+    expect(
+      await platform.claimDueSyncSchedules({
+        tenantId: DEMO_TENANT_ID,
+        limit: 10,
+        now: "2026-02-01T00:00:00Z",
+      }),
+    ).toHaveLength(0);
+
     const run = await platform.createSyncRun({
       tenantId: DEMO_TENANT_ID,
       connectionId: connection.id,

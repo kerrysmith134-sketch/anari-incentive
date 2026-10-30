@@ -231,6 +231,10 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /integration-connections` | admin | Creates an ACTIVE connection with a credential reference |
 | `POST /integration-connections/:id/mappings` | admin, connection exists, no ACTIVE mapping with the same name | Creates an ACTIVE versioned CSV/HTTP field mapping |
 | `POST /integration-mappings/:id/retire` | admin, ACTIVE | Sets RETIRED and records `retiredAt` |
+| `POST /integration-connections/:id/schedules` | admin, connection exists, unique name per connection | Creates an enabled interval schedule |
+| `GET /sync-schedules` | admin/integration | Lists schedules by next run time |
+| `POST /sync-schedules/claim-due` | integration | Atomically claims due enabled schedules, sets `lastRunAt` and advances `nextRunAt`; the runner creates the sync run |
+| `POST /sync-schedules/:id/status` | admin | Enables or disables a schedule |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
