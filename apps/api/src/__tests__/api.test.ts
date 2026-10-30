@@ -6705,6 +6705,47 @@ describe("vertical slice", () => {
     expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
+  it("requires a registered gold set when evaluation enforcement is enabled", async () => {
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requireRegisteredGoldSet: true },
+    );
+    const blocked = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "unregistered-gold",
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain("GOLD_SET_NOT_REGISTERED");
+    const dataset = await call("POST", "/api/v1/model-evaluation-datasets", {
+      code: "gold-set-1",
+      version: 1,
+      name: "Quarterly gold set",
+      sampleSize: 100,
+      holdoutSize: 20,
+      labelSource: "DOUBLE_ANNOTATION",
+      ownerPersonId: OWNER,
+      nextRefreshDueAt: "2026-12-31T00:00:00Z",
+    });
+    expect(dataset.status).toBe(201);
+    const allowed = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "gold-set-1",
+    );
+    expect(allowed.status).toBe(201);
+    const list = await call("GET", "/api/v1/model-evaluation-datasets");
+    expect(list.body.data).toHaveLength(1);
+    const retired = await call(
+      "POST",
+      `/api/v1/model-evaluation-datasets/${dataset.body.data.id}/retire`,
+    );
+    expect(retired.body.data.status).toBe("RETIRED");
+  });
+
   it("enforces model-provider policies when the tenant requires them", async () => {
     await call(
       "POST",

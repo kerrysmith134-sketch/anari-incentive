@@ -43,6 +43,7 @@ import type {
   IntegrationMapping,
   InboxMessage,
   MetricDefinition,
+  ModelEvaluationDataset,
   ModelEvaluationRun,
   ModelPrompt,
   ModelProviderPolicy,
@@ -447,6 +448,30 @@ export interface PlatformStore {
     tenantId: string;
     policyId: string;
   }): Promise<ModelProviderPolicy>;
+  createModelEvaluationDataset(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    sampleSize: number;
+    holdoutSize: number;
+    labelSource: string;
+    ownerPersonId: string;
+    refreshedAt?: string;
+    nextRefreshDueAt?: string;
+    contentHash?: string;
+  }): Promise<ModelEvaluationDataset>;
+  listModelEvaluationDatasets(
+    tenantId: string,
+  ): Promise<ModelEvaluationDataset[]>;
+  getActiveModelEvaluationDataset(
+    tenantId: string,
+    code: string,
+  ): Promise<ModelEvaluationDataset | undefined>;
+  retireModelEvaluationDataset(input: {
+    tenantId: string;
+    datasetId: string;
+  }): Promise<ModelEvaluationDataset>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1323,6 +1348,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly modelProviderPolicies = new Map<
     string,
     ModelProviderPolicy
+  >();
+  private readonly modelEvaluationDatasets = new Map<
+    string,
+    ModelEvaluationDataset
   >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
@@ -3105,6 +3134,105 @@ export class MemoryPlatformStore implements PlatformStore {
     policy.retiredAt = now();
     policy.updatedAt = policy.retiredAt;
     return policy;
+  }
+
+  async createModelEvaluationDataset(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    sampleSize: number;
+    holdoutSize: number;
+    labelSource: string;
+    ownerPersonId: string;
+    refreshedAt?: string;
+    nextRefreshDueAt?: string;
+    contentHash?: string;
+  }): Promise<ModelEvaluationDataset> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const owner = this.persons.get(input.ownerPersonId);
+    if (!owner || owner.tenantId !== input.tenantId) {
+      notFound("Person", input.ownerPersonId);
+    }
+    if (input.holdoutSize >= input.sampleSize) {
+      throw new ConflictError(
+        "GOLD_SET_HOLDOUT_TOO_LARGE: holdout must be smaller than sample",
+      );
+    }
+    if (
+      [...this.modelEvaluationDatasets.values()].some(
+        (dataset) =>
+          dataset.tenantId === input.tenantId &&
+          dataset.code === input.code &&
+          dataset.version === input.version,
+      )
+    ) {
+      throw new ConflictError(
+        `gold set ${input.code}@v${input.version} already exists`,
+      );
+    }
+    const timestamp = now();
+    const dataset: ModelEvaluationDataset = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      version: input.version,
+      name: input.name,
+      sampleSize: input.sampleSize,
+      holdoutSize: input.holdoutSize,
+      labelSource: input.labelSource,
+      ownerPersonId: input.ownerPersonId,
+      status: "ACTIVE",
+      refreshedAt: input.refreshedAt ?? timestamp,
+      nextRefreshDueAt: input.nextRefreshDueAt,
+      contentHash: input.contentHash,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.modelEvaluationDatasets.set(dataset.id, dataset);
+    return dataset;
+  }
+
+  async listModelEvaluationDatasets(
+    tenantId: string,
+  ): Promise<ModelEvaluationDataset[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelEvaluationDatasets.values()]
+      .filter((dataset) => dataset.tenantId === tenantId)
+      .sort((a, b) => b.refreshedAt.localeCompare(a.refreshedAt));
+  }
+
+  async getActiveModelEvaluationDataset(
+    tenantId: string,
+    code: string,
+  ): Promise<ModelEvaluationDataset | undefined> {
+    return [...this.modelEvaluationDatasets.values()]
+      .filter(
+        (dataset) =>
+          dataset.tenantId === tenantId &&
+          dataset.code === code &&
+          dataset.status === "ACTIVE",
+      )
+      .sort((a, b) => b.version - a.version)[0];
+  }
+
+  async retireModelEvaluationDataset(input: {
+    tenantId: string;
+    datasetId: string;
+  }): Promise<ModelEvaluationDataset> {
+    const dataset = this.modelEvaluationDatasets.get(input.datasetId);
+    if (!dataset || dataset.tenantId !== input.tenantId) {
+      notFound("ModelEvaluationDataset", input.datasetId);
+    }
+    if (dataset.status === "RETIRED") {
+      throw new ConflictError(
+        `model evaluation dataset ${dataset.id} is already retired`,
+      );
+    }
+    dataset.status = "RETIRED";
+    dataset.retiredAt = now();
+    dataset.updatedAt = dataset.retiredAt;
+    return dataset;
   }
 
   async createApprovalRequest(input: {
@@ -8461,6 +8589,117 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapModelProviderPolicy(rows[0]);
   }
 
+  async createModelEvaluationDataset(input: {
+    tenantId: string;
+    code: string;
+    version: number;
+    name: string;
+    sampleSize: number;
+    holdoutSize: number;
+    labelSource: string;
+    ownerPersonId: string;
+    refreshedAt?: string;
+    nextRefreshDueAt?: string;
+    contentHash?: string;
+  }): Promise<ModelEvaluationDataset> {
+    if (input.holdoutSize >= input.sampleSize) {
+      throw new ConflictError(
+        "GOLD_SET_HOLDOUT_TOO_LARGE: holdout must be smaller than sample",
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_evaluation_datasets
+          (id, tenant_id, code, version, name, sample_size, holdout_size,
+           label_source, owner_person_id, refreshed_at,
+           next_refresh_due_at, content_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()),$11,$12)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.version,
+          input.name,
+          input.sampleSize,
+          input.holdoutSize,
+          input.labelSource,
+          input.ownerPersonId,
+          input.refreshedAt ?? null,
+          input.nextRefreshDueAt ?? null,
+          input.contentHash ?? null,
+        ],
+      );
+      return this.mapModelEvaluationDataset(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `gold set ${input.code}@v${input.version} already exists`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or owner ${input.ownerPersonId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listModelEvaluationDatasets(
+    tenantId: string,
+  ): Promise<ModelEvaluationDataset[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_evaluation_datasets
+        WHERE tenant_id=$1
+        ORDER BY refreshed_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapModelEvaluationDataset(row));
+  }
+
+  async getActiveModelEvaluationDataset(
+    tenantId: string,
+    code: string,
+  ): Promise<ModelEvaluationDataset | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_evaluation_datasets
+        WHERE tenant_id=$1 AND code=$2 AND status='ACTIVE'
+        ORDER BY version DESC
+        LIMIT 1`,
+      [tenantId, code],
+    );
+    return rows[0] ? this.mapModelEvaluationDataset(rows[0]) : undefined;
+  }
+
+  async retireModelEvaluationDataset(input: {
+    tenantId: string;
+    datasetId: string;
+  }): Promise<ModelEvaluationDataset> {
+    const { rows } = await this.pool.query(
+      `UPDATE model_evaluation_datasets
+          SET status='RETIRED', retired_at=now(), updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.datasetId],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM model_evaluation_datasets WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.datasetId],
+      );
+      if (!current.rows[0]) {
+        notFound("ModelEvaluationDataset", input.datasetId);
+      }
+      throw new ConflictError(
+        `model evaluation dataset ${input.datasetId} is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapModelEvaluationDataset(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -12660,6 +12899,29 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapModelEvaluationDataset(
+    row: QueryResultRow,
+  ): ModelEvaluationDataset {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      version: Number(row.version),
+      name: row.name,
+      sampleSize: Number(row.sample_size),
+      holdoutSize: Number(row.holdout_size),
+      labelSource: row.label_source,
+      ownerPersonId: row.owner_person_id,
+      status: row.status,
+      refreshedAt: iso(row.refreshed_at) ?? new Date().toISOString(),
+      nextRefreshDueAt: iso(row.next_refresh_due_at),
+      contentHash: row.content_hash ?? undefined,
+      retiredAt: iso(row.retired_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

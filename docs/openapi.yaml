@@ -996,6 +996,70 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/model-evaluation-datasets:
+    get:
+      tags: [Agent]
+      summary: List registered gold sets
+      responses:
+        "200":
+          description: Gold sets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Register a gold-set version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelEvaluationDataset"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/model-evaluation-datasets/{id}/retire:
+    post:
+      tags: [Agent]
+      summary: Retire a gold set
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/model-provider-policies:
     get:
       tags: [Agent]
@@ -7659,6 +7723,38 @@ components:
           type: array
           items:
             type: string
+
+    CreateModelEvaluationDataset:
+      type: object
+      required:
+        [code, name, sampleSize, holdoutSize, labelSource, ownerPersonId]
+      properties:
+        code:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+          default: 1
+        name:
+          type: string
+        sampleSize:
+          type: integer
+          minimum: 2
+        holdoutSize:
+          type: integer
+          minimum: 1
+        labelSource:
+          type: string
+        ownerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        refreshedAt:
+          type: string
+          format: date-time
+        nextRefreshDueAt:
+          type: string
+          format: date-time
+        contentHash:
+          type: string
 
     CreateModelProviderPolicy:
       type: object

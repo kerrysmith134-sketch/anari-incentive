@@ -583,6 +583,24 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ModelEvaluationDataset {
+  id: Uuid;
+  code: string;
+  version: number;
+  name: string;
+  sampleSize: number;
+  holdoutSize: number;
+  labelSource: string;
+  ownerPersonId: Uuid;
+  status: "ACTIVE" | "RETIRED";
+  refreshedAt: string;
+  nextRefreshDueAt?: string;
+  contentHash?: string;
+  retiredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelProviderPolicy {
   id: Uuid;
   provider: string;

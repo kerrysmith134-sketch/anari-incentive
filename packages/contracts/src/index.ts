@@ -92,6 +92,32 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createModelEvaluationDatasetSchema = z
+  .object({
+    code: z.string().min(1),
+    version: z.number().int().positive().default(1),
+    name: z.string().min(1),
+    sampleSize: z.number().int().positive(),
+    holdoutSize: z.number().int().min(1),
+    labelSource: z.string().min(1),
+    ownerPersonId: uuidSchema,
+    refreshedAt: z.string().datetime().optional(),
+    nextRefreshDueAt: z.string().datetime().optional(),
+    contentHash: z.string().min(1).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.holdoutSize >= value.sampleSize) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["holdoutSize"],
+        message: "holdoutSize must be smaller than sampleSize",
+      });
+    }
+  });
+export type CreateModelEvaluationDatasetBody = z.infer<
+  typeof createModelEvaluationDatasetSchema
+>;
+
 export const createModelProviderPolicySchema = z.object({
   provider: z.string().min(1),
   zeroRetentionConfirmed: z.boolean(),

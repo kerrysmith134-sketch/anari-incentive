@@ -350,6 +350,25 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface ModelEvaluationDataset {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  version: number;
+  name: string;
+  sampleSize: number;
+  holdoutSize: number;
+  labelSource: string;
+  ownerPersonId: UUID;
+  status: "ACTIVE" | "RETIRED";
+  refreshedAt: string;
+  nextRefreshDueAt?: string;
+  contentHash?: string;
+  retiredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelProviderPolicy {
   id: UUID;
   tenantId: UUID;

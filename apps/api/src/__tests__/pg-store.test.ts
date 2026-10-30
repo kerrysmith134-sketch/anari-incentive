@@ -3364,6 +3364,46 @@ describePg("PgStore vertical slice", () => {
     ).toBeUndefined();
   });
 
+  it("persists gold-set versions and retirement", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const dataset = await platform.createModelEvaluationDataset({
+      tenantId: DEMO_TENANT_ID,
+      code: `PG-GOLD-${Date.now()}`,
+      version: 1,
+      name: "PG gold set",
+      sampleSize: 100,
+      holdoutSize: 20,
+      labelSource: "DOUBLE_ANNOTATION",
+      ownerPersonId: OWNER,
+    });
+    expect(dataset.status).toBe("ACTIVE");
+    await expect(
+      platform.createModelEvaluationDataset({
+        tenantId: DEMO_TENANT_ID,
+        code: dataset.code,
+        version: 1,
+        name: "Duplicate",
+        sampleSize: 100,
+        holdoutSize: 20,
+        labelSource: "DOUBLE_ANNOTATION",
+        ownerPersonId: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (
+        await platform.getActiveModelEvaluationDataset(
+          DEMO_TENANT_ID,
+          dataset.code,
+        )
+      )?.id,
+    ).toBe(dataset.id);
+    const retired = await platform.retireModelEvaluationDataset({
+      tenantId: DEMO_TENANT_ID,
+      datasetId: dataset.id,
+    });
+    expect(retired.status).toBe("RETIRED");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

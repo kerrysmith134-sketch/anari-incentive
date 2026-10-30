@@ -37,6 +37,7 @@ import {
   closeClawbackCaseSchema,
   createDiscretionaryPoolReviewSchema,
   createModelProviderPolicySchema,
+  createModelEvaluationDatasetSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -605,6 +606,27 @@ export function buildApp(
     if (acknowledged.length > 0) {
       throw new ConflictError(
         `RETROACTIVE_ADJUSTMENT_BLOCKED: cycle ${entry.cycleId} has an acknowledged settlement batch (${acknowledged[0]?.batchNo}); record a correction cycle instead`,
+      );
+    }
+  }
+
+  async function assertRegisteredGoldSet(
+    request: FastifyRequest,
+    datasetRef: string,
+  ): Promise<void> {
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    const required = Boolean(
+      (tenant.settings as { requireRegisteredGoldSet?: unknown })
+        .requireRegisteredGoldSet,
+    );
+    if (!required) return;
+    const dataset = await platformStore.getActiveModelEvaluationDataset(
+      tenantOf(request),
+      datasetRef,
+    );
+    if (!dataset) {
+      throw new ConflictError(
+        `GOLD_SET_NOT_REGISTERED: ${datasetRef}`,
       );
     }
   }
@@ -3329,6 +3351,48 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/model-evaluation-datasets", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createModelEvaluationDatasetSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createModelEvaluationDataset({
+          tenantId: tenantOf(request),
+          code: body.code,
+          version: body.version ?? 1,
+          name: body.name,
+          sampleSize: body.sampleSize,
+          holdoutSize: body.holdoutSize,
+          labelSource: body.labelSource,
+          ownerPersonId: body.ownerPersonId,
+          refreshedAt: body.refreshedAt,
+          nextRefreshDueAt: body.nextRefreshDueAt,
+          contentHash: body.contentHash,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/model-evaluation-datasets", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listModelEvaluationDatasets(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-evaluation-datasets/:id/retire", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await platformStore.retireModelEvaluationDataset({
+        tenantId: tenantOf(request),
+        datasetId: idOf(request),
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/trust-surveys", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createTrustSurveySchema, request.body);
@@ -4751,6 +4815,7 @@ export function buildApp(
   app.post("/api/v1/model-evaluation-runs:evaluate", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(runModelEvaluationSchema, request.body);
+    await assertRegisteredGoldSet(request, body.datasetRef);
     const thresholds = {
       ...DEFAULT_THRESHOLDS,
       ...(body.thresholds ?? {}),

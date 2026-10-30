@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -33,6 +33,7 @@ import {
 import type {
   AiReviewMetrics,
   AiScoreProposal,
+  ModelEvaluationDataset,
   ModelEvaluationRun,
   ModelPrompt,
 } from "../lib/types.js";
@@ -53,6 +54,9 @@ export function AiPage() {
   const prompts = useApiQuery<ModelPrompt[]>("/api/v1/model-prompts");
   const evaluations = useApiQuery<ModelEvaluationRun[]>(
     "/api/v1/model-evaluation-runs",
+  );
+  const datasets = useApiQuery<ModelEvaluationDataset[]>(
+    "/api/v1/model-evaluation-datasets",
   );
   const reviewMetrics = useApiQuery<AiReviewMetrics>(
     "/api/v1/ai-review-metrics",
@@ -88,6 +92,18 @@ export function AiPage() {
   const [auditStartedAt, setAuditStartedAt] = useState("");
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditSubmitting, setAuditSubmitting] = useState(false);
+  const [datasetOpen, setDatasetOpen] = useState(false);
+  const [datasetSaving, setDatasetSaving] = useState(false);
+  const [datasetError, setDatasetError] = useState<string | null>(null);
+  const [datasetCode, setDatasetCode] = useState("");
+  const [datasetVersion, setDatasetVersion] = useState("1");
+  const [datasetName, setDatasetName] = useState("");
+  const [datasetSample, setDatasetSample] = useState("100");
+  const [datasetHoldout, setDatasetHoldout] = useState("20");
+  const [datasetLabelSource, setDatasetLabelSource] =
+    useState("DOUBLE_ANNOTATION");
+  const [datasetOwner, setDatasetOwner] = useState(session.personId);
+  const [datasetRefreshDue, setDatasetRefreshDue] = useState("");
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
@@ -107,6 +123,68 @@ export function AiPage() {
       ? pending.reduce((total, proposal) => total + proposal.confidence, 0) /
         pending.length
       : 0;
+
+  function openDatasetForm() {
+    setDatasetCode("");
+    setDatasetVersion("1");
+    setDatasetName("");
+    setDatasetSample("100");
+    setDatasetHoldout("20");
+    setDatasetLabelSource("DOUBLE_ANNOTATION");
+    setDatasetOwner(session.personId);
+    setDatasetRefreshDue("");
+    setDatasetError(null);
+    setDatasetOpen(true);
+  }
+
+  async function saveDataset(event: FormEvent) {
+    event.preventDefault();
+    setDatasetSaving(true);
+    setDatasetError(null);
+    try {
+      await api("/api/v1/model-evaluation-datasets", {
+        method: "POST",
+        body: {
+          code: datasetCode.trim(),
+          version: Number(datasetVersion),
+          name: datasetName.trim(),
+          sampleSize: Number(datasetSample),
+          holdoutSize: Number(datasetHoldout),
+          labelSource: datasetLabelSource.trim(),
+          ownerPersonId: datasetOwner,
+          nextRefreshDueAt: datasetRefreshDue
+            ? new Date(`${datasetRefreshDue}T00:00:00Z`).toISOString()
+            : undefined,
+        },
+      });
+      toast.success("Gold set registered");
+      setDatasetOpen(false);
+      datasets.reload();
+    } catch (error) {
+      setDatasetError(
+        error instanceof Error
+          ? error.message
+          : "Could not register the gold set.",
+      );
+    } finally {
+      setDatasetSaving(false);
+    }
+  }
+
+  async function retireDataset(dataset: ModelEvaluationDataset) {
+    try {
+      await api(`/api/v1/model-evaluation-datasets/${dataset.id}/retire`, {
+        method: "POST",
+      });
+      toast.success("Gold set retired");
+      datasets.reload();
+    } catch (error) {
+      toast.error(
+        "Could not retire gold set",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    }
+  }
 
   function openReview(proposal: AiScoreProposal) {
     setSelected(proposal);
@@ -382,6 +460,11 @@ export function AiPage() {
             id: "audit",
             label: "Audit queue",
             count: reviewMetrics.data?.auditPendingCount ?? 0,
+          },
+          {
+            id: "datasets",
+            label: "Gold sets",
+            count: datasets.data?.length ?? 0,
           },
         ]}
         active={tab}
@@ -765,7 +848,198 @@ export function AiPage() {
             )}
           </Panel>
         ) : null}
+        {tab === "datasets" ? (
+          <Panel
+            title="Gold sets"
+            subtitle="Versioned evaluation datasets with holdout and refresh tracking"
+            action={
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="plus"
+                onClick={openDatasetForm}
+              >
+                Register gold set
+              </Button>
+            }
+            flush
+          >
+            {datasets.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={datasets.error} onRetry={datasets.reload} />
+              </div>
+            ) : datasets.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : (datasets.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon="chart"
+                title="No gold set registered"
+                description="Register a labelled dataset with its holdout and quarterly refresh date before enabling registered-gold-set enforcement."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Gold set</th>
+                      <th className="cell-num">Sample</th>
+                      <th className="cell-num">Holdout</th>
+                      <th>Labels</th>
+                      <th>Refresh due</th>
+                      <th>Status</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {datasets.data?.map((dataset) => (
+                      <tr key={dataset.id}>
+                        <td>
+                          <span className="cell-primary">
+                            {dataset.code} · v{dataset.version}
+                          </span>
+                          <span className="cell-sub">{dataset.name}</span>
+                        </td>
+                        <td className="cell-num">{dataset.sampleSize}</td>
+                        <td className="cell-num">{dataset.holdoutSize}</td>
+                        <td>{dataset.labelSource}</td>
+                        <td className="nowrap">
+                          {dataset.nextRefreshDueAt
+                            ? formatDateTime(dataset.nextRefreshDueAt)
+                            : "—"}
+                        </td>
+                        <td>
+                          <Badge status={dataset.status} />
+                        </td>
+                        <td className="cell-actions">
+                          {dataset.status === "ACTIVE" ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void retireDataset(dataset)}
+                            >
+                              Retire
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : null}
       </div>
+
+      <Modal
+        open={datasetOpen}
+        title="Register gold set"
+        description="Holdout must be smaller than the sample. Use a new version for a refresh."
+        onClose={() => setDatasetOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDatasetOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="dataset-form"
+              loading={datasetSaving}
+            >
+              Register
+            </Button>
+          </>
+        }
+      >
+        <form id="dataset-form" className="stack" onSubmit={saveDataset}>
+          {datasetError ? (
+            <InfoNotice tone="warning">{datasetError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Code" htmlFor="dataset-code">
+              <TextInput
+                id="dataset-code"
+                value={datasetCode}
+                onChange={(event) => setDatasetCode(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Version" htmlFor="dataset-version">
+              <TextInput
+                id="dataset-version"
+                type="number"
+                min={1}
+                value={datasetVersion}
+                onChange={(event) => setDatasetVersion(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField
+              label="Name"
+              htmlFor="dataset-name"
+              className="field--full"
+            >
+              <TextInput
+                id="dataset-name"
+                value={datasetName}
+                onChange={(event) => setDatasetName(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Sample size" htmlFor="dataset-sample">
+              <TextInput
+                id="dataset-sample"
+                type="number"
+                min={2}
+                value={datasetSample}
+                onChange={(event) => setDatasetSample(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Holdout size" htmlFor="dataset-holdout">
+              <TextInput
+                id="dataset-holdout"
+                type="number"
+                min={1}
+                value={datasetHoldout}
+                onChange={(event) => setDatasetHoldout(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Label source" htmlFor="dataset-label">
+              <TextInput
+                id="dataset-label"
+                value={datasetLabelSource}
+                onChange={(event) =>
+                  setDatasetLabelSource(event.target.value)
+                }
+                required
+              />
+            </FormField>
+            <FormField label="Owner" htmlFor="dataset-owner">
+              <PersonSelect
+                id="dataset-owner"
+                value={datasetOwner}
+                onChange={setDatasetOwner}
+              />
+            </FormField>
+            <FormField
+              label="Next refresh due"
+              htmlFor="dataset-refresh"
+            >
+              <TextInput
+                id="dataset-refresh"
+                type="date"
+                value={datasetRefreshDue}
+                onChange={(event) => setDatasetRefreshDue(event.target.value)}
+              />
+            </FormField>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={Boolean(selected)}
