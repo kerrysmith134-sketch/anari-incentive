@@ -1913,6 +1913,135 @@ export function buildApp(
     return data(report, request);
   });
 
+  app.get("/api/v1/reports/team-aggregate", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { managerPersonId?: string };
+    const own = ownPersonId(request);
+    const managerPersonId = query.managerPersonId ?? own;
+    if (!managerPersonId) {
+      throw new BadRequestError(
+        "MANAGER_REQUIRED",
+        "managerPersonId is required when no person is linked to the caller",
+      );
+    }
+    if (!isPrivileged(request) && managerPersonId !== own) {
+      throw new ForbiddenError(
+        "a manager can only view their own team aggregate",
+      );
+    }
+    const tenantId = tenantOf(request);
+    const [
+      people,
+      decisions,
+      attributionDecisions,
+      claims,
+      appeals,
+      workPackages,
+    ] = await Promise.all([
+      platformStore.listPersons(tenantId),
+      storeFor(request).listEvaluationDecisions(),
+      storeFor(request).listDecisions(),
+      storeFor(request).listClaims(),
+      storeFor(request).listAppeals(),
+      storeFor(request).listWorkPackages(),
+    ]);
+    const team = people.filter(
+      (person) =>
+        person.managerPersonId === managerPersonId &&
+        person.id !== managerPersonId,
+    );
+    const teamIds = new Set(team.map((person) => person.id));
+    const minimumGroupSize = 3;
+    if (team.length < minimumGroupSize) {
+      return data(
+        {
+          generatedAt: new Date().toISOString(),
+          managerPersonId,
+          teamSize: team.length,
+          suppressed: true,
+          minimumGroupSize,
+          note: "Team aggregates are suppressed below the minimum group size.",
+        },
+        request,
+      );
+    }
+    const latestDecisionByPerson = new Map<string, (typeof decisions)[number]>();
+    for (const decision of decisions) {
+      if (!teamIds.has(decision.personId)) continue;
+      if (decision.status !== "APPROVED") continue;
+      const current = latestDecisionByPerson.get(decision.personId);
+      if (
+        !current ||
+        decision.decisionVersion > current.decisionVersion
+      ) {
+        latestDecisionByPerson.set(decision.personId, decision);
+      }
+    }
+    const latestDecisions = [...latestDecisionByPerson.values()];
+    const dimensionTotals: Record<string, { total: number; count: number }> = {};
+    for (const decision of latestDecisions) {
+      for (const [dimension, score] of Object.entries(decision.scores)) {
+        dimensionTotals[dimension] ??= { total: 0, count: 0 };
+        dimensionTotals[dimension].total += score;
+        dimensionTotals[dimension].count += 1;
+      }
+    }
+    const dimensions = Object.fromEntries(
+      Object.entries(dimensionTotals).map(([dimension, total]) => [
+        dimension,
+        Math.round((total.total / total.count) * 100) / 100,
+      ]),
+    );
+    const teamClaims = claims.filter((claim) =>
+      teamIds.has(claim.claimantPersonId),
+    );
+    const claimIds = new Set(teamClaims.map((claim) => claim.id));
+    const confirmedClaims = attributionDecisions.filter(
+      (decision) =>
+        claimIds.has(decision.claimId) &&
+        decision.status === "CONFIRMED",
+    ).length;
+    const teamAppeals = appeals.filter((appeal) =>
+      teamIds.has(appeal.appellantPersonId),
+    );
+    const teamPackages = workPackages.filter(
+      (workPackage) =>
+        teamIds.has(workPackage.ownerPersonId) ||
+        workPackage.members.some((member) => teamIds.has(member.personId)),
+    );
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        managerPersonId,
+        teamSize: team.length,
+        suppressed: false,
+        minimumGroupSize,
+        evaluations: {
+          evaluated: latestDecisions.length,
+          coverage:
+            team.length === 0 ? 0 : latestDecisions.length / team.length,
+          dimensions,
+        },
+        claims: {
+          total: teamClaims.length,
+          confirmed: confirmedClaims,
+        },
+        appeals: {
+          total: teamAppeals.length,
+          open: teamAppeals.filter((appeal) => appeal.status !== "CLOSED")
+            .length,
+        },
+        workPackages: {
+          total: teamPackages.length,
+          accepted: teamPackages.filter(
+            (workPackage) => workPackage.status === "ACCEPTED",
+          ).length,
+        },
+      },
+      request,
+    );
+  });
+
   app.get("/api/v1/reports/policy-review", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { from?: string; to?: string };

@@ -5438,6 +5438,35 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/reports/team-aggregate:
+    get:
+      tags: [Reporting]
+      summary: Report a manager's team aggregate
+      description: |
+        Group-level counts and dimension averages for direct reports. No
+        individual amounts or names are returned. Results are suppressed below
+        the minimum group size (3). A non-privileged manager can only request
+        their own team.
+      parameters:
+        - name: managerPersonId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Team aggregate or suppression notice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/reports/policy-review:
     get:
       tags: [Reporting]

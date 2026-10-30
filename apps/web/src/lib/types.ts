@@ -463,6 +463,23 @@ export interface OperationsCoverageReport {
   [key: string]: unknown;
 }
 
+export interface TeamAggregateReport {
+  generatedAt: string;
+  managerPersonId: Uuid;
+  teamSize: number;
+  suppressed: boolean;
+  minimumGroupSize: number;
+  note?: string;
+  evaluations?: {
+    evaluated: number;
+    coverage: number;
+    dimensions: Record<string, number>;
+  };
+  claims?: { total: number; confirmed: number };
+  appeals?: { total: number; open: number };
+  workPackages?: { total: number; accepted: number };
+}
+
 export interface PolicyReviewReport {
   from: string;
   to: string;

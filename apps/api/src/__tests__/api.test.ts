@@ -6586,6 +6586,55 @@ describe("vertical slice", () => {
     expect(invalid.body.error.code).toBe("INVALID_REPORT_WINDOW");
   });
 
+  it("suppresses team aggregates below the minimum group size", async () => {
+    const memberIds: string[] = [];
+    for (const index of [1, 2]) {
+      const person = await call(
+        "POST",
+        "/api/v1/platform/tenants/tenant-demo/persons",
+        {
+          employeeCode: `TEAM-${index}`,
+          displayName: `Team member ${index}`,
+        },
+      );
+      expect(person.status).toBe(201);
+      memberIds.push(person.body.data.id as string);
+      const assigned = await call(
+        "POST",
+        `/api/v1/platform/tenants/tenant-demo/persons/${person.body.data.id}/manager`,
+        { managerPersonId: OWNER },
+      );
+      expect(assigned.status).toBe(200);
+    }
+    const small = await call(
+      "GET",
+      `/api/v1/reports/team-aggregate?managerPersonId=${OWNER}`,
+    );
+    expect(small.status).toBe(200);
+    expect(small.body.data.teamSize).toBe(2);
+    expect(small.body.data.suppressed).toBe(true);
+
+    const third = await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/persons",
+      { employeeCode: "TEAM-3", displayName: "Team member 3" },
+    );
+    await call(
+      "POST",
+      `/api/v1/platform/tenants/tenant-demo/persons/${third.body.data.id}/manager`,
+      { managerPersonId: OWNER },
+    );
+    const aggregate = await call(
+      "GET",
+      `/api/v1/reports/team-aggregate?managerPersonId=${OWNER}`,
+    );
+    expect(aggregate.status).toBe(200);
+    expect(aggregate.body.data.suppressed).toBe(false);
+    expect(aggregate.body.data.teamSize).toBe(3);
+    expect(aggregate.body.data.evaluations.evaluated).toBe(0);
+    expect(aggregate.body.data.claims).toEqual({ total: 0, confirmed: 0 });
+  });
+
   it("registers data sources and reports the field-level data map", async () => {
     const created = await call("POST", "/api/v1/data-sources", {
       code: "CRM",

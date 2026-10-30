@@ -20,6 +20,8 @@ import type {
   IntegrationConnection,
   OperationsCoverageReport,
   PayrollRun,
+  PlatformIdentity,
+  TeamAggregateReport,
 } from "../lib/types.js";
 
 const CLOSED_CYCLE_STATUSES = new Set([
@@ -46,6 +48,15 @@ export function DashboardPage() {
   const audit = useApiQuery<AuditEvent[]>("/api/v1/audit-events?limit=7");
   const auditChain = useApiQuery<{ valid: boolean }>(
     "/api/v1/audit-events/verify",
+  );
+  const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
+  const canViewTeam = Boolean(
+    identity.data?.roles.some((role) =>
+      ["admin", "manager", "finance"].includes(role),
+    ),
+  );
+  const team = useApiQuery<TeamAggregateReport>(
+    canViewTeam ? "/api/v1/reports/team-aggregate" : null,
   );
 
   const activeCycles =
@@ -581,6 +592,98 @@ export function DashboardPage() {
           </Panel>
         </div>
       </div>
+
+      {canViewTeam ? (
+        <Panel
+          title="Team aggregate"
+          subtitle="Group-level coverage only; individual amounts and names are never shown"
+          className="section-gap"
+        >
+          {team.error ? (
+            <ErrorNotice error={team.error} onRetry={team.reload} />
+          ) : team.loading || !team.data ? (
+            <div className="loading-inline">
+              <span className="spinner" /> Loading team aggregate…
+            </div>
+          ) : team.data.suppressed ? (
+            <InfoNotice>
+              {team.data.note ??
+                "Team aggregates are suppressed below the minimum group size."}{" "}
+              Current group size is {team.data.teamSize}; at least{" "}
+              {team.data.minimumGroupSize} direct reports are required.
+            </InfoNotice>
+          ) : (
+            <>
+              <div className="coverage-grid">
+                <div className="coverage-cell">
+                  <div className="coverage-cell__label">Direct reports</div>
+                  <div className="coverage-cell__value">{team.data.teamSize}</div>
+                  <div className="coverage-cell__sub">
+                    minimum group {team.data.minimumGroupSize}
+                  </div>
+                </div>
+                <div className="coverage-cell">
+                  <div className="coverage-cell__label">Evaluation coverage</div>
+                  <div className="coverage-cell__value">
+                    {formatPercent(team.data.evaluations?.coverage ?? 0)}
+                  </div>
+                  <div className="coverage-cell__sub">
+                    {team.data.evaluations?.evaluated ?? 0} of{" "}
+                    {team.data.teamSize} evaluated
+                  </div>
+                </div>
+                <div className="coverage-cell">
+                  <div className="coverage-cell__label">Confirmed claims</div>
+                  <div className="coverage-cell__value">
+                    {team.data.claims?.confirmed ?? 0}
+                  </div>
+                  <div className="coverage-cell__sub">
+                    of {team.data.claims?.total ?? 0} claims
+                  </div>
+                </div>
+                <div className="coverage-cell">
+                  <div className="coverage-cell__label">Open appeals</div>
+                  <div className="coverage-cell__value">
+                    {team.data.appeals?.open ?? 0}
+                  </div>
+                  <div className="coverage-cell__sub">
+                    {team.data.appeals?.total ?? 0} total
+                  </div>
+                </div>
+                <div className="coverage-cell">
+                  <div className="coverage-cell__label">Work packages</div>
+                  <div className="coverage-cell__value">
+                    {team.data.workPackages?.total ?? 0}
+                  </div>
+                  <div className="coverage-cell__sub">
+                    {team.data.workPackages?.accepted ?? 0} accepted
+                  </div>
+                </div>
+              </div>
+              {Object.keys(team.data.evaluations?.dimensions ?? {}).length >
+              0 ? (
+                <div className="detail-section">
+                  <div className="detail-section__title">Dimension averages</div>
+                  <div className="stack" style={{ gap: 6 }}>
+                    {Object.entries(
+                      team.data.evaluations?.dimensions ?? {},
+                    ).map(([dimension, score]) => (
+                      <div
+                        key={dimension}
+                        className="inline"
+                        style={{ justifyContent: "space-between", width: "100%" }}
+                      >
+                        <span>{titleCase(dimension)}</span>
+                        <span className="muted">{score.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </Panel>
+      ) : null}
     </>
   );
 }
