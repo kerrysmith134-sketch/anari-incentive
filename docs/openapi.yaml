@@ -2348,6 +2348,121 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/ai-score-proposals:
+    get:
+      tags: [Agent]
+      summary: List AI numeric score proposals
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: cycleId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, ACCEPTED, REJECTED]
+      responses:
+        "200":
+          description: Score proposals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Create a gated AI numeric score proposal
+      description: |
+        Requires a passed model evaluation run. Scores are computed from the
+        supplied evidence by the transparent coverage model; the proposal stays
+        PENDING until a human decision. An optional modelPromptId must be ACTIVE
+        and match the evaluation's provider/model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAiScoreProposal"
+      responses:
+        "201":
+          description: Proposal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/ai-score-proposals/{id}:
+    get:
+      tags: [Agent]
+      summary: Read an AI numeric score proposal
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Score proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/ai-score-proposals/{id}/decide:
+    post:
+      tags: [Agent]
+      summary: Accept or reject an AI score proposal
+      description: The requester cannot decide their own proposal; decisions are one-time.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideAiScoreProposal"
+      responses:
+        "200":
+          description: Decided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/workflow-runs:
     get:
       tags: [Agent]
@@ -5562,6 +5677,59 @@ components:
           type: array
           items:
             type: string
+
+    ScoringEvidence:
+      type: object
+      required: [id, type, text]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        text:
+          type: string
+        dimension:
+          type: string
+        quality:
+          type: string
+          enum: [VALID, UNVERIFIED, STALE, CONFLICTED, INVALID]
+
+    CreateAiScoreProposal:
+      type: object
+      required: [cycleId, personId, evaluationRunId, dimensions, evidence]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        evaluationRunId:
+          $ref: "#/components/schemas/Uuid"
+        modelPromptId:
+          $ref: "#/components/schemas/Uuid"
+        dimensions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        evidence:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ScoringEvidence"
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    DecideAiScoreProposal:
+      type: object
+      required: [decision, decidedBy]
+      properties:
+        decision:
+          type: string
+          enum: [ACCEPT, REJECT]
+        decidedBy:
+          $ref: "#/components/schemas/Uuid"
+        note:
+          type: string
 
     CreateModelPrompt:
       type: object

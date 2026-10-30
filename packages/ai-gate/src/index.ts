@@ -77,3 +77,4 @@ export class EvidenceAssistant {
   }
 }
 export * from "./evaluate.js";
+export * from "./scoring.js";

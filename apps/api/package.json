@@ -8,6 +8,7 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "@anari/ai-gate": "0.1.0",
     "@anari/contracts": "0.1.0",
     "@anari/domain": "0.1.0",
     "@anari/ledger": "0.1.0",

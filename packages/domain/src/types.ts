@@ -763,6 +763,34 @@ export interface ModelPrompt {
   createdAt: string;
 }
 
+export type AiScoreProposalStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+export interface AiScoreProposal {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  personId: UUID;
+  evaluationRunId: UUID;
+  modelPromptId?: UUID;
+  modelProvider: string;
+  modelName: string;
+  promptVersion: string;
+  dimensions: string[];
+  scores: Record<string, number>;
+  overallScore: number;
+  confidence: number;
+  rationale: string;
+  evidenceRefs: string[];
+  evidenceSnapshotHash: string;
+  gateMetrics: Record<string, unknown>;
+  status: AiScoreProposalStatus;
+  requestedBy?: UUID;
+  decidedBy?: UUID;
+  decisionNote?: string;
+  decidedAt?: string;
+  createdAt: string;
+}
+
 export interface WorkflowRun {
   id: UUID;
   tenantId: UUID;

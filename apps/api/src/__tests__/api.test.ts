@@ -2502,6 +2502,122 @@ describe("AI suggestion logs and workflow runs", () => {
       "MODEL_PROMPT_NOT_ACTIVE",
     );
   });
+
+  it("creates gated AI score proposals with human decisions", async () => {
+    const evaluation = await call(
+      "POST",
+      "/api/v1/model-evaluation-runs",
+      {
+        evaluationType: "IRR",
+        modelProvider: "anthropic",
+        modelName: "claude",
+        promptVersion: "v1",
+        datasetRef: "score-gold-set",
+        sampleSize: 50,
+        metrics: { kappa: 0.8 },
+        subgroupMetrics: {},
+        passed: true,
+        blockers: [],
+      },
+    );
+    const evidence = [
+      {
+        id: "score-e1",
+        type: "DELIVERY",
+        text: "Signed acceptance",
+        dimension: "QUALITY",
+        quality: "VALID",
+      },
+      {
+        id: "score-e2",
+        type: "DELIVERY",
+        text: "Delivered on time",
+        dimension: "TIMELINESS",
+        quality: "VALID",
+      },
+    ];
+    const proposal = await call("POST", "/api/v1/ai-score-proposals", {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.body.data.id,
+      dimensions: ["QUALITY", "TIMELINESS"],
+      evidence,
+      requestedBy: OWNER,
+    });
+    expect(proposal.status).toBe(201);
+    expect(proposal.body.data.status).toBe("PENDING");
+    expect(proposal.body.data.scores.QUALITY).toBeGreaterThan(0);
+    expect(proposal.body.data.overallScore).toBeGreaterThan(0);
+    expect(proposal.body.data.evidenceRefs).toEqual([
+      "score-e1",
+      "score-e2",
+    ]);
+    expect(proposal.body.data.gateMetrics).toEqual({ kappa: 0.8 });
+
+    const selfDecision = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      { decision: "ACCEPT", decidedBy: OWNER },
+    );
+    expect(selfDecision.status).toBe(409);
+    expect(selfDecision.body.error.message).toContain(
+      "AI_SCORE_SELF_REVIEW",
+    );
+
+    const accepted = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      {
+        decision: "ACCEPT",
+        decidedBy: ADJUDICATOR,
+        note: "Evidence supports the proposal",
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.data.status).toBe("ACCEPTED");
+    expect(accepted.body.data.decidedBy).toBe(ADJUDICATOR);
+
+    const redecided = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
+      { decision: "REJECT", decidedBy: ADJUDICATOR },
+    );
+    expect(redecided.status).toBe(409);
+
+    const acceptedList = await call(
+      "GET",
+      "/api/v1/ai-score-proposals?status=ACCEPTED",
+    );
+    expect(acceptedList.body.data).toHaveLength(1);
+
+    const failedEvaluation = await call(
+      "POST",
+      "/api/v1/model-evaluation-runs",
+      {
+        evaluationType: "IRR",
+        modelProvider: "anthropic",
+        modelName: "claude",
+        promptVersion: "v1",
+        datasetRef: "score-gold-set",
+        sampleSize: 50,
+        metrics: { kappa: 0.2 },
+        subgroupMetrics: {},
+        passed: false,
+        blockers: ["HUMAN_IRR_TOO_LOW"],
+      },
+    );
+    const blocked = await call("POST", "/api/v1/ai-score-proposals", {
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: failedEvaluation.body.data.id,
+      dimensions: ["QUALITY"],
+      evidence,
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain(
+      "AI_EVALUATION_GATE_NOT_PASSED",
+    );
+  });
 });
 
 describe("integrations", () => {

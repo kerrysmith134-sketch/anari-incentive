@@ -514,6 +514,38 @@ export type ActivateModelPromptBody = z.infer<
   typeof activateModelPromptSchema
 >;
 
+export const scoringEvidenceSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  text: z.string().min(1),
+  dimension: z.string().min(1).optional(),
+  quality: z
+    .enum(["VALID", "UNVERIFIED", "STALE", "CONFLICTED", "INVALID"])
+    .optional(),
+});
+
+export const createAiScoreProposalSchema = z.object({
+  cycleId: uuidSchema,
+  personId: uuidSchema,
+  evaluationRunId: uuidSchema,
+  modelPromptId: uuidSchema.optional(),
+  dimensions: z.array(z.string().min(1)).min(1),
+  evidence: z.array(scoringEvidenceSchema).min(1),
+  requestedBy: uuidSchema.optional(),
+});
+export type CreateAiScoreProposalBody = z.infer<
+  typeof createAiScoreProposalSchema
+>;
+
+export const decideAiScoreProposalSchema = z.object({
+  decision: z.enum(["ACCEPT", "REJECT"]),
+  decidedBy: uuidSchema,
+  note: z.string().optional(),
+});
+export type DecideAiScoreProposalBody = z.infer<
+  typeof decideAiScoreProposalSchema
+>;
+
 export const createWorkflowRunSchema = z.object({
   agentTaskId: uuidSchema,
   workflowName: z.string().min(1),

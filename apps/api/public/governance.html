@@ -530,6 +530,32 @@
     </section>
 
     <section class="card">
+      <h2>AI 数值评分建议</h2>
+      <div class="grid">
+        <div><label>周期 ID</label><input id="proposalCycle" value="00000000-0000-4000-8000-000000000020" /></div>
+        <div><label>员工 ID</label><input id="proposalPerson" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>已通过评测 ID</label><input id="proposalEvaluation" placeholder="UUID" /></div>
+        <div><label>提示词 ID（可选）</label><input id="proposalPrompt" placeholder="UUID" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>维度（JSON 数组）</label><input id="proposalDimensions" value='["QUALITY","TIMELINESS"]' /></div>
+        <div><label>发起人 ID</label><input id="proposalRequester" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>决策人 ID</label><input id="proposalDecider" value="00000000-0000-4000-8000-000000000003" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createProposal" style="width:100%">生成评分建议</button></div>
+      </div>
+      <label style="margin-top:10px">证据（JSON 数组）</label>
+      <textarea id="proposalEvidence">[{"id":"e1","type":"DELIVERY","text":"Signed acceptance","dimension":"QUALITY","quality":"VALID"},{"id":"e2","type":"DELIVERY","text":"Delivered on time","dimension":"TIMELINESS","quality":"VALID"}]</textarea>
+      <div class="actions">
+        <button id="refreshProposals">刷新评分建议</button>
+      </div>
+      <div class="status" id="proposalStatus"></div>
+      <table>
+        <thead><tr><th>员工</th><th>总分</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="proposalRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>周期就绪度</h2>
       <div class="grid">
         <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
@@ -1812,6 +1838,65 @@
       }
     }
 
+    async function loadScoreProposals() {
+      try {
+        const proposals = await api("/api/v1/ai-score-proposals");
+        $("proposalRows").innerHTML = proposals.map((proposal) => `<tr>
+          <td class="mono">${escapeHtml(proposal.personId.slice(0, 8))}</td>
+          <td>${proposal.overallScore}（置信度 ${proposal.confidence}）</td>
+          <td><span class="pill">${escapeHtml(proposal.status)}</span></td>
+          <td>
+            ${proposal.status === "PENDING" ? `<button data-decide-proposal="${proposal.id}" data-decision="ACCEPT">接受</button><button data-decide-proposal="${proposal.id}" data-decision="REJECT">拒绝</button>` : "—"}
+          </td>
+        </tr>`).join("");
+        setStatus("proposalStatus", `共 ${proposals.length} 条评分建议`, "ok");
+      } catch (error) {
+        setStatus("proposalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createScoreProposal() {
+      try {
+        const evaluationRunId = $("proposalEvaluation").value.trim();
+        if (!evaluationRunId) {
+          throw new Error("请填写已通过的评测 ID");
+        }
+        await api("/api/v1/ai-score-proposals", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId: $("proposalCycle").value.trim(),
+            personId: $("proposalPerson").value.trim(),
+            evaluationRunId,
+            modelPromptId:
+              $("proposalPrompt").value.trim() || undefined,
+            dimensions: jsonValue("proposalDimensions", []),
+            evidence: jsonValue("proposalEvidence", []),
+            requestedBy: $("proposalRequester").value.trim() || undefined,
+          }),
+        });
+        setStatus("proposalStatus", "AI 评分建议已生成，等待人工决策", "ok");
+        await loadScoreProposals();
+      } catch (error) {
+        setStatus("proposalStatus", String(error.message), "bad");
+      }
+    }
+
+    async function decideScoreProposal(id, decision) {
+      try {
+        await api(`/api/v1/ai-score-proposals/${id}/decide`, {
+          method: "POST",
+          body: JSON.stringify({
+            decision,
+            decidedBy: $("proposalDecider").value.trim(),
+          }),
+        });
+        setStatus("proposalStatus", `评分建议${decision === "ACCEPT" ? "已接受" : "已拒绝"}`, "ok");
+        await loadScoreProposals();
+      } catch (error) {
+        setStatus("proposalStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -2015,6 +2100,17 @@
       const retire = event.target.closest("button[data-retire-prompt]");
       if (retire) retirePrompt(retire.dataset.retirePrompt);
     });
+    $("createProposal").addEventListener("click", createScoreProposal);
+    $("refreshProposals").addEventListener("click", loadScoreProposals);
+    $("proposalRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-decide-proposal]");
+      if (button) {
+        decideScoreProposal(
+          button.dataset.decideProposal,
+          button.dataset.decision,
+        );
+      }
+    });
     $("loadReadiness").addEventListener("click", loadReadiness);
     $("loadPolicyReadiness").addEventListener(
       "click",
@@ -2044,6 +2140,7 @@
         loadAdjustments(),
         loadAi(),
         loadPrompts(),
+        loadScoreProposals(),
       ]);
     })();
   </script>

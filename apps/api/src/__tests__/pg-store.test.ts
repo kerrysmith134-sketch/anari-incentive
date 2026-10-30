@@ -2169,6 +2169,43 @@ describePg("PgStore vertical slice", () => {
       validationStatus: "VALID",
     });
     expect(linkedSuggestion.modelPromptId).toBe(prompt.id);
+    const scoreProposal = await platform.createAiScoreProposal({
+      tenantId: DEMO_TENANT_ID,
+      cycleId: CYCLE,
+      personId: OWNER,
+      evaluationRunId: evaluation.id,
+      modelPromptId: prompt.id,
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      dimensions: ["QUALITY"],
+      scores: { QUALITY: 4.5 },
+      overallScore: 4.5,
+      confidence: 0.9,
+      rationale: "Two valid evidence items",
+      evidenceRefs: ["pg-score-e1"],
+      evidenceSnapshotHash: "sha256:pg-score",
+      gateMetrics: { kappa: 0.8 },
+      requestedBy: OWNER,
+    });
+    expect(scoreProposal.status).toBe("PENDING");
+    const decidedScore = await platform.decideAiScoreProposal({
+      tenantId: DEMO_TENANT_ID,
+      proposalId: scoreProposal.id,
+      decision: "ACCEPT",
+      decidedBy: ADJUDICATOR,
+      note: "Reviewed",
+    });
+    expect(decidedScore.status).toBe("ACCEPTED");
+    expect(
+      (
+        await platform.listAiScoreProposals(DEMO_TENANT_ID, {
+          personId: OWNER,
+          cycleId: CYCLE,
+          status: "ACCEPTED",
+        })
+      ).map((candidate) => candidate.id),
+    ).toContain(scoreProposal.id);
     expect(
       (
         await platform.listModelPrompts(DEMO_TENANT_ID, {

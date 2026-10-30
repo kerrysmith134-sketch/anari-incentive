@@ -62,6 +62,8 @@ import {
   createModelEvaluationRunSchema,
   createModelPromptSchema,
   activateModelPromptSchema,
+  createAiScoreProposalSchema,
+  decideAiScoreProposalSchema,
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
   createIntegrationConnectionSchema,
@@ -120,6 +122,7 @@ import {
   type PolicyTestSuiteResult,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
+import { scoreEvidence, type EvaluationGate } from "@anari/ai-gate";
 import {
   verifyFeishuSignature,
   verifyHubSpotSignature,
@@ -3424,6 +3427,132 @@ export function buildApp(
     });
     countEvent("model_prompt_retired");
     return data(prompt, request);
+  });
+
+  app.post("/api/v1/ai-score-proposals", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createAiScoreProposalSchema, request.body);
+    const tenantId = tenantOf(request);
+    const persons = await platformStore.listPersons(tenantId);
+    if (!persons.some((person) => person.id === body.personId)) {
+      throw new NotFoundError(`Person ${body.personId} not found`);
+    }
+    const evaluation = await platformStore.getModelEvaluationRun(
+      tenantId,
+      body.evaluationRunId,
+    );
+    if (!evaluation.passed) {
+      throw new ConflictError(
+        `AI_EVALUATION_GATE_NOT_PASSED: ${
+          evaluation.blockers.join(", ") || "evaluation did not pass"
+        }`,
+      );
+    }
+    let prompt;
+    if (body.modelPromptId) {
+      prompt = await platformStore.getModelPrompt(
+        tenantId,
+        body.modelPromptId,
+      );
+      if (prompt.status !== "ACTIVE") {
+        throw new ConflictError(
+          `MODEL_PROMPT_NOT_ACTIVE: ${prompt.id} is ${prompt.status}`,
+        );
+      }
+      if (
+        prompt.modelProvider !== evaluation.modelProvider ||
+        prompt.modelName !== evaluation.modelName
+      ) {
+        throw new ConflictError(
+          `MODEL_PROMPT_EVALUATION_MODEL_MISMATCH: ${prompt.id}`,
+        );
+      }
+    }
+    const gate: EvaluationGate = {
+      passed: evaluation.passed,
+      sampleSize: evaluation.sampleSize,
+      metrics: {},
+      blockers: evaluation.blockers,
+    };
+    const scored = scoreEvidence(
+      {
+        dimensions: body.dimensions,
+        evidence: body.evidence,
+      },
+      gate,
+    );
+    const proposal = await platformStore.createAiScoreProposal({
+      tenantId,
+      cycleId: body.cycleId,
+      personId: body.personId,
+      evaluationRunId: evaluation.id,
+      modelPromptId: prompt?.id,
+      modelProvider: prompt?.modelProvider ?? evaluation.modelProvider,
+      modelName: prompt?.modelName ?? evaluation.modelName,
+      promptVersion: evaluation.promptVersion,
+      dimensions: body.dimensions,
+      scores: scored.scores,
+      overallScore: scored.overallScore,
+      confidence: scored.confidence,
+      rationale: scored.rationale,
+      evidenceRefs: scored.citations,
+      evidenceSnapshotHash: sha256(body.evidence),
+      gateMetrics: evaluation.metrics,
+      requestedBy: body.requestedBy,
+    });
+    countEvent("ai_score_proposal_created");
+    return reply.status(201).send(data(proposal, request));
+  });
+
+  app.get("/api/v1/ai-score-proposals", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      personId?: string;
+      cycleId?: string;
+      status?: "PENDING" | "ACCEPTED" | "REJECTED";
+    };
+    return data(
+      await platformStore.listAiScoreProposals(tenantOf(request), {
+        personId: query.personId,
+        cycleId: query.cycleId,
+        status: query.status,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/ai-score-proposals/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getAiScoreProposal(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/ai-score-proposals/:id/decide", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(decideAiScoreProposalSchema, request.body);
+    const tenantId = tenantOf(request);
+    const persons = await platformStore.listPersons(tenantId);
+    if (!persons.some((person) => person.id === body.decidedBy)) {
+      throw new NotFoundError(`Person ${body.decidedBy} not found`);
+    }
+    const proposal = await platformStore.decideAiScoreProposal({
+      tenantId,
+      proposalId: idOf(request),
+      decision: body.decision,
+      decidedBy: body.decidedBy,
+      note: body.note,
+    });
+    countEvent(
+      proposal.status === "ACCEPTED"
+        ? "ai_score_proposal_accepted"
+        : "ai_score_proposal_rejected",
+    );
+    return data(proposal, request);
   });
 
   app.post("/api/v1/workflow-runs", async (request, reply) => {

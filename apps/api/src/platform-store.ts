@@ -3,6 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { formatDecimal, parseDecimal, sha256 } from "@anari/policy-dsl";
 import type {
   Acceptance,
+  AiScoreProposal,
   AiSuggestionLog,
   ApprovalDecision,
   ApprovalRequest,
@@ -552,6 +553,44 @@ export interface PlatformStore {
     tenantId: string;
     promptId: string;
   }): Promise<ModelPrompt>;
+  createAiScoreProposal(input: {
+    tenantId: string;
+    cycleId: string;
+    personId: string;
+    evaluationRunId: string;
+    modelPromptId?: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    dimensions: string[];
+    scores: Record<string, number>;
+    overallScore: number;
+    confidence: number;
+    rationale: string;
+    evidenceRefs: string[];
+    evidenceSnapshotHash: string;
+    gateMetrics: Record<string, unknown>;
+    requestedBy?: string;
+  }): Promise<AiScoreProposal>;
+  listAiScoreProposals(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      cycleId?: string;
+      status?: AiScoreProposal["status"];
+    },
+  ): Promise<AiScoreProposal[]>;
+  getAiScoreProposal(
+    tenantId: string,
+    proposalId: string,
+  ): Promise<AiScoreProposal>;
+  decideAiScoreProposal(input: {
+    tenantId: string;
+    proposalId: string;
+    decision: "ACCEPT" | "REJECT";
+    decidedBy: string;
+    note?: string;
+  }): Promise<AiScoreProposal>;
   createWorkflowRun(input: {
     tenantId: string;
     agentTaskId: string;
@@ -697,6 +736,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly aiSuggestions = new Map<string, AiSuggestionLog>();
   private readonly modelEvaluationRuns = new Map<string, ModelEvaluationRun>();
   private readonly modelPrompts = new Map<string, ModelPrompt>();
+  private readonly aiScoreProposals = new Map<string, AiScoreProposal>();
   private readonly workflowRuns = new Map<string, WorkflowRun>();
   private readonly integrationConnections = new Map<
     string,
@@ -2870,6 +2910,118 @@ export class MemoryPlatformStore implements PlatformStore {
     prompt.status = "RETIRED";
     prompt.retiredAt = now();
     return prompt;
+  }
+
+  async createAiScoreProposal(input: {
+    tenantId: string;
+    cycleId: string;
+    personId: string;
+    evaluationRunId: string;
+    modelPromptId?: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    dimensions: string[];
+    scores: Record<string, number>;
+    overallScore: number;
+    confidence: number;
+    rationale: string;
+    evidenceRefs: string[];
+    evidenceSnapshotHash: string;
+    gateMetrics: Record<string, unknown>;
+    requestedBy?: string;
+  }): Promise<AiScoreProposal> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    const proposal: AiScoreProposal = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      cycleId: input.cycleId,
+      personId: input.personId,
+      evaluationRunId: input.evaluationRunId,
+      modelPromptId: input.modelPromptId,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      dimensions: [...input.dimensions],
+      scores: { ...input.scores },
+      overallScore: input.overallScore,
+      confidence: input.confidence,
+      rationale: input.rationale,
+      evidenceRefs: [...input.evidenceRefs],
+      evidenceSnapshotHash: input.evidenceSnapshotHash,
+      gateMetrics: structuredClone(input.gateMetrics),
+      status: "PENDING",
+      requestedBy: input.requestedBy,
+      createdAt: now(),
+    };
+    this.aiScoreProposals.set(proposal.id, proposal);
+    return proposal;
+  }
+
+  async listAiScoreProposals(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      cycleId?: string;
+      status?: AiScoreProposal["status"];
+    },
+  ): Promise<AiScoreProposal[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.aiScoreProposals.values()]
+      .filter(
+        (proposal) =>
+          proposal.tenantId === tenantId &&
+          (!filter?.personId || proposal.personId === filter.personId) &&
+          (!filter?.cycleId || proposal.cycleId === filter.cycleId) &&
+          (!filter?.status || proposal.status === filter.status),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getAiScoreProposal(
+    tenantId: string,
+    proposalId: string,
+  ): Promise<AiScoreProposal> {
+    const proposal = this.aiScoreProposals.get(proposalId);
+    if (!proposal || proposal.tenantId !== tenantId) {
+      notFound("AiScoreProposal", proposalId);
+    }
+    return proposal;
+  }
+
+  async decideAiScoreProposal(input: {
+    tenantId: string;
+    proposalId: string;
+    decision: "ACCEPT" | "REJECT";
+    decidedBy: string;
+    note?: string;
+  }): Promise<AiScoreProposal> {
+    const proposal = await this.getAiScoreProposal(
+      input.tenantId,
+      input.proposalId,
+    );
+    if (proposal.status !== "PENDING") {
+      throw new ConflictError(
+        `AI score proposal ${proposal.id} is ${proposal.status}`,
+      );
+    }
+    if (proposal.requestedBy === input.decidedBy) {
+      throw new ConflictError(
+        "AI_SCORE_SELF_REVIEW: the requester cannot decide the proposal",
+      );
+    }
+    proposal.status =
+      input.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED";
+    proposal.decidedBy = input.decidedBy;
+    proposal.decidedAt = now();
+    proposal.decisionNote = input.note;
+    return proposal;
   }
 
   async createWorkflowRun(input: {
@@ -5968,6 +6120,153 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapModelPrompt(rows[0]);
   }
 
+  async createAiScoreProposal(input: {
+    tenantId: string;
+    cycleId: string;
+    personId: string;
+    evaluationRunId: string;
+    modelPromptId?: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    dimensions: string[];
+    scores: Record<string, number>;
+    overallScore: number;
+    confidence: number;
+    rationale: string;
+    evidenceRefs: string[];
+    evidenceSnapshotHash: string;
+    gateMetrics: Record<string, unknown>;
+    requestedBy?: string;
+  }): Promise<AiScoreProposal> {
+    await this.assertTenant(input.tenantId);
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO ai_score_proposals
+          (id, tenant_id, cycle_id, person_id, evaluation_run_id,
+           model_prompt_id, model_provider, model_name, prompt_version,
+           dimensions, scores, overall_score, confidence, rationale,
+           evidence_refs, evidence_snapshot_hash, gate_metrics, status,
+           requested_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                 'PENDING',$18)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.cycleId,
+          input.personId,
+          input.evaluationRunId,
+          input.modelPromptId ?? null,
+          input.modelProvider,
+          input.modelName,
+          input.promptVersion,
+          JSON.stringify(input.dimensions),
+          JSON.stringify(input.scores),
+          input.overallScore,
+          input.confidence,
+          input.rationale,
+          JSON.stringify(input.evidenceRefs),
+          input.evidenceSnapshotHash,
+          JSON.stringify(input.gateMetrics),
+          input.requestedBy ?? null,
+        ],
+      );
+      return this.mapAiScoreProposal(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Person ${input.personId} or evaluation run ${input.evaluationRunId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listAiScoreProposals(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      cycleId?: string;
+      status?: AiScoreProposal["status"];
+    },
+  ): Promise<AiScoreProposal[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM ai_score_proposals WHERE tenant_id=$1";
+    if (filter?.personId) {
+      params.push(filter.personId);
+      sql += ` AND person_id=$${params.length}`;
+    }
+    if (filter?.cycleId) {
+      params.push(filter.cycleId);
+      sql += ` AND cycle_id=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapAiScoreProposal(row));
+  }
+
+  async getAiScoreProposal(
+    tenantId: string,
+    proposalId: string,
+  ): Promise<AiScoreProposal> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM ai_score_proposals WHERE tenant_id=$1 AND id=$2",
+      [tenantId, proposalId],
+    );
+    if (!rows[0]) notFound("AiScoreProposal", proposalId);
+    return this.mapAiScoreProposal(rows[0]);
+  }
+
+  async decideAiScoreProposal(input: {
+    tenantId: string;
+    proposalId: string;
+    decision: "ACCEPT" | "REJECT";
+    decidedBy: string;
+    note?: string;
+  }): Promise<AiScoreProposal> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM ai_score_proposals
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.proposalId],
+      );
+      if (!rows[0]) notFound("AiScoreProposal", input.proposalId);
+      const proposal = this.mapAiScoreProposal(rows[0]);
+      if (proposal.status !== "PENDING") {
+        throw new ConflictError(
+          `AI score proposal ${proposal.id} is ${proposal.status}`,
+        );
+      }
+      if (proposal.requestedBy === input.decidedBy) {
+        throw new ConflictError(
+          "AI_SCORE_SELF_REVIEW: the requester cannot decide the proposal",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE ai_score_proposals
+            SET status=$3, decided_by=$4, decision_note=$5, decided_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.proposalId,
+          input.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED",
+          input.decidedBy,
+          input.note ?? null,
+        ],
+      );
+      return this.mapAiScoreProposal(updated[0]);
+    });
+  }
+
   async createWorkflowRun(input: {
     tenantId: string;
     agentTaskId: string;
@@ -6966,6 +7265,34 @@ export class PgPlatformStore implements PlatformStore {
       evaluationRunId: row.evaluation_run_id ?? undefined,
       activatedAt: iso(row.activated_at),
       retiredAt: iso(row.retired_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapAiScoreProposal(row: QueryResultRow): AiScoreProposal {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      personId: row.person_id,
+      evaluationRunId: row.evaluation_run_id,
+      modelPromptId: row.model_prompt_id ?? undefined,
+      modelProvider: row.model_provider,
+      modelName: row.model_name,
+      promptVersion: row.prompt_version,
+      dimensions: row.dimensions ?? [],
+      scores: row.scores ?? {},
+      overallScore: Number(row.overall_score),
+      confidence: Number(row.confidence),
+      rationale: row.rationale,
+      evidenceRefs: row.evidence_refs ?? [],
+      evidenceSnapshotHash: row.evidence_snapshot_hash,
+      gateMetrics: row.gate_metrics ?? {},
+      status: row.status,
+      requestedBy: row.requested_by ?? undefined,
+      decidedBy: row.decided_by ?? undefined,
+      decisionNote: row.decision_note ?? undefined,
+      decidedAt: iso(row.decided_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
