@@ -2470,6 +2470,9 @@ describe("payroll", () => {
     } as never);
     expect(exported.statusCode).toBe(200);
     expect(exported.headers["content-type"]).toContain("text/csv");
+    expect(exported.headers["x-export-classification"]).toBe("CONFIDENTIAL");
+    expect(exported.headers["x-export-watermark"]).toContain("tenant-demo");
+    expect(exported.headers["x-export-hash"]).toMatch(/^sha256:/);
     expect(exported.body).toContain(
       "run_id,person_id,currency,fixed_amount",
     );
@@ -2479,6 +2482,8 @@ describe("payroll", () => {
       url: `/api/v1/payroll-runs/${runId}/bank-file`,
     } as never);
     expect(bankFile.statusCode).toBe(200);
+    expect(bankFile.headers["x-export-classification"]).toBe("RESTRICTED");
+    expect(bankFile.headers["x-export-hash"]).toMatch(/^sha256:/);
     expect(bankFile.body).toContain("6800");
     expect(bankFile.body).toContain("BANK-001");
     const payslip = await app.inject({

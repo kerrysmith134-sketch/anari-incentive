@@ -604,6 +604,20 @@ export function buildApp(
     }
   }
 
+  function exportHeaders(
+    request: FastifyRequest,
+    csv: string,
+    classification: string,
+  ): Record<string, string> {
+    return {
+      "x-export-classification": classification,
+      "x-export-watermark": `${tenantOf(request)}:${
+        request.authContext?.userId ?? "unknown"
+      }:${new Date().toISOString()}`,
+      "x-export-hash": sha256(csv),
+    };
+  }
+
   async function payrollRunForViewer(
     request: FastifyRequest,
     run: PayrollRun,
@@ -5712,6 +5726,20 @@ export function buildApp(
 
   app.get("/api/v1/payroll-runs/:id/export", async (request, reply) => {
     requireRoles(request, "manager", "finance");
+    const query = request.query as { approvalRequestId?: string };
+    await ensureApproval(
+      request,
+      "PAYROLL_EXPORT",
+      query.approvalRequestId,
+    );
+    if (query.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: query.approvalRequestId,
+        actionType: "PAYROLL_EXPORT",
+        targetType: "PAYROLL_RUN",
+        targetId: idOf(request),
+      });
+    }
     const run = await payrollRunForViewer(
       request,
       await platformStore.getPayrollRun(
@@ -5719,28 +5747,46 @@ export function buildApp(
         idOf(request),
       ),
     );
+    const csv = payrollCsv(run);
     return reply
       .type("text/csv; charset=utf-8")
+      .headers(exportHeaders(request, csv, "CONFIDENTIAL"))
       .header(
         "content-disposition",
         `attachment; filename="payroll-${run.id}.csv"`,
       )
-      .send(payrollCsv(run));
+      .send(csv);
   });
 
   app.get("/api/v1/payroll-runs/:id/bank-file", async (request, reply) => {
     requireRoles(request, "finance");
+    const query = request.query as { approvalRequestId?: string };
+    await ensureApproval(
+      request,
+      "PAYROLL_BANK_FILE",
+      query.approvalRequestId,
+    );
+    if (query.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: query.approvalRequestId,
+        actionType: "PAYROLL_BANK_FILE",
+        targetType: "PAYROLL_RUN",
+        targetId: idOf(request),
+      });
+    }
     const run = await platformStore.getPayrollRun(
       tenantOf(request),
       idOf(request),
     );
+    const csv = payrollBankFileCsv(run);
     return reply
       .type("text/csv; charset=utf-8")
+      .headers(exportHeaders(request, csv, "RESTRICTED"))
       .header(
         "content-disposition",
         `attachment; filename="payroll-bank-${run.id}.csv"`,
       )
-      .send(payrollBankFileCsv(run));
+      .send(csv);
   });
 
   app.get("/api/v1/payroll-runs/:id/payslips/:personId", async (request, reply) => {

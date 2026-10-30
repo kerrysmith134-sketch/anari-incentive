@@ -4454,11 +4454,33 @@ paths:
     get:
       tags: [Payroll]
       summary: Export payroll lines as CSV
+      description: |
+        The CSV is watermarked with tenant, caller and timestamp headers and a
+        SHA-256 hash. When PAYROLL_EXPORT is approval-gated, pass a consumed
+        approval request id.
       parameters:
         - $ref: "#/components/parameters/IdPath"
+        - name: approvalRequestId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
       responses:
         "200":
           description: CSV payroll file
+          headers:
+            x-export-classification:
+              schema:
+                type: string
+              description: CONFIDENTIAL
+            x-export-watermark:
+              schema:
+                type: string
+              description: tenant:user:timestamp
+            x-export-hash:
+              schema:
+                type: string
+              description: sha256 of the CSV body
           content:
             text/csv:
               schema:
@@ -4476,9 +4498,25 @@ paths:
       summary: Export a bank payment file
       parameters:
         - $ref: "#/components/parameters/IdPath"
+        - name: approvalRequestId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
       responses:
         "200":
           description: CSV bank file
+          headers:
+            x-export-classification:
+              schema:
+                type: string
+              description: RESTRICTED
+            x-export-watermark:
+              schema:
+                type: string
+            x-export-hash:
+              schema:
+                type: string
           content:
             text/csv:
               schema:

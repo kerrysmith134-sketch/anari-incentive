@@ -143,7 +143,7 @@
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
 | SEC-03 字段级 ABAC/break-glass | 🟡 | 新增 payroll `bankAccountRef` 字段级 redaction（非 finance/admin 且非本人时隐藏）与最长 24h、需理由、禁止自批的 break-glass grant；目前仅覆盖 payroll 银行字段，其他敏感字段和通用策略引擎仍未实现 |
-| SEC-04 导出 DLP/水印/审批/限流 | 🟡 | 角色、CSV 公式中和、rate limit、now 证据包；无 DLP/水印/导出审批/批量限流 |
+| SEC-04 导出 DLP/水印/审批/限流 | 🟡 | 角色、CSV 公式中和、rate limit、证据包已有；本轮新增 payroll CSV/bank-file 的租户/用户/时间戳水印与 SHA-256、字段 redaction，以及可配置 `PAYROLL_EXPORT`/`PAYROLL_BANK_FILE` 审批与消费校验；仍无内容级 DLP 扫描和批量导出限流 |
 | SEC-05 模型供应商控制 | ❌ | 无零留存/DPA/区域推理/字段白名单配置与校验 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold 有；自动删除未启用，audit 脱敏未实现 |
 
@@ -187,6 +187,8 @@
 23. **SEC-03 payroll field redaction / break-glass**：非 finance/admin 查看 payroll run/export 时隐藏他人 `bankAccountRef`；新增最长 24h、理由必填、grantee≠grantedBy 的 break-glass grant，console Settings 可授予/撤销；迁移 `043_break_glass.sql`。
 
 24. **INC-03 no-retroactive guard**：对已有 ACKNOWLEDGED settlement batch 的 cycle，ledger adjustment/reversal 直接返回 `RETROACTIVE_ADJUSTMENT_BLOCKED`，要求新建 correction cycle；平滑阈值仍未实现。
+
+25. **SEC-04 export controls**：payroll CSV/bank-file 响应增加 `x-export-classification`、`x-export-watermark`、`x-export-hash`；非 finance/admin 的 CSV 仍走字段 redaction；支持 `PAYROLL_EXPORT` / `PAYROLL_BANK_FILE` 审批动作与一次性消费。内容 DLP 与批量限流仍未实现。
 
 ## 仍建议按 P0 顺序补做
 
