@@ -1059,6 +1059,17 @@ export interface AiScoreProposal {
   override?: boolean;
   overrideReason?: string;
   blindReview?: boolean;
+  auditSample: boolean;
+  auditSampledAt?: string;
+  secondReviewerPersonId?: UUID;
+  secondIndependentScores?: Record<string, number>;
+  secondIndependentRationale?: string;
+  secondReviewStartedAt?: string;
+  secondReviewCompletedAt?: string;
+  secondReviewDurationSeconds?: number;
+  secondReviewEvidenceOpened?: number;
+  secondReviewOutcome?: "AGREE" | "DISAGREE";
+  secondReviewAgreementRate?: number;
   createdAt: string;
 }
 

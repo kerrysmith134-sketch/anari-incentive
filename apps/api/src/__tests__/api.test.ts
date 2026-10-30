@@ -3225,6 +3225,85 @@ describe("AI suggestion logs and workflow runs", () => {
       "/api/v1/ai-score-proposals?status=ACCEPTED",
     );
     expect(acceptedList.body.data).toHaveLength(1);
+    const overrideProposal = await call(
+      "POST",
+      "/api/v1/ai-score-proposals",
+      {
+        cycleId: CYCLE,
+        personId: MEMBER,
+        evaluationRunId: evaluation.body.data.id,
+        dimensions: ["QUALITY", "TIMELINESS"],
+        evidence,
+        requestedBy: OWNER,
+      },
+    );
+    expect(overrideProposal.status).toBe(201);
+    const overridden = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/decide`,
+      {
+        decision: "ACCEPT",
+        decidedBy: ADJUDICATOR,
+        note: "Override for audit test",
+        independentScores: Object.fromEntries(
+          Object.keys(overrideProposal.body.data.scores).map((key) => [
+            key,
+            0,
+          ]),
+        ),
+        overrideReason: "Independent review disagrees with the evidence weight",
+        reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+        evidenceOpened: 1,
+      },
+    );
+    expect(overridden.status).toBe(200);
+    expect(overridden.body.data.override).toBe(true);
+    expect(overridden.body.data.auditSample).toBe(true);
+
+    const auditQueue = await call(
+      "GET",
+      "/api/v1/ai-score-proposals/audit-queue",
+    );
+    expect(auditQueue.status).toBe(200);
+    expect(
+      auditQueue.body.data.some(
+        (proposal: { id: string }) =>
+          proposal.id === overrideProposal.body.data.id,
+      ),
+    ).toBe(true);
+    const audited = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/audit-review`,
+      {
+        reviewerPersonId: MEMBER,
+        scores: overrideProposal.body.data.scores,
+        rationale: "Second reviewer agrees with the AI evidence weights",
+        reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
+        evidenceOpened: 2,
+      },
+    );
+    expect(audited.status).toBe(200);
+    expect(audited.body.data.secondReviewerPersonId).toBe(MEMBER);
+    expect(audited.body.data.secondReviewOutcome).toBe("AGREE");
+    expect(audited.body.data.secondReviewAgreementRate).toBe(1);
+    const duplicateAudit = await call(
+      "POST",
+      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/audit-review`,
+      {
+        reviewerPersonId: MEMBER,
+        scores: overrideProposal.body.data.scores,
+        rationale: "Duplicate",
+        reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
+      },
+    );
+    expect(duplicateAudit.status).toBe(409);
+    const auditedMetrics = await call("GET", "/api/v1/ai-review-metrics");
+    expect(auditedMetrics.body.data.auditReviewedCount).toBe(1);
+    expect(auditedMetrics.body.data.auditAgreementRate).toBe(1);
+    expect(auditedMetrics.body.data.auditSampledCount).toBeGreaterThanOrEqual(
+      1,
+    );
+
 
     const failedEvaluation = await createHarnessEvaluation(
       "IRR",

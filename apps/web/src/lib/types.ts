@@ -295,6 +295,17 @@ export interface AiScoreProposal {
   override?: boolean;
   overrideReason?: string;
   blindReview?: boolean;
+  auditSample: boolean;
+  auditSampledAt?: string;
+  secondReviewerPersonId?: Uuid;
+  secondIndependentScores?: Record<string, number>;
+  secondIndependentRationale?: string;
+  secondReviewStartedAt?: string;
+  secondReviewCompletedAt?: string;
+  secondReviewDurationSeconds?: number;
+  secondReviewEvidenceOpened?: number;
+  secondReviewOutcome?: "AGREE" | "DISAGREE";
+  secondReviewAgreementRate?: number;
   createdAt: string;
 }
 
@@ -906,6 +917,10 @@ export interface AiReviewMetrics {
   averageReviewDurationSeconds: number;
   averageEvidenceOpened: number;
   rubberStampAlert: boolean;
+  auditSampledCount: number;
+  auditReviewedCount: number;
+  auditPendingCount: number;
+  auditAgreementRate: number;
 }
 
 export type AdverseActionType =

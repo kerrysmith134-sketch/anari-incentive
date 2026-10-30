@@ -2597,6 +2597,33 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/ai-score-proposals/audit-queue:
+    get:
+      tags: [Agent]
+      summary: List decided AI proposals awaiting second review
+      description: |
+        Overrides are always sampled; other decisions enter the queue at the
+        tenant's `aiAuditSampleRate` (default 0.1). Use `status=completed` or
+        `status=all` to include finished audits.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, completed, all]
+      responses:
+        "200":
+          description: Audit queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/ai-score-proposals/{id}:
     get:
       tags: [Agent]
@@ -2633,6 +2660,41 @@ paths:
       responses:
         "200":
           description: Decided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/ai-score-proposals/{id}/audit-review:
+    post:
+      tags: [Agent]
+      summary: Record a blind second review for a sampled proposal
+      description: |
+        The second reviewer must differ from the requester and first reviewer.
+        Agreement is computed by comparing second-review scores with model
+        scores, then with the recorded decision. The original decision is not
+        changed by an audit review.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitAiScoreAudit"
+      responses:
+        "200":
+          description: Audit review recorded
           content:
             application/json:
               schema:
@@ -7217,6 +7279,29 @@ components:
             $ref: "#/components/schemas/ScoringEvidence"
         requestedBy:
           $ref: "#/components/schemas/Uuid"
+
+    SubmitAiScoreAudit:
+      type: object
+      required: [reviewerPersonId, scores, rationale, reviewStartedAt]
+      properties:
+        reviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 5
+        rationale:
+          type: string
+          minLength: 3
+        reviewStartedAt:
+          type: string
+          format: date-time
+        evidenceOpened:
+          type: integer
+          minimum: 0
+          default: 0
 
     DecideAiScoreProposal:
       type: object

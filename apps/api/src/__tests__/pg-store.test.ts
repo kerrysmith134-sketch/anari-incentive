@@ -2218,8 +2218,25 @@ describePg("PgStore vertical slice", () => {
       evidenceOpened: 1,
       override: false,
       blindReview: true,
+      auditSample: true,
     });
     expect(decidedScore.status).toBe("ACCEPTED");
+    expect(decidedScore.auditSample).toBe(true);
+    const auditedScore = await platform.recordAiScoreAuditReview({
+      tenantId: DEMO_TENANT_ID,
+      proposalId: scoreProposal.id,
+      reviewerPersonId: MEMBER,
+      scores: { QUALITY: 4.5 },
+      rationale: "Second reviewer agrees",
+      reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
+      reviewDurationSeconds: 30,
+      evidenceOpened: 1,
+      outcome: "AGREE",
+      agreementRate: 1,
+    });
+    expect(auditedScore.secondReviewerPersonId).toBe(MEMBER);
+    expect(auditedScore.secondReviewOutcome).toBe("AGREE");
+    expect(auditedScore.secondReviewAgreementRate).toBe(1);
     expect(
       (
         await platform.listAiScoreProposals(DEMO_TENANT_ID, {

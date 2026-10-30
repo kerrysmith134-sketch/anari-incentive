@@ -68,6 +68,7 @@ import {
   runModelEvaluationSchema,
   createAiScoreProposalSchema,
   decideAiScoreProposalSchema,
+  submitAiScoreAuditSchema,
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
   createIntegrationConnectionSchema,
@@ -4115,6 +4116,13 @@ export function buildApp(
     );
     const acceptanceRate =
       decided.length === 0 ? 0 : accepted / decided.length;
+    const auditSampled = decided.filter((proposal) => proposal.auditSample);
+    const auditCompleted = auditSampled.filter(
+      (proposal) => proposal.secondReviewCompletedAt,
+    );
+    const auditAgreed = auditCompleted.filter(
+      (proposal) => proposal.secondReviewOutcome === "AGREE",
+    ).length;
     return data(
       {
         total: proposals.length,
@@ -4139,6 +4147,13 @@ export function buildApp(
             : Math.round((evidenceOpened / decided.length) * 10) / 10,
         rubberStampAlert:
           decided.length >= 20 && acceptanceRate > 0.95,
+        auditSampledCount: auditSampled.length,
+        auditReviewedCount: auditCompleted.length,
+        auditPendingCount: auditSampled.length - auditCompleted.length,
+        auditAgreementRate:
+          auditCompleted.length === 0
+            ? 0
+            : auditAgreed / auditCompleted.length,
       },
       request,
     );
@@ -4159,6 +4174,27 @@ export function buildApp(
       }),
       request,
     );
+  });
+
+  app.get("/api/v1/ai-score-proposals/audit-queue", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      status?: "pending" | "completed" | "all";
+    };
+    const proposals = await platformStore.listAiScoreProposals(
+      tenantOf(request),
+    );
+    const sampled = proposals.filter(
+      (proposal) =>
+        proposal.auditSample && proposal.status !== "PENDING",
+    );
+    const filtered =
+      query.status === "completed"
+        ? sampled.filter((proposal) => proposal.secondReviewCompletedAt)
+        : query.status === "all"
+          ? sampled
+          : sampled.filter((proposal) => !proposal.secondReviewCompletedAt);
+    return data(filtered, request);
   });
 
   app.get("/api/v1/ai-score-proposals/:id", async (request) => {
@@ -4212,6 +4248,15 @@ export function buildApp(
       0,
       Math.round((Date.now() - reviewStartedMs) / 1000),
     );
+    const tenant = await platformStore.getTenant(tenantId);
+    const configuredRate = Number(
+      (tenant.settings as { aiAuditSampleRate?: unknown })
+        .aiAuditSampleRate ?? 0.1,
+    );
+    const auditSampleRate = Number.isFinite(configuredRate)
+      ? Math.min(1, Math.max(0, configuredRate))
+      : 0.1;
+    const auditSample = override || Math.random() < auditSampleRate;
     const proposal = await platformStore.decideAiScoreProposal({
       tenantId,
       proposalId: idOf(request),
@@ -4226,6 +4271,7 @@ export function buildApp(
       override,
       overrideReason: body.overrideReason,
       blindReview: body.blindReview ?? false,
+      auditSample,
     });
     countEvent(
       proposal.status === "ACCEPTED"
@@ -4233,6 +4279,65 @@ export function buildApp(
         : "ai_score_proposal_rejected",
     );
     return data(proposal, request);
+  });
+
+  app.post("/api/v1/ai-score-proposals/:id/audit-review", async (request) => {
+      requireRoles(request, "manager", "finance");
+      const body = parse(submitAiScoreAuditSchema, request.body);
+      const tenantId = tenantOf(request);
+      const persons = await platformStore.listPersons(tenantId);
+      if (!persons.some((person) => person.id === body.reviewerPersonId)) {
+        throw new NotFoundError(
+          `Person ${body.reviewerPersonId} not found`,
+        );
+      }
+      const proposal = await platformStore.getAiScoreProposal(
+        tenantId,
+        idOf(request),
+      );
+      for (const dimension of proposal.dimensions) {
+        if (typeof body.scores[dimension] !== "number") {
+          throw new ConflictError(
+            `AI_AUDIT_SCORES_REQUIRED: missing ${dimension}`,
+          );
+        }
+      }
+      const reviewStartedMs = Date.parse(body.reviewStartedAt);
+      if (
+        !Number.isFinite(reviewStartedMs) ||
+        reviewStartedMs > Date.now()
+      ) {
+        throw new ConflictError("AI_AUDIT_STARTED_AT_INVALID");
+      }
+      const matched = proposal.dimensions.filter(
+        (dimension) =>
+          Math.abs(
+            (body.scores[dimension] ?? 0) -
+              (proposal.scores[dimension] ?? 0),
+          ) <= 0.05,
+      ).length;
+      const agreementRate = matched / proposal.dimensions.length;
+      const secondDecision =
+        matched === proposal.dimensions.length ? "ACCEPTED" : "REJECTED";
+      const outcome =
+        proposal.status === secondDecision ? "AGREE" : "DISAGREE";
+      const reviewed = await platformStore.recordAiScoreAuditReview({
+        tenantId,
+        proposalId: idOf(request),
+        reviewerPersonId: body.reviewerPersonId,
+        scores: body.scores,
+        rationale: body.rationale,
+        reviewStartedAt: body.reviewStartedAt,
+        reviewDurationSeconds: Math.max(
+          0,
+          Math.round((Date.now() - reviewStartedMs) / 1000),
+        ),
+        evidenceOpened: body.evidenceOpened ?? 0,
+        outcome,
+        agreementRate,
+      });
+      countEvent("ai_score_audit_reviewed");
+      return data(reviewed, request);
   });
 
   app.post("/api/v1/workflow-runs", async (request, reply) => {

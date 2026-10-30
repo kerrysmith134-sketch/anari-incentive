@@ -650,6 +650,17 @@ export type DecideAiScoreProposalBody = z.infer<
   typeof decideAiScoreProposalSchema
 >;
 
+export const submitAiScoreAuditSchema = z.object({
+  reviewerPersonId: uuidSchema,
+  scores: z.record(z.number().min(0).max(5)),
+  rationale: z.string().min(3),
+  reviewStartedAt: z.string().datetime(),
+  evidenceOpened: z.number().int().min(0).default(0),
+});
+export type SubmitAiScoreAuditBody = z.infer<
+  typeof submitAiScoreAuditSchema
+>;
+
 export const createWorkflowRunSchema = z.object({
   agentTaskId: uuidSchema,
   workflowName: z.string().min(1),

@@ -634,6 +634,19 @@ export interface PlatformStore {
     override: boolean;
     overrideReason?: string;
     blindReview: boolean;
+    auditSample: boolean;
+  }): Promise<AiScoreProposal>;
+  recordAiScoreAuditReview(input: {
+    tenantId: string;
+    proposalId: string;
+    reviewerPersonId: string;
+    scores: Record<string, number>;
+    rationale: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    outcome: "AGREE" | "DISAGREE";
+    agreementRate: number;
   }): Promise<AiScoreProposal>;
   createWorkflowRun(input: {
     tenantId: string;
@@ -3373,6 +3386,7 @@ export class MemoryPlatformStore implements PlatformStore {
       gateMetrics: structuredClone(input.gateMetrics),
       status: "PENDING",
       requestedBy: input.requestedBy,
+      auditSample: false,
       createdAt: now(),
     };
     this.aiScoreProposals.set(proposal.id, proposal);
@@ -3424,6 +3438,7 @@ export class MemoryPlatformStore implements PlatformStore {
     override: boolean;
     overrideReason?: string;
     blindReview: boolean;
+    auditSample: boolean;
   }): Promise<AiScoreProposal> {
     const proposal = await this.getAiScoreProposal(
       input.tenantId,
@@ -3452,6 +3467,59 @@ export class MemoryPlatformStore implements PlatformStore {
     proposal.override = input.override;
     proposal.overrideReason = input.overrideReason;
     proposal.blindReview = input.blindReview;
+    proposal.auditSample = input.auditSample;
+    proposal.auditSampledAt = input.auditSample ? now() : undefined;
+    return proposal;
+  }
+
+  async recordAiScoreAuditReview(input: {
+    tenantId: string;
+    proposalId: string;
+    reviewerPersonId: string;
+    scores: Record<string, number>;
+    rationale: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    outcome: "AGREE" | "DISAGREE";
+    agreementRate: number;
+  }): Promise<AiScoreProposal> {
+    const proposal = await this.getAiScoreProposal(
+      input.tenantId,
+      input.proposalId,
+    );
+    if (proposal.status === "PENDING") {
+      throw new ConflictError(
+        "AI_AUDIT_REQUIRES_DECIDED_PROPOSAL: decide the proposal first",
+      );
+    }
+    if (!proposal.auditSample) {
+      throw new ConflictError(
+        "AI_AUDIT_NOT_SAMPLED: this proposal is not in the audit sample",
+      );
+    }
+    if (proposal.secondReviewCompletedAt) {
+      throw new ConflictError(
+        "AI_AUDIT_ALREADY_COMPLETED: second review already recorded",
+      );
+    }
+    if (
+      input.reviewerPersonId === proposal.decidedBy ||
+      input.reviewerPersonId === proposal.requestedBy
+    ) {
+      throw new ConflictError(
+        "AI_AUDIT_REVIEWER_CONFLICT: reviewer must differ from requester and first reviewer",
+      );
+    }
+    proposal.secondReviewerPersonId = input.reviewerPersonId;
+    proposal.secondIndependentScores = { ...input.scores };
+    proposal.secondIndependentRationale = input.rationale;
+    proposal.secondReviewStartedAt = input.reviewStartedAt;
+    proposal.secondReviewCompletedAt = now();
+    proposal.secondReviewDurationSeconds = input.reviewDurationSeconds;
+    proposal.secondReviewEvidenceOpened = input.evidenceOpened;
+    proposal.secondReviewOutcome = input.outcome;
+    proposal.secondReviewAgreementRate = input.agreementRate;
     return proposal;
   }
 
@@ -8101,6 +8169,7 @@ export class PgPlatformStore implements PlatformStore {
     override: boolean;
     overrideReason?: string;
     blindReview: boolean;
+    auditSample: boolean;
   }): Promise<AiScoreProposal> {
     return this.transaction(async (client) => {
       const { rows } = await client.query(
@@ -8127,7 +8196,8 @@ export class PgPlatformStore implements PlatformStore {
                 independent_scores=$6::jsonb, independent_rationale=$7,
                 review_started_at=$8, review_duration_seconds=$9,
                 evidence_opened=$10, override=$11, override_reason=$12,
-                blind_review=$13
+                blind_review=$13, audit_sample=$14,
+                audit_sampled_at=CASE WHEN $14 THEN now() ELSE audit_sampled_at END
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -8144,6 +8214,81 @@ export class PgPlatformStore implements PlatformStore {
           input.override,
           input.overrideReason ?? null,
           input.blindReview,
+          input.auditSample,
+        ],
+      );
+      return this.mapAiScoreProposal(updated[0]);
+    });
+  }
+
+  async recordAiScoreAuditReview(input: {
+    tenantId: string;
+    proposalId: string;
+    reviewerPersonId: string;
+    scores: Record<string, number>;
+    rationale: string;
+    reviewStartedAt: string;
+    reviewDurationSeconds: number;
+    evidenceOpened: number;
+    outcome: "AGREE" | "DISAGREE";
+    agreementRate: number;
+  }): Promise<AiScoreProposal> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM ai_score_proposals
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.proposalId],
+      );
+      if (!rows[0]) notFound("AiScoreProposal", input.proposalId);
+      const proposal = this.mapAiScoreProposal(rows[0]);
+      if (proposal.status === "PENDING") {
+        throw new ConflictError(
+          "AI_AUDIT_REQUIRES_DECIDED_PROPOSAL: decide the proposal first",
+        );
+      }
+      if (!proposal.auditSample) {
+        throw new ConflictError(
+          "AI_AUDIT_NOT_SAMPLED: this proposal is not in the audit sample",
+        );
+      }
+      if (proposal.secondReviewCompletedAt) {
+        throw new ConflictError(
+          "AI_AUDIT_ALREADY_COMPLETED: second review already recorded",
+        );
+      }
+      if (
+        input.reviewerPersonId === proposal.decidedBy ||
+        input.reviewerPersonId === proposal.requestedBy
+      ) {
+        throw new ConflictError(
+          "AI_AUDIT_REVIEWER_CONFLICT: reviewer must differ from requester and first reviewer",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE ai_score_proposals
+            SET second_reviewer_person_id=$3,
+                second_independent_scores=$4::jsonb,
+                second_independent_rationale=$5,
+                second_review_started_at=$6,
+                second_review_completed_at=now(),
+                second_review_duration_seconds=$7,
+                second_review_evidence_opened=$8,
+                second_review_outcome=$9,
+                second_review_agreement_rate=$10
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.proposalId,
+          input.reviewerPersonId,
+          JSON.stringify(input.scores),
+          input.rationale,
+          input.reviewStartedAt,
+          input.reviewDurationSeconds,
+          input.evidenceOpened,
+          input.outcome,
+          input.agreementRate,
         ],
       );
       return this.mapAiScoreProposal(updated[0]);
@@ -10718,6 +10863,32 @@ export class PgPlatformStore implements PlatformStore {
       override: Boolean(row.override),
       overrideReason: row.override_reason ?? undefined,
       blindReview: Boolean(row.blind_review),
+      auditSample: Boolean(row.audit_sample),
+      auditSampledAt: iso(row.audit_sampled_at),
+      secondReviewerPersonId: row.second_reviewer_person_id ?? undefined,
+      secondIndependentScores:
+        (row.second_independent_scores as Record<string, number> | null) ??
+        undefined,
+      secondIndependentRationale:
+        row.second_independent_rationale ?? undefined,
+      secondReviewStartedAt: iso(row.second_review_started_at),
+      secondReviewCompletedAt: iso(row.second_review_completed_at),
+      secondReviewDurationSeconds:
+        row.second_review_duration_seconds === null ||
+        row.second_review_duration_seconds === undefined
+          ? undefined
+          : Number(row.second_review_duration_seconds),
+      secondReviewEvidenceOpened:
+        row.second_review_evidence_opened === null ||
+        row.second_review_evidence_opened === undefined
+          ? undefined
+          : Number(row.second_review_evidence_opened),
+      secondReviewOutcome: row.second_review_outcome ?? undefined,
+      secondReviewAgreementRate:
+        row.second_review_agreement_rate === null ||
+        row.second_review_agreement_rate === undefined
+          ? undefined
+          : Number(row.second_review_agreement_rate),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

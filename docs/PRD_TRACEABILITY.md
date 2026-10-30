@@ -101,7 +101,7 @@
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
 | AI-02 评测要求 | 🟡 | 本轮新增 harness 端点、holdout 阈值、AI-human ≤ human-human 检查；gold set 标注管理/季度刷新/canary/供应商变更回归仍无 |
-| AI-03 人工监督 | 🟡 | 已强制先录独立分数/理由再揭示 AI，记录时长/证据打开/override 理由/盲审标记，并提供 >95% rubber-stamp 预警；仍无随机抽样强制与高风险双人复核 |
+| AI-03 人工监督 | 🟡 | 已强制先录独立分数/理由再揭示 AI，记录时长/证据打开/override 理由/盲审标记，并提供 >95% rubber-stamp 预警；本轮新增盲审抽样（所有 override 必抽 + 可配置随机比例）、第二复核人独立评分、AGREE/DISAGREE 与一致率指标；仍是决策后抽样，不是决策前强制双人复核 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；无 reader/actor 隔离的强制实现、egress allowlist、供应商 DPA/零留存/区域推理配置、红队记录 |
 
@@ -165,6 +165,8 @@
 12. **INC-04 variable-share cap**：EmploymentContract/PayrollLine 增加浮动占比上限、实际占比与 cap 金额；税前 gross 口径，超出上限阻断行与 run；迁移 `034_variable_share_cap.sql`，合同创建/修订与 console 均可配置。
 
 13. **ATT-03 exception/backfill provenance**：申报新增 claim mode 与强制原因；迁移 `035_claim_exception_mode.sql`，console 可录入并显示。
+
+14. **AI-03 audit sampling**：AI proposal 增加 audit sample、第二复核人、第二套独立分数/理由、复核时长/证据数、AGREE/DISAGREE 与一致率；所有 override 自动入样，其他决策按租户 `aiAuditSampleRate`（默认 10%）随机入样；新增 audit queue / audit-review API、指标与 console Audit queue；迁移 `036_ai_audit_sampling.sql`。
 
 ## 仍建议按 P0 顺序补做
 

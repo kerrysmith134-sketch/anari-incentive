@@ -58,6 +58,9 @@ export function AiPage() {
     "/api/v1/ai-review-metrics",
   );
   const [tab, setTab] = useState("proposals");
+  const auditQueue = useApiQuery<AiScoreProposal[]>(
+    tab === "audit" ? "/api/v1/ai-score-proposals/audit-queue" : null,
+  );
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [selected, setSelected] = useState<AiScoreProposal | null>(null);
   const [decision, setDecision] = useState<"ACCEPT" | "REJECT">("ACCEPT");
@@ -77,6 +80,14 @@ export function AiPage() {
   const [promptDetail, setPromptDetail] = useState<ModelPrompt | null>(null);
   const [evaluationDetail, setEvaluationDetail] =
     useState<ModelEvaluationRun | null>(null);
+  const [auditTarget, setAuditTarget] = useState<AiScoreProposal | null>(null);
+  const [auditReviewer, setAuditReviewer] = useState(session.personId);
+  const [auditScores, setAuditScores] = useState<Record<string, string>>({});
+  const [auditRationale, setAuditRationale] = useState("");
+  const [auditEvidenceOpened, setAuditEvidenceOpened] = useState(0);
+  const [auditStartedAt, setAuditStartedAt] = useState("");
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditSubmitting, setAuditSubmitting] = useState(false);
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
@@ -152,6 +163,71 @@ export function AiPage() {
     }
     setActionError(null);
     setRevealed(true);
+  }
+
+  function openAudit(proposal: AiScoreProposal) {
+    setAuditTarget(proposal);
+    setAuditReviewer(session.personId);
+    setAuditScores(
+      Object.fromEntries(
+        proposal.dimensions.map((dimension) => [dimension, ""]),
+      ),
+    );
+    setAuditRationale("");
+    setAuditEvidenceOpened(0);
+    setAuditStartedAt(new Date().toISOString());
+    setAuditError(null);
+  }
+
+  async function submitAuditReview() {
+    if (!auditTarget) return;
+    setAuditError(null);
+    const scores: Record<string, number> = {};
+    for (const dimension of auditTarget.dimensions) {
+      const value = Number(auditScores[dimension]);
+      if (!Number.isFinite(value) || value < 0 || value > 5) {
+        setAuditError(
+          `Enter a second-review score between 0 and 5 for ${titleCase(dimension)}.`,
+        );
+        return;
+      }
+      scores[dimension] = value;
+    }
+    if (auditRationale.trim().length < 3) {
+      setAuditError("A short second-review rationale is required.");
+      return;
+    }
+    setAuditSubmitting(true);
+    try {
+      await api(
+        `/api/v1/ai-score-proposals/${auditTarget.id}/audit-review`,
+        {
+          method: "POST",
+          body: {
+            reviewerPersonId: auditReviewer,
+            scores,
+            rationale: auditRationale.trim(),
+            reviewStartedAt: auditStartedAt,
+            evidenceOpened: auditEvidenceOpened,
+          },
+        },
+      );
+      toast.success(
+        "Audit review recorded",
+        "The second review is stored without changing the original decision.",
+      );
+      setAuditTarget(null);
+      auditQueue.reload();
+      reviewMetrics.reload();
+    } catch (caught) {
+      setAuditError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not record the audit review.",
+      );
+    } finally {
+      setAuditSubmitting(false);
+    }
   }
 
   async function submitDecision() {
@@ -301,6 +377,11 @@ export function AiPage() {
             id: "evaluations",
             label: "Evaluation runs",
             count: evaluationList.length,
+          },
+          {
+            id: "audit",
+            label: "Audit queue",
+            count: reviewMetrics.data?.auditPendingCount ?? 0,
           },
         ]}
         active={tab}
@@ -575,6 +656,105 @@ export function AiPage() {
                             onClick={() => setEvaluationDetail(run)}
                           >
                             View
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : null}
+        {tab === "audit" ? (
+          <Panel
+            title="Second-review audit queue"
+            subtitle="Every override is sampled, plus a configurable random share of other decisions"
+            flush
+          >
+            {reviewMetrics.data ? (
+              <div style={{ padding: "14px 20px 0" }}>
+                <InfoNotice>
+                  Sampled {reviewMetrics.data.auditSampledCount} · reviewed{" "}
+                  {reviewMetrics.data.auditReviewedCount} · pending{" "}
+                  {reviewMetrics.data.auditPendingCount} · agreement{" "}
+                  {formatPercent(reviewMetrics.data.auditAgreementRate)}. The
+                  second reviewer does not see the first independent scores.
+                </InfoNotice>
+              </div>
+            ) : null}
+            {auditQueue.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice
+                  error={auditQueue.error}
+                  onRetry={auditQueue.reload}
+                />
+              </div>
+            ) : auditQueue.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : (auditQueue.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon="shield"
+                title="No pending audit"
+                description="Overrides are always sampled; other decisions enter the queue at the configured audit rate."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Person</th>
+                      <th>Model score</th>
+                      <th>First decision</th>
+                      <th>First reviewer</th>
+                      <th>Sampled</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditQueue.data?.map((proposal) => (
+                      <tr key={proposal.id}>
+                        <td>
+                          <span className="cell-primary">
+                            {displayName(proposal.personId, people)}
+                          </span>
+                          <span className="cell-sub mono">
+                            {shortId(proposal.id, 10)}
+                          </span>
+                        </td>
+                        <td>
+                          {proposal.overallScore.toFixed(2)}
+                          <span className="cell-sub">
+                            confidence {formatPercent(proposal.confidence)}
+                          </span>
+                        </td>
+                        <td>
+                          <Badge status={proposal.status} />
+                          {proposal.override ? (
+                            <span className="cell-sub">
+                              <Badge tone="warning">Override</Badge>
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>
+                          {proposal.decidedBy
+                            ? displayName(proposal.decidedBy, people)
+                            : "—"}
+                        </td>
+                        <td className="nowrap">
+                          {proposal.auditSampledAt
+                            ? formatRelative(proposal.auditSampledAt)
+                            : "—"}
+                        </td>
+                        <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => openAudit(proposal)}
+                          >
+                            Audit
                           </Button>
                         </td>
                       </tr>
@@ -1029,6 +1209,114 @@ export function AiPage() {
                 {JSON.stringify(evaluationDetail.metrics, null, 2)}
               </pre>
             </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(auditTarget)}
+        title="Second-review audit"
+        description="Score independently before comparing with the first review."
+        onClose={() => setAuditTarget(null)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAuditTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={submitAuditReview}
+              loading={auditSubmitting}
+            >
+              Record audit review
+            </Button>
+          </>
+        }
+      >
+        {auditTarget ? (
+          <div className="stack">
+            {auditError ? (
+              <InfoNotice tone="warning">{auditError}</InfoNotice>
+            ) : null}
+            <DefinitionList
+              items={[
+                {
+                  label: "Person",
+                  value: displayName(auditTarget.personId, people),
+                },
+                {
+                  label: "First decision",
+                  value: <Badge status={auditTarget.status} />,
+                },
+                {
+                  label: "Sampled",
+                  value: auditTarget.auditSampledAt
+                    ? formatDateTime(auditTarget.auditSampledAt)
+                    : "—",
+                },
+              ]}
+            />
+            <FormField label="Second reviewer" htmlFor="audit-reviewer">
+              <PersonSelect
+                id="audit-reviewer"
+                value={auditReviewer}
+                onChange={setAuditReviewer}
+              />
+            </FormField>
+            <div className="form-grid">
+              {auditTarget.dimensions.map((dimension) => (
+                <FormField
+                  key={dimension}
+                  label={`${titleCase(dimension)} score (0–5)`}
+                  htmlFor={`audit-score-${dimension}`}
+                >
+                  <TextInput
+                    id={`audit-score-${dimension}`}
+                    type="number"
+                    min="0"
+                    max="5"
+                    step="0.01"
+                    value={auditScores[dimension] ?? ""}
+                    onChange={(event) =>
+                      setAuditScores((current) => ({
+                        ...current,
+                        [dimension]: event.target.value,
+                      }))
+                    }
+                  />
+                </FormField>
+              ))}
+              <FormField
+                label="Evidence opened"
+                htmlFor="audit-evidence"
+              >
+                <TextInput
+                  id="audit-evidence"
+                  type="number"
+                  min={0}
+                  value={auditEvidenceOpened}
+                  onChange={(event) =>
+                    setAuditEvidenceOpened(Number(event.target.value))
+                  }
+                />
+              </FormField>
+            </div>
+            <FormField
+              label="Second-review rationale"
+              htmlFor="audit-rationale"
+            >
+              <Textarea
+                id="audit-rationale"
+                value={auditRationale}
+                onChange={(event) => setAuditRationale(event.target.value)}
+              />
+            </FormField>
+            <InfoNotice>
+              The second reviewer must differ from the requester and the first
+              reviewer. Agreement is computed by comparing the second scores
+              with the model scores, then with the recorded decision.
+            </InfoNotice>
           </div>
         ) : null}
       </Modal>
