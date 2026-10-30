@@ -3331,6 +3331,7 @@ describe("admin view", () => {
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["x-frame-options"]).toBe("DENY");
+    expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["content-security-policy"]).toContain(
       "frame-ancestors 'none'",
     );

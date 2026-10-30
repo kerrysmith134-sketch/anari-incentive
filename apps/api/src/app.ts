@@ -712,6 +712,7 @@ export function buildApp(
 
   app.addHook("onSend", async (request, reply, payload) => {
     reply.header("x-request-id", request.id);
+    reply.header("cache-control", "no-store");
     reply.header("x-content-type-options", "nosniff");
     reply.header("x-frame-options", "DENY");
     reply.header("referrer-policy", "no-referrer");
