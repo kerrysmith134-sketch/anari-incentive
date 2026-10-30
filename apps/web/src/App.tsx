@@ -11,12 +11,17 @@ import { ThemeProvider } from "./contexts/ThemeContext.js";
 import { ToastProvider } from "./contexts/ToastContext.js";
 import { AiPage } from "./pages/AiPage.js";
 import { ApprovalsPage } from "./pages/ApprovalsPage.js";
+import { AuditPage } from "./pages/AuditPage.js";
+import { CyclesPage } from "./pages/CyclesPage.js";
+import { ContributionPage } from "./pages/ContributionPage.js";
+import { ExceptionsPage } from "./pages/ExceptionsPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { IntegrationsPage } from "./pages/IntegrationsPage.js";
 import { PayrollPage } from "./pages/PayrollPage.js";
 import { PeoplePage } from "./pages/PeoplePage.js";
 import { PolicyPage } from "./pages/PolicyPage.js";
 import { RewardsPage } from "./pages/RewardsPage.js";
+import { SettlementsPage } from "./pages/SettlementsPage.js";
 import { SettingsPage } from "./pages/SettingsPage.js";
 import { Button } from "./components/ui.js";
 
@@ -81,10 +86,15 @@ export function App() {
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/approvals" element={<ApprovalsPage />} />
+                  <Route path="/cycles" element={<CyclesPage />} />
+                  <Route path="/contribution" element={<ContributionPage />} />
                   <Route path="/payroll" element={<PayrollPage />} />
                   <Route path="/rewards" element={<RewardsPage />} />
+                  <Route path="/settlements" element={<SettlementsPage />} />
                   <Route path="/ai" element={<AiPage />} />
                   <Route path="/policy" element={<PolicyPage />} />
+                  <Route path="/exceptions" element={<ExceptionsPage />} />
+                  <Route path="/audit" element={<AuditPage />} />
                   <Route path="/integrations" element={<IntegrationsPage />} />
                   <Route path="/people" element={<PeoplePage />} />
                   <Route path="/settings" element={<SettingsPage />} />

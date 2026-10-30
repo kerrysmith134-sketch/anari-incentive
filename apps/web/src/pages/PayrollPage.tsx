@@ -18,7 +18,6 @@ import {
   Textarea,
 } from "../components/ui.js";
 import { PersonSelect, usePeople } from "../components/PersonSelect.js";
-import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, downloadFile } from "../lib/api.js";

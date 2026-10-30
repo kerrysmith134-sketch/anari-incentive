@@ -24,6 +24,8 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/", label: "Overview", icon: "overview", end: true },
       { to: "/approvals", label: "Approvals", icon: "approvals" },
+      { to: "/cycles", label: "Cycles", icon: "clock" },
+      { to: "/contribution", label: "Contribution", icon: "layers" },
     ],
   },
   {
@@ -31,6 +33,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/payroll", label: "Payroll", icon: "payroll" },
       { to: "/rewards", label: "Rewards", icon: "rewards" },
+      { to: "/settlements", label: "Settlements", icon: "wallet" },
     ],
   },
   {
@@ -38,6 +41,8 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/ai", label: "AI assurance", icon: "ai" },
       { to: "/policy", label: "Policy", icon: "policy" },
+      { to: "/exceptions", label: "Exceptions", icon: "alert-circle" },
+      { to: "/audit", label: "Audit", icon: "shield" },
     ],
   },
   {
@@ -53,10 +58,15 @@ const NAV: NavGroup[] = [
 const TITLES: Record<string, string> = {
   "/": "Overview",
   "/approvals": "Approvals",
+  "/cycles": "Cycles",
+  "/contribution": "Contribution",
   "/payroll": "Payroll",
   "/rewards": "Rewards",
+  "/settlements": "Settlements",
   "/ai": "AI assurance",
   "/policy": "Policy",
+  "/exceptions": "Exceptions",
+  "/audit": "Audit",
   "/integrations": "Integrations",
   "/people": "People",
   "/settings": "Settings",

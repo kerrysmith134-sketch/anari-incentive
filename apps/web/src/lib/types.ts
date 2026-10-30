@@ -421,11 +421,18 @@ export interface LedgerEntry {
   id: Uuid;
   personId: Uuid;
   cycleId: Uuid;
+  calculationRunId: Uuid;
+  calculationLineId?: Uuid;
+  entryType: "INCENTIVE" | "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
   currency: string;
   amount: DecimalString;
-  status: string;
-  entryType?: string;
+  status: "PROVISIONAL" | "APPROVED" | "LOCKED" | "REVERSED";
+  sourceEntryId?: Uuid;
+  idempotencyKey: string;
+  entryHash: string;
+  prevHash: string;
   createdAt: string;
+  lockedAt?: string;
   [key: string]: unknown;
 }
 
@@ -474,4 +481,251 @@ export interface RetentionPolicy {
   legalBasis: string;
   legalHold: boolean;
   createdAt: string;
+}
+
+export interface EvaluationDraft {
+  id: Uuid;
+  cycleId: Uuid;
+  personId: Uuid;
+  generatedByType: "AGENT" | "USER" | "SYSTEM";
+  generatedById?: Uuid;
+  modelProvider?: string;
+  modelName?: string;
+  promptVersion?: string;
+  agentTaskId?: Uuid;
+  evidenceSnapshotHash: string;
+  draftPayload: Record<string, unknown>;
+  strengths: string[];
+  counterEvidence: string[];
+  missingInformation: string[];
+  uncertainty: Record<string, unknown>;
+  status: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationDecision {
+  id: Uuid;
+  cycleId: Uuid;
+  personId: Uuid;
+  decisionVersion: number;
+  status: "APPROVED" | "SUPERSEDED" | "WITHDRAWN";
+  rubricVersionId: Uuid;
+  evidenceSnapshotHash: string;
+  scores: Record<string, number>;
+  rationale: string;
+  reviewerPersonId: Uuid;
+  approvedAt?: string;
+  supersedesId?: Uuid;
+  createdAt: string;
+}
+
+export interface Rubric {
+  id: Uuid;
+  code: string;
+  name: string;
+  dimensions: string[];
+  scoringAnchors: Record<string, unknown>;
+  scope: Record<string, unknown>;
+  status: string;
+  version: number;
+  effectiveFrom: string;
+}
+
+export interface CycleReadinessReport {
+  cycleId: Uuid;
+  generatedAt: string;
+  readyForSettlement: boolean;
+  calculations: {
+    total: number;
+    byStatus: Record<string, number>;
+    formal: number;
+    formalLocked: number;
+    runs: Array<{
+      runId: Uuid;
+      status: string;
+      mode: string;
+      policyVersionId: Uuid;
+      blockers: string[];
+    }>;
+  };
+  legalGates: Array<{
+    policyVersionId: Uuid;
+    recorded: boolean;
+    blockers: string[];
+  }>;
+  settlement: {
+    total: number;
+    byStatus: Record<string, number>;
+    exported: number;
+    acknowledged: number;
+    batches: Array<{
+      batchId: Uuid;
+      status: string;
+      kind: string;
+      exportedAt?: string;
+      acknowledgedAt?: string;
+    }>;
+  };
+  budgets: { pools: number; approved: number };
+  blockers: string[];
+}
+
+export interface WorkPackageMember {
+  personId: Uuid;
+  responsibilityCode: string;
+  expectedOutput: string;
+}
+
+export interface WorkPackage {
+  id: Uuid;
+  title: string;
+  objective: string;
+  ownerPersonId: Uuid;
+  status: string;
+  acceptanceCriteria: string[];
+  members: WorkPackageMember[];
+  dueAt?: string;
+  commitmentSnapshot?: {
+    snapshotId: Uuid;
+    capturedAt: string;
+    contentHash: string;
+  };
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContributionClaim {
+  id: Uuid;
+  workPackageId: Uuid;
+  claimantPersonId: Uuid;
+  claimType: string;
+  claimedContribution: {
+    dimensions: string[];
+    summary: string;
+  };
+  evidenceRefs: Uuid[];
+  rationale: string;
+  status: string;
+  submittedAt?: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AttributionDecision {
+  id: Uuid;
+  claimId: Uuid;
+  decisionVersion: number;
+  status: string;
+  adjudicatorPersonId: Uuid;
+  acceptedFacts: string[];
+  rejectedFacts: string[];
+  contributionDimensions: Record<string, number>;
+  rationale: string;
+  confidenceBand?: string;
+  effectiveAt: string;
+  supersedesId?: Uuid;
+  createdAt: string;
+}
+
+export interface SettlementLine {
+  id: Uuid;
+  batchId: Uuid;
+  ledgerId: Uuid;
+  personId: Uuid;
+  personCode?: string;
+  personName?: string;
+  amount: DecimalString;
+  currency: string;
+  status: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface SettlementBatch {
+  id: Uuid;
+  cycleId: Uuid;
+  batchNo: string;
+  status: string;
+  kind: "STANDARD" | "RECOVERY";
+  currency: string;
+  totalAmount: DecimalString;
+  lineCount: number;
+  approvedBy?: Uuid;
+  approvedAt?: string;
+  lockedAt?: string;
+  exportedAt?: string;
+  acknowledgedAt?: string;
+  externalReference?: string;
+  createdAt: string;
+  updatedAt: string;
+  lines?: SettlementLine[];
+}
+
+export interface SettlementCommandResult {
+  batch: SettlementBatch;
+  csv?: string;
+}
+
+export interface BudgetPool {
+  id: Uuid;
+  cycleId: Uuid;
+  code: string;
+  name: string;
+  poolType: string;
+  currency: string;
+  approvedAmount: DecimalString;
+  committedAmount: DecimalString;
+  status: string;
+  approvedBy?: Uuid;
+  approvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  allocations?: BudgetAllocation[];
+}
+
+export interface BudgetAllocation {
+  id: Uuid;
+  budgetPoolId: Uuid;
+  targetType: string;
+  targetId: Uuid;
+  amount: DecimalString;
+  status: string;
+  createdAt: string;
+}
+
+export interface DataQualityIssue {
+  id: Uuid;
+  objectType: string;
+  objectId: Uuid;
+  issueCode: string;
+  severity: "INFO" | "WARNING" | "BLOCKING";
+  status: string;
+  assignedTo?: Uuid;
+  details: Record<string, unknown>;
+  dueAt?: string;
+  escalatedAt?: string;
+  escalationReason?: string;
+  waiverReason?: string;
+  waivedBy?: Uuid;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
+
+export interface AppealCase {
+  id: Uuid;
+  appellantPersonId: Uuid;
+  targetType: string;
+  targetId: Uuid;
+  reasonCode: string;
+  statement: string;
+  status: string;
+  reviewerPersonId?: Uuid;
+  resolution?: string;
+  createdAt: string;
+  resolvedAt?: string;
 }

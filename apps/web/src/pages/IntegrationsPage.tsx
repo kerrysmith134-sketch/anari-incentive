@@ -18,7 +18,7 @@ import {
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { ApiError, api } from "../lib/api.js";
+import { api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDateTime,
