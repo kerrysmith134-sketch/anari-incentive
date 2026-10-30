@@ -15,6 +15,7 @@ import type {
   Bounty,
   CashGateInput,
   ConsultationOutcome,
+  ConflictDeclaration,
   ConsultationType,
   DataSource,
   DataSourceField,
@@ -255,6 +256,27 @@ export interface PlatformStore {
     tenantId: string;
     dataSourceId: string;
   }): Promise<DataSource>;
+  createConflictDeclaration(input: {
+    tenantId: string;
+    personId: string;
+    relatedPersonId: string;
+    relationshipType: string;
+    description: string;
+  }): Promise<ConflictDeclaration>;
+  listConflictDeclarations(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ConflictDeclaration[]>;
+  revokeConflictDeclaration(input: {
+    tenantId: string;
+    declarationId: string;
+    reason: string;
+  }): Promise<ConflictDeclaration>;
+  findConflictDeclaration(
+    tenantId: string,
+    personA: string,
+    personB: string,
+  ): Promise<ConflictDeclaration | undefined>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1038,6 +1060,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly dsars = new Map<string, DsarRequest>();
   private readonly retentionPolicies = new Map<string, RetentionPolicy>();
   private readonly dataSources = new Map<string, DataSource>();
+  private readonly conflictDeclarations = new Map<
+    string,
+    ConflictDeclaration
+  >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -1952,6 +1978,110 @@ export class MemoryPlatformStore implements PlatformStore {
     source.updatedAt = now();
     source.version += 1;
     return source;
+  }
+
+  async createConflictDeclaration(input: {
+    tenantId: string;
+    personId: string;
+    relatedPersonId: string;
+    relationshipType: string;
+    description: string;
+  }): Promise<ConflictDeclaration> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (input.personId === input.relatedPersonId) {
+      throw new ConflictError(
+        "CONFLICT_SELF_DECLARATION: related person must differ",
+      );
+    }
+    for (const personId of [input.personId, input.relatedPersonId]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    if (
+      [...this.conflictDeclarations.values()].some(
+        (declaration) =>
+          declaration.tenantId === input.tenantId &&
+          declaration.status === "ACTIVE" &&
+          ((declaration.personId === input.personId &&
+            declaration.relatedPersonId === input.relatedPersonId) ||
+            (declaration.personId === input.relatedPersonId &&
+              declaration.relatedPersonId === input.personId)),
+      )
+    ) {
+      throw new ConflictError(
+        "CONFLICT_DECLARATION_EXISTS: an active declaration already covers this pair",
+      );
+    }
+    const timestamp = now();
+    const declaration: ConflictDeclaration = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      relatedPersonId: input.relatedPersonId,
+      relationshipType: input.relationshipType,
+      description: input.description,
+      status: "ACTIVE",
+      declaredAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.conflictDeclarations.set(declaration.id, declaration);
+    return declaration;
+  }
+
+  async listConflictDeclarations(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ConflictDeclaration[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.conflictDeclarations.values()]
+      .filter(
+        (declaration) =>
+          declaration.tenantId === tenantId &&
+          (!personId ||
+            declaration.personId === personId ||
+            declaration.relatedPersonId === personId),
+      )
+      .sort((a, b) => b.declaredAt.localeCompare(a.declaredAt));
+  }
+
+  async revokeConflictDeclaration(input: {
+    tenantId: string;
+    declarationId: string;
+    reason: string;
+  }): Promise<ConflictDeclaration> {
+    const declaration = this.conflictDeclarations.get(input.declarationId);
+    if (!declaration || declaration.tenantId !== input.tenantId) {
+      notFound("ConflictDeclaration", input.declarationId);
+    }
+    if (declaration.status === "REVOKED") {
+      throw new ConflictError(
+        `conflict declaration ${declaration.id} is already revoked`,
+      );
+    }
+    declaration.status = "REVOKED";
+    declaration.revokedAt = now();
+    declaration.revocationReason = input.reason;
+    declaration.updatedAt = declaration.revokedAt;
+    return declaration;
+  }
+
+  async findConflictDeclaration(
+    tenantId: string,
+    personA: string,
+    personB: string,
+  ): Promise<ConflictDeclaration | undefined> {
+    return [...this.conflictDeclarations.values()].find(
+      (declaration) =>
+        declaration.tenantId === tenantId &&
+        declaration.status === "ACTIVE" &&
+        ((declaration.personId === personA &&
+          declaration.relatedPersonId === personB) ||
+          (declaration.personId === personB &&
+            declaration.relatedPersonId === personA)),
+    );
   }
 
   async createApprovalRequest(input: {
@@ -6312,6 +6442,104 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapDataSource(rows[0]);
   }
 
+  async createConflictDeclaration(input: {
+    tenantId: string;
+    personId: string;
+    relatedPersonId: string;
+    relationshipType: string;
+    description: string;
+  }): Promise<ConflictDeclaration> {
+    if (input.personId === input.relatedPersonId) {
+      throw new ConflictError(
+        "CONFLICT_SELF_DECLARATION: related person must differ",
+      );
+    }
+    const existing = await this.findConflictDeclaration(
+      input.tenantId,
+      input.personId,
+      input.relatedPersonId,
+    );
+    if (existing) {
+      throw new ConflictError(
+        "CONFLICT_DECLARATION_EXISTS: an active declaration already covers this pair",
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO conflict_declarations
+          (id, tenant_id, person_id, related_person_id, relationship_type,
+           description)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.relatedPersonId,
+          input.relationshipType,
+          input.description,
+        ],
+      );
+      return this.mapConflictDeclaration(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant, person ${input.personId} or related person ${input.relatedPersonId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listConflictDeclarations(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ConflictDeclaration[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM conflict_declarations WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND (person_id=$2 OR related_person_id=$2)";
+    }
+    sql += " ORDER BY declared_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapConflictDeclaration(row));
+  }
+
+  async revokeConflictDeclaration(input: {
+    tenantId: string;
+    declarationId: string;
+    reason: string;
+  }): Promise<ConflictDeclaration> {
+    const { rows } = await this.pool.query(
+      `UPDATE conflict_declarations
+          SET status='REVOKED', revoked_at=now(), revocation_reason=$3,
+              updated_at=now()
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [input.tenantId, input.declarationId, input.reason],
+    );
+    if (!rows[0]) notFound("ConflictDeclaration", input.declarationId);
+    return this.mapConflictDeclaration(rows[0]);
+  }
+
+  async findConflictDeclaration(
+    tenantId: string,
+    personA: string,
+    personB: string,
+  ): Promise<ConflictDeclaration | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM conflict_declarations
+        WHERE tenant_id=$1 AND status='ACTIVE'
+          AND ((person_id=$2 AND related_person_id=$3)
+            OR (person_id=$3 AND related_person_id=$2))
+        LIMIT 1`,
+      [tenantId, personA, personB],
+    );
+    return rows[0] ? this.mapConflictDeclaration(rows[0]) : undefined;
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -10511,6 +10739,23 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapConflictDeclaration(row: QueryResultRow): ConflictDeclaration {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      relatedPersonId: row.related_person_id,
+      relationshipType: row.relationship_type,
+      description: row.description,
+      status: row.status,
+      declaredAt: iso(row.declared_at) ?? new Date().toISOString(),
+      revokedAt: iso(row.revoked_at),
+      revocationReason: row.revocation_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

@@ -20,6 +20,8 @@ import {
   createCalculationBatchSchema,
   createCalculationRunSchema,
   createContributionClaimSchema,
+  createConflictDeclarationSchema,
+  revokeConflictDeclarationSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -529,6 +531,23 @@ export function buildApp(
       scopedStores.set(tenantId, scoped);
     }
     return scoped;
+  }
+
+  async function assertNoAdjudicatorConflict(
+    request: FastifyRequest,
+    adjudicatorPersonId: string,
+    claimantPersonId: string,
+  ): Promise<void> {
+    const conflict = await platformStore.findConflictDeclaration(
+      tenantOf(request),
+      adjudicatorPersonId,
+      claimantPersonId,
+    );
+    if (conflict) {
+      throw new ConflictError(
+        `ADJUDICATOR_CONFLICT_OF_INTEREST:${conflict.relationshipType}:${conflict.id}`,
+      );
+    }
   }
 
   function runtimeFor(request: FastifyRequest): AgentRuntime {
@@ -2497,9 +2516,57 @@ export function buildApp(
     data(await storeFor(request).submitClaim(idOf(request)), request),
   );
 
+  app.post("/api/v1/conflict-declarations", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createConflictDeclarationSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createConflictDeclaration({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          relatedPersonId: body.relatedPersonId,
+          relationshipType: body.relationshipType,
+          description: body.description,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/conflict-declarations", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listConflictDeclarations(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/conflict-declarations/:id/revoke", async (request) => {
+      requireRoles(request, "manager");
+      const body = parse(revokeConflictDeclarationSchema, request.body);
+      return data(
+        await platformStore.revokeConflictDeclaration({
+          tenantId: tenantOf(request),
+          declarationId: idOf(request),
+          reason: body.reason,
+        }),
+        request,
+      );
+  });
+
   app.post("/api/v1/attribution-decisions", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createAttributionDecisionSchema, request.body);
+    const claim = await storeFor(request).getClaim(body.claimId);
+    await assertNoAdjudicatorConflict(
+      request,
+      body.adjudicatorPersonId,
+      claim.claimantPersonId,
+    );
     return reply
       .status(201)
       .send(data(await storeFor(request).createAttributionDecision(body), request));
@@ -2508,6 +2575,14 @@ export function buildApp(
   app.post("/api/v1/attribution-decisions:batch", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createAttributionDecisionsBatchSchema, request.body);
+    for (const item of body.items) {
+      const claim = await storeFor(request).getClaim(item.claimId);
+      await assertNoAdjudicatorConflict(
+        request,
+        item.adjudicatorPersonId,
+        claim.claimantPersonId,
+      );
+    }
     const decisions = await storeFor(request).createAttributionDecisionsBatch(
       body.items,
     );

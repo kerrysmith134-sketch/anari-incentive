@@ -3012,6 +3012,42 @@ describePg("PgStore vertical slice", () => {
     expect(loaded.exceptionReason).toBe("Evidence system outage");
   });
 
+  it("persists and revokes conflict declarations", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const declaration = await platform.createConflictDeclaration({
+      tenantId: DEMO_TENANT_ID,
+      personId: ADJUDICATOR,
+      relatedPersonId: MEMBER,
+      relationshipType: "FAMILY",
+      description: "Close family relationship",
+    });
+    expect(declaration.status).toBe("ACTIVE");
+    const found = await platform.findConflictDeclaration(
+      DEMO_TENANT_ID,
+      MEMBER,
+      ADJUDICATOR,
+    );
+    expect(found?.id).toBe(declaration.id);
+    const listed = await platform.listConflictDeclarations(
+      DEMO_TENANT_ID,
+      ADJUDICATOR,
+    );
+    expect(listed.map((row) => row.id)).toContain(declaration.id);
+    const revoked = await platform.revokeConflictDeclaration({
+      tenantId: DEMO_TENANT_ID,
+      declarationId: declaration.id,
+      reason: "Relationship ended",
+    });
+    expect(revoked.status).toBe("REVOKED");
+    expect(
+      await platform.findConflictDeclaration(
+        DEMO_TENANT_ID,
+        MEMBER,
+        ADJUDICATOR,
+      ),
+    ).toBeUndefined();
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

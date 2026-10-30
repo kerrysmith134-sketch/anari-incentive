@@ -394,6 +394,83 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/conflict-declarations:
+    get:
+      tags: [Contribution]
+      summary: List related-party conflict declarations
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Conflict declarations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Contribution]
+      summary: Declare a related-party conflict
+      description: An active declaration blocks adjudication between the pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConflictDeclaration"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/conflict-declarations/{id}/revoke:
+    post:
+      tags: [Contribution]
+      summary: Revoke a conflict declaration
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeConflictDeclaration"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/attribution-decisions:batch:
     post:
       tags: [Attribution]
@@ -6532,6 +6609,28 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateConflictDeclaration:
+      type: object
+      required: [personId, relatedPersonId, relationshipType, description]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        relatedPersonId:
+          $ref: "#/components/schemas/Uuid"
+        relationshipType:
+          type: string
+        description:
+          type: string
+          minLength: 3
+
+    RevokeConflictDeclaration:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
 
     CreateContributionClaim:
       type: object

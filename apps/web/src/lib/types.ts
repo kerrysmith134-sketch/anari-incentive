@@ -552,6 +552,20 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ConflictDeclaration {
+  id: Uuid;
+  personId: Uuid;
+  relatedPersonId: Uuid;
+  relationshipType: string;
+  description: string;
+  status: "ACTIVE" | "REVOKED";
+  declaredAt: string;
+  revokedAt?: string;
+  revocationReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DpiaRecord {
   id: Uuid;
   assessmentType: string;

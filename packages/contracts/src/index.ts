@@ -92,6 +92,33 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createConflictDeclarationSchema = z
+  .object({
+    personId: uuidSchema,
+    relatedPersonId: uuidSchema,
+    relationshipType: z.string().min(1),
+    description: z.string().min(3),
+  })
+  .superRefine((value, context) => {
+    if (value.personId === value.relatedPersonId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["relatedPersonId"],
+        message: "a person cannot declare a conflict with themselves",
+      });
+    }
+  });
+export type CreateConflictDeclarationBody = z.infer<
+  typeof createConflictDeclarationSchema
+>;
+
+export const revokeConflictDeclarationSchema = z.object({
+  reason: z.string().min(3),
+});
+export type RevokeConflictDeclarationBody = z.infer<
+  typeof revokeConflictDeclarationSchema
+>;
+
 export const createAttributionDecisionSchema = z.object({
   claimId: uuidSchema,
   adjudicatorPersonId: uuidSchema,

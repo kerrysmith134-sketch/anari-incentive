@@ -29,6 +29,7 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  ConflictDeclaration,
   DataClassification,
   DataMapReport,
   DpiaRecord,
@@ -51,6 +52,9 @@ export function SettingsPage() {
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
   const dataMap = useApiQuery<DataMapReport>("/api/v1/data-map");
+  const conflicts = useApiQuery<ConflictDeclaration[]>(
+    "/api/v1/conflict-declarations",
+  );
 
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
@@ -84,6 +88,16 @@ export function SettingsPage() {
       purpose: "",
     },
   ]);
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflictSaving, setConflictSaving] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [conflictPerson, setConflictPerson] = useState(session.personId);
+  const [conflictRelated, setConflictRelated] = useState("");
+  const [conflictType, setConflictType] = useState("FAMILY");
+  const [conflictDescription, setConflictDescription] = useState("");
+  const [revokeTarget, setRevokeTarget] =
+    useState<ConflictDeclaration | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -175,6 +189,74 @@ export function SettingsPage() {
       );
     } finally {
       setSourceSaving(false);
+    }
+  }
+
+  function openConflictForm() {
+    setConflictPerson(session.personId);
+    setConflictRelated("");
+    setConflictType("FAMILY");
+    setConflictDescription("");
+    setConflictError(null);
+    setConflictOpen(true);
+  }
+
+  async function saveConflict(event: FormEvent) {
+    event.preventDefault();
+    setConflictSaving(true);
+    setConflictError(null);
+    try {
+      await api("/api/v1/conflict-declarations", {
+        method: "POST",
+        body: {
+          personId: conflictPerson,
+          relatedPersonId: conflictRelated,
+          relationshipType: conflictType.trim(),
+          description: conflictDescription.trim(),
+        },
+      });
+      toast.success(
+        "Conflict declared",
+        "Adjudication involving this pair is now blocked.",
+      );
+      setConflictOpen(false);
+      conflicts.reload();
+    } catch (error) {
+      setConflictError(
+        error instanceof Error
+          ? error.message
+          : "Could not declare the conflict.",
+      );
+    } finally {
+      setConflictSaving(false);
+    }
+  }
+
+  async function revokeConflict(event: FormEvent) {
+    event.preventDefault();
+    if (!revokeTarget) return;
+    setConflictSaving(true);
+    setConflictError(null);
+    try {
+      await api(
+        `/api/v1/conflict-declarations/${revokeTarget.id}/revoke`,
+        {
+          method: "POST",
+          body: { reason: revokeReason.trim() },
+        },
+      );
+      toast.success("Conflict declaration revoked");
+      setRevokeTarget(null);
+      setRevokeReason("");
+      conflicts.reload();
+    } catch (error) {
+      setConflictError(
+        error instanceof Error
+          ? error.message
+          : "Could not revoke the declaration.",
+      );
+    } finally {
+      setConflictSaving(false);
     }
   }
 
@@ -923,6 +1005,190 @@ export function SettingsPage() {
           {sourceError ? (
             <InfoNotice tone="warning">{sourceError}</InfoNotice>
           ) : null}
+        </form>
+      </Modal>
+
+      <Panel
+        title="Conflict declarations"
+        subtitle="Active related-party declarations block adjudication between the pair"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openConflictForm}
+          >
+            Declare conflict
+          </Button>
+        }
+        flush
+      >
+        {conflicts.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={conflicts.error} onRetry={conflicts.reload} />
+          </div>
+        ) : conflicts.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={3} />
+          </div>
+        ) : (conflicts.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="people"
+            title="No conflict declared"
+            description="Declare close personal or financial relationships that should prevent one person adjudicating another's contribution."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>People</th>
+                  <th>Relationship</th>
+                  <th>Status</th>
+                  <th>Declared</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {conflicts.data?.map((declaration) => (
+                  <tr key={declaration.id}>
+                    <td>
+                      <span className="cell-primary mono">
+                        {shortId(declaration.personId, 10)} ↔{" "}
+                        {shortId(declaration.relatedPersonId, 10)}
+                      </span>
+                      <span className="cell-sub">
+                        {declaration.description}
+                      </span>
+                    </td>
+                    <td>{titleCase(declaration.relationshipType)}</td>
+                    <td>
+                      <Badge status={declaration.status} />
+                    </td>
+                    <td className="nowrap">
+                      {formatDate(declaration.declaredAt)}
+                    </td>
+                    <td className="cell-actions">
+                      {declaration.status === "ACTIVE" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setRevokeTarget(declaration);
+                            setRevokeReason("");
+                            setConflictError(null);
+                          }}
+                        >
+                          Revoke
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={conflictOpen}
+        title="Declare conflict of interest"
+        description="The pair cannot adjudicate each other's contribution while the declaration is active."
+        onClose={() => setConflictOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConflictOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="conflict-form"
+              loading={conflictSaving}
+            >
+              Declare
+            </Button>
+          </>
+        }
+      >
+        <form id="conflict-form" className="stack" onSubmit={saveConflict}>
+          {conflictError ? (
+            <InfoNotice tone="warning">{conflictError}</InfoNotice>
+          ) : null}
+          <FormField label="Declaring person" htmlFor="conflict-person">
+            <PersonSelect
+              id="conflict-person"
+              value={conflictPerson}
+              onChange={setConflictPerson}
+            />
+          </FormField>
+          <FormField label="Related person" htmlFor="conflict-related">
+            <PersonSelect
+              id="conflict-related"
+              value={conflictRelated}
+              onChange={setConflictRelated}
+            />
+          </FormField>
+          <FormField label="Relationship" htmlFor="conflict-type">
+            <TextInput
+              id="conflict-type"
+              value={conflictType}
+              onChange={(event) => setConflictType(event.target.value)}
+              placeholder="FAMILY, FINANCIAL, FORMER_MANAGER…"
+              required
+            />
+          </FormField>
+          <FormField label="Description" htmlFor="conflict-description">
+            <TextInput
+              id="conflict-description"
+              value={conflictDescription}
+              onChange={(event) =>
+                setConflictDescription(event.target.value)
+              }
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(revokeTarget)}
+        title="Revoke conflict declaration"
+        onClose={() => setRevokeTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRevokeTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              type="submit"
+              form="revoke-conflict-form"
+              loading={conflictSaving}
+            >
+              Revoke
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="revoke-conflict-form"
+          className="stack"
+          onSubmit={revokeConflict}
+        >
+          {conflictError ? (
+            <InfoNotice tone="warning">{conflictError}</InfoNotice>
+          ) : null}
+          <FormField label="Revocation reason" htmlFor="revoke-reason">
+            <TextInput
+              id="revoke-reason"
+              value={revokeReason}
+              onChange={(event) => setRevokeReason(event.target.value)}
+              required
+            />
+          </FormField>
         </form>
       </Modal>
 

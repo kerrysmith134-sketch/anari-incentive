@@ -332,6 +332,21 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface ConflictDeclaration {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  relatedPersonId: UUID;
+  relationshipType: string;
+  description: string;
+  status: "ACTIVE" | "REVOKED";
+  declaredAt: string;
+  revokedAt?: string;
+  revocationReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type DataClassification =
   | "PUBLIC"
   | "INTERNAL"

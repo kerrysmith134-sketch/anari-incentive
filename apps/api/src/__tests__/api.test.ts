@@ -6680,6 +6680,69 @@ describe("vertical slice", () => {
     expect(afterRetire.body.data.summary.activeSources).toBe(0);
   });
 
+  it("blocks adjudication when an active conflict is declared", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const created = await call("POST", "/api/v1/contribution-claims", {
+      workPackageId,
+      claimantPersonId: OWNER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimedContribution: {
+        dimensions: ["QUALITY"],
+        summary: "Delivered the agreed scope",
+      },
+      rationale: "Delivered the agreed scope",
+    });
+    expect(created.status).toBe(201);
+    const claimId = created.body.data.id as string;
+    await call("POST", `/api/v1/contribution-claims/${claimId}/submit`);
+
+    const declaration = await call(
+      "POST",
+      "/api/v1/conflict-declarations",
+      {
+        personId: ADJUDICATOR,
+        relatedPersonId: OWNER,
+        relationshipType: "FAMILY",
+        description: "Close family relationship",
+      },
+    );
+    expect(declaration.status).toBe(201);
+    expect(declaration.body.data.status).toBe("ACTIVE");
+
+    const decisionBody = {
+      claimId,
+      adjudicatorPersonId: ADJUDICATOR,
+      status: "CONFIRMED",
+      acceptedFacts: ["Delivered"],
+      rejectedFacts: [],
+      contributionDimensions: { QUALITY: 1 },
+      rationale: "Evidence supports the claim",
+    };
+    const blocked = await call(
+      "POST",
+      "/api/v1/attribution-decisions",
+      decisionBody,
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain(
+      "ADJUDICATOR_CONFLICT_OF_INTEREST",
+    );
+
+    const revoked = await call(
+      "POST",
+      `/api/v1/conflict-declarations/${declaration.body.data.id}/revoke`,
+      { reason: "Relationship ended; declaration no longer applies" },
+    );
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.data.status).toBe("REVOKED");
+    const allowed = await call(
+      "POST",
+      "/api/v1/attribution-decisions",
+      decisionBody,
+    );
+    expect(allowed.status).toBe(201);
+  });
+
   it("requires a reason for exception and backfill claims", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     const missingReason = await call("POST", "/api/v1/contribution-claims", {
