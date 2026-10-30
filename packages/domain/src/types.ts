@@ -350,6 +350,19 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface ModelCanaryRun {
+  id: UUID;
+  tenantId: UUID;
+  baselineEvaluationRunId: UUID;
+  candidateEvaluationRunId: UUID;
+  datasetRef: string;
+  trafficPercent: number;
+  passed: boolean;
+  blockers: string[];
+  metrics: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface ModelEvaluationDataset {
   id: UUID;
   tenantId: UUID;

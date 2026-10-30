@@ -3456,6 +3456,52 @@ describePg("PgStore vertical slice", () => {
     expect(cancelled.cancelReason).toBe("Terms superseded");
   });
 
+  it("persists model canary comparisons", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const baseline = await platform.createModelEvaluationRun({
+      tenantId: DEMO_TENANT_ID,
+      evaluationType: "IRR",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      datasetRef: `pg-canary-${Date.now()}`,
+      sampleSize: 100,
+      metrics: { harnessVersion: "ai-gate-v1" },
+      subgroupMetrics: {},
+      passed: true,
+      blockers: [],
+    });
+    const candidate = await platform.createModelEvaluationRun({
+      tenantId: DEMO_TENANT_ID,
+      evaluationType: "IRR",
+      modelProvider: "anthropic",
+      modelName: "claude-new",
+      promptVersion: "v2",
+      datasetRef: baseline.datasetRef,
+      sampleSize: 100,
+      metrics: { harnessVersion: "ai-gate-v1" },
+      subgroupMetrics: {},
+      passed: true,
+      blockers: [],
+    });
+    const canary = await platform.createModelCanaryRun({
+      tenantId: DEMO_TENANT_ID,
+      baselineEvaluationRunId: baseline.id,
+      candidateEvaluationRunId: candidate.id,
+      datasetRef: baseline.datasetRef,
+      trafficPercent: 10,
+      passed: true,
+      blockers: [],
+      metrics: {},
+    });
+    expect(canary.passed).toBe(true);
+    expect(
+      (await platform.listModelCanaryRuns(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(canary.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

@@ -996,6 +996,52 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/model-canary-runs:
+    get:
+      tags: [Agent]
+      summary: List model canary comparisons
+      responses:
+        "200":
+          description: Canary runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Compare a candidate evaluation against a baseline
+      description: |
+        Both runs must be harness-verified and use the same dataset. The
+        candidate is blocked if it failed, or regressed kappa, subgroup error
+        gap, prompt-injection pass rate or counterfactual stability.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelCanaryRun"
+      responses:
+        "201":
+          description: Recorded comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/model-evaluation-datasets:
     get:
       tags: [Agent]
@@ -7779,6 +7825,22 @@ components:
           type: array
           items:
             type: string
+
+    CreateModelCanaryRun:
+      type: object
+      required:
+        [baselineEvaluationRunId, candidateEvaluationRunId, datasetRef, trafficPercent]
+      properties:
+        baselineEvaluationRunId:
+          $ref: "#/components/schemas/Uuid"
+        candidateEvaluationRunId:
+          $ref: "#/components/schemas/Uuid"
+        datasetRef:
+          type: string
+        trafficPercent:
+          type: number
+          minimum: 1
+          maximum: 100
 
     CreateModelEvaluationDataset:
       type: object

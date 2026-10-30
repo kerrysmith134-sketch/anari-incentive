@@ -92,6 +92,16 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createModelCanaryRunSchema = z.object({
+  baselineEvaluationRunId: uuidSchema,
+  candidateEvaluationRunId: uuidSchema,
+  datasetRef: z.string().min(1),
+  trafficPercent: z.number().min(1).max(100),
+});
+export type CreateModelCanaryRunBody = z.infer<
+  typeof createModelCanaryRunSchema
+>;
+
 export const createModelEvaluationDatasetSchema = z
   .object({
     code: z.string().min(1),

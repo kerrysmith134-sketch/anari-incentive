@@ -609,6 +609,18 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ModelCanaryRun {
+  id: Uuid;
+  baselineEvaluationRunId: Uuid;
+  candidateEvaluationRunId: Uuid;
+  datasetRef: string;
+  trafficPercent: number;
+  passed: boolean;
+  blockers: string[];
+  metrics: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface ModelEvaluationDataset {
   id: Uuid;
   code: string;

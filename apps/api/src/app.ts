@@ -38,6 +38,7 @@ import {
   createDiscretionaryPoolReviewSchema,
   createModelProviderPolicySchema,
   createModelEvaluationDatasetSchema,
+  createModelCanaryRunSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -3542,6 +3543,107 @@ export function buildApp(
         tenantId: tenantOf(request),
         datasetId: idOf(request),
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-canary-runs", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createModelCanaryRunSchema, request.body);
+    const tenantId = tenantOf(request);
+    const [baseline, candidate] = await Promise.all([
+      platformStore.getModelEvaluationRun(
+        tenantId,
+        body.baselineEvaluationRunId,
+      ),
+      platformStore.getModelEvaluationRun(
+        tenantId,
+        body.candidateEvaluationRunId,
+      ),
+    ]);
+    assertHarnessEvaluation(baseline);
+    assertHarnessEvaluation(candidate);
+    if (
+      baseline.datasetRef !== body.datasetRef ||
+      candidate.datasetRef !== body.datasetRef
+    ) {
+      throw new ConflictError(
+        "CANARY_DATASET_MISMATCH: both runs must use the requested dataset",
+      );
+    }
+    const blockers: string[] = [];
+    if (!baseline.passed) blockers.push("BASELINE_NOT_PASSED");
+    if (!candidate.passed) blockers.push("CANDIDATE_NOT_PASSED");
+    const metric = (
+      run: typeof baseline,
+      key: string,
+    ): number | undefined =>
+      typeof run.metrics[key] === "number"
+        ? (run.metrics[key] as number)
+        : undefined;
+    const kappa = metric(candidate, "cohensKappa");
+    const baselineKappa = metric(baseline, "cohensKappa");
+    if (
+      kappa !== undefined &&
+      baselineKappa !== undefined &&
+      kappa < baselineKappa - 0.05
+    ) {
+      blockers.push("CANARY_KAPPA_REGRESSION");
+    }
+    const gap = metric(candidate, "subgroupErrorGap");
+    const baselineGap = metric(baseline, "subgroupErrorGap");
+    if (
+      gap !== undefined &&
+      baselineGap !== undefined &&
+      gap > baselineGap + 0.05
+    ) {
+      blockers.push("CANARY_SUBGROUP_GAP_REGRESSION");
+    }
+    const injection = metric(candidate, "promptInjectionPassRate");
+    const baselineInjection = metric(
+      baseline,
+      "promptInjectionPassRate",
+    );
+    if (
+      injection !== undefined &&
+      baselineInjection !== undefined &&
+      injection < baselineInjection
+    ) {
+      blockers.push("CANARY_PROMPT_INJECTION_REGRESSION");
+    }
+    const stability = metric(candidate, "counterfactualStability");
+    const baselineStability = metric(
+      baseline,
+      "counterfactualStability",
+    );
+    if (
+      stability !== undefined &&
+      baselineStability !== undefined &&
+      stability < baselineStability - 0.05
+    ) {
+      blockers.push("CANARY_STABILITY_REGRESSION");
+    }
+    const canary = await platformStore.createModelCanaryRun({
+      tenantId,
+      baselineEvaluationRunId: baseline.id,
+      candidateEvaluationRunId: candidate.id,
+      datasetRef: body.datasetRef,
+      trafficPercent: body.trafficPercent,
+      passed: blockers.length === 0,
+      blockers,
+      metrics: {
+        baseline: baseline.metrics,
+        candidate: candidate.metrics,
+      },
+    });
+    countEvent(canary.passed ? "model_canary_passed" : "model_canary_blocked");
+    return reply.status(201).send(data(canary, request));
+  });
+
+  app.get("/api/v1/model-canary-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listModelCanaryRuns(tenantOf(request)),
       request,
     );
   });

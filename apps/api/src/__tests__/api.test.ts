@@ -6730,6 +6730,47 @@ describe("vertical slice", () => {
     expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
+  it("runs a canary comparison and blocks a regressed candidate", async () => {
+    const baseline = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "canary-set",
+    );
+    const failedCandidate = await createHarnessEvaluation(
+      "IRR",
+      "claude-new",
+      false,
+      "canary-set",
+    );
+    const blocked = await call("POST", "/api/v1/model-canary-runs", {
+      baselineEvaluationRunId: baseline.body.data.id,
+      candidateEvaluationRunId: failedCandidate.body.data.id,
+      datasetRef: "canary-set",
+      trafficPercent: 10,
+    });
+    expect(blocked.status).toBe(201);
+    expect(blocked.body.data.passed).toBe(false);
+    expect(blocked.body.data.blockers).toContain("CANDIDATE_NOT_PASSED");
+    const passedCandidate = await createHarnessEvaluation(
+      "IRR",
+      "claude-new",
+      true,
+      "canary-set",
+    );
+    const canary = await call("POST", "/api/v1/model-canary-runs", {
+      baselineEvaluationRunId: baseline.body.data.id,
+      candidateEvaluationRunId: passedCandidate.body.data.id,
+      datasetRef: "canary-set",
+      trafficPercent: 25,
+    });
+    expect(canary.status).toBe(201);
+    expect(canary.body.data.passed).toBe(true);
+    expect(canary.body.data.trafficPercent).toBe(25);
+    const list = await call("GET", "/api/v1/model-canary-runs");
+    expect(list.body.data).toHaveLength(2);
+  });
+
   it("blocks AI scoring for dimensions without evidence unless zeroing is configured", async () => {
     const evaluation = await createHarnessEvaluation(
       "IRR",

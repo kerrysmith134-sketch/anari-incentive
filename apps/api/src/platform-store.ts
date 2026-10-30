@@ -43,6 +43,7 @@ import type {
   IntegrationMapping,
   InboxMessage,
   MetricDefinition,
+  ModelCanaryRun,
   ModelEvaluationDataset,
   ModelEvaluationRun,
   ModelPrompt,
@@ -472,6 +473,17 @@ export interface PlatformStore {
     tenantId: string;
     datasetId: string;
   }): Promise<ModelEvaluationDataset>;
+  createModelCanaryRun(input: {
+    tenantId: string;
+    baselineEvaluationRunId: string;
+    candidateEvaluationRunId: string;
+    datasetRef: string;
+    trafficPercent: number;
+    passed: boolean;
+    blockers: string[];
+    metrics: Record<string, unknown>;
+  }): Promise<ModelCanaryRun>;
+  listModelCanaryRuns(tenantId: string): Promise<ModelCanaryRun[]>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1372,6 +1384,7 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     ModelEvaluationDataset
   >();
+  private readonly modelCanaryRuns = new Map<string, ModelCanaryRun>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -3252,6 +3265,40 @@ export class MemoryPlatformStore implements PlatformStore {
     dataset.retiredAt = now();
     dataset.updatedAt = dataset.retiredAt;
     return dataset;
+  }
+
+  async createModelCanaryRun(input: {
+    tenantId: string;
+    baselineEvaluationRunId: string;
+    candidateEvaluationRunId: string;
+    datasetRef: string;
+    trafficPercent: number;
+    passed: boolean;
+    blockers: string[];
+    metrics: Record<string, unknown>;
+  }): Promise<ModelCanaryRun> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const canary: ModelCanaryRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      baselineEvaluationRunId: input.baselineEvaluationRunId,
+      candidateEvaluationRunId: input.candidateEvaluationRunId,
+      datasetRef: input.datasetRef,
+      trafficPercent: input.trafficPercent,
+      passed: input.passed,
+      blockers: [...input.blockers],
+      metrics: structuredClone(input.metrics),
+      createdAt: now(),
+    };
+    this.modelCanaryRuns.set(canary.id, canary);
+    return canary;
+  }
+
+  async listModelCanaryRuns(tenantId: string): Promise<ModelCanaryRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelCanaryRuns.values()]
+      .filter((canary) => canary.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async createApprovalRequest(input: {
@@ -8893,6 +8940,58 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapModelEvaluationDataset(rows[0]);
   }
 
+  async createModelCanaryRun(input: {
+    tenantId: string;
+    baselineEvaluationRunId: string;
+    candidateEvaluationRunId: string;
+    datasetRef: string;
+    trafficPercent: number;
+    passed: boolean;
+    blockers: string[];
+    metrics: Record<string, unknown>;
+  }): Promise<ModelCanaryRun> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_canary_runs
+          (id, tenant_id, baseline_evaluation_run_id,
+           candidate_evaluation_run_id, dataset_ref, traffic_percent,
+           passed, blockers, metrics)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.baselineEvaluationRunId,
+          input.candidateEvaluationRunId,
+          input.datasetRef,
+          input.trafficPercent,
+          input.passed,
+          JSON.stringify(input.blockers),
+          JSON.stringify(input.metrics),
+        ],
+      );
+      return this.mapModelCanaryRun(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant or evaluation run not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listModelCanaryRuns(tenantId: string): Promise<ModelCanaryRun[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_canary_runs
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapModelCanaryRun(row));
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -13316,6 +13415,21 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapModelCanaryRun(row: QueryResultRow): ModelCanaryRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      baselineEvaluationRunId: row.baseline_evaluation_run_id,
+      candidateEvaluationRunId: row.candidate_evaluation_run_id,
+      datasetRef: row.dataset_ref,
+      trafficPercent: Number(row.traffic_percent),
+      passed: row.passed,
+      blockers: (row.blockers as string[] | null) ?? [],
+      metrics: (row.metrics as Record<string, unknown> | null) ?? {},
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

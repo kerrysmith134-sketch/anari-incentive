@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（250 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（57 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（257 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（58 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -11,7 +11,7 @@
 对照 PRD 的 **P0 验收要求**，剩余缺口已收敛为：
 
 1. **法律门禁的最后一公里**：LG-05 仍缺未来生效排期与外部电子签服务；LG-06 已有最低工资、扣款上限、deduction order/breakdown 与 tax/social 分列，但仍缺法定扣款类型/逐类型上限。
-2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、第二复核与 gold-set 注册；仍缺决策前高风险强制双人复核、canary/供应商变更回归，以及 AI-05 的 reader/actor 强制隔离与红队记录。
+2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；仍缺 AI-05 的 reader/actor 强制隔离与红队记录，以及审阅分析前端增强。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；仍缺平滑阈值/跨周期分摊、角色差异化薪酬模板（INC-02）和“未计价工作不得默认为 0”的强制规则（INC-06）。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；仍缺通用字段级 ABAC、内容级 DLP/批量导出限流、audit redaction、自动 retention deletion（后者仍明确不启用）。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；仍缺员工/经理 cycle-time 指标、DATA-05 的字段级最小化技术证明、受保护属性 subgroup impact。
@@ -98,7 +98,7 @@
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
-| AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；本轮新增 gold-set 注册（code/version/sample/holdout/label source/owner/next refresh）与 `requireRegisteredGoldSet` 强制校验；canary 与供应商变更回归仍未实现 |
+| AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；gold-set 注册与强制校验、canary/vendor-change 对比（kappa/subgroup gap/injection/stability 回归阻断）已实现；季度刷新仍只记录 due date，不自动重训/重标 |
 | AI-03 人工监督 | 🟡 | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、第二复核与一致率已有；本轮新增 `riskTier=HIGH/CRITICAL` 的决策前强制第二复核（独立评分，不一致则 409），audit sampling 与 pre-decision double review 都已落地；审阅耗时前端分析面板仍可继续增强 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；本轮 provider policy 覆盖 egress allowlist、DPA、零留存、区域推理并在开启时强制校验；reader/actor 强制隔离与红队记录仍未实现 |
@@ -107,7 +107,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DOM-01 单一契约 | 🟡 | TS/Zod/OpenAPI/SQL 四份；有 route coverage、RLS/约束测试，但无字段级生成/一致性校验 |
+| DOM-01 单一契约 | 🟡 | TS/Zod/OpenAPI/SQL 四份；路由覆盖、RLS/约束测试之外，新增关键请求 schema 的 required 字段级 OpenAPI↔Zod 对齐测试；仍非单一生成源 |
 | DOM-02 状态机 | ✅ | `packages/domain/src/states.ts` 与 PRD 状态一致 |
 | DOM-03 必须对象 | ✅ | MetricDefinition、Snapshot、Notice、Recalculation、Budget、RuleChangeOrder、ModelEvaluationRun、SettlementExport、AuditChain、Integration 对象均存在 |
 | MON-01 审批一次性 | ✅ | consumed_at/by、target 校验、payload hash、consume |
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **250 unit/API + 57 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **257 unit/API + 58 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -208,11 +208,15 @@
 
 35. **P0-02/P0-04 cycle-time metrics**：operations coverage 增加 work-package created→accepted 与 claim submitted→decision 平均小时数，Policy coverage 展示；目标阈值和端到端角色耗时仍待产品定义。
 
+36. **DOM-01 field-level contract test**：新增 OpenAPI required 字段与 Zod 关键 schema 的对齐测试（合同、claim、data source、AI proposal、settlement、clawback）。
+
+37. **AI-02 canary/vendor regression**：新增 baseline vs candidate harness 对比，阻断 kappa/subgroup gap/prompt-injection/stability 回归；迁移 `051_model_canary_runs.sql`，AI 页面可查看。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
-3. **AI residual**：高风险决策前强制双人复核、canary/供应商变更回归、AI-05 reader/actor 隔离与红队记录。
+3. **AI residual**：AI-05 reader/actor 隔离与红队记录、gold-set 自动刷新、审阅分析前端增强。
 4. **DATA/ORG residual**：员工/经理 cycle-time、任务类型覆盖率趋势、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）。
 5. **SEC residual**：通用字段级 ABAC 引擎、内容级 DLP/批量导出限流、audit redaction；自动 retention deletion 仍明确不启用。
 6. **INC residual**：平滑阈值/跨周期分摊、INC-02 角色薪酬模板、INC-06 未计价工作强制规则。

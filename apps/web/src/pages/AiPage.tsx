@@ -33,6 +33,7 @@ import {
 import type {
   AiReviewMetrics,
   AiScoreProposal,
+  ModelCanaryRun,
   ModelEvaluationDataset,
   ModelEvaluationRun,
   ModelPrompt,
@@ -57,6 +58,9 @@ export function AiPage() {
   );
   const datasets = useApiQuery<ModelEvaluationDataset[]>(
     "/api/v1/model-evaluation-datasets",
+  );
+  const canaries = useApiQuery<ModelCanaryRun[]>(
+    "/api/v1/model-canary-runs",
   );
   const reviewMetrics = useApiQuery<AiReviewMetrics>(
     "/api/v1/ai-review-metrics",
@@ -519,6 +523,11 @@ export function AiPage() {
             label: "Gold sets",
             count: datasets.data?.length ?? 0,
           },
+          {
+            id: "canary",
+            label: "Canary",
+            count: canaries.data?.length ?? 0,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -975,6 +984,72 @@ export function AiPage() {
                               Retire
                             </Button>
                           ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : null}
+        {tab === "canary" ? (
+          <Panel
+            title="Canary comparisons"
+            subtitle="Candidate vs baseline harness metrics before a provider/model rollout"
+            flush
+          >
+            {canaries.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={canaries.error} onRetry={canaries.reload} />
+              </div>
+            ) : canaries.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : (canaries.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon="chart"
+                title="No canary comparison"
+                description="Compare a baseline and candidate evaluation run on the same gold set before promoting a model or provider change."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Dataset</th>
+                      <th>Baseline</th>
+                      <th>Candidate</th>
+                      <th className="cell-num">Traffic</th>
+                      <th>Result</th>
+                      <th>Blockers</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {canaries.data?.map((canary) => (
+                      <tr key={canary.id}>
+                        <td className="mono">{canary.datasetRef}</td>
+                        <td className="mono">
+                          {shortId(canary.baselineEvaluationRunId, 10)}
+                        </td>
+                        <td className="mono">
+                          {shortId(canary.candidateEvaluationRunId, 10)}
+                        </td>
+                        <td className="cell-num">
+                          {canary.trafficPercent}%
+                        </td>
+                        <td>
+                          <Badge
+                            tone={canary.passed ? "success" : "danger"}
+                          >
+                            {canary.passed ? "Passed" : "Blocked"}
+                          </Badge>
+                        </td>
+                        <td>
+                          {canary.blockers.length === 0
+                            ? "—"
+                            : canary.blockers.join(", ")}
                         </td>
                       </tr>
                     ))}
