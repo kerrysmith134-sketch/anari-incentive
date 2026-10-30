@@ -27,6 +27,8 @@ import {
   createTrustSurveySchema,
   submitTrustSurveyResponseSchema,
   createFairnessCommitmentSchema,
+  createManagerTrainingRecordSchema,
+  createCalibrationSessionSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -2081,6 +2083,8 @@ export function buildApp(
       proposals,
       modelRuns,
       trustSurveys,
+      trainingRecords,
+      calibrationSessions,
     ] = await Promise.all([
       store.listPolicyVersions(),
       platformStore.listNotices(tenantId),
@@ -2094,6 +2098,8 @@ export function buildApp(
       platformStore.listAiScoreProposals(tenantId),
       platformStore.listModelEvaluationRuns(tenantId),
       platformStore.listTrustSurveys(tenantId),
+      platformStore.listManagerTrainingRecords(tenantId),
+      platformStore.listCalibrationSessions(tenantId),
     ]);
     const noticeCoverage = await Promise.all(
       notices.map((notice) =>
@@ -2212,6 +2218,10 @@ export function buildApp(
           dpias: dpias.length,
           approvedDpias: dpias.filter((record) => record.status === "APPROVED")
             .length,
+        },
+        managerEnablement: {
+          trainingRecords: trainingRecords.length,
+          calibrationSessions: calibrationSessions.length,
         },
         trustSurvey: trustReport
           ? {
@@ -2885,6 +2895,65 @@ export function buildApp(
           appealRate: claims.length === 0 ? 0 : appeals.length / claims.length,
         },
       },
+      request,
+    );
+  });
+
+  app.post("/api/v1/manager-training-records", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createManagerTrainingRecordSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createManagerTrainingRecord({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          trainingCode: body.trainingCode,
+          title: body.title,
+          completedAt: body.completedAt,
+          expiresAt: body.expiresAt,
+          evidenceRef: body.evidenceRef,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/manager-training-records", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listManagerTrainingRecords(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/calibration-sessions", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createCalibrationSessionSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createCalibrationSession({
+          tenantId: tenantOf(request),
+          code: body.code,
+          title: body.title,
+          heldAt: body.heldAt,
+          facilitatorPersonId: body.facilitatorPersonId,
+          attendeePersonIds: body.attendeePersonIds,
+          policyVersionId: body.policyVersionId,
+          notes: body.notes,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/calibration-sessions", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listCalibrationSessions(tenantOf(request)),
       request,
     );
   });

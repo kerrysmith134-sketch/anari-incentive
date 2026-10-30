@@ -3147,6 +3147,39 @@ describePg("PgStore vertical slice", () => {
     expect(withdrawn.withdrawnAt).toBeTruthy();
   });
 
+  it("persists manager training and calibration records", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const training = await platform.createManagerTrainingRecord({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      trainingCode: "PG_FAIRNESS",
+      title: "Fairness training",
+      completedAt: "2026-09-01T00:00:00Z",
+      evidenceRef: "pg-training-cert",
+    });
+    expect(training.evidenceRef).toBe("pg-training-cert");
+    const calibration = await platform.createCalibrationSession({
+      tenantId: DEMO_TENANT_ID,
+      code: `PG-CAL-${Date.now()}`,
+      title: "PG calibration",
+      heldAt: "2026-09-15T00:00:00Z",
+      facilitatorPersonId: ADJUDICATOR,
+      attendeePersonIds: [OWNER, MEMBER],
+      notes: "Anchor alignment",
+    });
+    expect(calibration.attendeePersonIds).toHaveLength(2);
+    expect(
+      (await platform.listManagerTrainingRecords(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(training.id);
+    expect(
+      (await platform.listCalibrationSessions(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(calibration.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

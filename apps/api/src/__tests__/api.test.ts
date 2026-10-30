@@ -6854,6 +6854,55 @@ describe("vertical slice", () => {
     });
   });
 
+  it("records manager training and calibration sessions", async () => {
+    const training = await call("POST", "/api/v1/manager-training-records", {
+      personId: OWNER,
+      trainingCode: "FAIRNESS_101",
+      title: "Fair incentive conversations",
+      completedAt: "2026-09-01T00:00:00Z",
+      expiresAt: "2027-09-01T00:00:00Z",
+      evidenceRef: "training-cert-1",
+    });
+    expect(training.status).toBe(201);
+    const invalidExpiry = await call(
+      "POST",
+      "/api/v1/manager-training-records",
+      {
+        personId: OWNER,
+        trainingCode: "FAIRNESS_102",
+        title: "Invalid dates",
+        completedAt: "2026-09-01T00:00:00Z",
+        expiresAt: "2026-01-01T00:00:00Z",
+      },
+    );
+    expect(invalidExpiry.status).toBe(409);
+
+    const calibration = await call("POST", "/api/v1/calibration-sessions", {
+      code: "CAL-2026-Q3",
+      title: "Rating calibration",
+      heldAt: "2026-09-15T00:00:00Z",
+      facilitatorPersonId: ADJUDICATOR,
+      attendeePersonIds: [OWNER, MEMBER],
+      policyVersionId: REFERENCE_POLICY_ID,
+      notes: "Aligned anchors and discussed subgroup gaps.",
+    });
+    expect(calibration.status).toBe(201);
+    expect(calibration.body.data.attendeePersonIds).toHaveLength(2);
+    const trainingList = await call(
+      "GET",
+      "/api/v1/manager-training-records",
+    );
+    expect(trainingList.body.data).toHaveLength(1);
+    const calibrationList = await call("GET", "/api/v1/calibration-sessions");
+    expect(calibrationList.body.data).toHaveLength(1);
+
+    const annual = await call("GET", "/api/v1/reports/policy-review");
+    expect(annual.body.data.managerEnablement).toEqual({
+      trainingRecords: 1,
+      calibrationSessions: 1,
+    });
+  });
+
   it("collects anonymous trust-survey responses and reports baselines", async () => {
     const survey = await call("POST", "/api/v1/trust-surveys", {
       code: "TRUST_QUARTERLY",

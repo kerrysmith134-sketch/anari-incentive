@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（239 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（49 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（240 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（50 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -138,7 +138,7 @@
 | ORG-01 试点 volunteer/员工代表 | 🟡 | Representation/Consultation 有；volunteer 同意/试点范围无 |
 | ORG-02 透明/本人数据/团队聚合 | 🟡 | 本人数据过滤有；本轮新增团队聚合报告（直接下属、评价覆盖率、维度均值、claim/appeal/work-package 计数，禁止个人金额/姓名，少于 3 人抑制）并接入 Dashboard；console 仍未按角色隐藏导航 |
 | ORG-03 无报复/申诉统计公开 | ✅ | 新增 fairness commitment 版本化发布（新版本 supersede 旧版本）与 `/reports/appeal-stats` 聚合（申诉数、开放/逾期/关闭、结果分布、平均处理天数、申诉率、无个人标识）；Dashboard 对所有登录用户展示承诺与统计 |
-| ORG-04 经理培训/模板/校准会 | ❌ | 无培训/校准记录 |
+| ORG-04 经理培训/模板/校准会 | ✅ | 新增 manager training records（code/title/completed/expiry/evidence）与 calibration sessions（facilitator/attendees/notes/policy ref）；console Settings 可录入，年度审查报告含计数 |
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
@@ -158,7 +158,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **239 unit/API + 49 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **240 unit/API + 50 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -179,6 +179,8 @@
 19. **SEC-01 / MON-07**：新增正式威胁模型与审计耐久性 runbook；新增 `GET /audit-events/anchor` 返回序列窗口、root hash 与首尾事件 hash，供外部 TSA/WORM 归档；WORM 存储与 TSA 配置仍属于部署证据。
 
 20. **DATA-02 peer/manager attestations**：新增 contribution attestations（PEER/MANAGER）、参与关系与直属经理校验、证据引用、仅 attester 可撤回；迁移 `040_contribution_attestations.sql`，console Contribution 新增 Attestations 视图。
+
+21. **ORG-04 manager enablement**：新增培训记录与校准会记录，含完成/到期/证据、facilitator/attendees/notes；年度审查报告输出计数；迁移 `041_manager_enablement.sql`，Settings 可录入。
 
 ## 仍建议按 P0 顺序补做
 

@@ -92,6 +92,31 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createManagerTrainingRecordSchema = z.object({
+  personId: uuidSchema,
+  trainingCode: z.string().min(1),
+  title: z.string().min(1),
+  completedAt: z.string().datetime(),
+  expiresAt: z.string().datetime().optional(),
+  evidenceRef: z.string().min(1).optional(),
+});
+export type CreateManagerTrainingRecordBody = z.infer<
+  typeof createManagerTrainingRecordSchema
+>;
+
+export const createCalibrationSessionSchema = z.object({
+  code: z.string().min(1),
+  title: z.string().min(1),
+  heldAt: z.string().datetime(),
+  facilitatorPersonId: uuidSchema,
+  attendeePersonIds: z.array(uuidSchema).min(1),
+  policyVersionId: uuidSchema.optional(),
+  notes: z.string().optional(),
+});
+export type CreateCalibrationSessionBody = z.infer<
+  typeof createCalibrationSessionSchema
+>;
+
 export const createFairnessCommitmentSchema = z.object({
   statement: z.string().min(10),
   ownerPersonId: uuidSchema,

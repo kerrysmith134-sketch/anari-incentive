@@ -350,6 +350,31 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface ManagerTrainingRecord {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  trainingCode: string;
+  title: string;
+  completedAt: string;
+  expiresAt?: string;
+  evidenceRef?: string;
+  createdAt: string;
+}
+
+export interface CalibrationSession {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  title: string;
+  heldAt: string;
+  facilitatorPersonId: UUID;
+  attendeePersonIds: UUID[];
+  policyVersionId?: UUID;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface FairnessCommitment {
   id: UUID;
   tenantId: UUID;

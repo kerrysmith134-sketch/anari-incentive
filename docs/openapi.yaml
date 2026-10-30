@@ -562,6 +562,94 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/manager-training-records:
+    get:
+      tags: [Compliance]
+      summary: List manager training records
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Training records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Record manager training completion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateManagerTrainingRecord"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/calibration-sessions:
+    get:
+      tags: [Compliance]
+      summary: List manager calibration sessions
+      responses:
+        "200":
+          description: Calibration sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Record a calibration session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalibrationSession"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/fairness-commitments:
     get:
       tags: [Compliance]
@@ -6975,6 +7063,49 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateManagerTrainingRecord:
+      type: object
+      required: [personId, trainingCode, title, completedAt]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        trainingCode:
+          type: string
+        title:
+          type: string
+        completedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        evidenceRef:
+          type: string
+
+    CreateCalibrationSession:
+      type: object
+      required:
+        [code, title, heldAt, facilitatorPersonId, attendeePersonIds]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        heldAt:
+          type: string
+          format: date-time
+        facilitatorPersonId:
+          $ref: "#/components/schemas/Uuid"
+        attendeePersonIds:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Uuid"
+        policyVersionId:
+          $ref: "#/components/schemas/Uuid"
+        notes:
+          type: string
 
     CreateFairnessCommitment:
       type: object

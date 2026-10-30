@@ -18,7 +18,10 @@ import {
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { Link } from "react-router-dom";
-import { PersonSelect } from "../components/PersonSelect.js";
+import {
+  PersonSelect,
+  usePeople,
+} from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -63,6 +66,13 @@ export function SettingsPage() {
   const commitments = useApiQuery<FairnessCommitment[]>(
     "/api/v1/fairness-commitments",
   );
+  const training = useApiQuery<ManagerTrainingRecord[]>(
+    "/api/v1/manager-training-records",
+  );
+  const calibrations = useApiQuery<CalibrationSession[]>(
+    "/api/v1/calibration-sessions",
+  );
+  const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
@@ -141,6 +151,38 @@ export function SettingsPage() {
   const [commitmentChannels, setCommitmentChannels] = useState(
     "INTRANET, TOWN_HALL",
   );
+  const [trainingOpen, setTrainingOpen] = useState(false);
+  const [trainingSaving, setTrainingSaving] = useState(false);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
+  const [trainingPerson, setTrainingPerson] = useState(session.personId);
+  const [trainingCode, setTrainingCode] = useState("FAIRNESS_101");
+  const [trainingTitle, setTrainingTitle] = useState(
+    "Fair incentive conversations",
+  );
+  const [trainingCompletedAt, setTrainingCompletedAt] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [trainingExpiresAt, setTrainingExpiresAt] = useState("");
+  const [trainingEvidence, setTrainingEvidence] = useState("");
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [calibrationSaving, setCalibrationSaving] = useState(false);
+  const [calibrationError, setCalibrationError] = useState<string | null>(
+    null,
+  );
+  const [calibrationCode, setCalibrationCode] = useState("CAL-2026-Q4");
+  const [calibrationTitle, setCalibrationTitle] = useState(
+    "Rating calibration",
+  );
+  const [calibrationHeldAt, setCalibrationHeldAt] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [calibrationFacilitator, setCalibrationFacilitator] = useState(
+    session.personId,
+  );
+  const [calibrationAttendees, setCalibrationAttendees] = useState<string[]>(
+    [],
+  );
+  const [calibrationNotes, setCalibrationNotes] = useState("");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -388,6 +430,90 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openTrainingForm() {
+    setTrainingPerson(session.personId);
+    setTrainingCode("FAIRNESS_101");
+    setTrainingTitle("Fair incentive conversations");
+    setTrainingCompletedAt(new Date().toISOString().slice(0, 10));
+    setTrainingExpiresAt("");
+    setTrainingEvidence("");
+    setTrainingError(null);
+    setTrainingOpen(true);
+  }
+
+  async function saveTraining(event: FormEvent) {
+    event.preventDefault();
+    setTrainingSaving(true);
+    setTrainingError(null);
+    try {
+      await api("/api/v1/manager-training-records", {
+        method: "POST",
+        body: {
+          personId: trainingPerson,
+          trainingCode: trainingCode.trim(),
+          title: trainingTitle.trim(),
+          completedAt: new Date(`${trainingCompletedAt}T00:00:00Z`).toISOString(),
+          expiresAt: trainingExpiresAt
+            ? new Date(`${trainingExpiresAt}T00:00:00Z`).toISOString()
+            : undefined,
+          evidenceRef: trainingEvidence.trim() || undefined,
+        },
+      });
+      toast.success("Training recorded");
+      setTrainingOpen(false);
+      training.reload();
+    } catch (error) {
+      setTrainingError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the training.",
+      );
+    } finally {
+      setTrainingSaving(false);
+    }
+  }
+
+  function openCalibrationForm() {
+    setCalibrationCode("CAL-2026-Q4");
+    setCalibrationTitle("Rating calibration");
+    setCalibrationHeldAt(new Date().toISOString().slice(0, 10));
+    setCalibrationFacilitator(session.personId);
+    setCalibrationAttendees([]);
+    setCalibrationNotes("");
+    setCalibrationError(null);
+    setCalibrationOpen(true);
+  }
+
+  async function saveCalibration(event: FormEvent) {
+    event.preventDefault();
+    setCalibrationSaving(true);
+    setCalibrationError(null);
+    try {
+      await api("/api/v1/calibration-sessions", {
+        method: "POST",
+        body: {
+          code: calibrationCode.trim(),
+          title: calibrationTitle.trim(),
+          heldAt: new Date(`${calibrationHeldAt}T00:00:00Z`).toISOString(),
+          facilitatorPersonId: calibrationFacilitator,
+          attendeePersonIds: calibrationAttendees,
+          notes: calibrationNotes.trim() || undefined,
+        },
+      });
+      toast.success("Calibration session recorded");
+      setCalibrationOpen(false);
+      calibrations.reload();
+    } catch (error) {
+      setCalibrationError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the calibration session.",
+      );
+    } finally {
+      setCalibrationSaving(false);
     }
   }
 
@@ -1931,6 +2057,279 @@ export function SettingsPage() {
               id="commitment-channels"
               value={commitmentChannels}
               onChange={(event) => setCommitmentChannels(event.target.value)}
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Manager enablement"
+        subtitle="Training completion and calibration sessions that support consistent review"
+        className="section-gap"
+        flush
+      >
+        <div className="split-grid" style={{ padding: 16 }}>
+          <div className="detail-section" style={{ marginTop: 0 }}>
+            <div className="detail-section__title">
+              Training records
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="plus"
+                onClick={openTrainingForm}
+              >
+                Record
+              </Button>
+            </div>
+            {training.error ? (
+              <ErrorNotice error={training.error} onRetry={training.reload} />
+            ) : training.loading ? (
+              <LoadingRows rows={2} />
+            ) : (training.data?.length ?? 0) === 0 ? (
+              <p className="muted">No manager training recorded.</p>
+            ) : (
+              <div className="stack" style={{ gap: 6 }}>
+                {training.data?.map((record) => (
+                  <div
+                    key={record.id}
+                    className="inline"
+                    style={{ justifyContent: "space-between", width: "100%" }}
+                  >
+                    <span>
+                      {record.title}
+                      <span className="cell-sub">
+                        {displayName(record.personId, people)} ·{" "}
+                        {record.trainingCode}
+                      </span>
+                    </span>
+                    <span className="muted nowrap">
+                      {formatDate(record.completedAt)}
+                      {record.expiresAt
+                        ? ` → ${formatDate(record.expiresAt)}`
+                        : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="detail-section" style={{ marginTop: 0 }}>
+            <div className="detail-section__title">
+              Calibration sessions
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="plus"
+                onClick={openCalibrationForm}
+              >
+                Record
+              </Button>
+            </div>
+            {calibrations.error ? (
+              <ErrorNotice
+                error={calibrations.error}
+                onRetry={calibrations.reload}
+              />
+            ) : calibrations.loading ? (
+              <LoadingRows rows={2} />
+            ) : (calibrations.data?.length ?? 0) === 0 ? (
+              <p className="muted">No calibration session recorded.</p>
+            ) : (
+              <div className="stack" style={{ gap: 6 }}>
+                {calibrations.data?.map((session) => (
+                  <div
+                    key={session.id}
+                    className="inline"
+                    style={{ justifyContent: "space-between", width: "100%" }}
+                  >
+                    <span>
+                      {session.title}
+                      <span className="cell-sub">
+                        {session.attendeePersonIds.length} attendees ·{" "}
+                        {session.code}
+                      </span>
+                    </span>
+                    <span className="muted nowrap">
+                      {formatDate(session.heldAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Panel>
+
+      <Modal
+        open={trainingOpen}
+        title="Record manager training"
+        onClose={() => setTrainingOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setTrainingOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="training-form"
+              loading={trainingSaving}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <form id="training-form" className="stack" onSubmit={saveTraining}>
+          {trainingError ? (
+            <InfoNotice tone="warning">{trainingError}</InfoNotice>
+          ) : null}
+          <FormField label="Person" htmlFor="training-person">
+            <PersonSelect
+              id="training-person"
+              value={trainingPerson}
+              onChange={setTrainingPerson}
+            />
+          </FormField>
+          <div className="form-grid">
+            <FormField label="Training code" htmlFor="training-code">
+              <TextInput
+                id="training-code"
+                value={trainingCode}
+                onChange={(event) => setTrainingCode(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Title" htmlFor="training-title">
+              <TextInput
+                id="training-title"
+                value={trainingTitle}
+                onChange={(event) => setTrainingTitle(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Completed" htmlFor="training-completed">
+              <TextInput
+                id="training-completed"
+                type="date"
+                value={trainingCompletedAt}
+                onChange={(event) =>
+                  setTrainingCompletedAt(event.target.value)
+                }
+                required
+              />
+            </FormField>
+            <FormField label="Expires (optional)" htmlFor="training-expires">
+              <TextInput
+                id="training-expires"
+                type="date"
+                value={trainingExpiresAt}
+                onChange={(event) => setTrainingExpiresAt(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Evidence reference"
+              htmlFor="training-evidence"
+            >
+              <TextInput
+                id="training-evidence"
+                value={trainingEvidence}
+                onChange={(event) => setTrainingEvidence(event.target.value)}
+              />
+            </FormField>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={calibrationOpen}
+        title="Record calibration session"
+        description="Select the attendees who reviewed scoring anchors together."
+        onClose={() => setCalibrationOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCalibrationOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="calibration-form"
+              loading={calibrationSaving}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="calibration-form"
+          className="stack"
+          onSubmit={saveCalibration}
+        >
+          {calibrationError ? (
+            <InfoNotice tone="warning">{calibrationError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Code" htmlFor="calibration-code">
+              <TextInput
+                id="calibration-code"
+                value={calibrationCode}
+                onChange={(event) => setCalibrationCode(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Title" htmlFor="calibration-title">
+              <TextInput
+                id="calibration-title"
+                value={calibrationTitle}
+                onChange={(event) => setCalibrationTitle(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Held on" htmlFor="calibration-held">
+              <TextInput
+                id="calibration-held"
+                type="date"
+                value={calibrationHeldAt}
+                onChange={(event) => setCalibrationHeldAt(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Facilitator" htmlFor="calibration-facilitator">
+              <PersonSelect
+                id="calibration-facilitator"
+                value={calibrationFacilitator}
+                onChange={setCalibrationFacilitator}
+              />
+            </FormField>
+          </div>
+          <div className="detail-section">
+            <div className="detail-section__title">Attendees</div>
+            <div className="stack">
+              {people.map((person) => (
+                <label className="checkbox" key={person.id}>
+                  <input
+                    type="checkbox"
+                    checked={calibrationAttendees.includes(person.id)}
+                    onChange={(event) =>
+                      setCalibrationAttendees((current) =>
+                        event.target.checked
+                          ? [...current, person.id]
+                          : current.filter((id) => id !== person.id),
+                      )
+                    }
+                  />
+                  <span>{person.displayName}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <FormField label="Notes" htmlFor="calibration-notes">
+            <Textarea
+              id="calibration-notes"
+              value={calibrationNotes}
+              onChange={(event) => setCalibrationNotes(event.target.value)}
             />
           </FormField>
         </form>

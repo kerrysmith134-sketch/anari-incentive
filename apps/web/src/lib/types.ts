@@ -583,6 +583,29 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ManagerTrainingRecord {
+  id: Uuid;
+  personId: Uuid;
+  trainingCode: string;
+  title: string;
+  completedAt: string;
+  expiresAt?: string;
+  evidenceRef?: string;
+  createdAt: string;
+}
+
+export interface CalibrationSession {
+  id: Uuid;
+  code: string;
+  title: string;
+  heldAt: string;
+  facilitatorPersonId: Uuid;
+  attendeePersonIds: Uuid[];
+  policyVersionId?: Uuid;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface FairnessCommitment {
   id: Uuid;
   version: number;

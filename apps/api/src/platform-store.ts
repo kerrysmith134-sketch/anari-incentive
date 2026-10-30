@@ -34,6 +34,8 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  CalibrationSession,
+  ManagerTrainingRecord,
   IntegrationConnection,
   IntegrationMapping,
   InboxMessage,
@@ -319,6 +321,30 @@ export interface PlatformStore {
   getActiveFairnessCommitment(
     tenantId: string,
   ): Promise<FairnessCommitment | undefined>;
+  createManagerTrainingRecord(input: {
+    tenantId: string;
+    personId: string;
+    trainingCode: string;
+    title: string;
+    completedAt: string;
+    expiresAt?: string;
+    evidenceRef?: string;
+  }): Promise<ManagerTrainingRecord>;
+  listManagerTrainingRecords(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ManagerTrainingRecord[]>;
+  createCalibrationSession(input: {
+    tenantId: string;
+    code: string;
+    title: string;
+    heldAt: string;
+    facilitatorPersonId: string;
+    attendeePersonIds: string[];
+    policyVersionId?: string;
+    notes?: string;
+  }): Promise<CalibrationSession>;
+  listCalibrationSessions(tenantId: string): Promise<CalibrationSession[]>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1176,6 +1202,14 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly fairnessCommitments = new Map<
     string,
     FairnessCommitment
+  >();
+  private readonly managerTrainingRecords = new Map<
+    string,
+    ManagerTrainingRecord
+  >();
+  private readonly calibrationSessions = new Map<
+    string,
+    CalibrationSession
   >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
@@ -2418,6 +2452,101 @@ export class MemoryPlatformStore implements PlatformStore {
         commitment.tenantId === tenantId &&
         commitment.status === "ACTIVE",
     );
+  }
+
+  async createManagerTrainingRecord(input: {
+    tenantId: string;
+    personId: string;
+    trainingCode: string;
+    title: string;
+    completedAt: string;
+    expiresAt?: string;
+    evidenceRef?: string;
+  }): Promise<ManagerTrainingRecord> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (
+      input.expiresAt &&
+      Date.parse(input.expiresAt) <= Date.parse(input.completedAt)
+    ) {
+      throw new ConflictError("TRAINING_EXPIRY_BEFORE_COMPLETION");
+    }
+    const record: ManagerTrainingRecord = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      trainingCode: input.trainingCode,
+      title: input.title,
+      completedAt: input.completedAt,
+      expiresAt: input.expiresAt,
+      evidenceRef: input.evidenceRef,
+      createdAt: now(),
+    };
+    this.managerTrainingRecords.set(record.id, record);
+    return record;
+  }
+
+  async listManagerTrainingRecords(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ManagerTrainingRecord[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.managerTrainingRecords.values()]
+      .filter(
+        (record) =>
+          record.tenantId === tenantId &&
+          (!personId || record.personId === personId),
+      )
+      .sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  }
+
+  async createCalibrationSession(input: {
+    tenantId: string;
+    code: string;
+    title: string;
+    heldAt: string;
+    facilitatorPersonId: string;
+    attendeePersonIds: string[];
+    policyVersionId?: string;
+    notes?: string;
+  }): Promise<CalibrationSession> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const facilitator = this.persons.get(input.facilitatorPersonId);
+    if (!facilitator || facilitator.tenantId !== input.tenantId) {
+      notFound("Person", input.facilitatorPersonId);
+    }
+    for (const attendeeId of input.attendeePersonIds) {
+      const attendee = this.persons.get(attendeeId);
+      if (!attendee || attendee.tenantId !== input.tenantId) {
+        notFound("Person", attendeeId);
+      }
+    }
+    const session: CalibrationSession = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      title: input.title,
+      heldAt: input.heldAt,
+      facilitatorPersonId: input.facilitatorPersonId,
+      attendeePersonIds: [...input.attendeePersonIds],
+      policyVersionId: input.policyVersionId,
+      notes: input.notes,
+      createdAt: now(),
+    };
+    this.calibrationSessions.set(session.id, session);
+    return session;
+  }
+
+  async listCalibrationSessions(
+    tenantId: string,
+  ): Promise<CalibrationSession[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.calibrationSessions.values()]
+      .filter((session) => session.tenantId === tenantId)
+      .sort((a, b) => b.heldAt.localeCompare(a.heldAt));
   }
 
   async createApprovalRequest(input: {
@@ -7142,6 +7271,119 @@ export class PgPlatformStore implements PlatformStore {
     return rows[0] ? this.mapFairnessCommitment(rows[0]) : undefined;
   }
 
+  async createManagerTrainingRecord(input: {
+    tenantId: string;
+    personId: string;
+    trainingCode: string;
+    title: string;
+    completedAt: string;
+    expiresAt?: string;
+    evidenceRef?: string;
+  }): Promise<ManagerTrainingRecord> {
+    if (
+      input.expiresAt &&
+      Date.parse(input.expiresAt) <= Date.parse(input.completedAt)
+    ) {
+      throw new ConflictError("TRAINING_EXPIRY_BEFORE_COMPLETION");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO manager_training_records
+          (id, tenant_id, person_id, training_code, title, completed_at,
+           expires_at, evidence_ref)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.trainingCode,
+          input.title,
+          input.completedAt,
+          input.expiresAt ?? null,
+          input.evidenceRef ?? null,
+        ],
+      );
+      return this.mapManagerTrainingRecord(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or person ${input.personId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listManagerTrainingRecords(
+    tenantId: string,
+    personId?: string,
+  ): Promise<ManagerTrainingRecord[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM manager_training_records WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY completed_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapManagerTrainingRecord(row));
+  }
+
+  async createCalibrationSession(input: {
+    tenantId: string;
+    code: string;
+    title: string;
+    heldAt: string;
+    facilitatorPersonId: string;
+    attendeePersonIds: string[];
+    policyVersionId?: string;
+    notes?: string;
+  }): Promise<CalibrationSession> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO calibration_sessions
+          (id, tenant_id, code, title, held_at, facilitator_person_id,
+           attendee_person_ids, policy_version_id, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.title,
+          input.heldAt,
+          input.facilitatorPersonId,
+          JSON.stringify(input.attendeePersonIds),
+          input.policyVersionId ?? null,
+          input.notes ?? null,
+        ],
+      );
+      return this.mapCalibrationSession(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or facilitator ${input.facilitatorPersonId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listCalibrationSessions(
+    tenantId: string,
+  ): Promise<CalibrationSession[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM calibration_sessions
+        WHERE tenant_id=$1
+        ORDER BY held_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapCalibrationSession(row));
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -11341,6 +11583,38 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapManagerTrainingRecord(
+    row: QueryResultRow,
+  ): ManagerTrainingRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      trainingCode: row.training_code,
+      title: row.title,
+      completedAt: iso(row.completed_at) ?? new Date().toISOString(),
+      expiresAt: iso(row.expires_at),
+      evidenceRef: row.evidence_ref ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapCalibrationSession(row: QueryResultRow): CalibrationSession {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      title: row.title,
+      heldAt: iso(row.held_at) ?? new Date().toISOString(),
+      facilitatorPersonId: row.facilitator_person_id,
+      attendeePersonIds:
+        (row.attendee_person_ids as string[] | null) ?? [],
+      policyVersionId: row.policy_version_id ?? undefined,
+      notes: row.notes ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 
