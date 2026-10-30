@@ -12,6 +12,7 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  AppealStatsReport,
   ApprovalRequest,
   AuditEvent,
   Bounty,
@@ -57,6 +58,9 @@ export function DashboardPage() {
   );
   const team = useApiQuery<TeamAggregateReport>(
     canViewTeam ? "/api/v1/reports/team-aggregate" : null,
+  );
+  const appealStats = useApiQuery<AppealStatsReport>(
+    "/api/v1/reports/appeal-stats",
   );
 
   const activeCycles =
@@ -684,6 +688,89 @@ export function DashboardPage() {
           )}
         </Panel>
       ) : null}
+
+      <Panel
+        title="Fairness and appeals"
+        subtitle="Published no-retaliation statement and aggregate appeal outcomes"
+        className="section-gap"
+      >
+        {appealStats.error ? (
+          <ErrorNotice error={appealStats.error} onRetry={appealStats.reload} />
+        ) : appealStats.loading || !appealStats.data ? (
+          <div className="loading-inline">
+            <span className="spinner" /> Loading fairness statement…
+          </div>
+        ) : (
+          <>
+            {appealStats.data.commitment ? (
+              <div className="detail-section" style={{ marginTop: 0 }}>
+                <div className="detail-section__title">
+                  No-retaliation commitment · v
+                  {appealStats.data.commitment.version} · published{" "}
+                  {formatDate(appealStats.data.commitment.publishedAt)}
+                </div>
+                <p>{appealStats.data.commitment.statement}</p>
+                <p className="subtle" style={{ fontSize: 12 }}>
+                  Channels:{" "}
+                  {appealStats.data.commitment.channels.join(", ") ||
+                    "not specified"}
+                </p>
+              </div>
+            ) : (
+              <InfoNotice>
+                No no-retaliation commitment has been published yet.
+              </InfoNotice>
+            )}
+            <div className="coverage-grid">
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Appeals</div>
+                <div className="coverage-cell__value">
+                  {appealStats.data.appeals.total}
+                </div>
+                <div className="coverage-cell__sub">
+                  {formatPercent(appealStats.data.appeals.appealRate)} of claims
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Open</div>
+                <div className="coverage-cell__value">
+                  {appealStats.data.appeals.open}
+                </div>
+                <div className="coverage-cell__sub">
+                  {appealStats.data.appeals.overdue} past SLA
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Closed</div>
+                <div className="coverage-cell__value">
+                  {appealStats.data.appeals.closed}
+                </div>
+                <div className="coverage-cell__sub">
+                  avg{" "}
+                  {appealStats.data.appeals.averageResolutionDays.toFixed(1)}{" "}
+                  days
+                </div>
+              </div>
+              <div className="coverage-cell">
+                <div className="coverage-cell__label">Outcomes</div>
+                <div className="coverage-cell__value" style={{ fontSize: 15 }}>
+                  {Object.keys(appealStats.data.appeals.resolutions).length === 0
+                    ? "No resolution yet"
+                    : Object.entries(appealStats.data.appeals.resolutions)
+                        .map(
+                          ([outcome, count]) =>
+                            `${titleCase(outcome)} ${count}`,
+                        )
+                        .join(" · ")}
+                </div>
+                <div className="coverage-cell__sub">
+                  aggregate only, no personal data
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </Panel>
     </>
   );
 }

@@ -332,6 +332,18 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface FairnessCommitment {
+  id: UUID;
+  tenantId: UUID;
+  version: number;
+  statement: string;
+  ownerPersonId: UUID;
+  channels: string[];
+  status: "ACTIVE" | "SUPERSEDED";
+  publishedAt: string;
+  createdAt: string;
+}
+
 export interface TrustSurveyQuestion {
   code: string;
   prompt: string;

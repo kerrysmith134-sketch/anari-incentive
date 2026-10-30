@@ -92,6 +92,15 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createFairnessCommitmentSchema = z.object({
+  statement: z.string().min(10),
+  ownerPersonId: uuidSchema,
+  channels: z.array(z.string().min(1)).default([]),
+});
+export type CreateFairnessCommitmentBody = z.infer<
+  typeof createFairnessCommitmentSchema
+>;
+
 export const trustSurveyQuestionSchema = z.object({
   code: z.string().min(1),
   prompt: z.string().min(1),

@@ -13,6 +13,7 @@ import {
   PageHeader,
   Panel,
   Select,
+  Textarea,
   TextInput,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
@@ -33,6 +34,7 @@ import type {
   DataClassification,
   DataMapReport,
   DpiaRecord,
+  FairnessCommitment,
   DsarRequest,
   PlatformIdentity,
   RetentionPolicy,
@@ -58,6 +60,9 @@ export function SettingsPage() {
     "/api/v1/conflict-declarations",
   );
   const trustSurveys = useApiQuery<TrustSurveyRun[]>("/api/v1/trust-surveys");
+  const commitments = useApiQuery<FairnessCommitment[]>(
+    "/api/v1/fairness-commitments",
+  );
 
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
@@ -127,6 +132,14 @@ export function SettingsPage() {
     reportTarget
       ? `/api/v1/trust-surveys/${reportTarget.id}/report`
       : null,
+  );
+  const [commitmentOpen, setCommitmentOpen] = useState(false);
+  const [commitmentSaving, setCommitmentSaving] = useState(false);
+  const [commitmentError, setCommitmentError] = useState<string | null>(null);
+  const [commitmentStatement, setCommitmentStatement] = useState("");
+  const [commitmentOwner, setCommitmentOwner] = useState(session.personId);
+  const [commitmentChannels, setCommitmentChannels] = useState(
+    "INTRANET, TOWN_HALL",
   );
 
   function saveSession(event: FormEvent) {
@@ -219,6 +232,47 @@ export function SettingsPage() {
       );
     } finally {
       setSourceSaving(false);
+    }
+  }
+
+  function openCommitmentForm() {
+    setCommitmentStatement("");
+    setCommitmentOwner(session.personId);
+    setCommitmentChannels("INTRANET, TOWN_HALL");
+    setCommitmentError(null);
+    setCommitmentOpen(true);
+  }
+
+  async function publishCommitment(event: FormEvent) {
+    event.preventDefault();
+    setCommitmentSaving(true);
+    setCommitmentError(null);
+    try {
+      await api("/api/v1/fairness-commitments", {
+        method: "POST",
+        body: {
+          statement: commitmentStatement.trim(),
+          ownerPersonId: commitmentOwner,
+          channels: commitmentChannels
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        },
+      });
+      toast.success(
+        "Commitment published",
+        "The prior version is retained as superseded.",
+      );
+      setCommitmentOpen(false);
+      commitments.reload();
+    } catch (error) {
+      setCommitmentError(
+        error instanceof Error
+          ? error.message
+          : "Could not publish the commitment.",
+      );
+    } finally {
+      setCommitmentSaving(false);
     }
   }
 
@@ -1760,6 +1814,126 @@ export function SettingsPage() {
             </InfoNotice>
           </div>
         )}
+      </Modal>
+
+      <Panel
+        title="No-retaliation commitment"
+        subtitle="Published fairness statement; publishing a new version supersedes the prior one"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openCommitmentForm}
+          >
+            Publish commitment
+          </Button>
+        }
+        flush
+      >
+        {commitments.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={commitments.error} onRetry={commitments.reload} />
+          </div>
+        ) : commitments.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (commitments.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="shield"
+            title="No fairness commitment"
+            description="Publish a statement that good-faith concerns can be raised without retaliation."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Statement</th>
+                  <th>Channels</th>
+                  <th>Status</th>
+                  <th>Published</th>
+                </tr>
+              </thead>
+              <tbody>
+                {commitments.data?.map((commitment) => (
+                  <tr key={commitment.id}>
+                    <td className="mono">v{commitment.version}</td>
+                    <td>
+                      <span className="cell-primary">{commitment.statement}</span>
+                      <span className="cell-sub mono">
+                        {shortId(commitment.ownerPersonId, 10)}
+                      </span>
+                    </td>
+                    <td>{commitment.channels.join(", ") || "—"}</td>
+                    <td>
+                      <Badge status={commitment.status} />
+                    </td>
+                    <td className="nowrap">
+                      {formatDate(commitment.publishedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={commitmentOpen}
+        title="Publish fairness commitment"
+        description="Employees should be able to see this statement and the appeal statistics that accompany it."
+        onClose={() => setCommitmentOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCommitmentOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="commitment-form"
+              loading={commitmentSaving}
+            >
+              Publish
+            </Button>
+          </>
+        }
+      >
+        <form id="commitment-form" className="stack" onSubmit={publishCommitment}>
+          {commitmentError ? (
+            <InfoNotice tone="warning">{commitmentError}</InfoNotice>
+          ) : null}
+          <FormField label="Statement" htmlFor="commitment-statement">
+            <Textarea
+              id="commitment-statement"
+              value={commitmentStatement}
+              onChange={(event) => setCommitmentStatement(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Owner" htmlFor="commitment-owner">
+            <PersonSelect
+              id="commitment-owner"
+              value={commitmentOwner}
+              onChange={setCommitmentOwner}
+            />
+          </FormField>
+          <FormField
+            label="Publication channels (comma separated)"
+            htmlFor="commitment-channels"
+          >
+            <TextInput
+              id="commitment-channels"
+              value={commitmentChannels}
+              onChange={(event) => setCommitmentChannels(event.target.value)}
+            />
+          </FormField>
+        </form>
       </Modal>
 
       <InfoNotice>

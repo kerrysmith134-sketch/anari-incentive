@@ -3096,6 +3096,30 @@ describePg("PgStore vertical slice", () => {
     expect(closed.status).toBe("CLOSED");
   });
 
+  it("persists fairness commitments and supersedes the prior version", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const first = await platform.createFairnessCommitment({
+      tenantId: DEMO_TENANT_ID,
+      statement: "No retaliation for good-faith concerns.",
+      ownerPersonId: OWNER,
+      channels: ["INTRANET"],
+    });
+    expect(first.version).toBe(1);
+    const second = await platform.createFairnessCommitment({
+      tenantId: DEMO_TENANT_ID,
+      statement: "Concerns can also be raised anonymously.",
+      ownerPersonId: MEMBER,
+      channels: ["INTRANET"],
+    });
+    expect(second.version).toBe(2);
+    const list = await platform.listFairnessCommitments(DEMO_TENANT_ID);
+    expect(list.map((commitment) => commitment.version)).toEqual([2, 1]);
+    expect(list[1]?.status).toBe("SUPERSEDED");
+    expect(
+      (await platform.getActiveFairnessCommitment(DEMO_TENANT_ID))?.version,
+    ).toBe(2);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

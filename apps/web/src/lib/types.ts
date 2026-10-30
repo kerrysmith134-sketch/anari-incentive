@@ -583,6 +583,38 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface FairnessCommitment {
+  id: Uuid;
+  version: number;
+  statement: string;
+  ownerPersonId: Uuid;
+  channels: string[];
+  status: "ACTIVE" | "SUPERSEDED";
+  publishedAt: string;
+  createdAt: string;
+}
+
+export interface AppealStatsReport {
+  generatedAt: string;
+  commitment: {
+    id: Uuid;
+    version: number;
+    statement: string;
+    ownerPersonId: Uuid;
+    channels: string[];
+    publishedAt: string;
+  } | null;
+  appeals: {
+    total: number;
+    open: number;
+    closed: number;
+    overdue: number;
+    resolutions: Record<string, number>;
+    averageResolutionDays: number;
+    appealRate: number;
+  };
+}
+
 export interface TrustSurveyQuestion {
   code: string;
   prompt: string;

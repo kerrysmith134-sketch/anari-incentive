@@ -471,6 +471,63 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/fairness-commitments:
+    get:
+      tags: [Compliance]
+      summary: List published no-retaliation commitments
+      responses:
+        "200":
+          description: Commitments, newest version first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Compliance]
+      summary: Publish a fairness / no-retaliation commitment
+      description: Publishing supersedes the prior active version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFairnessCommitment"
+      responses:
+        "201":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/reports/appeal-stats:
+    get:
+      tags: [Reporting]
+      summary: Report public aggregate appeal outcomes
+      description: |
+        Returns the active no-retaliation commitment and aggregate appeal
+        counts, resolution breakdown, average resolution days and appeal rate.
+        No personal identifiers are included.
+      responses:
+        "200":
+          description: Appeal statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/trust-surveys:
     get:
       tags: [Compliance]
@@ -6794,6 +6851,20 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateFairnessCommitment:
+      type: object
+      required: [statement, ownerPersonId]
+      properties:
+        statement:
+          type: string
+          minLength: 10
+        ownerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        channels:
+          type: array
+          items:
+            type: string
 
     CreateTrustSurvey:
       type: object

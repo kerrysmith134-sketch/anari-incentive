@@ -24,6 +24,7 @@ import {
   revokeConflictDeclarationSchema,
   createTrustSurveySchema,
   submitTrustSurveyResponseSchema,
+  createFairnessCommitmentSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -2711,6 +2712,93 @@ export function buildApp(
         }),
         request,
       );
+  });
+
+  app.post("/api/v1/fairness-commitments", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createFairnessCommitmentSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createFairnessCommitment({
+          tenantId: tenantOf(request),
+          statement: body.statement,
+          ownerPersonId: body.ownerPersonId,
+          channels: body.channels ?? [],
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/fairness-commitments", async (request) => {
+    return data(
+      await platformStore.listFairnessCommitments(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/reports/appeal-stats", async (request) => {
+    const tenantId = tenantOf(request);
+    const [appeals, claims, commitment] = await Promise.all([
+      storeFor(request).listAppeals(),
+      storeFor(request).listClaims(),
+      platformStore.getActiveFairnessCommitment(tenantId),
+    ]);
+    const closed = appeals.filter((appeal) => appeal.status === "CLOSED");
+    const durations = closed
+      .map((appeal) => {
+        if (!appeal.resolvedAt) return undefined;
+        return (
+          (Date.parse(appeal.resolvedAt) - Date.parse(appeal.createdAt)) /
+          (24 * 60 * 60 * 1000)
+        );
+      })
+      .filter((value): value is number => Number.isFinite(value));
+    const resolutions = closed.reduce<Record<string, number>>(
+      (totals, appeal) => {
+        const key = appeal.resolution ?? "UNSPECIFIED";
+        totals[key] = (totals[key] ?? 0) + 1;
+        return totals;
+      },
+      {},
+    );
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        commitment: commitment
+          ? {
+              id: commitment.id,
+              version: commitment.version,
+              statement: commitment.statement,
+              ownerPersonId: commitment.ownerPersonId,
+              channels: commitment.channels,
+              publishedAt: commitment.publishedAt,
+            }
+          : null,
+        appeals: {
+          total: appeals.length,
+          open: appeals.filter((appeal) => appeal.status !== "CLOSED").length,
+          closed: closed.length,
+          overdue: appeals.filter(
+            (appeal) =>
+              appeal.status !== "CLOSED" &&
+              Boolean(appeal.dueAt) &&
+              new Date(appeal.dueAt as string).getTime() < Date.now(),
+          ).length,
+          resolutions,
+          averageResolutionDays:
+            durations.length === 0
+              ? 0
+              : Math.round(
+                  (durations.reduce((sum, value) => sum + value, 0) /
+                    durations.length) *
+                    10,
+                ) / 10,
+          appealRate: claims.length === 0 ? 0 : appeals.length / claims.length,
+        },
+      },
+      request,
+    );
   });
 
   app.post("/api/v1/trust-surveys", async (request, reply) => {

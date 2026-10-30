@@ -6729,6 +6729,47 @@ describe("vertical slice", () => {
     expect(afterRetire.body.data.summary.activeSources).toBe(0);
   });
 
+  it("publishes fairness commitments and public appeal statistics", async () => {
+    const first = await call("POST", "/api/v1/fairness-commitments", {
+      statement:
+        "No employee will face retaliation for raising a good-faith concern.",
+      ownerPersonId: OWNER,
+      channels: ["TOWN_HALL", "INTRANET"],
+    });
+    expect(first.status).toBe(201);
+    expect(first.body.data.version).toBe(1);
+    expect(first.body.data.status).toBe("ACTIVE");
+
+    const second = await call("POST", "/api/v1/fairness-commitments", {
+      statement:
+        "Concerns can be raised anonymously and will be reviewed independently.",
+      ownerPersonId: MEMBER,
+      channels: ["INTRANET"],
+    });
+    expect(second.status).toBe(201);
+    expect(second.body.data.version).toBe(2);
+    const list = await call("GET", "/api/v1/fairness-commitments");
+    expect(list.body.data).toHaveLength(2);
+    expect(
+      list.body.data.find(
+        (commitment: { version: number }) => commitment.version === 1,
+      ).status,
+    ).toBe("SUPERSEDED");
+
+    const stats = await call("GET", "/api/v1/reports/appeal-stats");
+    expect(stats.status).toBe(200);
+    expect(stats.body.data.commitment.version).toBe(2);
+    expect(stats.body.data.appeals).toEqual({
+      total: 0,
+      open: 0,
+      closed: 0,
+      overdue: 0,
+      resolutions: {},
+      averageResolutionDays: 0,
+      appealRate: 0,
+    });
+  });
+
   it("collects anonymous trust-survey responses and reports baselines", async () => {
     const survey = await call("POST", "/api/v1/trust-surveys", {
       code: "TRUST_QUARTERLY",

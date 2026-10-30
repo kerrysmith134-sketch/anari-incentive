@@ -32,6 +32,7 @@ import type {
   EquityGrant,
   EquityVesting,
   ExternalIdentity,
+  FairnessCommitment,
   FinancialFact,
   IntegrationConnection,
   IntegrationMapping,
@@ -308,6 +309,16 @@ export interface PlatformStore {
     tenantId: string,
     surveyId: string,
   ): Promise<TrustSurveyReport>;
+  createFairnessCommitment(input: {
+    tenantId: string;
+    statement: string;
+    ownerPersonId: string;
+    channels: string[];
+  }): Promise<FairnessCommitment>;
+  listFairnessCommitments(tenantId: string): Promise<FairnessCommitment[]>;
+  getActiveFairnessCommitment(
+    tenantId: string,
+  ): Promise<FairnessCommitment | undefined>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1161,6 +1172,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly trustSurveyResponses = new Map<
     string,
     TrustSurveyResponse
+  >();
+  private readonly fairnessCommitments = new Map<
+    string,
+    FairnessCommitment
   >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
@@ -2347,6 +2362,62 @@ export class MemoryPlatformStore implements PlatformStore {
           response.surveyId === baselineSurvey.id,
       ),
     });
+  }
+
+  async createFairnessCommitment(input: {
+    tenantId: string;
+    statement: string;
+    ownerPersonId: string;
+    channels: string[];
+  }): Promise<FairnessCommitment> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const owner = this.persons.get(input.ownerPersonId);
+    if (!owner || owner.tenantId !== input.tenantId) {
+      notFound("Person", input.ownerPersonId);
+    }
+    const existing = [...this.fairnessCommitments.values()].filter(
+      (commitment) => commitment.tenantId === input.tenantId,
+    );
+    for (const commitment of existing) {
+      if (commitment.status === "ACTIVE") commitment.status = "SUPERSEDED";
+    }
+    const version =
+      existing.reduce(
+        (highest, commitment) => Math.max(highest, commitment.version),
+        0,
+      ) + 1;
+    const commitment: FairnessCommitment = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      version,
+      statement: input.statement,
+      ownerPersonId: input.ownerPersonId,
+      channels: [...input.channels],
+      status: "ACTIVE",
+      publishedAt: now(),
+      createdAt: now(),
+    };
+    this.fairnessCommitments.set(commitment.id, commitment);
+    return commitment;
+  }
+
+  async listFairnessCommitments(
+    tenantId: string,
+  ): Promise<FairnessCommitment[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.fairnessCommitments.values()]
+      .filter((commitment) => commitment.tenantId === tenantId)
+      .sort((a, b) => b.version - a.version);
+  }
+
+  async getActiveFairnessCommitment(
+    tenantId: string,
+  ): Promise<FairnessCommitment | undefined> {
+    return [...this.fairnessCommitments.values()].find(
+      (commitment) =>
+        commitment.tenantId === tenantId &&
+        commitment.status === "ACTIVE",
+    );
   }
 
   async createApprovalRequest(input: {
@@ -6998,6 +7069,79 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createFairnessCommitment(input: {
+    tenantId: string;
+    statement: string;
+    ownerPersonId: string;
+    channels: string[];
+  }): Promise<FairnessCommitment> {
+    return this.transaction(async (client) => {
+      await client.query(
+        `UPDATE fairness_commitments
+            SET status='SUPERSEDED'
+          WHERE tenant_id=$1 AND status='ACTIVE'`,
+        [input.tenantId],
+      );
+      const versionResult = await client.query(
+        `SELECT COALESCE(MAX(version),0)+1 AS version
+           FROM fairness_commitments
+          WHERE tenant_id=$1`,
+        [input.tenantId],
+      );
+      const version = Number(versionResult.rows[0]?.version ?? 1);
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO fairness_commitments
+            (id, tenant_id, version, statement, owner_person_id, channels)
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+           RETURNING *`,
+          [
+            randomUUID(),
+            input.tenantId,
+            version,
+            input.statement,
+            input.ownerPersonId,
+            JSON.stringify(input.channels),
+          ],
+        );
+        return this.mapFairnessCommitment(rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new NotFoundError(
+            `Tenant ${input.tenantId} or owner ${input.ownerPersonId} not found`,
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
+  async listFairnessCommitments(
+    tenantId: string,
+  ): Promise<FairnessCommitment[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM fairness_commitments
+        WHERE tenant_id=$1
+        ORDER BY version DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapFairnessCommitment(row));
+  }
+
+  async getActiveFairnessCommitment(
+    tenantId: string,
+  ): Promise<FairnessCommitment | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM fairness_commitments
+        WHERE tenant_id=$1 AND status='ACTIVE'
+        ORDER BY version DESC
+        LIMIT 1`,
+      [tenantId],
+    );
+    return rows[0] ? this.mapFairnessCommitment(rows[0]) : undefined;
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -11197,6 +11341,20 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapFairnessCommitment(row: QueryResultRow): FairnessCommitment {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      version: Number(row.version),
+      statement: row.statement,
+      ownerPersonId: row.owner_person_id,
+      channels: (row.channels as string[] | null) ?? [],
+      status: row.status,
+      publishedAt: iso(row.published_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 
