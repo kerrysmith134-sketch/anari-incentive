@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Local/CI verification entry point.
 #
-# Runs in order: install, typecheck, unit/API tests, compose validation and
-# PostgreSQL integration tests. Set CI_SKIP_PG=1 to skip Docker-backed tests.
+# Runs in order: install, typecheck, web bundle, unit/API tests, compose
+# validation and PostgreSQL integration tests. Set CI_SKIP_PG=1 to skip
+# Docker-backed tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,6 +14,7 @@ else
 fi
 
 npm run typecheck
+npm run web:build
 npm test
 
 if command -v docker >/dev/null 2>&1; then

@@ -2483,6 +2483,40 @@ describe("payroll", () => {
   });
 });
 
+describe("statutory payroll tax", () => {
+  it("applies cumulative China IIT brackets and subtracts prior withholding", async () => {
+    const result = await call("POST", "/api/v1/tax/cn-iit/calculate", {
+      cumulativeTaxableIncome: "40000",
+      taxAlreadyWithheld: "1000",
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.data.annualTaxDue).toBe("1480");
+    expect(result.body.data.taxForPeriod).toBe("480");
+    expect(result.body.data.ratePercent).toBe(10);
+    expect(result.body.data.quickDeduction).toBe("2520");
+
+    const topBracket = await call("POST", "/api/v1/tax/cn-iit/calculate", {
+      cumulativeTaxableIncome: "1000000",
+    });
+    expect(topBracket.body.data.ratePercent).toBe(45);
+    expect(topBracket.body.data.annualTaxDue).toBe("268080");
+  });
+
+  it("rejects an invalid decimal and treats non-positive income as zero", async () => {
+    const invalid = await call("POST", "/api/v1/tax/cn-iit/calculate", {
+      cumulativeTaxableIncome: "not-a-number",
+    });
+    expect(invalid.status).toBe(400);
+    const zero = await call("POST", "/api/v1/tax/cn-iit/calculate", {
+      cumulativeTaxableIncome: "0",
+      taxAlreadyWithheld: "500",
+    });
+    expect(zero.status).toBe(200);
+    expect(zero.body.data.annualTaxDue).toBe("0");
+    expect(zero.body.data.taxForPeriod).toBe("0");
+  });
+});
+
 describe("deliverables and acceptance", () => {
   it("submits deliverables and records acceptance with separation of duties", async () => {
     const workPackageId = await createAcceptedWorkPackage();

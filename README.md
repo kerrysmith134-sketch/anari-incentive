@@ -6,7 +6,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 
 > **Product principles**: policy-as-data; evidence-first; deterministic money; human-approved high-impact actions; proactive agents that observe, detect, plan, act, verify and escalate.
 >
-> Status: **Sprint 0/1/2 vertical slice + agent-runtime scaffold**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with policy packs, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, a proactive agent runtime, an AI evaluation gate, tests, and PostgreSQL migrations. It is not production-ready.
+> Status: **Sprint 0/1/2 vertical slice + agent-runtime scaffold + operations console**. The repository contains a runnable API (memory or PostgreSQL), domain state machines, a deterministic policy evaluator with policy packs, an append-only ledger, legal-gate and employee-confirmation workflows, an appeal workflow, a proactive agent runtime, an AI evaluation gate, a React operations console, tests, and PostgreSQL migrations. It is not production-ready.
 
 ---
 
@@ -47,6 +47,8 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Equity | Versioned OPTION/RSU/SAR grants with cliff/monthly vesting, computed vested/unvested/exercised/available units and next vest date; exercises move PENDING → APPROVED → SETTLED with requester ≠ approver, grant exhaustion and RLS |
 | Bounty | Reward-backed bounties with OPEN → CLAIMED → SUBMITTED → ACCEPTED/CANCELLED lifecycle, assignee-only submission, reviewer ≠ assignee acceptance, optional external payment reference and RLS |
 | HRIS & payroll | Declared employment contracts (type, start/end, work location, currency, fixed monthly salary, legal minimum, declared tax/social-insurance rates, bank reference) and payroll runs that combine fixed pay with LOCKED ledger entries; net pay below the declared minimum marks the run BLOCKED, preparer ≠ approver is enforced, tax/social amounts are itemised, and runs support approval, payment, reversal, CSV export, bank file and printable payslips |
+| Statutory payroll tax | `packages/payroll-tax` implements the public China resident comprehensive-income cumulative withholding brackets (3%–45%, ¥5,000 monthly basic deduction) with BigInt decimal arithmetic, bracket boundaries, quick deductions and prior-withheld subtraction. `POST /api/v1/tax/cn-iit/calculate` exposes a calculator; the console's Tax studio explains the estimate and shows the bracket table |
+| Operations console | React 19 + React Router 7 + Vite SPA at `/console/` with an accessible light/dark design system, responsive shell, KPI stat tiles, approval review, payroll workflow and exports, statutory tax studio, equity/bounty actions, integration mapping/schedule management, AI proposal review, policy readiness, people directory, assurance registers and session settings. Deep-linkable payroll tabs; no chart library required |
 | Reporting | `GET /reports/cycle-readiness?cycleId=` aggregates calculation status, legal-gate and employee-confirmation blockers, settlement-batch progress and budget-pool approval for a cycle; `readyForSettlement` is true only when a non-reversed formal run exists and no blocker remains. `GET /reports/policy-readiness?policyVersionId=` aggregates the legal gate, active golden-case results, linked notice acknowledgement coverage, consultations and DPIA status; `ready` requires no legal-gate blocker, a passing run for every active test case, complete linked acknowledgement-required notices and no unapproved referenced DPIA. `GET /reports/operations-coverage` reports evidence coverage on accepted work packages, claim confirmation, deliverable, approval, data-quality and DSAR queues |
 | Legal gate | Server-side `legal_gate_records`; `FORMAL` requires policy approval, minimum-wage check, democratic-procedure ref, employee-notice ref, DPIA ref; callers cannot self-assert a gate on the calculation request; referencing a notice id requires complete acknowledgement coverage, referencing a consultation id requires a concluded consultation for that policy version, and referencing a DPIA id requires an approved assessment |
 | Employee notices | Published notices (policy/pay plan/AI use/data processing) with per-person acknowledgement or decline, coverage summary, and a legal-gate link that blocks formal work until required acknowledgements are complete |
@@ -65,10 +67,11 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | Audit trail | Policy publication, legal gates, calculation locks, settlement commands and data-quality lifecycle append hash-chained `audit_events`; `GET /audit-events` and `/audit-events/verify` are role-gated |
 | Observability | `/ready` checks the store; `/metrics` exposes dependency-free Prometheus counters, route-labelled latency and process gauges |
 | CI | `scripts/ci.sh` runs install → typecheck → tests → compose validation → PostgreSQL integration tests |
-| Tests | **197 unit/API tests + 40 PostgreSQL integration tests** covering platform onboarding, state transitions, work-package optimistic concurrency, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, approval requests/configurable enforcement (env and tenant settings), settlement export/acknowledgement evidence and CSV formula neutralisation, equity vesting/exercise/settlement, bounty lifecycle, payroll calculation/tax/social insurance/minimum-wage blocking/approval separation/reversal/export, budget pools/allocations/cash gates and formal-run enforcement, policy governance, policy succession/rollback, policy test-case and suite execution, test-gated change approval, cycle/policy readiness and operations-coverage reporting, metric definitions, deliverable acceptance, AI suggestions/model evaluations/prompt registry/gated AI score proposals/workflow runs, integration connections/sync runs/versioned field mappings/sync schedules/identity maps/webhook and consumer inboxes, signed webhooks/HubSpot/Feishu schemes/OAuth and Feishu token sources, OTLP tracing with correlation attributes, API rate limiting, request body limits, ledger adjustments, tenant isolation and governance-table RLS, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle/SLA/escalation and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, governance UI, OpenAPI route coverage, and RLS |
+| Tests | **219 unit/API tests + 40 PostgreSQL integration tests** covering platform onboarding, state transitions, work-package optimistic concurrency, commitment snapshots, atomic calculation/acceptance/attribution batches, self-adjudication block, deterministic results, reference/reconciliation match, legal gate, employee notices/acknowledgements, policy consultations/representation, DPIA approval, DSAR lifecycle, recalculation requests, retention policies/legal hold, approval requests/configurable enforcement (env and tenant settings), settlement export/acknowledgement evidence and CSV formula neutralisation, equity vesting/exercise/settlement, bounty lifecycle, payroll calculation/tax/social insurance/minimum-wage blocking/approval separation/reversal/export, statutory China IIT brackets/boundaries/withheld subtraction/fen rounding, budget pools/allocations/cash gates and formal-run enforcement, policy governance, policy succession/rollback, policy test-case and suite execution, test-gated change approval, cycle/policy readiness and operations-coverage reporting, metric definitions, deliverable acceptance, AI suggestions/model evaluations/prompt registry/gated AI score proposals/workflow runs, integration connections/sync runs/versioned field mappings/sync schedules/identity maps/webhook and consumer inboxes, signed webhooks/HubSpot/Feishu schemes/OAuth and Feishu token sources, OTLP tracing with correlation attributes, API rate limiting, request body limits, ledger adjustments, tenant isolation and governance-table RLS, confirmations/objections, appeals, evidence links, ledger immutability/idempotency/reversal, settlement reconciliation/export/adjustment/recovery-confirmation, employee evidence scoping, in-app notifications, evaluation decisions/versioning and policy multipliers, agent evaluation drafts, data-quality lifecycle/SLA/escalation and formal-run blocking, policy publication/succession/diff, durable agent rehydration/retry, role authorization, readiness/metrics, AI gate metrics, auth, ingestion/connectors, governance UI, OpenAPI route coverage, and RLS |
 
 ## Operations
 
+- **Console**: `npm run web:build` writes `apps/web/dist`; start the API afterwards so Fastify can register the hashed asset routes and serve `/console/` with SPA fallback. For hot reload use `npm run web:dev` (Vite on 5173, `/api` proxied to 3000). The Docker image builds the console before starting.
 - **Migrations**: `npm run db:migrate` tracks each file in `schema_migrations` with a SHA-256 checksum. Applied files are skipped; a modified applied file fails. A database created before the runner existed needs a one-time manual baseline stamp; do not point the runner at an unstamped non-empty schema.
 - **Seed**: `npm run db:seed` is idempotent and runs the SQL files under `db/seed/`.
 - **Shutdown**: API and worker handle `SIGINT`/`SIGTERM`, close HTTP/DB resources and exit.
@@ -86,15 +89,16 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 
 ## What is intentionally not implemented yet
 
-- AI scoring / Evaluation Agent (only evidence summary and gap detection are allowed until the evaluation gate passes);
+- Model-backed semantic scoring beyond the transparent evidence-coverage baseline (numeric score proposals exist, but remain gated and advisory until a human accepts them);
 - Autonomous T2/T3 actions (the runtime supports them, but high-impact actions always wait for a human);
-- Production CRM/ERP/Feishu field mappings and sync schedules (generic CSV/HTTP connectors, ingestion, connection/sync registry, webhook inbox, HubSpot/Feishu signature verification and OAuth/Feishu token sources exist);
+- Production provider connector execution beyond the generic CSV/HTTP connectors, webhook verification, presets and sync runner;
 - Field-level policy for future sensitive fields (calculation lines/traces and order economics are redacted for employees; evidence reads are role-gated);
 - Self-service tenant onboarding, billing and subscription management (platform-admin onboarding exists);
 - Automated retention deletion (retention rules and a cutoff/eligibility report exist; disposal remains a controlled external operation);
 - Strategic/A-class pool automation;
-- Full project management; advanced payroll (tax, social insurance, payslips, bank files);
-- Full employee/admin UI (minimal pages exist at `/`, `/admin` and `/admin/governance`).
+- Full project management;
+- Full statutory payroll integration: payroll runs still use declared contract rates; the Tax studio provides a cumulative IIT estimate, while YTD aggregation, statutory filing formats and jurisdiction-specific bank submission remain follow-up work;
+- Product-grade identity for the console (it relies on the API's dev headers locally, or OIDC at the edge; a tenant-aware IAM/SSO console shell is not built).
 
 These are deliberately deferred per `docs/PRD_V4.1_评审修订版.md`.
 
@@ -110,11 +114,31 @@ npm test
 npm run typecheck
 npm run dev
 # API at http://localhost:3000
+# Operations console: http://localhost:3000/console/ (after npm run web:build)
 # Employee page: http://localhost:3000/
 # Admin page:    http://localhost:3000/admin
 # In another terminal: full demo cycle through the API
 npm run demo:cycle
 ```
+
+For live console development with hot reload, run the API and then:
+
+```bash
+npm run web:dev
+# Console at http://localhost:5173/console/; /api is proxied to :3000
+```
+
+For a production-style static bundle served by Fastify:
+
+```bash
+npm run web:build
+# /console/ now serves apps/web/dist, with SPA fallback for client routes
+```
+
+The console uses `x-tenant-id`, `x-user-id` and `x-person-id` from its local
+session settings in development mode. Set `AUTH_MODE=dev` for local use; the
+console is a separate static surface and does not weaken the API's
+authentication or role checks.
 
 `AUTH_MODE` defaults to `dev`, which accepts `X-Tenant-Id` / `X-User-Id`
 headers. Set `AUTH_MODE=oidc` plus `OIDC_ISSUER` / `OIDC_AUDIENCE` /

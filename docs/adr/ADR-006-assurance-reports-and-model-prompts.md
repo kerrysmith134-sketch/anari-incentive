@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-10-29
+- **Superseded in part by**: ADR-007 (statutory IIT calculator; payroll runs still use declared rates)
 - **Context**: The review required executable policy test cases, a rule-change gate that does not rely on prose, measurable evidence coverage, and a versioned prompt registry with a release gate. These features must work in both the memory demo and PostgreSQL, stay read-only where they report, and must not let an AI model or a test shortcut the legal gate.
 - **Decision**:
   - A policy test case stores a calculation request plus a partial expected result. The runner executes the request against the policy version bound to the case in `SHADOW` mode and compares only supplied `pool`, `poolRounded`, `resultHash` and `lines` keys. Differences, unsupported keys and policy-gate blockers are reported instead of silently passing.

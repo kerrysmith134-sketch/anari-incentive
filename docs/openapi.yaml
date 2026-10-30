@@ -3255,6 +3255,34 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/tax/cn-iit/calculate:
+    post:
+      tags: [Payroll]
+      summary: Calculate China cumulative individual income tax for a period
+      description: >
+        Applies the public annual cumulative withholding brackets to cumulative
+        taxable income and subtracts tax already withheld. This is a calculator,
+        not tax advice; supervisors remain responsible for filings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalculateCnIit"
+      responses:
+        "200":
+          description: Tax calculation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/payroll-runs:
     get:
       tags: [Payroll]
@@ -6903,6 +6931,15 @@ components:
           $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string
+
+    CalculateCnIit:
+      type: object
+      required: [cumulativeTaxableIncome]
+      properties:
+        cumulativeTaxableIncome:
+          $ref: "#/components/schemas/Decimal"
+        taxAlreadyWithheld:
+          $ref: "#/components/schemas/Decimal"
 
     CreatePayrollRun:
       type: object

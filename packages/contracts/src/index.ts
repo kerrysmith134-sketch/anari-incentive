@@ -731,6 +731,12 @@ export type ApprovePayrollRunBody = z.infer<
   typeof approvePayrollRunSchema
 >;
 
+export const calculateCnIitSchema = z.object({
+  cumulativeTaxableIncome: decimal,
+  taxAlreadyWithheld: decimal.default("0"),
+});
+export type CalculateCnIitBody = z.infer<typeof calculateCnIitSchema>;
+
 export const payrollLineInputSchema = z.object({
   personId: uuidSchema,
   contractId: uuidSchema,

@@ -9,6 +9,7 @@ export default defineConfig({
       "@anari/domain": `${root}packages/domain/src/index.ts`,
       "@anari/contracts": `${root}packages/contracts/src/index.ts`,
       "@anari/policy-dsl": `${root}packages/policy-dsl/src/index.ts`,
+      "@anari/payroll-tax": `${root}packages/payroll-tax/src/index.ts`,
       "@anari/ledger": `${root}packages/ledger/src/index.ts`,
       "@anari/ai-gate": `${root}packages/ai-gate/src/index.ts`,
       "@anari/agent-runtime": `${root}packages/agent-runtime/src/index.ts`,

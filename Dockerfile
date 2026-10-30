@@ -10,7 +10,7 @@ COPY examples ./examples
 COPY fixtures ./fixtures
 COPY db ./db
 
-RUN npm ci
+RUN npm ci && npm run web:build
 
 USER node
 

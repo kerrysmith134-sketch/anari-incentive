@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
 } from "fastify";
+import fastifyStatic from "@fastify/static";
 import { ZodError, type ZodType } from "zod";
 import {
   acceptWorkPackageSchema,
@@ -84,6 +86,7 @@ import {
   createPayrollRunSchema,
   approvePayrollRunSchema,
   reversePayrollRunSchema,
+  calculateCnIitSchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -138,6 +141,7 @@ import {
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import { scoreEvidence, type EvaluationGate } from "@anari/ai-gate";
+import { calculateCumulativeIit } from "@anari/payroll-tax";
 import {
   FIELD_MAPPING_PRESETS,
   verifyFeishuSignature,
@@ -234,6 +238,27 @@ const governanceUi = readFileSync(
   new URL("../public/governance.html", import.meta.url),
   "utf8",
 );
+
+const consoleDist = fileURLToPath(
+  new URL("../../web/dist/", import.meta.url),
+);
+const consoleIndexUrl = new URL(
+  "../../web/dist/index.html",
+  import.meta.url,
+);
+const consoleBuilt = existsSync(consoleIndexUrl);
+const consoleIndex = consoleBuilt
+  ? readFileSync(consoleIndexUrl, "utf8")
+  : undefined;
+const consoleBuildNotice = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>N-Perform Console</title>
+<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:12vh auto;padding:0 24px;color:#141713;background:#f3f3ee;line-height:1.6}code{background:#eaeae2;padding:2px 6px;border-radius:5px}</style>
+</head><body>
+<h1>Console build not found</h1>
+<p>The API is running, but <code>apps/web/dist</code> has not been built yet.</p>
+<p>Run <code>npm run web:build</code> from the repository root, then reload <code>/console/</code>.</p>
+<p>For live development, run <code>npm run web:dev</code> and open the Vite URL.</p>
+</body></html>`;
 
 export type StoreResolver = (tenantId: string) => IncentiveStore;
 export type AgentRuntimeFactory = (
@@ -414,6 +439,13 @@ export function buildApp(
       : false,
     bodyLimit: options.bodyLimitBytes ?? 1_048_576,
   });
+  if (consoleBuilt) {
+    app.register(fastifyStatic, {
+      root: consoleDist,
+      prefix: "/console/",
+      wildcard: false,
+    });
+  }
   const metrics = new ApiMetrics();
   const limiter = options.rateLimit
     ? new FixedWindowRateLimiter(
@@ -1526,6 +1558,29 @@ export function buildApp(
   app.get("/admin/governance", async (_request, reply) =>
     reply.type("text/html; charset=utf-8").send(governanceUi),
   );
+
+  app.get("/console", async (_request, reply) =>
+    reply.redirect("/console/"),
+  );
+
+  if (!consoleBuilt || !consoleIndex) {
+    app.get("/console/", async (_request, reply) =>
+      reply.type("text/html; charset=utf-8").send(consoleBuildNotice),
+    );
+    app.get("/console/*", async (_request, reply) =>
+      reply.type("text/html; charset=utf-8").send(consoleBuildNotice),
+    );
+  } else {
+    app.get("/console/*", async (request, reply) => {
+      if (request.url.startsWith("/console/assets/")) {
+        return reply.status(404).send({
+          error: { code: "NOT_FOUND", message: "console asset not found" },
+          meta: {},
+        });
+      }
+      return reply.type("text/html; charset=utf-8").send(consoleIndex);
+    });
+  }
 
   app.get("/health", async (request) => data({ status: "ok" }, request));
 
@@ -4026,6 +4081,12 @@ export function buildApp(
       ),
       request,
     );
+  });
+
+  app.post("/api/v1/tax/cn-iit/calculate", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(calculateCnIitSchema, request.body);
+    return data(calculateCumulativeIit(body), request);
   });
 
   app.post("/api/v1/payroll-runs", async (request, reply) => {

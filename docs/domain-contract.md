@@ -254,6 +254,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /payroll-runs/:id/reverse` | finance/admin, APPROVED/PAID, reversedBy exists | Sets REVERSED with reason and timestamp |
 | `POST /payroll-runs/:id/cancel` | admin, not PAID/REVERSED/CANCELLED | Sets CANCELLED |
 | `GET /payroll-runs/:id/export\|bank-file\|payslips/:personId` | manager/finance or finance for bank file | CSV lines, CSV bank file, printable payslip HTML |
+| `POST /tax/cn-iit/calculate` | manager/finance | Applies the public China resident cumulative withholding brackets to cumulative taxable income, subtracts tax already withheld and returns the period amount |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
@@ -524,9 +525,19 @@ Calculation runs are further redacted for employees: `lines` and `inputSnapshot.
 
 ---
 
-## 13. Contract and CI
+## 13. Operations console
+
+`apps/web` is a React 19 + React Router 7 single-page application served by the API at `/console/`. It is a presentation layer: every read and command goes through the same authenticated `/api/v1` surface, and the server remains the authority for roles, state transitions, approvals and money.
+
+- **Routing and serving.** Vite uses `base: "/console/"`; `BrowserRouter` uses the same basename. Fastify registers `@fastify/static` against `apps/web/dist` when the build exists, serves hashed assets from `/console/assets/`, and returns `index.html` for client-side routes. Without a build, `/console/` returns a build-instructions page. Vite's dev server proxies `/api` to port 3000 for hot reload.
+- **Design system.** CSS custom properties define light and dark palettes, status, spatial and typography tokens. Dark mode is a selected palette, not an inversion. Components use semantic classes; there is no utility-CSS or component-library dependency. The shell collapses to an off-canvas navigation and single-column layouts on narrow screens.
+- **Data access.** `lib/api.ts` attaches the development tenant/user/person headers, an optional OIDC bearer token, unwraps the `{data, meta}` envelope, maps errors to `ApiError` and downloads protected exports as blobs. Queries abort on unmount. Session identity is stored locally and can be changed in Settings; OIDC mode ignores the development headers but accepts the saved bearer token.
+- **Functional surfaces.** Overview, approvals (decide and consume), payroll (runs, contracts, workflow, exports, statutory tax studio), rewards (equity vesting/exercises and bounty lifecycle), integrations (connections, field-map presets, schedules, sync runs), AI proposals/prompt registry, policy readiness and test suite, people directory, and assurance registers. AI score acceptance is explicitly human and one-time; the console never auto-accepts a proposal.
+- **Tax boundary.** `packages/payroll-tax` uses the public annualized China cumulative brackets and quick deductions with BigInt decimal arithmetic. The calculator is an estimate: payroll runs still use declared contract rates, and YTD aggregation, special-additional-deduction evidence, local filing formats and jurisdiction-specific submission remain follow-up work.
+
+## 14. Contract and CI
 
 - `docs/openapi.yaml` is the OpenAPI 3.1 contract. `tests/openapi.test.ts` parses it, checks every route in `apps/api/src/app.ts` is documented, rejects stale documented routes, and verifies local `$ref`s resolve.
 - `scripts/ci.sh` is the verification entry point: install → typecheck → unit/API tests → `docker compose config` → PostgreSQL integration tests. `CI_SKIP_PG=1` skips the Docker-backed tests.
 - `/health` is liveness; `/ready` checks the store. `/metrics` exposes Prometheus counters and latency using registered route patterns (bounded cardinality), plus process uptime/heap gauges. The endpoint has no auth and should be reachable only from the monitoring network.
-- Admin UI at `/admin` is a minimal development surface for policy simulation and agent approvals; it is not a production IAM-controlled console.
+- Admin UI at `/admin` is a minimal development surface for policy simulation and agent approvals; `/console/` is the broader operations SPA. Neither is an IAM-controlled production console; put OIDC/SSO and network policy in front of them.
