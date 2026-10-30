@@ -2358,3 +2358,35 @@
     font-size: 25px;
   }
 }
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.checkbox:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox span {
+  min-width: 0;
+}

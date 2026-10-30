@@ -1,4 +1,10 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import {
+  Component,
+  lazy,
+  Suspense,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import {
   BrowserRouter,
   Link,
@@ -9,21 +15,78 @@ import { AppShell } from "./components/AppShell.js";
 import { AuthProvider } from "./contexts/AuthContext.js";
 import { ThemeProvider } from "./contexts/ThemeContext.js";
 import { ToastProvider } from "./contexts/ToastContext.js";
-import { AiPage } from "./pages/AiPage.js";
-import { ApprovalsPage } from "./pages/ApprovalsPage.js";
-import { AuditPage } from "./pages/AuditPage.js";
-import { CyclesPage } from "./pages/CyclesPage.js";
-import { ContributionPage } from "./pages/ContributionPage.js";
-import { ExceptionsPage } from "./pages/ExceptionsPage.js";
-import { DashboardPage } from "./pages/DashboardPage.js";
-import { IntegrationsPage } from "./pages/IntegrationsPage.js";
-import { PayrollPage } from "./pages/PayrollPage.js";
-import { PeoplePage } from "./pages/PeoplePage.js";
-import { PolicyPage } from "./pages/PolicyPage.js";
-import { RewardsPage } from "./pages/RewardsPage.js";
-import { SettlementsPage } from "./pages/SettlementsPage.js";
-import { SettingsPage } from "./pages/SettingsPage.js";
 import { Button } from "./components/ui.js";
+
+const DashboardPage = lazy(() =>
+  import("./pages/DashboardPage.js").then((module) => ({
+    default: module.DashboardPage,
+  })),
+);
+const AiPage = lazy(() =>
+  import("./pages/AiPage.js").then((module) => ({
+    default: module.AiPage,
+  })),
+);
+const ApprovalsPage = lazy(() =>
+  import("./pages/ApprovalsPage.js").then((module) => ({
+    default: module.ApprovalsPage,
+  })),
+);
+const AuditPage = lazy(() =>
+  import("./pages/AuditPage.js").then((module) => ({
+    default: module.AuditPage,
+  })),
+);
+const CyclesPage = lazy(() =>
+  import("./pages/CyclesPage.js").then((module) => ({
+    default: module.CyclesPage,
+  })),
+);
+const ContributionPage = lazy(() =>
+  import("./pages/ContributionPage.js").then((module) => ({
+    default: module.ContributionPage,
+  })),
+);
+const ExceptionsPage = lazy(() =>
+  import("./pages/ExceptionsPage.js").then((module) => ({
+    default: module.ExceptionsPage,
+  })),
+);
+const IntegrationsPage = lazy(() =>
+  import("./pages/IntegrationsPage.js").then((module) => ({
+    default: module.IntegrationsPage,
+  })),
+);
+const PayrollPage = lazy(() =>
+  import("./pages/PayrollPage.js").then((module) => ({
+    default: module.PayrollPage,
+  })),
+);
+const PeoplePage = lazy(() =>
+  import("./pages/PeoplePage.js").then((module) => ({
+    default: module.PeoplePage,
+  })),
+);
+const PolicyPage = lazy(() =>
+  import("./pages/PolicyPage.js").then((module) => ({
+    default: module.PolicyPage,
+  })),
+);
+const RewardsPage = lazy(() =>
+  import("./pages/RewardsPage.js").then((module) => ({
+    default: module.RewardsPage,
+  })),
+);
+const SettlementsPage = lazy(() =>
+  import("./pages/SettlementsPage.js").then((module) => ({
+    default: module.SettlementsPage,
+  })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage.js").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
 
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -59,6 +122,14 @@ class ErrorBoundary extends Component<
   }
 }
 
+function PageFallback() {
+  return (
+    <div className="loading-inline" style={{ minHeight: "50vh", justifyContent: "center" }}>
+      <span className="spinner" /> Loading view…
+    </div>
+  );
+}
+
 function NotFoundPage() {
   return (
     <div className="empty-state" style={{ minHeight: "60vh" }}>
@@ -83,23 +154,25 @@ export function App() {
             </a>
             <AppShell>
               <ErrorBoundary>
-                <Routes>
-                  <Route path="/" element={<DashboardPage />} />
-                  <Route path="/approvals" element={<ApprovalsPage />} />
-                  <Route path="/cycles" element={<CyclesPage />} />
-                  <Route path="/contribution" element={<ContributionPage />} />
-                  <Route path="/payroll" element={<PayrollPage />} />
-                  <Route path="/rewards" element={<RewardsPage />} />
-                  <Route path="/settlements" element={<SettlementsPage />} />
-                  <Route path="/ai" element={<AiPage />} />
-                  <Route path="/policy" element={<PolicyPage />} />
-                  <Route path="/exceptions" element={<ExceptionsPage />} />
-                  <Route path="/audit" element={<AuditPage />} />
-                  <Route path="/integrations" element={<IntegrationsPage />} />
-                  <Route path="/people" element={<PeoplePage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                  <Route path="*" element={<NotFoundPage />} />
-                </Routes>
+                <Suspense fallback={<PageFallback />}>
+                  <Routes>
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/approvals" element={<ApprovalsPage />} />
+                    <Route path="/cycles" element={<CyclesPage />} />
+                    <Route path="/contribution" element={<ContributionPage />} />
+                    <Route path="/payroll" element={<PayrollPage />} />
+                    <Route path="/rewards" element={<RewardsPage />} />
+                    <Route path="/settlements" element={<SettlementsPage />} />
+                    <Route path="/ai" element={<AiPage />} />
+                    <Route path="/policy" element={<PolicyPage />} />
+                    <Route path="/exceptions" element={<ExceptionsPage />} />
+                    <Route path="/audit" element={<AuditPage />} />
+                    <Route path="/integrations" element={<IntegrationsPage />} />
+                    <Route path="/people" element={<PeoplePage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="*" element={<NotFoundPage />} />
+                  </Routes>
+                </Suspense>
               </ErrorBoundary>
             </AppShell>
           </BrowserRouter>

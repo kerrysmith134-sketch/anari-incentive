@@ -4,16 +4,21 @@ import {
   Button,
   EmptyState,
   ErrorNotice,
+  FormField,
   InfoNotice,
   LoadingRows,
+  Modal,
   PageHeader,
   Panel,
   Tabs,
+  TextInput,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
+import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useAuth } from "../contexts/AuthContext.js";
 import {
   formatDate,
   formatDateTime,
@@ -31,6 +36,8 @@ import type {
 export function PolicyPage() {
   useDocumentTitle("Policy");
   const toast = useToast();
+  const { session } = useAuth();
+  const { people } = usePeople();
   const versions = useApiQuery<PolicyVersionSummary[]>("/api/v1/policy-versions");
   const coverage = useApiQuery<OperationsCoverageReport>(
     "/api/v1/reports/operations-coverage",
@@ -38,6 +45,16 @@ export function PolicyPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState("readiness");
   const [running, setRunning] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false);
+  const [policyApproved, setPolicyApproved] = useState(false);
+  const [minimumWageChecked, setMinimumWageChecked] = useState(false);
+  const [democraticRef, setDemocraticRef] = useState("");
+  const [noticeRef, setNoticeRef] = useState("");
+  const [dpiaRef, setDpiaRef] = useState("");
+  const [recordedBy, setRecordedBy] = useState(session.personId);
+  const [gateApprovalId, setGateApprovalId] = useState("");
+  const [gateError, setGateError] = useState<string | null>(null);
+  const [gateSubmitting, setGateSubmitting] = useState(false);
 
   const list = versions.data ?? [];
 
@@ -62,6 +79,49 @@ export function PolicyPage() {
       : null,
     selectedId,
   );
+
+  function openGate() {
+    setPolicyApproved(false);
+    setMinimumWageChecked(false);
+    setDemocraticRef("");
+    setNoticeRef("");
+    setDpiaRef("");
+    setRecordedBy(session.personId);
+    setGateApprovalId("");
+    setGateError(null);
+    setGateOpen(true);
+  }
+
+  async function recordGate() {
+    if (!selectedId) return;
+    setGateSubmitting(true);
+    setGateError(null);
+    try {
+      await api(`/api/v1/policy-versions/${selectedId}/legal-gate`, {
+        method: "POST",
+        body: {
+          policyApproved,
+          minimumWageChecked,
+          democraticProcedureRef: democraticRef.trim() || undefined,
+          employeeNoticeRef: noticeRef.trim() || undefined,
+          dataProtectionAssessmentRef: dpiaRef.trim() || undefined,
+          recordedBy,
+          approvalRequestId: gateApprovalId.trim() || undefined,
+        },
+      });
+      toast.success("Legal gate recorded", selected?.code);
+      setGateOpen(false);
+      readiness.reload();
+    } catch (caught) {
+      setGateError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not record the legal gate.",
+      );
+    } finally {
+      setGateSubmitting(false);
+    }
+  }
 
   async function runSuite() {
     if (!selectedId) return;
@@ -149,10 +209,8 @@ export function PolicyPage() {
               <table className="data-table table-clickable">
                 <thead>
                   <tr>
-                    <th>Code</th>
-                    <th>Version</th>
+                    <th>Policy</th>
                     <th>Status</th>
-                    <th>Effective</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,19 +223,21 @@ export function PolicyPage() {
                       onClick={() => setSelectedId(version.policyVersionId)}
                     >
                       <td>
-                        <span className="cell-primary">{version.code}</span>
+                        <span className="cell-primary" style={{ overflowWrap: "anywhere" }}>
+                          {version.code}
+                        </span>
+                        <span className="cell-sub">
+                          v{version.version}
+                          {version.effectiveFrom
+                            ? ` · effective ${formatDate(version.effectiveFrom)}`
+                            : ""}
+                        </span>
                         <span className="cell-sub mono">
                           {shortId(version.policyVersionId, 10)}
                         </span>
                       </td>
-                      <td>v{version.version}</td>
                       <td>
                         <Badge status={version.status} />
-                      </td>
-                      <td className="nowrap">
-                        {version.effectiveFrom
-                          ? formatDate(version.effectiveFrom)
-                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -187,20 +247,30 @@ export function PolicyPage() {
           </Panel>
 
           <Panel
-            title={selected ? `${selected.code} readiness` : "Readiness"}
+            title="Policy readiness"
             subtitle={
               selected
-                ? `v${selected.version} · ${formatDateTime(readiness.data?.generatedAt)}`
+                ? `${selected.code} v${selected.version} · ${formatDateTime(readiness.data?.generatedAt)}`
                 : undefined
             }
             action={
-              readiness.data ? (
-                <Badge
-                  tone={readiness.data.ready ? "success" : "danger"}
+              <div className="row-actions">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={openGate}
+                  disabled={!selectedId}
                 >
-                  {readiness.data.ready ? "Ready" : "Blocked"}
-                </Badge>
-              ) : null
+                  Record gate
+                </Button>
+                {readiness.data ? (
+                  <Badge
+                    tone={readiness.data.ready ? "success" : "danger"}
+                  >
+                    {readiness.data.ready ? "Ready" : "Blocked"}
+                  </Badge>
+                ) : null}
+              </div>
             }
           >
             {readiness.error ? (
@@ -251,7 +321,9 @@ export function PolicyPage() {
                       {readiness.data.dpia.approved ? (
                         <Badge tone="success">Approved</Badge>
                       ) : readiness.data.dpia.referenced ? (
-                        <Badge tone="warning">{titleCase(readiness.data.dpia.status)}</Badge>
+                        <Badge tone="warning">
+                          {titleCase(readiness.data.dpia.status ?? "referenced")}
+                        </Badge>
                       ) : (
                         <Badge tone="neutral">Not referenced</Badge>
                       )}
@@ -454,6 +526,116 @@ export function PolicyPage() {
           </Panel>
         )}
       </div>
+
+      <Modal
+        open={gateOpen}
+        title="Record legal gate"
+        description={
+          selected
+            ? `${selected.code} v${selected.version} · this is assurance evidence, not a legal opinion.`
+            : undefined
+        }
+        onClose={() => setGateOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setGateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={recordGate}
+              loading={gateSubmitting}
+            >
+              Record gate
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
+          {gateError ? (
+            <InfoNotice tone="warning">{gateError}</InfoNotice>
+          ) : null}
+          <div className="notice notice--warning">
+            The legal gate records the controls you confirmed. Referencing a
+            notice, consultation or DPIA by id triggers server-side coverage
+            checks; free-text references are retained as evidence only.
+          </div>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={policyApproved}
+              onChange={(event) => setPolicyApproved(event.target.checked)}
+            />
+            <span>Policy content is approved by the authorised body.</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={minimumWageChecked}
+              onChange={(event) =>
+                setMinimumWageChecked(event.target.checked)
+              }
+            />
+            <span>Minimum-wage and payroll treatment has been checked.</span>
+          </label>
+          <div className="form-grid">
+            <FormField
+              label="Democratic procedure reference"
+              htmlFor="gate-democratic"
+            >
+              <TextInput
+                id="gate-democratic"
+                value={democraticRef}
+                onChange={(event) => setDemocraticRef(event.target.value)}
+                placeholder="Consultation minutes / resolution id"
+              />
+            </FormField>
+            <FormField
+              label="Employee notice reference"
+              htmlFor="gate-notice"
+            >
+              <TextInput
+                id="gate-notice"
+                value={noticeRef}
+                onChange={(event) => setNoticeRef(event.target.value)}
+                placeholder="Notice reference"
+              />
+            </FormField>
+            <FormField
+              label="DPIA reference"
+              htmlFor="gate-dpia"
+            >
+              <TextInput
+                id="gate-dpia"
+                value={dpiaRef}
+                onChange={(event) => setDpiaRef(event.target.value)}
+                placeholder="Assessment reference"
+              />
+            </FormField>
+            <FormField label="Recorded by" htmlFor="gate-recorder">
+              <PersonSelect
+                id="gate-recorder"
+                value={recordedBy}
+                onChange={setRecordedBy}
+              />
+            </FormField>
+            <FormField
+              label="Approval request id (optional)"
+              htmlFor="gate-approval"
+              className="field--full"
+              hint="Required only when LEGAL_GATE is configured as approval-gated."
+            >
+              <TextInput
+                id="gate-approval"
+                value={gateApprovalId}
+                onChange={(event) => setGateApprovalId(event.target.value)}
+              />
+            </FormField>
+          </div>
+        </div>
+      </Modal>
+
     </>
   );
 }
