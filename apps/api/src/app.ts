@@ -39,6 +39,7 @@ import {
   createModelProviderPolicySchema,
   createModelEvaluationDatasetSchema,
   createModelCanaryRunSchema,
+  createAuditRedactionSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -162,6 +163,8 @@ import {
   assertPolicyApplicability,
   confirmationBlockers,
   legalGateBlockers,
+  type AuditEvent,
+  type AuditRedaction,
   type CalculationRun,
   type CycleReadinessReport,
   type OperationsCoverageReport,
@@ -454,6 +457,26 @@ async function assertRecalculationTarget(
   }
 }
 
+/** Apply tenant redaction overlays without changing the hash-chained event. */
+export function applyAuditRedactions(
+  events: AuditEvent[],
+  redactions: AuditRedaction[],
+): AuditEvent[] {
+  const byEvent = new Map(
+    redactions.map((redaction) => [redaction.auditEventId, redaction]),
+  );
+  return events.map((event) => {
+    const redaction = byEvent.get(event.id);
+    if (!redaction) return event;
+    return {
+      ...event,
+      reason: redaction.replacement,
+      redacted: true,
+      redactionId: redaction.id,
+    };
+  });
+}
+
 /** Remove sensitive payroll fields for viewers without a finance/admin role. */
 export function redactPayrollBankAccounts(
   run: PayrollRun,
@@ -662,6 +685,16 @@ export function buildApp(
         `MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED: ${provider}`,
       );
     }
+  }
+
+  async function auditEventsForViewer(
+    request: FastifyRequest,
+    events: AuditEvent[],
+  ): Promise<AuditEvent[]> {
+    const redactions = await platformStore.listAuditRedactions(
+      tenantOf(request),
+    );
+    return applyAuditRedactions(events, redactions);
   }
 
   function exportHeaders(
@@ -7122,8 +7155,11 @@ export function buildApp(
     const dataQualityIssues = allDataQualityIssues.filter((issue) =>
       knownTargetIds.has(issue.objectId),
     );
-    const auditEvents = allAuditEvents.filter(
-      (event) => event.objectId && knownIds.has(event.objectId),
+    const auditEvents = await auditEventsForViewer(
+      request,
+      allAuditEvents.filter(
+        (event) => event.objectId && knownIds.has(event.objectId),
+      ),
     );
     const [auditChainValid, ledgerValid] = await Promise.all([
       store.verifyAuditChain(),
@@ -7175,12 +7211,41 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/audit-events/:id/redactions", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createAuditRedactionSchema, request.body);
+    const redaction = await platformStore.createAuditRedaction({
+      tenantId: tenantOf(request),
+      auditEventId: idOf(request),
+      replacement: body.replacement ?? "[REDACTED]",
+      reason: body.reason,
+      requestedBy: body.requestedBy,
+      approvedBy: body.approvedBy,
+    });
+    countEvent("audit_redaction_created");
+    return reply.status(201).send(data(redaction, request));
+  });
+
+  app.get("/api/v1/audit-redactions", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.listAuditRedactions(tenantOf(request)),
+      request,
+    );
+  });
+
   app.get("/api/v1/audit-events", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { limit?: string };
     const parsed = Number(query.limit ?? 100);
     const limit = Number.isFinite(parsed) ? parsed : 100;
-    return data(await storeFor(request).listAuditEvents(limit), request);
+    return data(
+      await auditEventsForViewer(
+        request,
+        await storeFor(request).listAuditEvents(limit),
+      ),
+      request,
+    );
   });
 
   app.get("/api/v1/audit-events/anchor", async (request) => {

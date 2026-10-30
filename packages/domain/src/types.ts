@@ -350,6 +350,17 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface AuditRedaction {
+  id: UUID;
+  tenantId: UUID;
+  auditEventId: UUID;
+  replacement: string;
+  reason: string;
+  requestedBy: UUID;
+  approvedBy: UUID;
+  createdAt: string;
+}
+
 export interface ModelCanaryRun {
   id: UUID;
   tenantId: UUID;
@@ -2005,6 +2016,8 @@ export interface AuditEvent {
   occurredAt: string;
   prevHash: string;
   eventHash: string;
+  redacted?: boolean;
+  redactionId?: UUID;
 }
 
 export interface DataQualityIssue {

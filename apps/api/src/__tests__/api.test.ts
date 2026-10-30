@@ -1,13 +1,21 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { AuthError, type Authenticator } from "@anari/auth";
-import type { PayrollRun } from "@anari/domain";
+import type {
+  AuditEvent,
+  AuditRedaction,
+  PayrollRun,
+} from "@anari/domain";
 import { computeWebhookSignature } from "@anari/connectors";
 import {
   computeFeishuSignature,
   computeHubSpotV3Signature,
 } from "@anari/connectors";
-import { buildApp, redactPayrollBankAccounts } from "../app.js";
+import {
+  applyAuditRedactions,
+  buildApp,
+  redactPayrollBankAccounts,
+} from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
@@ -6976,6 +6984,51 @@ describe("vertical slice", () => {
       `/api/v1/model-provider-policies/${policy.body.data.id}/retire`,
     );
     expect(retired.body.data.status).toBe("RETIRED");
+  });
+
+  it("records two-person audit redactions and applies the overlay", async () => {
+    const eventId = "00000000-0000-4000-8000-0000000000ee";
+    const selfRedaction = await call(
+      "POST",
+      `/api/v1/audit-events/${eventId}/redactions`,
+      {
+        reason: "Self approval attempt",
+        requestedBy: OWNER,
+        approvedBy: OWNER,
+      },
+    );
+    expect(selfRedaction.status).toBe(400);
+    const redaction = await call(
+      "POST",
+      `/api/v1/audit-events/${eventId}/redactions`,
+      {
+        reason: "Reason contained unrelated personal data",
+        requestedBy: OWNER,
+        approvedBy: MEMBER,
+      },
+    );
+    expect(redaction.status).toBe(201);
+    expect(redaction.body.data.replacement).toBe("[REDACTED]");
+    const list = await call("GET", "/api/v1/audit-redactions");
+    expect(list.body.data).toHaveLength(1);
+
+    const event = {
+      id: eventId,
+      sequence: 1,
+      reason: "sensitive original reason",
+      eventHash: "sha256:original-event-hash",
+    } as unknown as AuditEvent;
+    const redactions = [
+      {
+        id: redaction.body.data.id,
+        auditEventId: eventId,
+        replacement: "[REDACTED]",
+      },
+    ] as unknown as AuditRedaction[];
+    const [redacted] = applyAuditRedactions([event], redactions);
+    expect(redacted?.reason).toBe("[REDACTED]");
+    expect(redacted?.redacted).toBe(true);
+    expect(redacted?.eventHash).toBe("sha256:original-event-hash");
   });
 
   it("returns an audit anchor manifest for external timestamping", async () => {

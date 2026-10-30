@@ -85,6 +85,7 @@ export function SettingsPage() {
   const providerPolicies = useApiQuery<ModelProviderPolicy[]>(
     "/api/v1/model-provider-policies",
   );
+  const redactions = useApiQuery<AuditRedaction[]>("/api/v1/audit-redactions");
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -248,6 +249,15 @@ export function SettingsPage() {
   const [policyRegion, setPolicyRegion] = useState("cn-shanghai");
   const [policyEgress, setPolicyEgress] = useState("api.anthropic.com");
   const [policyApprover, setPolicyApprover] = useState(session.personId);
+  const [redactionOpen, setRedactionOpen] = useState(false);
+  const [redactionSaving, setRedactionSaving] = useState(false);
+  const [redactionError, setRedactionError] = useState<string | null>(null);
+  const [redactionEventId, setRedactionEventId] = useState("");
+  const [redactionReason, setRedactionReason] = useState("");
+  const [redactionRequester, setRedactionRequester] = useState(
+    session.personId,
+  );
+  const [redactionApprover, setRedactionApprover] = useState("");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -495,6 +505,42 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openRedactionForm() {
+    setRedactionEventId("");
+    setRedactionReason("");
+    setRedactionRequester(session.personId);
+    setRedactionApprover("");
+    setRedactionError(null);
+    setRedactionOpen(true);
+  }
+
+  async function saveRedaction(event: FormEvent) {
+    event.preventDefault();
+    setRedactionSaving(true);
+    setRedactionError(null);
+    try {
+      await api(`/api/v1/audit-events/${redactionEventId.trim()}/redactions`, {
+        method: "POST",
+        body: {
+          reason: redactionReason.trim(),
+          requestedBy: redactionRequester,
+          approvedBy: redactionApprover,
+        },
+      });
+      toast.success("Audit redaction recorded");
+      setRedactionOpen(false);
+      redactions.reload();
+    } catch (error) {
+      setRedactionError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the redaction.",
+      );
+    } finally {
+      setRedactionSaving(false);
     }
   }
 
@@ -3607,6 +3653,129 @@ export function SettingsPage() {
             />
             <span>Provider contract confirms zero retention.</span>
           </label>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Audit redactions"
+        subtitle="Two-person overlay for sensitive free-text reasons; hash chain stays intact"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openRedactionForm}
+          >
+            Redact event
+          </Button>
+        }
+        flush
+      >
+        {redactions.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={redactions.error} onRetry={redactions.reload} />
+          </div>
+        ) : redactions.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (redactions.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="lock"
+            title="No audit redaction"
+            description="Only redact free-text reasons when they contain unrelated personal or sensitive data; the original event hash remains unchanged."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Audit event</th>
+                  <th>Replacement</th>
+                  <th>Reason</th>
+                  <th>Requested / approved</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {redactions.data?.map((redaction) => (
+                  <tr key={redaction.id}>
+                    <td className="mono">
+                      {shortId(redaction.auditEventId, 12)}
+                    </td>
+                    <td className="mono">{redaction.replacement}</td>
+                    <td>{redaction.reason}</td>
+                    <td className="mono">
+                      {shortId(redaction.requestedBy, 8)} /{" "}
+                      {shortId(redaction.approvedBy, 8)}
+                    </td>
+                    <td className="nowrap">
+                      {formatDateTime(redaction.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={redactionOpen}
+        title="Redact audit reason"
+        description="Two different people must request and approve the redaction."
+        onClose={() => setRedactionOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRedactionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="redaction-form"
+              loading={redactionSaving}
+            >
+              Redact
+            </Button>
+          </>
+        }
+      >
+        <form id="redaction-form" className="stack" onSubmit={saveRedaction}>
+          {redactionError ? (
+            <InfoNotice tone="warning">{redactionError}</InfoNotice>
+          ) : null}
+          <FormField label="Audit event id" htmlFor="redaction-event">
+            <TextInput
+              id="redaction-event"
+              value={redactionEventId}
+              onChange={(event) => setRedactionEventId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Reason" htmlFor="redaction-reason">
+            <TextInput
+              id="redaction-reason"
+              value={redactionReason}
+              onChange={(event) => setRedactionReason(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Requested by" htmlFor="redaction-requester">
+            <PersonSelect
+              id="redaction-requester"
+              value={redactionRequester}
+              onChange={setRedactionRequester}
+            />
+          </FormField>
+          <FormField label="Approved by" htmlFor="redaction-approver">
+            <PersonSelect
+              id="redaction-approver"
+              value={redactionApprover}
+              onChange={setRedactionApprover}
+            />
+          </FormField>
         </form>
       </Modal>
 

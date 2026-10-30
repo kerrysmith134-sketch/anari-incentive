@@ -92,6 +92,26 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createAuditRedactionSchema = z
+  .object({
+    reason: z.string().min(5),
+    replacement: z.string().min(1).default("[REDACTED]"),
+    requestedBy: uuidSchema,
+    approvedBy: uuidSchema,
+  })
+  .superRefine((value, context) => {
+    if (value.requestedBy === value.approvedBy) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["approvedBy"],
+        message: "redaction requires two different people",
+      });
+    }
+  });
+export type CreateAuditRedactionBody = z.infer<
+  typeof createAuditRedactionSchema
+>;
+
 export const createModelCanaryRunSchema = z.object({
   baselineEvaluationRunId: uuidSchema,
   candidateEvaluationRunId: uuidSchema,

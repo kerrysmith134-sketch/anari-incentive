@@ -10,6 +10,7 @@ import type {
   ApprovalRequest,
   ApprovalRiskTier,
   ApprovalStatus,
+  AuditRedaction,
   BudgetAllocation,
   BudgetPool,
   Bounty,
@@ -484,6 +485,15 @@ export interface PlatformStore {
     metrics: Record<string, unknown>;
   }): Promise<ModelCanaryRun>;
   listModelCanaryRuns(tenantId: string): Promise<ModelCanaryRun[]>;
+  createAuditRedaction(input: {
+    tenantId: string;
+    auditEventId: string;
+    replacement: string;
+    reason: string;
+    requestedBy: string;
+    approvedBy: string;
+  }): Promise<AuditRedaction>;
+  listAuditRedactions(tenantId: string): Promise<AuditRedaction[]>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1385,6 +1395,7 @@ export class MemoryPlatformStore implements PlatformStore {
     ModelEvaluationDataset
   >();
   private readonly modelCanaryRuns = new Map<string, ModelCanaryRun>();
+  private readonly auditRedactions = new Map<string, AuditRedaction>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -3298,6 +3309,56 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
     return [...this.modelCanaryRuns.values()]
       .filter((canary) => canary.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createAuditRedaction(input: {
+    tenantId: string;
+    auditEventId: string;
+    replacement: string;
+    reason: string;
+    requestedBy: string;
+    approvedBy: string;
+  }): Promise<AuditRedaction> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    for (const personId of [input.requestedBy, input.approvedBy]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    if (input.requestedBy === input.approvedBy) {
+      throw new ConflictError(
+        "AUDIT_REDACTION_SECOND_PERSON_REQUIRED",
+      );
+    }
+    if (
+      [...this.auditRedactions.values()].some(
+        (redaction) =>
+          redaction.tenantId === input.tenantId &&
+          redaction.auditEventId === input.auditEventId,
+      )
+    ) {
+      throw new ConflictError("AUDIT_REDACTION_ALREADY_EXISTS");
+    }
+    const redaction: AuditRedaction = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      auditEventId: input.auditEventId,
+      replacement: input.replacement,
+      reason: input.reason,
+      requestedBy: input.requestedBy,
+      approvedBy: input.approvedBy,
+      createdAt: now(),
+    };
+    this.auditRedactions.set(redaction.id, redaction);
+    return redaction;
+  }
+
+  async listAuditRedactions(tenantId: string): Promise<AuditRedaction[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.auditRedactions.values()]
+      .filter((redaction) => redaction.tenantId === tenantId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -8992,6 +9053,62 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapModelCanaryRun(row));
   }
 
+  async createAuditRedaction(input: {
+    tenantId: string;
+    auditEventId: string;
+    replacement: string;
+    reason: string;
+    requestedBy: string;
+    approvedBy: string;
+  }): Promise<AuditRedaction> {
+    if (input.requestedBy === input.approvedBy) {
+      throw new ConflictError(
+        "AUDIT_REDACTION_SECOND_PERSON_REQUIRED",
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO audit_redactions
+          (id, tenant_id, audit_event_id, replacement, reason,
+           requested_by, approved_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.auditEventId,
+          input.replacement,
+          input.reason,
+          input.requestedBy,
+          input.approvedBy,
+        ],
+      );
+      return this.mapAuditRedaction(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError("AUDIT_REDACTION_ALREADY_EXISTS");
+      }
+      if (code === "23503") {
+        throw new NotFoundError(
+          `Audit event or redaction person not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listAuditRedactions(tenantId: string): Promise<AuditRedaction[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM audit_redactions
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapAuditRedaction(row));
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -13415,6 +13532,19 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapAuditRedaction(row: QueryResultRow): AuditRedaction {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      auditEventId: row.audit_event_id,
+      replacement: row.replacement,
+      reason: row.reason,
+      requestedBy: row.requested_by,
+      approvedBy: row.approved_by,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

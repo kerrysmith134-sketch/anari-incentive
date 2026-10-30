@@ -3502,6 +3502,51 @@ describePg("PgStore vertical slice", () => {
     ).toContain(canary.id);
   });
 
+  it("persists two-person audit redactions against a real event", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const workPackage = await store.createWorkPackage({
+      title: "Redaction audit target",
+      objective: "Generate an audit event",
+      ownerPersonId: OWNER,
+      members: [
+        {
+          personId: OWNER,
+          responsibilityCode: "OWNER",
+          expectedOutput: "Package",
+        },
+      ],
+      acceptanceCriteria: ["Accepted"],
+    });
+    expect(workPackage.id).toBeTruthy();
+    const events = await store.listAuditEvents(20);
+    const event = events[0];
+    expect(event).toBeTruthy();
+    const redaction = await platform.createAuditRedaction({
+      tenantId: DEMO_TENANT_ID,
+      auditEventId: event!.id,
+      replacement: "[REDACTED]",
+      reason: "Reason contained unrelated personal data",
+      requestedBy: OWNER,
+      approvedBy: MEMBER,
+    });
+    expect(redaction.auditEventId).toBe(event!.id);
+    await expect(
+      platform.createAuditRedaction({
+        tenantId: DEMO_TENANT_ID,
+        auditEventId: event!.id,
+        replacement: "[REDACTED]",
+        reason: "Duplicate",
+        requestedBy: OWNER,
+        approvedBy: MEMBER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      (await platform.listAuditRedactions(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(redaction.id);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

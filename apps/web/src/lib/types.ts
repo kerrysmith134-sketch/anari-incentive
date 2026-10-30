@@ -560,6 +560,16 @@ export interface PolicyReviewReport {
   subgroupImpact: { available: boolean; note: string };
 }
 
+export interface AuditRedaction {
+  id: Uuid;
+  auditEventId: Uuid;
+  replacement: string;
+  reason: string;
+  requestedBy: Uuid;
+  approvedBy: Uuid;
+  createdAt: string;
+}
+
 export interface AuditEvent {
   id: Uuid;
   sequence: number;

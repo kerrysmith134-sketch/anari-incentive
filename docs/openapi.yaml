@@ -5791,6 +5791,56 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/audit-events/{id}/redactions:
+    post:
+      tags: [Audit]
+      summary: Redact an audit event's free-text reason
+      description: |
+        Creates a two-person overlay; the hash-chained event is not modified.
+        Reads of audit events and evidence packages apply the replacement and
+        mark the event as redacted.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAuditRedaction"
+      responses:
+        "201":
+          description: Redaction recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/audit-redactions:
+    get:
+      tags: [Audit]
+      summary: List audit redactions
+      responses:
+        "200":
+          description: Redactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/audit-events/anchor:
     get:
       tags: [Audit]
@@ -7825,6 +7875,21 @@ components:
           type: array
           items:
             type: string
+
+    CreateAuditRedaction:
+      type: object
+      required: [reason, requestedBy, approvedBy]
+      properties:
+        reason:
+          type: string
+          minLength: 5
+        replacement:
+          type: string
+          default: "[REDACTED]"
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateModelCanaryRun:
       type: object
