@@ -36,6 +36,7 @@ import type {
   ModelCanaryRun,
   ModelEvaluationDataset,
   ModelEvaluationRun,
+  ModelRedTeamRun,
   ModelPrompt,
 } from "../lib/types.js";
 
@@ -61,6 +62,9 @@ export function AiPage() {
   );
   const canaries = useApiQuery<ModelCanaryRun[]>(
     "/api/v1/model-canary-runs",
+  );
+  const redTeam = useApiQuery<ModelRedTeamRun[]>(
+    "/api/v1/model-red-team-runs",
   );
   const reviewMetrics = useApiQuery<AiReviewMetrics>(
     "/api/v1/ai-review-metrics",
@@ -114,6 +118,20 @@ export function AiPage() {
     useState("DOUBLE_ANNOTATION");
   const [datasetOwner, setDatasetOwner] = useState(session.personId);
   const [datasetRefreshDue, setDatasetRefreshDue] = useState("");
+  const [redTeamOpen, setRedTeamOpen] = useState(false);
+  const [redTeamSaving, setRedTeamSaving] = useState(false);
+  const [redTeamError, setRedTeamError] = useState<string | null>(null);
+  const [redTeamProvider, setRedTeamProvider] = useState("anthropic");
+  const [redTeamModel, setRedTeamModel] = useState("claude");
+  const [redTeamVersion, setRedTeamVersion] = useState("v1");
+  const [redTeamScope, setRedTeamScope] = useState(
+    "Prompt injection and data exfiltration",
+  );
+  const [redTeamTests, setRedTeamTests] = useState("10");
+  const [redTeamPassed, setRedTeamPassed] = useState(true);
+  const [redTeamFindings, setRedTeamFindings] = useState("");
+  const [redTeamArtifact, setRedTeamArtifact] = useState("");
+  const [redTeamCreator, setRedTeamCreator] = useState(session.personId);
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
@@ -133,6 +151,56 @@ export function AiPage() {
       ? pending.reduce((total, proposal) => total + proposal.confidence, 0) /
         pending.length
       : 0;
+
+  function openRedTeamForm() {
+    setRedTeamProvider("anthropic");
+    setRedTeamModel("claude");
+    setRedTeamVersion("v1");
+    setRedTeamScope("Prompt injection and data exfiltration");
+    setRedTeamTests("10");
+    setRedTeamPassed(true);
+    setRedTeamFindings("");
+    setRedTeamArtifact("");
+    setRedTeamCreator(session.personId);
+    setRedTeamError(null);
+    setRedTeamOpen(true);
+  }
+
+  async function saveRedTeam(event: FormEvent) {
+    event.preventDefault();
+    setRedTeamSaving(true);
+    setRedTeamError(null);
+    try {
+      await api("/api/v1/model-red-team-runs", {
+        method: "POST",
+        body: {
+          modelProvider: redTeamProvider.trim(),
+          modelName: redTeamModel.trim(),
+          promptVersion: redTeamVersion.trim(),
+          scope: redTeamScope.trim(),
+          testsRun: Number(redTeamTests),
+          passed: redTeamPassed,
+          findings: redTeamFindings
+            .split("\n")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          artifactRef: redTeamArtifact.trim() || undefined,
+          createdBy: redTeamCreator,
+        },
+      });
+      toast.success("Red-team run recorded");
+      setRedTeamOpen(false);
+      redTeam.reload();
+    } catch (error) {
+      setRedTeamError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the red-team run.",
+      );
+    } finally {
+      setRedTeamSaving(false);
+    }
+  }
 
   function openDatasetForm() {
     setDatasetCode("");
@@ -527,6 +595,11 @@ export function AiPage() {
             id: "canary",
             label: "Canary",
             count: canaries.data?.length ?? 0,
+          },
+          {
+            id: "redteam",
+            label: "Red team",
+            count: redTeam.data?.length ?? 0,
           },
         ]}
         active={tab}
@@ -1059,7 +1132,187 @@ export function AiPage() {
             )}
           </Panel>
         ) : null}
+        {tab === "redteam" ? (
+          <Panel
+            title="Red-team runs"
+            subtitle="Adversarial evidence required before prompt activation when the tenant enables it"
+            action={
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="plus"
+                onClick={openRedTeamForm}
+              >
+                Record run
+              </Button>
+            }
+            flush
+          >
+            {redTeam.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={redTeam.error} onRetry={redTeam.reload} />
+              </div>
+            ) : redTeam.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : (redTeam.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon="shield"
+                title="No red-team run"
+                description="Record prompt-injection and exfiltration testing before activating a prompt when enforcement is enabled."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Version</th>
+                      <th>Scope</th>
+                      <th className="cell-num">Tests</th>
+                      <th>Result</th>
+                      <th>Findings</th>
+                      <th>Artifact</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {redTeam.data?.map((run) => (
+                      <tr key={run.id}>
+                        <td>
+                          {run.modelName}
+                          <span className="cell-sub">{run.modelProvider}</span>
+                        </td>
+                        <td className="mono">{run.promptVersion}</td>
+                        <td>{run.scope}</td>
+                        <td className="cell-num">{run.testsRun}</td>
+                        <td>
+                          <Badge tone={run.passed ? "success" : "danger"}>
+                            {run.passed ? "Passed" : "Findings"}
+                          </Badge>
+                        </td>
+                        <td>
+                          {run.findings.length === 0
+                            ? "—"
+                            : run.findings.join("; ")}
+                        </td>
+                        <td className="mono">
+                          {run.artifactRef ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : null}
       </div>
+
+      <Modal
+        open={redTeamOpen}
+        title="Record red-team run"
+        description="A failed run must list its findings."
+        onClose={() => setRedTeamOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRedTeamOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="red-team-form"
+              loading={redTeamSaving}
+            >
+              Record run
+            </Button>
+          </>
+        }
+      >
+        <form id="red-team-form" className="stack" onSubmit={saveRedTeam}>
+          {redTeamError ? (
+            <InfoNotice tone="warning">{redTeamError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Provider" htmlFor="red-team-provider">
+              <TextInput
+                id="red-team-provider"
+                value={redTeamProvider}
+                onChange={(event) => setRedTeamProvider(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Model" htmlFor="red-team-model">
+              <TextInput
+                id="red-team-model"
+                value={redTeamModel}
+                onChange={(event) => setRedTeamModel(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Prompt version" htmlFor="red-team-version">
+              <TextInput
+                id="red-team-version"
+                value={redTeamVersion}
+                onChange={(event) => setRedTeamVersion(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Tests run" htmlFor="red-team-tests">
+              <TextInput
+                id="red-team-tests"
+                type="number"
+                min={1}
+                value={redTeamTests}
+                onChange={(event) => setRedTeamTests(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Created by" htmlFor="red-team-creator">
+              <PersonSelect
+                id="red-team-creator"
+                value={redTeamCreator}
+                onChange={setRedTeamCreator}
+              />
+            </FormField>
+            <FormField label="Artifact reference" htmlFor="red-team-artifact">
+              <TextInput
+                id="red-team-artifact"
+                value={redTeamArtifact}
+                onChange={(event) => setRedTeamArtifact(event.target.value)}
+              />
+            </FormField>
+          </div>
+          <FormField label="Scope" htmlFor="red-team-scope">
+            <TextInput
+              id="red-team-scope"
+              value={redTeamScope}
+              onChange={(event) => setRedTeamScope(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={redTeamPassed}
+              onChange={(event) => setRedTeamPassed(event.target.checked)}
+            />
+            <span>The red-team run passed without unresolved findings.</span>
+          </label>
+          <FormField
+            label="Findings (one per line)"
+            htmlFor="red-team-findings"
+          >
+            <Textarea
+              id="red-team-findings"
+              value={redTeamFindings}
+              onChange={(event) => setRedTeamFindings(event.target.value)}
+            />
+          </FormField>
+        </form>
+      </Modal>
 
       <Modal
         open={datasetOpen}

@@ -3547,6 +3547,51 @@ describePg("PgStore vertical slice", () => {
     ).toContain(redaction.id);
   });
 
+  it("persists red-team runs and finds passed evidence", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const run = await platform.createModelRedTeamRun({
+      tenantId: DEMO_TENANT_ID,
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: `pg-v-${Date.now()}`,
+      scope: "Prompt injection and exfiltration",
+      testsRun: 12,
+      passed: true,
+      findings: [],
+      artifactRef: "pg-red-team-report",
+      createdBy: OWNER,
+    });
+    expect(run.passed).toBe(true);
+    expect(
+      (
+        await platform.findPassedModelRedTeamRun(
+          DEMO_TENANT_ID,
+          "anthropic",
+          "claude",
+          run.promptVersion,
+        )
+      )?.id,
+    ).toBe(run.id);
+    expect(
+      (await platform.listModelRedTeamRuns(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(run.id);
+    await expect(
+      platform.createModelRedTeamRun({
+        tenantId: DEMO_TENANT_ID,
+        modelProvider: "anthropic",
+        modelName: "claude",
+        promptVersion: "pg-failed",
+        scope: "Failure without findings",
+        testsRun: 1,
+        passed: false,
+        findings: [],
+        createdBy: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

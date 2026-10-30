@@ -361,6 +361,21 @@ export interface AuditRedaction {
   createdAt: string;
 }
 
+export interface ModelRedTeamRun {
+  id: UUID;
+  tenantId: UUID;
+  modelProvider: string;
+  modelName: string;
+  promptVersion: string;
+  scope: string;
+  testsRun: number;
+  passed: boolean;
+  findings: string[];
+  artifactRef?: string;
+  createdBy: UUID;
+  createdAt: string;
+}
+
 export interface ModelCanaryRun {
   id: UUID;
   tenantId: UUID;

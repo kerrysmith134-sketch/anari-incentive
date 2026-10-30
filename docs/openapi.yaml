@@ -996,6 +996,46 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/model-red-team-runs:
+    get:
+      tags: [Agent]
+      summary: List model red-team runs
+      responses:
+        "200":
+          description: Red-team runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Agent]
+      summary: Record a red-team run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelRedTeamRun"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/model-canary-runs:
     get:
       tags: [Agent]
@@ -7875,6 +7915,34 @@ components:
           type: array
           items:
             type: string
+
+    CreateModelRedTeamRun:
+      type: object
+      required:
+        [modelProvider, modelName, promptVersion, scope, testsRun, passed, createdBy]
+      properties:
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        promptVersion:
+          type: string
+        scope:
+          type: string
+          minLength: 3
+        testsRun:
+          type: integer
+          minimum: 1
+        passed:
+          type: boolean
+        findings:
+          type: array
+          items:
+            type: string
+        artifactRef:
+          type: string
+        createdBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateAuditRedaction:
       type: object

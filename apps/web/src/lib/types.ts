@@ -619,6 +619,20 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface ModelRedTeamRun {
+  id: Uuid;
+  modelProvider: string;
+  modelName: string;
+  promptVersion: string;
+  scope: string;
+  testsRun: number;
+  passed: boolean;
+  findings: string[];
+  artifactRef?: string;
+  createdBy: Uuid;
+  createdAt: string;
+}
+
 export interface ModelCanaryRun {
   id: Uuid;
   baselineEvaluationRunId: Uuid;

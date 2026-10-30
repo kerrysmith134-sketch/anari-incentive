@@ -47,6 +47,7 @@ import type {
   ModelCanaryRun,
   ModelEvaluationDataset,
   ModelEvaluationRun,
+  ModelRedTeamRun,
   ModelPrompt,
   ModelProviderPolicy,
   NoticeAcknowledgementOverview,
@@ -494,6 +495,25 @@ export interface PlatformStore {
     approvedBy: string;
   }): Promise<AuditRedaction>;
   listAuditRedactions(tenantId: string): Promise<AuditRedaction[]>;
+  createModelRedTeamRun(input: {
+    tenantId: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    scope: string;
+    testsRun: number;
+    passed: boolean;
+    findings: string[];
+    artifactRef?: string;
+    createdBy: string;
+  }): Promise<ModelRedTeamRun>;
+  listModelRedTeamRuns(tenantId: string): Promise<ModelRedTeamRun[]>;
+  findPassedModelRedTeamRun(
+    tenantId: string,
+    modelProvider: string,
+    modelName: string,
+    promptVersion: string,
+  ): Promise<ModelRedTeamRun | undefined>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1396,6 +1416,7 @@ export class MemoryPlatformStore implements PlatformStore {
   >();
   private readonly modelCanaryRuns = new Map<string, ModelCanaryRun>();
   private readonly auditRedactions = new Map<string, AuditRedaction>();
+  private readonly modelRedTeamRuns = new Map<string, ModelRedTeamRun>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -3360,6 +3381,69 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.auditRedactions.values()]
       .filter((redaction) => redaction.tenantId === tenantId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createModelRedTeamRun(input: {
+    tenantId: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    scope: string;
+    testsRun: number;
+    passed: boolean;
+    findings: string[];
+    artifactRef?: string;
+    createdBy: string;
+  }): Promise<ModelRedTeamRun> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const creator = this.persons.get(input.createdBy);
+    if (!creator || creator.tenantId !== input.tenantId) {
+      notFound("Person", input.createdBy);
+    }
+    if (!input.passed && input.findings.length === 0) {
+      throw new ConflictError(
+        "RED_TEAM_FINDINGS_REQUIRED: a failed run must list findings",
+      );
+    }
+    const run: ModelRedTeamRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      scope: input.scope,
+      testsRun: input.testsRun,
+      passed: input.passed,
+      findings: [...input.findings],
+      artifactRef: input.artifactRef,
+      createdBy: input.createdBy,
+      createdAt: now(),
+    };
+    this.modelRedTeamRuns.set(run.id, run);
+    return run;
+  }
+
+  async listModelRedTeamRuns(tenantId: string): Promise<ModelRedTeamRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.modelRedTeamRuns.values()]
+      .filter((run) => run.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async findPassedModelRedTeamRun(
+    tenantId: string,
+    modelProvider: string,
+    modelName: string,
+    promptVersion: string,
+  ): Promise<ModelRedTeamRun | undefined> {
+    return [...this.modelRedTeamRuns.values()].find(
+      (run) =>
+        run.tenantId === tenantId &&
+        run.modelProvider === modelProvider &&
+        run.modelName === modelName &&
+        run.promptVersion === promptVersion &&
+        run.passed,
+    );
   }
 
   async createApprovalRequest(input: {
@@ -9109,6 +9193,85 @@ export class PgPlatformStore implements PlatformStore {
     return rows.map((row) => this.mapAuditRedaction(row));
   }
 
+  async createModelRedTeamRun(input: {
+    tenantId: string;
+    modelProvider: string;
+    modelName: string;
+    promptVersion: string;
+    scope: string;
+    testsRun: number;
+    passed: boolean;
+    findings: string[];
+    artifactRef?: string;
+    createdBy: string;
+  }): Promise<ModelRedTeamRun> {
+    if (!input.passed && input.findings.length === 0) {
+      throw new ConflictError(
+        "RED_TEAM_FINDINGS_REQUIRED: a failed run must list findings",
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO model_red_team_runs
+          (id, tenant_id, model_provider, model_name, prompt_version,
+           scope, tests_run, passed, findings, artifact_ref, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.modelProvider,
+          input.modelName,
+          input.promptVersion,
+          input.scope,
+          input.testsRun,
+          input.passed,
+          JSON.stringify(input.findings),
+          input.artifactRef ?? null,
+          input.createdBy,
+        ],
+      );
+      return this.mapModelRedTeamRun(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant ${input.tenantId} or creator ${input.createdBy} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listModelRedTeamRuns(
+    tenantId: string,
+  ): Promise<ModelRedTeamRun[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_red_team_runs
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapModelRedTeamRun(row));
+  }
+
+  async findPassedModelRedTeamRun(
+    tenantId: string,
+    modelProvider: string,
+    modelName: string,
+    promptVersion: string,
+  ): Promise<ModelRedTeamRun | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM model_red_team_runs
+        WHERE tenant_id=$1 AND model_provider=$2 AND model_name=$3
+          AND prompt_version=$4 AND passed=true
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [tenantId, modelProvider, modelName, promptVersion],
+    );
+    return rows[0] ? this.mapModelRedTeamRun(rows[0]) : undefined;
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -13532,6 +13695,23 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapModelRedTeamRun(row: QueryResultRow): ModelRedTeamRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      modelProvider: row.model_provider,
+      modelName: row.model_name,
+      promptVersion: row.prompt_version,
+      scope: row.scope,
+      testsRun: Number(row.tests_run),
+      passed: row.passed,
+      findings: (row.findings as string[] | null) ?? [],
+      artifactRef: row.artifact_ref ?? undefined,
+      createdBy: row.created_by,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

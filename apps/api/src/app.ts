@@ -40,6 +40,7 @@ import {
   createModelEvaluationDatasetSchema,
   createModelCanaryRunSchema,
   createAuditRedactionSchema,
+  createModelRedTeamRunSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -654,6 +655,31 @@ export function buildApp(
         `GOLD_SET_NOT_REGISTERED: ${datasetRef}`,
       );
     }
+  }
+
+  async function assertRedTeamEvidence(
+    request: FastifyRequest,
+    prompt: { modelProvider: string; modelName: string; version: number },
+  ): Promise<void> {
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    const required = Boolean(
+      (tenant.settings as { requireRedTeamRun?: unknown })
+        .requireRedTeamRun,
+    );
+    if (!required) return;
+    const versions = [`v${prompt.version}`, String(prompt.version)];
+    for (const version of versions) {
+      const run = await platformStore.findPassedModelRedTeamRun(
+        tenantOf(request),
+        prompt.modelProvider,
+        prompt.modelName,
+        version,
+      );
+      if (run) return;
+    }
+    throw new ConflictError(
+      `RED_TEAM_RUN_REQUIRED: no passed red-team run for ${prompt.modelProvider}/${prompt.modelName} v${prompt.version}`,
+    );
   }
 
   async function assertModelProviderPolicy(
@@ -3681,6 +3707,36 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/model-red-team-runs", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createModelRedTeamRunSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createModelRedTeamRun({
+          tenantId: tenantOf(request),
+          modelProvider: body.modelProvider,
+          modelName: body.modelName,
+          promptVersion: body.promptVersion,
+          scope: body.scope,
+          testsRun: body.testsRun,
+          passed: body.passed,
+          findings: body.findings ?? [],
+          artifactRef: body.artifactRef,
+          createdBy: body.createdBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/model-red-team-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listModelRedTeamRuns(tenantOf(request)),
+      request,
+    );
+  });
+
   app.post("/api/v1/trust-surveys", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createTrustSurveySchema, request.body);
@@ -5225,6 +5281,7 @@ export function buildApp(
       idOf(request),
     );
     await assertModelProviderPolicy(request, existingPrompt.modelProvider);
+    await assertRedTeamEvidence(request, existingPrompt);
     const prompt = await platformStore.activateModelPrompt({
       tenantId: tenantOf(request),
       promptId: idOf(request),

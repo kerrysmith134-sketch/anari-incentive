@@ -112,6 +112,31 @@ export type CreateAuditRedactionBody = z.infer<
   typeof createAuditRedactionSchema
 >;
 
+export const createModelRedTeamRunSchema = z
+  .object({
+    modelProvider: z.string().min(1),
+    modelName: z.string().min(1),
+    promptVersion: z.string().min(1),
+    scope: z.string().min(3),
+    testsRun: z.number().int().positive(),
+    passed: z.boolean(),
+    findings: z.array(z.string().min(1)).default([]),
+    artifactRef: z.string().min(1).optional(),
+    createdBy: uuidSchema,
+  })
+  .superRefine((value, context) => {
+    if (!value.passed && value.findings.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["findings"],
+        message: "a failed red-team run must list its findings",
+      });
+    }
+  });
+export type CreateModelRedTeamRunBody = z.infer<
+  typeof createModelRedTeamRunSchema
+>;
+
 export const createModelCanaryRunSchema = z.object({
   baselineEvaluationRunId: uuidSchema,
   candidateEvaluationRunId: uuidSchema,

@@ -6818,6 +6818,71 @@ describe("vertical slice", () => {
     expect(allowed.body.data.scores.COLLABORATION).toBe(0);
   });
 
+  it("requires a passed red-team run before prompt activation when enabled", async () => {
+    const prompt = await call("POST", "/api/v1/model-prompts", {
+      promptCode: "RED_TEAM_GATE",
+      version: 1,
+      purpose: "EVIDENCE_SUMMARY",
+      modelProvider: "anthropic",
+      modelName: "claude",
+      template: "Summarize evidence.",
+    });
+    const evaluation = await createHarnessEvaluation(
+      "IRR",
+      "claude",
+      true,
+      "red-team-set",
+    );
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { requireRedTeamRun: true },
+    );
+    const blocked = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: evaluation.body.data.id },
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain("RED_TEAM_RUN_REQUIRED");
+    const missingFindings = await call(
+      "POST",
+      "/api/v1/model-red-team-runs",
+      {
+        modelProvider: "anthropic",
+        modelName: "claude",
+        promptVersion: "v1",
+        scope: "Prompt injection and data exfiltration",
+        testsRun: 10,
+        passed: false,
+        findings: [],
+        createdBy: OWNER,
+      },
+    );
+    expect(missingFindings.status).toBe(400);
+    const run = await call("POST", "/api/v1/model-red-team-runs", {
+      modelProvider: "anthropic",
+      modelName: "claude",
+      promptVersion: "v1",
+      scope: "Prompt injection and data exfiltration",
+      testsRun: 10,
+      passed: true,
+      findings: [],
+      artifactRef: "red-team-report-1",
+      createdBy: OWNER,
+    });
+    expect(run.status).toBe(201);
+    const activated = await call(
+      "POST",
+      `/api/v1/model-prompts/${prompt.body.data.id}/activate`,
+      { evaluationRunId: evaluation.body.data.id },
+    );
+    expect(activated.status).toBe(200);
+    expect(activated.body.data.status).toBe("ACTIVE");
+    const list = await call("GET", "/api/v1/model-red-team-runs");
+    expect(list.body.data).toHaveLength(1);
+  });
+
   it("requires a registered gold set when evaluation enforcement is enabled", async () => {
     await call(
       "POST",

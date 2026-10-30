@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（258 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（59 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（259 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（60 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -101,7 +101,7 @@
 | AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；gold-set 注册与强制校验、canary/vendor-change 对比（kappa/subgroup gap/injection/stability 回归阻断）已实现；季度刷新仍只记录 due date，不自动重训/重标 |
 | AI-03 人工监督 | 🟡 | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、第二复核与一致率已有；本轮新增 `riskTier=HIGH/CRITICAL` 的决策前强制第二复核（独立评分，不一致则 409），audit sampling 与 pre-decision double review 都已落地；审阅耗时前端分析面板仍可继续增强 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
-| AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；本轮 provider policy 覆盖 egress allowlist、DPA、零留存、区域推理并在开启时强制校验；reader/actor 强制隔离与红队记录仍未实现 |
+| AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限、provider policy（egress/DPA/零留存/区域）已有；本轮新增 red-team run（失败必须列 finding），tenant 开启 `requireRedTeamRun` 时 prompt activation 强制通过证据；reader/actor 强制隔离仍未实现 |
 
 ### 6. 领域契约与金额路径
 
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **258 unit/API + 59 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **259 unit/API + 60 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -213,6 +213,8 @@
 37. **AI-02 canary/vendor regression**：新增 baseline vs candidate harness 对比，阻断 kappa/subgroup gap/prompt-injection/stability 回归；迁移 `051_model_canary_runs.sql`，AI 页面可查看。
 
 38. **SEC-06 audit redaction**：新增 audit reason 双人 redaction overlay，不改原 event hash，`GET /audit-events` 与证据包读取时应用替换；迁移 `052_audit_redactions.sql`，Settings 可维护；自动 retention deletion 仍未启用。
+
+39. **AI-05 red-team evidence**：新增 model red-team run（provider/model/prompt version/scope/tests/findings/artifact），失败必须列 findings；tenant 开启 `requireRedTeamRun` 时 prompt activation 强制校验；迁移 `053_model_red_team_runs.sql`，AI 页面可维护。
 
 ## 仍建议按 P0 顺序补做
 
