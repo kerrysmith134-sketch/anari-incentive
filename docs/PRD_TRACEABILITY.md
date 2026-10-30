@@ -6,20 +6,18 @@
 
 ## 结论
 
-**没有全部落地。** 仓库已经不是“只有骨架”：核心纵向切片、确定性金额路径、账本、审批、AI 评测门、治理对象、集成、HRIS/薪酬、SPA 都已可运行，并且金额路径的数据库级不变量大体齐全。
+**仍未宣称“全部 PRD 已落地”，但 P0 的核心闭环已经基本补齐。** 核心纵向切片、确定性金额路径、账本、审批、AI 评测门、法律门禁、员工确认/申诉、治理对象、HRIS/薪酬、集成、SPA 和大部分 P0 合规控制都已可运行，并有 API/PostgreSQL/前端构建验证。
 
-但对照 PRD 的 **P0 验收要求**，仍有几类实质性缺口：
+对照 PRD 的 **P0 验收要求**，剩余缺口已收敛为：
 
-1. **法律门禁只完成了“记录/阻断”主干，未完成可执行的范围、合同变更、扣款上限、不利决定和员工 AI 解释流程**（LG-02、LG-05、LG-06、LG-07、LG-09）。
-2. **证据/贡献运营化不足**：覆盖率的角色/订单维度本轮才补；员工/经理耗时、信任调查、同伴提名/经理证明、默认补证规则仍缺失（DATA-02/03/04、P0-04）。
-3. **AI 人工监督不完整**：已有评测门禁和 harness 接入，但没有“人先独立判断再看 AI”、审阅耗时、打开证据数、盲审/双人复核和橡皮图章指标（AI-03）。
-4. **激励护栏只完成了一部分**：最低工资、池上限、冲销/Recovery 已有；角色差异化结构、平滑阈值/不追溯、机动池治理、clawback 条件、年度制度审查缺失（INC-02/03/04/08/10/12）。
-5. **安全/隐私仍是 RBAC+行级隔离，不是字段级 ABAC**；没有 break-glass、导出 DLP/水印/审批、模型供应商零留存/区域配置、正式威胁模型（SEC-01/03/04/05/06）。
-6. **组织采用措施基本是产品外流程**：试点 volunteer、员工代表对规则的持续参与、无报复承诺、经理培训/校准会、信任调查均未产品化（ORG-01..05）。
-7. **领域契约不是单一生成源**：状态机和类型有单一 TS 来源，OpenAPI/DDL/Zod 还有人工漂移风险；当前只有路由覆盖和部分字段测试（DOM-01）。
-8. **审计链只有数据库 trigger + 哈希链**，没有 WORM/双副本/外部锚定；这是部署与运维要求，不是当前代码能证明的（MON-07）。
+1. **法律门禁的最后一公里**：LG-05 仍缺未来生效排期与外部电子签服务；LG-06 已有最低工资、扣款上限、deduction order/breakdown 与 tax/social 分列，但仍缺法定扣款类型/逐类型上限。
+2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、第二复核与 gold-set 注册；仍缺决策前高风险强制双人复核、canary/供应商变更回归，以及 AI-05 的 reader/actor 强制隔离与红队记录。
+3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；仍缺平滑阈值/跨周期分摊、角色差异化薪酬模板（INC-02）和“未计价工作不得默认为 0”的强制规则（INC-06）。
+4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；仍缺通用字段级 ABAC、内容级 DLP/批量导出限流、audit redaction、自动 retention deletion（后者仍明确不启用）。
+5. **运营度量与组织证据**：ORG-01..05 已产品化；仍缺员工/经理 cycle-time 指标、DATA-05 的字段级最小化技术证明、受保护属性 subgroup impact。
+6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
-> 结论口径：**不是“全部 PRD 已开发落地”**；是“P0 的第一个完整可运行骨架 + 大量 P1/延伸能力已实现，但 P0 的合规、AI 监督、运营指标和部分安全控制仍需继续”。
+> 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM 存储、供应商 DPA 证据和 subgroup 口径需要产品/法务/部署决策，不能只靠代码补齐。
 
 ## 逐项核对
 
@@ -45,7 +43,7 @@
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
 | P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ 有；员工/经理耗时、争议率、信任无完整测量 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
-| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁可测；耗时/信任/争议率目标不可由当前代码证明 |
+| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁、申诉统计、信任调查可测；员工/经理 cycle-time 与目标阈值仍不可由当前代码证明 |
 | P0-05 不承诺项 | ⚪ | 产品沟通，不在代码 |
 
 ### 2. 法律生效门禁
@@ -79,7 +77,7 @@
 | INC-10 Clawback | 🟡 | 冲销/Recovery 与 no-retroactive 阻断已有；本轮新增 clawback case：书面同意必填、1–12 期分期、hardship 理由、requester≠approver、waive/cancel；仍未自动生成 recovery batch 或强制最低工资逐期校验 |
 | INC-11 评价与发展/奖惩分离 | ✅ | EvaluationDecision、AttributionDecision、Ledger 分模型 |
 | INC-12 年度制度审查 | 🟡 | 新增 `GET /reports/policy-review` 与 console Annual review：滚动 12 个月的制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审、DQ、DSAR/DPIA、harness 证据；信任调查已接入年度报告（最近关闭期与 baseline）；子群体影响仍未采集，不能视为完整签收 |
-| INC-13 Policy Pack 契约 | 🟡 | `pack.json` 有 policy/fixtures；缺 roles、workPackageTemplates、evidenceRequirements、simulationData、seed 的契约与校验 |
+| INC-13 Policy Pack 契约 | ✅ | `policyPackManifestSchema` 覆盖 id/name/version/status/description/corePolicyCode/policy/fixtures/applicability/roles/workPackageTemplates/evidenceRequirements/simulationData/seed；三个 vertical pack 均通过 manifest 测试 |
 
 ### 4. 贡献认定
 
@@ -103,7 +101,7 @@
 | AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；本轮新增 gold-set 注册（code/version/sample/holdout/label source/owner/next refresh）与 `requireRegisteredGoldSet` 强制校验；canary 与供应商变更回归仍未实现 |
 | AI-03 人工监督 | 🟡 | 已强制先录独立分数/理由再揭示 AI，记录时长/证据打开/override 理由/盲审标记，并提供 >95% rubber-stamp 预警；本轮新增盲审抽样（所有 override 必抽 + 可配置随机比例）、第二复核人独立评分、AGREE/DISAGREE 与一致率指标；仍是决策后抽样，不是决策前强制双人复核 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
-| AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；无 reader/actor 隔离的强制实现、egress allowlist、供应商 DPA/零留存/区域推理配置、红队记录 |
+| AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限有；本轮 provider policy 覆盖 egress allowlist、DPA、零留存、区域推理并在开启时强制校验；reader/actor 强制隔离与红队记录仍未实现 |
 
 ### 6. 领域契约与金额路径
 
@@ -206,12 +204,13 @@
 
 ## 仍建议按 P0 顺序补做
 
-1. **future-dated consent/e-signature**：合同未来生效排期与外部电子签服务。
-2. **扣款与不利决定**：扣款类型/顺序与税费分类；PIP/培训/调岗/adverse action 独立人工流程。
-3. **AI-03 residual**：随机盲审抽样、高风险双人复核、审阅耗时/证据打开的前端分析面板。
-5. **DATA/ORG**：同伴提名/经理证明、员工/经理耗时。
-6. **SEC**：威胁模型、字段级 ABAC、break-glass、导出 DLP/水印、供应商与 egress 策略。
-7. **INC**：角色薪酬模板、平滑阈值/不追溯、机动池治理、clawback 条件；年度审查已有一致性报告，但员工信任调查和子群体影响仍缺。
-8. **DOM-01/MON-07**：字段级契约校验、WORM/双副本/外部锚定。
+1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
+2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
+3. **AI residual**：高风险决策前强制双人复核、canary/供应商变更回归、AI-05 reader/actor 隔离与红队记录。
+4. **DATA/ORG residual**：员工/经理 cycle-time、任务类型覆盖率趋势、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）。
+5. **SEC residual**：通用字段级 ABAC 引擎、内容级 DLP/批量导出限流、audit redaction；自动 retention deletion 仍明确不启用。
+6. **INC residual**：平滑阈值/跨周期分摊、INC-02 角色薪酬模板、INC-06 未计价工作强制规则。
+7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod，补齐字段级契约漂移测试。
+8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
-这些缺口里，有些是产品/法务决策（LG-05/07/08、INC-12 的调查口径、ORG），不能只靠代码“补完”；在当前代码基线上，**只能说核心 P0 闭环已可运行，不能宣称完整 P0 已落地**。
+这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。
