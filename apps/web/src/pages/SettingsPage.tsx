@@ -73,6 +73,9 @@ export function SettingsPage() {
     "/api/v1/calibration-sessions",
   );
   const pilots = useApiQuery<PilotEnrollment[]>("/api/v1/pilot-enrollments");
+  const grants = useApiQuery<BreakGlassGrant[]>(
+    "/api/v1/break-glass-grants",
+  );
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -191,6 +194,13 @@ export function SettingsPage() {
   const [pilotCode, setPilotCode] = useState("PILOT-2026");
   const [pilotScope, setPilotScope] = useState("");
   const [pilotConsent, setPilotConsent] = useState("");
+  const [grantOpen, setGrantOpen] = useState(false);
+  const [grantSaving, setGrantSaving] = useState(false);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  const [granteeId, setGranteeId] = useState(session.personId);
+  const [grantedById, setGrantedById] = useState(session.personId);
+  const [grantReason, setGrantReason] = useState("");
+  const [grantHours, setGrantHours] = useState("1");
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -438,6 +448,64 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openGrantForm() {
+    setGranteeId(session.personId);
+    setGrantedById(session.personId);
+    setGrantReason("");
+    setGrantHours("1");
+    setGrantError(null);
+    setGrantOpen(true);
+  }
+
+  async function saveGrant(event: FormEvent) {
+    event.preventDefault();
+    setGrantSaving(true);
+    setGrantError(null);
+    try {
+      await api("/api/v1/break-glass-grants", {
+        method: "POST",
+        body: {
+          scope: "PAYROLL_BANK_ACCOUNT",
+          granteePersonId: granteeId,
+          grantedBy: grantedById,
+          reason: grantReason.trim(),
+          expiresAt: new Date(
+            Date.now() + Number(grantHours) * 60 * 60 * 1000,
+          ).toISOString(),
+        },
+      });
+      toast.success("Break-glass grant created");
+      setGrantOpen(false);
+      grants.reload();
+    } catch (error) {
+      setGrantError(
+        error instanceof Error
+          ? error.message
+          : "Could not create the grant.",
+      );
+    } finally {
+      setGrantSaving(false);
+    }
+  }
+
+  async function revokeGrant(grant: BreakGlassGrant) {
+    setGrantSaving(true);
+    try {
+      await api(`/api/v1/break-glass-grants/${grant.id}/revoke`, {
+        method: "POST",
+      });
+      toast.success("Break-glass grant revoked");
+      grants.reload();
+    } catch (error) {
+      toast.error(
+        "Could not revoke grant",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setGrantSaving(false);
     }
   }
 
@@ -2533,6 +2601,140 @@ export function SettingsPage() {
               id="pilot-consent"
               value={pilotConsent}
               onChange={(event) => setPilotConsent(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Break-glass grants"
+        subtitle="Time-bound, reason-required access to sensitive payroll fields"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openGrantForm}
+          >
+            Grant access
+          </Button>
+        }
+        flush
+      >
+        {grants.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={grants.error} onRetry={grants.reload} />
+          </div>
+        ) : grants.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (grants.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="lock"
+            title="No break-glass grant"
+            description="Sensitive payroll fields stay redacted for non-finance viewers unless an admin grants time-bound access."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Grantee</th>
+                  <th>Scope</th>
+                  <th>Reason</th>
+                  <th>Expires</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {grants.data?.map((grant) => (
+                  <tr key={grant.id}>
+                    <td>{displayName(grant.granteePersonId, people)}</td>
+                    <td>{titleCase(grant.scope)}</td>
+                    <td>{grant.reason}</td>
+                    <td className="nowrap">{formatDateTime(grant.expiresAt)}</td>
+                    <td>
+                      <Badge status={grant.status} />
+                    </td>
+                    <td className="cell-actions">
+                      {grant.status === "ACTIVE" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void revokeGrant(grant)}
+                          loading={grantSaving}
+                        >
+                          Revoke
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={grantOpen}
+        title="Grant break-glass access"
+        description="Maximum 24 hours. The grantee cannot approve their own access."
+        onClose={() => setGrantOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setGrantOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="grant-form"
+              loading={grantSaving}
+            >
+              Grant
+            </Button>
+          </>
+        }
+      >
+        <form id="grant-form" className="stack" onSubmit={saveGrant}>
+          {grantError ? (
+            <InfoNotice tone="warning">{grantError}</InfoNotice>
+          ) : null}
+          <FormField label="Grantee" htmlFor="grant-grantee">
+            <PersonSelect
+              id="grant-grantee"
+              value={granteeId}
+              onChange={setGranteeId}
+            />
+          </FormField>
+          <FormField label="Granted by" htmlFor="grant-granted-by">
+            <PersonSelect
+              id="grant-granted-by"
+              value={grantedById}
+              onChange={setGrantedById}
+            />
+          </FormField>
+          <FormField label="Reason" htmlFor="grant-reason">
+            <TextInput
+              id="grant-reason"
+              value={grantReason}
+              onChange={(event) => setGrantReason(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Duration (hours, max 24)" htmlFor="grant-hours">
+            <TextInput
+              id="grant-hours"
+              type="number"
+              min={1}
+              max={24}
+              value={grantHours}
+              onChange={(event) => setGrantHours(event.target.value)}
               required
             />
           </FormField>

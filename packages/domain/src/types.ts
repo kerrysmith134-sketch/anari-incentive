@@ -350,6 +350,21 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export type BreakGlassScope = "PAYROLL_BANK_ACCOUNT";
+
+export interface BreakGlassGrant {
+  id: UUID;
+  tenantId: UUID;
+  scope: BreakGlassScope;
+  granteePersonId: UUID;
+  reason: string;
+  grantedBy: UUID;
+  expiresAt: string;
+  status: "ACTIVE" | "REVOKED";
+  revokedAt?: string;
+  createdAt: string;
+}
+
 export interface PilotEnrollment {
   id: UUID;
   tenantId: UUID;

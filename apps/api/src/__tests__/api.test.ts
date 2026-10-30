@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { AuthError, type Authenticator } from "@anari/auth";
+import type { PayrollRun } from "@anari/domain";
 import { computeWebhookSignature } from "@anari/connectors";
 import {
   computeFeishuSignature,
   computeHubSpotV3Signature,
 } from "@anari/connectors";
-import { buildApp } from "../app.js";
+import { buildApp, redactPayrollBankAccounts } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
@@ -6500,6 +6501,63 @@ describe("vertical slice", () => {
     expect(withNotice.body.data.blockers).toContain(
       `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE:${notice.body.data.id}`,
     );
+  });
+
+  it("grants time-bound break-glass access and redacts payroll bank fields", async () => {
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const selfGrant = await call("POST", "/api/v1/break-glass-grants", {
+      scope: "PAYROLL_BANK_ACCOUNT",
+      granteePersonId: OWNER,
+      grantedBy: OWNER,
+      reason: "Self approval attempt",
+      expiresAt,
+    });
+    expect(selfGrant.status).toBe(409);
+    const tooLong = await call("POST", "/api/v1/break-glass-grants", {
+      scope: "PAYROLL_BANK_ACCOUNT",
+      granteePersonId: MEMBER,
+      grantedBy: OWNER,
+      reason: "Too long",
+      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    });
+    expect(tooLong.status).toBe(409);
+    const grant = await call("POST", "/api/v1/break-glass-grants", {
+      scope: "PAYROLL_BANK_ACCOUNT",
+      granteePersonId: MEMBER,
+      grantedBy: OWNER,
+      reason: "Payroll reconciliation incident",
+      expiresAt,
+    });
+    expect(grant.status).toBe(201);
+    expect(grant.body.data.status).toBe("ACTIVE");
+    const list = await call("GET", "/api/v1/break-glass-grants");
+    expect(list.body.data).toHaveLength(1);
+    const revoked = await call(
+      "POST",
+      `/api/v1/break-glass-grants/${grant.body.data.id}/revoke`,
+    );
+    expect(revoked.body.data.status).toBe("REVOKED");
+
+    const run = {
+      id: "run-1",
+      lines: [
+        { personId: OWNER, bankAccountRef: "BANK-OWNER" },
+        { personId: MEMBER, bankAccountRef: "BANK-MEMBER" },
+      ],
+    } as unknown as PayrollRun;
+    const redacted = redactPayrollBankAccounts(run, {
+      personId: MEMBER,
+      canViewAll: false,
+      breakGlass: false,
+    });
+    expect(redacted.lines?.[0]?.bankAccountRef).toBeUndefined();
+    expect(redacted.lines?.[1]?.bankAccountRef).toBe("BANK-MEMBER");
+    const revealed = redactPayrollBankAccounts(run, {
+      personId: MEMBER,
+      canViewAll: false,
+      breakGlass: true,
+    });
+    expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
   it("returns an audit anchor manifest for external timestamping", async () => {

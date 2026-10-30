@@ -31,6 +31,7 @@ import {
   createCalibrationSessionSchema,
   createPilotEnrollmentSchema,
   withdrawPilotEnrollmentSchema,
+  createBreakGlassGrantSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -156,6 +157,7 @@ import {
   type CalculationRun,
   type CycleReadinessReport,
   type OperationsCoverageReport,
+  type PayrollRun,
   type PolicyReadinessReport,
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
@@ -444,6 +446,26 @@ async function assertRecalculationTarget(
   }
 }
 
+/** Remove sensitive payroll fields for viewers without a finance/admin role. */
+export function redactPayrollBankAccounts(
+  run: PayrollRun,
+  viewer: {
+    personId?: string;
+    canViewAll: boolean;
+    breakGlass: boolean;
+  },
+): PayrollRun {
+  if (viewer.canViewAll || viewer.breakGlass) return run;
+  return {
+    ...run,
+    lines: run.lines?.map((line) =>
+      line.personId === viewer.personId
+        ? line
+        : { ...line, bankAccountRef: undefined },
+    ),
+  };
+}
+
 export function buildApp(
   storeOrResolver: IncentiveStore | StoreResolver = new Store(),
   agentRuntimeOrFactory?: AgentRuntime | AgentRuntimeFactory,
@@ -557,6 +579,29 @@ export function buildApp(
         `ADJUDICATOR_CONFLICT_OF_INTEREST:${conflict.relationshipType}:${conflict.id}`,
       );
     }
+  }
+
+  async function payrollRunForViewer(
+    request: FastifyRequest,
+    run: PayrollRun,
+  ): Promise<PayrollRun> {
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin") || roles.includes("finance")) return run;
+    const personId = ownPersonId(request);
+    const breakGlass = personId
+      ? Boolean(
+          await platformStore.findActiveBreakGlassGrant(
+            tenantOf(request),
+            personId,
+            "PAYROLL_BANK_ACCOUNT",
+          ),
+        )
+      : false;
+    return redactPayrollBankAccounts(run, {
+      personId,
+      canViewAll: false,
+      breakGlass,
+    });
   }
 
   function runtimeFor(request: FastifyRequest): AgentRuntime {
@@ -3019,6 +3064,39 @@ export function buildApp(
       }),
       request,
     );
+  });
+
+  app.post("/api/v1/break-glass-grants", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createBreakGlassGrantSchema, request.body);
+    const grant = await platformStore.createBreakGlassGrant({
+      tenantId: tenantOf(request),
+      scope: body.scope,
+      granteePersonId: body.granteePersonId,
+      reason: body.reason,
+      grantedBy: body.grantedBy,
+      expiresAt: body.expiresAt,
+    });
+    countEvent("break_glass_grant_created");
+    return reply.status(201).send(data(grant, request));
+  });
+
+  app.get("/api/v1/break-glass-grants", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.listBreakGlassGrants(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/break-glass-grants/:id/revoke", async (request) => {
+    requireRoles(request, "admin");
+    const grant = await platformStore.revokeBreakGlassGrant({
+      tenantId: tenantOf(request),
+      grantId: idOf(request),
+    });
+    countEvent("break_glass_grant_revoked");
+    return data(grant, request);
   });
 
   app.post("/api/v1/trust-surveys", async (request, reply) => {
@@ -5583,10 +5661,13 @@ export function buildApp(
   app.get("/api/v1/payroll-runs", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { cycleId?: string };
+    const runs = await platformStore.listPayrollRuns(
+      tenantOf(request),
+      query.cycleId,
+    );
     return data(
-      await platformStore.listPayrollRuns(
-        tenantOf(request),
-        query.cycleId,
+      await Promise.all(
+        runs.map((run) => payrollRunForViewer(request, run)),
       ),
       request,
     );
@@ -5595,9 +5676,12 @@ export function buildApp(
   app.get("/api/v1/payroll-runs/:id", async (request) => {
     requireRoles(request, "manager", "finance");
     return data(
-      await platformStore.getPayrollRun(
-        tenantOf(request),
-        idOf(request),
+      await payrollRunForViewer(
+        request,
+        await platformStore.getPayrollRun(
+          tenantOf(request),
+          idOf(request),
+        ),
       ),
       request,
     );
@@ -5605,9 +5689,12 @@ export function buildApp(
 
   app.get("/api/v1/payroll-runs/:id/export", async (request, reply) => {
     requireRoles(request, "manager", "finance");
-    const run = await platformStore.getPayrollRun(
-      tenantOf(request),
-      idOf(request),
+    const run = await payrollRunForViewer(
+      request,
+      await platformStore.getPayrollRun(
+        tenantOf(request),
+        idOf(request),
+      ),
     );
     return reply
       .type("text/csv; charset=utf-8")

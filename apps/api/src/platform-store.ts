@@ -13,6 +13,7 @@ import type {
   BudgetAllocation,
   BudgetPool,
   Bounty,
+  BreakGlassGrant,
   CashGateInput,
   ConsultationOutcome,
   ConflictDeclaration,
@@ -363,6 +364,24 @@ export interface PlatformStore {
     enrollmentId: string;
     reason?: string;
   }): Promise<PilotEnrollment>;
+  createBreakGlassGrant(input: {
+    tenantId: string;
+    scope: BreakGlassGrant["scope"];
+    granteePersonId: string;
+    reason: string;
+    grantedBy: string;
+    expiresAt: string;
+  }): Promise<BreakGlassGrant>;
+  listBreakGlassGrants(tenantId: string): Promise<BreakGlassGrant[]>;
+  revokeBreakGlassGrant(input: {
+    tenantId: string;
+    grantId: string;
+  }): Promise<BreakGlassGrant>;
+  findActiveBreakGlassGrant(
+    tenantId: string,
+    granteePersonId: string,
+    scope: BreakGlassGrant["scope"],
+  ): Promise<BreakGlassGrant | undefined>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1230,6 +1249,7 @@ export class MemoryPlatformStore implements PlatformStore {
     CalibrationSession
   >();
   private readonly pilotEnrollments = new Map<string, PilotEnrollment>();
+  private readonly breakGlassGrants = new Map<string, BreakGlassGrant>();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
   private readonly settlementExports = new Map<string, SettlementExport>();
@@ -2647,6 +2667,86 @@ export class MemoryPlatformStore implements PlatformStore {
     enrollment.withdrawalReason = input.reason;
     enrollment.updatedAt = enrollment.withdrawnAt;
     return enrollment;
+  }
+
+  async createBreakGlassGrant(input: {
+    tenantId: string;
+    scope: BreakGlassGrant["scope"];
+    granteePersonId: string;
+    reason: string;
+    grantedBy: string;
+    expiresAt: string;
+  }): Promise<BreakGlassGrant> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    for (const personId of [input.granteePersonId, input.grantedBy]) {
+      const person = this.persons.get(personId);
+      if (!person || person.tenantId !== input.tenantId) {
+        notFound("Person", personId);
+      }
+    }
+    if (input.granteePersonId === input.grantedBy) {
+      throw new ConflictError(
+        "BREAK_GLASS_SELF_GRANT: a grant must be approved by another person",
+      );
+    }
+    const expiresAt = Date.parse(input.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      throw new ConflictError("BREAK_GLASS_EXPIRY_REQUIRED");
+    }
+    if (expiresAt > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new ConflictError("BREAK_GLASS_MAX_24_HOURS");
+    }
+    const grant: BreakGlassGrant = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      scope: input.scope,
+      granteePersonId: input.granteePersonId,
+      reason: input.reason,
+      grantedBy: input.grantedBy,
+      expiresAt: input.expiresAt,
+      status: "ACTIVE",
+      createdAt: now(),
+    };
+    this.breakGlassGrants.set(grant.id, grant);
+    return grant;
+  }
+
+  async listBreakGlassGrants(tenantId: string): Promise<BreakGlassGrant[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.breakGlassGrants.values()]
+      .filter((grant) => grant.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async revokeBreakGlassGrant(input: {
+    tenantId: string;
+    grantId: string;
+  }): Promise<BreakGlassGrant> {
+    const grant = this.breakGlassGrants.get(input.grantId);
+    if (!grant || grant.tenantId !== input.tenantId) {
+      notFound("BreakGlassGrant", input.grantId);
+    }
+    if (grant.status === "REVOKED") {
+      throw new ConflictError(`break-glass grant ${grant.id} is already revoked`);
+    }
+    grant.status = "REVOKED";
+    grant.revokedAt = now();
+    return grant;
+  }
+
+  async findActiveBreakGlassGrant(
+    tenantId: string,
+    granteePersonId: string,
+    scope: BreakGlassGrant["scope"],
+  ): Promise<BreakGlassGrant | undefined> {
+    return [...this.breakGlassGrants.values()].find(
+      (grant) =>
+        grant.tenantId === tenantId &&
+        grant.granteePersonId === granteePersonId &&
+        grant.scope === scope &&
+        grant.status === "ACTIVE" &&
+        Date.parse(grant.expiresAt) > Date.now(),
+    );
   }
 
   async createApprovalRequest(input: {
@@ -7573,6 +7673,107 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapPilotEnrollment(rows[0]);
   }
 
+  async createBreakGlassGrant(input: {
+    tenantId: string;
+    scope: BreakGlassGrant["scope"];
+    granteePersonId: string;
+    reason: string;
+    grantedBy: string;
+    expiresAt: string;
+  }): Promise<BreakGlassGrant> {
+    if (input.granteePersonId === input.grantedBy) {
+      throw new ConflictError(
+        "BREAK_GLASS_SELF_GRANT: a grant must be approved by another person",
+      );
+    }
+    const expiresAt = Date.parse(input.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      throw new ConflictError("BREAK_GLASS_EXPIRY_REQUIRED");
+    }
+    if (expiresAt > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new ConflictError("BREAK_GLASS_MAX_24_HOURS");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO break_glass_grants
+          (id, tenant_id, scope, grantee_person_id, reason, granted_by,
+           expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.scope,
+          input.granteePersonId,
+          input.reason,
+          input.grantedBy,
+          input.expiresAt,
+        ],
+      );
+      return this.mapBreakGlassGrant(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Tenant, grantee or granting person not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listBreakGlassGrants(tenantId: string): Promise<BreakGlassGrant[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM break_glass_grants
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapBreakGlassGrant(row));
+  }
+
+  async revokeBreakGlassGrant(input: {
+    tenantId: string;
+    grantId: string;
+  }): Promise<BreakGlassGrant> {
+    const { rows } = await this.pool.query(
+      `UPDATE break_glass_grants
+          SET status='REVOKED', revoked_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.grantId],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT 1 FROM break_glass_grants WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.grantId],
+      );
+      if (!current.rows[0]) {
+        notFound("BreakGlassGrant", input.grantId);
+      }
+      throw new ConflictError(
+        `break-glass grant ${input.grantId} is already revoked`,
+      );
+    }
+    return this.mapBreakGlassGrant(rows[0]);
+  }
+
+  async findActiveBreakGlassGrant(
+    tenantId: string,
+    granteePersonId: string,
+    scope: BreakGlassGrant["scope"],
+  ): Promise<BreakGlassGrant | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM break_glass_grants
+        WHERE tenant_id=$1 AND grantee_person_id=$2 AND scope=$3
+          AND status='ACTIVE' AND expires_at > now()
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [tenantId, granteePersonId, scope],
+    );
+    return rows[0] ? this.mapBreakGlassGrant(rows[0]) : undefined;
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -11772,6 +11973,21 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapBreakGlassGrant(row: QueryResultRow): BreakGlassGrant {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      scope: row.scope,
+      granteePersonId: row.grantee_person_id,
+      reason: row.reason,
+      grantedBy: row.granted_by,
+      expiresAt: iso(row.expires_at) ?? new Date().toISOString(),
+      status: row.status,
+      revokedAt: iso(row.revoked_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

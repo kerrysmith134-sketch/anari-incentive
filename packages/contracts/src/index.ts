@@ -92,6 +92,17 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const createBreakGlassGrantSchema = z.object({
+  scope: z.enum(["PAYROLL_BANK_ACCOUNT"]),
+  granteePersonId: uuidSchema,
+  reason: z.string().min(5),
+  grantedBy: uuidSchema,
+  expiresAt: z.string().datetime(),
+});
+export type CreateBreakGlassGrantBody = z.infer<
+  typeof createBreakGlassGrantSchema
+>;
+
 export const createPilotEnrollmentSchema = z.object({
   personId: uuidSchema,
   pilotCode: z.string().min(1),

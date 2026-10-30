@@ -583,6 +583,18 @@ export interface PlatformIdentity {
   roles: string[];
 }
 
+export interface BreakGlassGrant {
+  id: Uuid;
+  scope: "PAYROLL_BANK_ACCOUNT";
+  granteePersonId: Uuid;
+  reason: string;
+  grantedBy: Uuid;
+  expiresAt: string;
+  status: "ACTIVE" | "REVOKED";
+  revokedAt?: string;
+  createdAt: string;
+}
+
 export interface PilotEnrollment {
   id: Uuid;
   personId: Uuid;

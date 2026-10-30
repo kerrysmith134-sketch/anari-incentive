@@ -3213,6 +3213,51 @@ describePg("PgStore vertical slice", () => {
     ).toContain(enrollment.id);
   });
 
+  it("persists time-bound break-glass grants", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const grant = await platform.createBreakGlassGrant({
+      tenantId: DEMO_TENANT_ID,
+      scope: "PAYROLL_BANK_ACCOUNT",
+      granteePersonId: MEMBER,
+      reason: "Payroll reconciliation incident",
+      grantedBy: OWNER,
+      expiresAt,
+    });
+    expect(grant.status).toBe("ACTIVE");
+    expect(
+      (
+        await platform.findActiveBreakGlassGrant(
+          DEMO_TENANT_ID,
+          MEMBER,
+          "PAYROLL_BANK_ACCOUNT",
+        )
+      )?.id,
+    ).toBe(grant.id);
+    await expect(
+      platform.createBreakGlassGrant({
+        tenantId: DEMO_TENANT_ID,
+        scope: "PAYROLL_BANK_ACCOUNT",
+        granteePersonId: OWNER,
+        reason: "Self grant",
+        grantedBy: OWNER,
+        expiresAt,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const revoked = await platform.revokeBreakGlassGrant({
+      tenantId: DEMO_TENANT_ID,
+      grantId: grant.id,
+    });
+    expect(revoked.status).toBe("REVOKED");
+    expect(
+      await platform.findActiveBreakGlassGrant(
+        DEMO_TENANT_ID,
+        MEMBER,
+        "PAYROLL_BANK_ACCOUNT",
+      ),
+    ).toBeUndefined();
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

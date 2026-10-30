@@ -562,6 +562,74 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/break-glass-grants:
+    get:
+      tags: [Compliance]
+      summary: List break-glass grants
+      responses:
+        "200":
+          description: Grants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Grant time-bound break-glass access
+      description: |
+        Maximum 24 hours. The grantee cannot approve their own grant. Currently
+        the only scope is PAYROLL_BANK_ACCOUNT, which reveals the redacted bank
+        reference to the grantee.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBreakGlassGrant"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/break-glass-grants/{id}/revoke:
+    post:
+      tags: [Compliance]
+      summary: Revoke a break-glass grant
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/pilot-enrollments:
     get:
       tags: [Compliance]
@@ -7145,6 +7213,25 @@ components:
           items:
             type: string
         dueAt:
+          type: string
+          format: date-time
+
+    CreateBreakGlassGrant:
+      type: object
+      required:
+        [scope, granteePersonId, reason, grantedBy, expiresAt]
+      properties:
+        scope:
+          type: string
+          enum: [PAYROLL_BANK_ACCOUNT]
+        granteePersonId:
+          $ref: "#/components/schemas/Uuid"
+        reason:
+          type: string
+          minLength: 5
+        grantedBy:
+          $ref: "#/components/schemas/Uuid"
+        expiresAt:
           type: string
           format: date-time
 
