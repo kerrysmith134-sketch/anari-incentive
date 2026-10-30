@@ -590,6 +590,40 @@ export function PolicyPage() {
                     </div>
                   </div>
                 </div>
+                <div className="detail-section">
+                  <div className="detail-section__title">Cycle time</div>
+                  <div className="coverage-grid">
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">
+                        Package acceptance
+                      </div>
+                      <div className="coverage-cell__value">
+                        {(
+                          coverage.data.cycleTimes
+                            ?.workPackageAcceptanceHours ?? 0
+                        ).toFixed(1)}
+                        h
+                      </div>
+                      <div className="coverage-cell__sub">
+                        created → accepted
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">
+                        Claim decision
+                      </div>
+                      <div className="coverage-cell__value">
+                        {(
+                          coverage.data.cycleTimes?.claimDecisionHours ?? 0
+                        ).toFixed(1)}
+                        h
+                      </div>
+                      <div className="coverage-cell__sub">
+                        submitted → decision
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div className="split-grid section-gap">
                   <div className="detail-section" style={{ marginTop: 0 }}>
                     <div className="detail-section__title">

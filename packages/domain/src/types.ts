@@ -932,6 +932,10 @@ export interface OperationsCoverageReport {
     closed: number;
     appealRate: number;
   };
+  cycleTimes?: {
+    workPackageAcceptanceHours: number;
+    claimDecisionHours: number;
+  };
 }
 
 export type EquityGrantType = "OPTION" | "RSU" | "SAR";

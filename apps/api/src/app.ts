@@ -2505,6 +2505,7 @@ export function buildApp(
       dataQualityIssues,
       appeals,
       runs,
+      decisions,
     ] = await Promise.all([
       store.listWorkPackages(),
       store.listClaims(),
@@ -2515,6 +2516,7 @@ export function buildApp(
       store.listDataQualityIssues(),
       store.listAppeals(),
       store.listRuns(),
+      store.listDecisions(),
     ]);
     const acceptedPackages = workPackages.filter(
       (workPackage) => workPackage.status === "ACCEPTED",
@@ -2609,6 +2611,49 @@ export function buildApp(
     const escalatedDataQualityIssues = dataQualityIssues.filter(
       (issue) => Boolean(issue.escalatedAt),
     ).length;
+    const acceptanceHours = acceptedPackages
+      .map(
+        (workPackage) =>
+          (Date.parse(workPackage.updatedAt) -
+            Date.parse(workPackage.createdAt)) /
+          (60 * 60 * 1000),
+      )
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const latestDecisionByClaim = new Map<
+      string,
+      (typeof decisions)[number]
+    >();
+    for (const decision of decisions) {
+      const current = latestDecisionByClaim.get(decision.claimId);
+      if (
+        !current ||
+        decision.decisionVersion > current.decisionVersion
+      ) {
+        latestDecisionByClaim.set(decision.claimId, decision);
+      }
+    }
+    const claimDecisionHours = claims
+      .map((claim) => {
+        const decision = latestDecisionByClaim.get(claim.id);
+        if (!decision) return undefined;
+        const from = Date.parse(claim.submittedAt ?? claim.createdAt);
+        const to = Date.parse(decision.createdAt);
+        return (to - from) / (60 * 60 * 1000);
+      })
+      .filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value >= 0,
+      );
+    const average = (values: number[]): number =>
+      values.length === 0
+        ? 0
+        : Math.round(
+            (values.reduce((sum, value) => sum + value, 0) /
+              values.length) *
+              10,
+          ) / 10;
     const report: OperationsCoverageReport = {
       generatedAt: new Date().toISOString(),
       workPackages: {
@@ -2691,6 +2736,10 @@ export function buildApp(
         overdue: overdueAppeals,
         closed: appeals.filter((appeal) => appeal.status === "CLOSED").length,
         appealRate: ratio(appeals.length, Math.max(claims.length, 1)),
+      },
+      cycleTimes: {
+        workPackageAcceptanceHours: average(acceptanceHours),
+        claimDecisionHours: average(claimDecisionHours),
       },
     };
     return data(report, request);

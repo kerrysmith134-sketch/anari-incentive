@@ -7010,6 +7010,12 @@ describe("vertical slice", () => {
       overdue: 1,
       escalated: 0,
     });
+    expect(
+      after.body.data.cycleTimes.workPackageAcceptanceHours,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      after.body.data.cycleTimes.claimDecisionHours,
+    ).toBeGreaterThanOrEqual(0);
   });
 
   it("reports annual policy review metrics and validates the window", async () => {

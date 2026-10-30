@@ -41,9 +41,9 @@
 | P0-02 账本 | ✅ | append-only、幂等、锁定、冲销、adjustment、哈希链 |
 | P0-02 员工端 | 🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 不是员工专用界面，也缺少团队聚合/独立角色导航 |
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
-| P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ 有；员工/经理耗时、争议率、信任无完整测量 |
+| P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；本轮新增 work-package acceptance 与 claim-decision cycle time，员工/经理端到端耗时与细分角色耗时仍有缺口 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
-| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁、申诉统计、信任调查可测；员工/经理 cycle-time 与目标阈值仍不可由当前代码证明 |
+| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁、申诉统计、信任调查、package/claim cycle time 可测；目标阈值与员工/经理端到端耗时仍不可由当前代码证明 |
 | P0-05 不承诺项 | ⚪ | 产品沟通，不在代码 |
 
 ### 2. 法律生效门禁
@@ -205,6 +205,8 @@
 33. **LG-05 future-dated amendments**：合同修订支持 ≤180 天未来生效；SCHEDULED 不改变当前条款，payroll 计算前自动应用到期修订，支持取消；迁移 `049_contract_amendment_scheduling.sql`。外部电子签仍缺。
 
 34. **AI-03 pre-decision high-risk review**：AI proposal 增加 `riskTier`；HIGH/CRITICAL 必须在 decide 时提供第二复核人独立分数/理由，第二结论不一致返回 `AI_SECOND_REVIEW_DISAGREES`，并记录复核字段；迁移 `050_ai_high_risk_review.sql`，console 复核弹窗支持填写。
+
+35. **P0-02/P0-04 cycle-time metrics**：operations coverage 增加 work-package created→accepted 与 claim submitted→decision 平均小时数，Policy coverage 展示；目标阈值和端到端角色耗时仍待产品定义。
 
 ## 仍建议按 P0 顺序补做
 

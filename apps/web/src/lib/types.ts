@@ -468,6 +468,10 @@ export interface OperationsCoverageReport {
     closed: number;
     appealRate: number;
   };
+  cycleTimes?: {
+    workPackageAcceptanceHours: number;
+    claimDecisionHours: number;
+  };
   [key: string]: unknown;
 }
 
