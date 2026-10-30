@@ -6163,6 +6163,45 @@ export function buildApp(
     return data(await storeFor(request).listAuditEvents(limit), request);
   });
 
+  app.get("/api/v1/audit-events/anchor", async (request) => {
+    requireRoles(request, "admin");
+    const query = request.query as {
+      fromSequence?: string;
+      toSequence?: string;
+    };
+    const fromSequence = query.fromSequence
+      ? Number(query.fromSequence)
+      : undefined;
+    const toSequence = query.toSequence
+      ? Number(query.toSequence)
+      : undefined;
+    const events = (await storeFor(request).listAuditEvents(500))
+      .filter(
+        (event) =>
+          (fromSequence === undefined ||
+            event.sequence >= fromSequence) &&
+          (toSequence === undefined || event.sequence <= toSequence),
+      )
+      .sort((a, b) => a.sequence - b.sequence);
+    const eventHashes = events.map((event) => event.eventHash);
+    return data(
+      {
+        tenantId: tenantOf(request),
+        generatedAt: new Date().toISOString(),
+        window: {
+          fromSequence: events[0]?.sequence ?? null,
+          toSequence: events.at(-1)?.sequence ?? null,
+          eventCount: events.length,
+        },
+        rootHash: sha256(eventHashes.join("|")),
+        firstEventHash: events[0]?.eventHash ?? null,
+        lastEventHash: events.at(-1)?.eventHash ?? null,
+        note: "Timestamp rootHash with an external TSA and store it with the WORM copies.",
+      },
+      request,
+    );
+  });
+
   app.get("/api/v1/audit-events/verify", async (request) => {
     requireRoles(request, "manager", "finance");
     return data(

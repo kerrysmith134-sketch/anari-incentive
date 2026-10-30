@@ -4992,6 +4992,39 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/audit-events/anchor:
+    get:
+      tags: [Audit]
+      summary: Return an audit-chain anchor manifest
+      description: |
+        Returns the sequence window, root hash over event hashes and first/last
+        event hashes for external timestamping and WORM storage. The root hash
+        should be submitted to a TSA and stored with the immutable copies.
+      parameters:
+        - name: fromSequence
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: toSequence
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Anchor manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/audit-events/verify:
     get:
       tags: [Ledger]

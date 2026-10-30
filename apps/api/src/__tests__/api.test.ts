@@ -6502,6 +6502,16 @@ describe("vertical slice", () => {
     );
   });
 
+  it("returns an audit anchor manifest for external timestamping", async () => {
+    const anchor = await call("GET", "/api/v1/audit-events/anchor");
+    expect(anchor.status).toBe(200);
+    expect(anchor.body.data.window.eventCount).toBe(0);
+    expect(anchor.body.data.rootHash).toMatch(/^sha256:/);
+    expect(anchor.body.data.firstEventHash).toBeNull();
+    expect(anchor.body.data.lastEventHash).toBeNull();
+    expect(anchor.body.data.note).toContain("TSA");
+  });
+
   it("reports operations coverage for work packages and claims", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     await createConfirmedClaim(workPackageId, OWNER);
