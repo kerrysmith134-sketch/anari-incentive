@@ -103,8 +103,11 @@ function notFound(kind: string, id: string): never {
   throw new NotFoundError(`${kind} ${id} not found`);
 }
 
-function csvField(value: unknown): string {
-  const text = value === undefined || value === null ? "" : String(value);
+function csvField(value: unknown, protectFormula = true): string {
+  let text = value === undefined || value === null ? "" : String(value);
+  if (protectFormula && /^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -126,7 +129,7 @@ export function settlementCsv(
         line.amount,
         line.currency,
       ]
-        .map(csvField)
+        .map((value, index) => csvField(value, index !== 5))
         .join(","),
     );
   return [header, ...rows].join("\n") + "\n";
