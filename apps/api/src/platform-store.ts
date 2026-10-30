@@ -62,6 +62,10 @@ import type {
   SettlementExport,
   SyncSchedule,
   SyncRun,
+  TrustSurveyQuestion,
+  TrustSurveyReport,
+  TrustSurveyResponse,
+  TrustSurveyRun,
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
@@ -277,6 +281,33 @@ export interface PlatformStore {
     personA: string,
     personB: string,
   ): Promise<ConflictDeclaration | undefined>;
+  createTrustSurvey(input: {
+    tenantId: string;
+    code: string;
+    period: string;
+    title: string;
+    questions: TrustSurveyQuestion[];
+  }): Promise<TrustSurveyRun>;
+  listTrustSurveys(tenantId: string): Promise<TrustSurveyRun[]>;
+  getTrustSurvey(tenantId: string, surveyId: string): Promise<TrustSurveyRun>;
+  openTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun>;
+  closeTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun>;
+  submitTrustSurveyResponse(input: {
+    tenantId: string;
+    surveyId: string;
+    personId: string;
+    scores: Record<string, number>;
+  }): Promise<TrustSurveyResponse>;
+  getTrustSurveyReport(
+    tenantId: string,
+    surveyId: string,
+  ): Promise<TrustSurveyReport>;
   createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -1045,6 +1076,68 @@ function notFound(kind: string, id: string): never {
   throw new NotFoundError(`${kind} ${id} not found`);
 }
 
+function surveyAverage(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100;
+}
+
+function aggregateSurveyReport(
+  survey: TrustSurveyRun,
+  responses: TrustSurveyResponse[],
+  baseline?: {
+    survey: TrustSurveyRun;
+    responses: TrustSurveyResponse[];
+  },
+): TrustSurveyReport {
+  const averages: Record<string, number> = {};
+  const distribution: Record<string, Record<string, number>> = {};
+  for (const question of survey.questions) {
+    const values = responses
+      .map((response) => response.scores[question.code])
+      .filter((value): value is number => typeof value === "number");
+    averages[question.code] = surveyAverage(values);
+    const buckets: Record<string, number> = {};
+    for (const value of [1, 2, 3, 4, 5]) {
+      buckets[String(value)] = values.filter((candidate) => candidate === value).length;
+    }
+    distribution[question.code] = buckets;
+  }
+  const dimensionValues: Record<string, number[]> = {};
+  for (const question of survey.questions) {
+    const values = dimensionValues[question.dimension] ?? [];
+    const average = averages[question.code];
+    if (average !== undefined) values.push(average);
+    dimensionValues[question.dimension] = values;
+  }
+  const dimensions = Object.fromEntries(
+    Object.entries(dimensionValues).map(([dimension, values]) => [
+      dimension,
+      surveyAverage(values),
+    ]),
+  );
+  let baselineSummary: TrustSurveyReport["baseline"];
+  if (baseline) {
+    const baselineDimensions = aggregateSurveyReport(
+      baseline.survey,
+      baseline.responses,
+    ).dimensions;
+    baselineSummary = {
+      surveyId: baseline.survey.id,
+      period: baseline.survey.period,
+      responseCount: baseline.responses.length,
+      dimensions: baselineDimensions,
+    };
+  }
+  return {
+    survey,
+    responseCount: responses.length,
+    averages,
+    dimensions,
+    distribution,
+    baseline: baselineSummary,
+  };
+}
+
 export class MemoryPlatformStore implements PlatformStore {
   private readonly tenants = new Map<string, PlatformTenant>();
   private readonly users = new Map<string, PlatformUser>();
@@ -1063,6 +1156,11 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly conflictDeclarations = new Map<
     string,
     ConflictDeclaration
+  >();
+  private readonly trustSurveys = new Map<string, TrustSurveyRun>();
+  private readonly trustSurveyResponses = new Map<
+    string,
+    TrustSurveyResponse
   >();
   private readonly approvalRequests = new Map<string, ApprovalRequest>();
   private readonly approvalDecisions = new Map<string, ApprovalDecision>();
@@ -2082,6 +2180,173 @@ export class MemoryPlatformStore implements PlatformStore {
           (declaration.personId === personB &&
             declaration.relatedPersonId === personA)),
     );
+  }
+
+  async createTrustSurvey(input: {
+    tenantId: string;
+    code: string;
+    period: string;
+    title: string;
+    questions: TrustSurveyQuestion[];
+  }): Promise<TrustSurveyRun> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    if (
+      [...this.trustSurveys.values()].some(
+        (survey) =>
+          survey.tenantId === input.tenantId &&
+          survey.code === input.code &&
+          survey.period === input.period,
+      )
+    ) {
+      throw new ConflictError(
+        `trust survey ${input.code}/${input.period} already exists`,
+      );
+    }
+    const timestamp = now();
+    const survey: TrustSurveyRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      period: input.period,
+      title: input.title,
+      status: "DRAFT",
+      anonymous: true,
+      questions: input.questions.map((question) => ({ ...question })),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.trustSurveys.set(survey.id, survey);
+    return survey;
+  }
+
+  async listTrustSurveys(tenantId: string): Promise<TrustSurveyRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.trustSurveys.values()]
+      .filter((survey) => survey.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getTrustSurvey(
+    tenantId: string,
+    surveyId: string,
+  ): Promise<TrustSurveyRun> {
+    const survey = this.trustSurveys.get(surveyId);
+    if (!survey || survey.tenantId !== tenantId) {
+      notFound("TrustSurvey", surveyId);
+    }
+    return survey;
+  }
+
+  async openTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun> {
+    const survey = await this.getTrustSurvey(input.tenantId, input.surveyId);
+    if (survey.status !== "DRAFT") {
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    survey.status = "OPEN";
+    survey.openedAt = now();
+    survey.updatedAt = survey.openedAt;
+    return survey;
+  }
+
+  async closeTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun> {
+    const survey = await this.getTrustSurvey(input.tenantId, input.surveyId);
+    if (survey.status !== "OPEN") {
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    survey.status = "CLOSED";
+    survey.closedAt = now();
+    survey.updatedAt = survey.closedAt;
+    return survey;
+  }
+
+  async submitTrustSurveyResponse(input: {
+    tenantId: string;
+    surveyId: string;
+    personId: string;
+    scores: Record<string, number>;
+  }): Promise<TrustSurveyResponse> {
+    const survey = await this.getTrustSurvey(input.tenantId, input.surveyId);
+    if (survey.status !== "OPEN") {
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    for (const question of survey.questions) {
+      const value = input.scores[question.code];
+      if (typeof value !== "number" || value < 1 || value > 5) {
+        throw new ConflictError(
+          `TRUST_SURVEY_SCORE_REQUIRED:${question.code}`,
+        );
+      }
+    }
+    const respondentHash = sha256(
+      `${input.tenantId}:${input.surveyId}:${input.personId}`,
+    );
+    if (
+      [...this.trustSurveyResponses.values()].some(
+        (response) =>
+          response.tenantId === input.tenantId &&
+          response.surveyId === input.surveyId &&
+          response.respondentHash === respondentHash,
+      )
+    ) {
+      throw new ConflictError(
+        "TRUST_SURVEY_ALREADY_SUBMITTED: this person already responded",
+      );
+    }
+    const response: TrustSurveyResponse = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      surveyId: input.surveyId,
+      respondentHash,
+      scores: { ...input.scores },
+      submittedAt: now(),
+    };
+    this.trustSurveyResponses.set(response.id, response);
+    return response;
+  }
+
+  async getTrustSurveyReport(
+    tenantId: string,
+    surveyId: string,
+  ): Promise<TrustSurveyReport> {
+    const survey = await this.getTrustSurvey(tenantId, surveyId);
+    const responses = [...this.trustSurveyResponses.values()].filter(
+      (response) =>
+        response.tenantId === tenantId && response.surveyId === surveyId,
+    );
+    const baselineSurvey = [...this.trustSurveys.values()]
+      .filter(
+        (candidate) =>
+          candidate.tenantId === tenantId &&
+          candidate.code === survey.code &&
+          candidate.id !== survey.id &&
+          candidate.status === "CLOSED",
+      )
+      .sort((a, b) =>
+        (b.closedAt ?? b.updatedAt).localeCompare(
+          a.closedAt ?? a.updatedAt,
+        ),
+      )[0];
+    if (!baselineSurvey) {
+      return aggregateSurveyReport(survey, responses);
+    }
+    return aggregateSurveyReport(survey, responses, {
+      survey: baselineSurvey,
+      responses: [...this.trustSurveyResponses.values()].filter(
+        (response) =>
+          response.tenantId === tenantId &&
+          response.surveyId === baselineSurvey.id,
+      ),
+    });
   }
 
   async createApprovalRequest(input: {
@@ -6540,6 +6805,199 @@ export class PgPlatformStore implements PlatformStore {
     return rows[0] ? this.mapConflictDeclaration(rows[0]) : undefined;
   }
 
+  async createTrustSurvey(input: {
+    tenantId: string;
+    code: string;
+    period: string;
+    title: string;
+    questions: TrustSurveyQuestion[];
+  }): Promise<TrustSurveyRun> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO trust_survey_runs
+          (id, tenant_id, code, period, title, questions)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.period,
+          input.title,
+          JSON.stringify(input.questions),
+        ],
+      );
+      return this.mapTrustSurvey(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `trust survey ${input.code}/${input.period} already exists`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listTrustSurveys(tenantId: string): Promise<TrustSurveyRun[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM trust_survey_runs
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapTrustSurvey(row));
+  }
+
+  async getTrustSurvey(
+    tenantId: string,
+    surveyId: string,
+  ): Promise<TrustSurveyRun> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM trust_survey_runs WHERE tenant_id=$1 AND id=$2",
+      [tenantId, surveyId],
+    );
+    if (!rows[0]) notFound("TrustSurvey", surveyId);
+    return this.mapTrustSurvey(rows[0]);
+  }
+
+  async openTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun> {
+    const { rows } = await this.pool.query(
+      `UPDATE trust_survey_runs
+          SET status='OPEN', opened_at=now(), updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='DRAFT'
+        RETURNING *`,
+      [input.tenantId, input.surveyId],
+    );
+    if (!rows[0]) {
+      const survey = await this.getTrustSurvey(
+        input.tenantId,
+        input.surveyId,
+      );
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    return this.mapTrustSurvey(rows[0]);
+  }
+
+  async closeTrustSurvey(input: {
+    tenantId: string;
+    surveyId: string;
+  }): Promise<TrustSurveyRun> {
+    const { rows } = await this.pool.query(
+      `UPDATE trust_survey_runs
+          SET status='CLOSED', closed_at=now(), updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='OPEN'
+        RETURNING *`,
+      [input.tenantId, input.surveyId],
+    );
+    if (!rows[0]) {
+      const survey = await this.getTrustSurvey(
+        input.tenantId,
+        input.surveyId,
+      );
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    return this.mapTrustSurvey(rows[0]);
+  }
+
+  async submitTrustSurveyResponse(input: {
+    tenantId: string;
+    surveyId: string;
+    personId: string;
+    scores: Record<string, number>;
+  }): Promise<TrustSurveyResponse> {
+    const survey = await this.getTrustSurvey(
+      input.tenantId,
+      input.surveyId,
+    );
+    if (survey.status !== "OPEN") {
+      throw new ConflictError(`trust survey is ${survey.status}`);
+    }
+    const person = await this.pool.query(
+      "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+      [input.tenantId, input.personId],
+    );
+    if (!person.rows[0]) notFound("Person", input.personId);
+    for (const question of survey.questions) {
+      const value = input.scores[question.code];
+      if (typeof value !== "number" || value < 1 || value > 5) {
+        throw new ConflictError(
+          `TRUST_SURVEY_SCORE_REQUIRED:${question.code}`,
+        );
+      }
+    }
+    const respondentHash = sha256(
+      `${input.tenantId}:${input.surveyId}:${input.personId}`,
+    );
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO trust_survey_responses
+          (id, tenant_id, survey_id, respondent_hash, scores)
+         VALUES ($1,$2,$3,$4,$5::jsonb)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.surveyId,
+          respondentHash,
+          JSON.stringify(input.scores),
+        ],
+      );
+      return this.mapTrustSurveyResponse(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          "TRUST_SURVEY_ALREADY_SUBMITTED: this person already responded",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async getTrustSurveyReport(
+    tenantId: string,
+    surveyId: string,
+  ): Promise<TrustSurveyReport> {
+    const survey = await this.getTrustSurvey(tenantId, surveyId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM trust_survey_responses
+        WHERE tenant_id=$1 AND survey_id=$2
+        ORDER BY submitted_at`,
+      [tenantId, surveyId],
+    );
+    const responses = rows.map((row) => this.mapTrustSurveyResponse(row));
+    const baselineQuery = await this.pool.query(
+      `SELECT * FROM trust_survey_runs
+        WHERE tenant_id=$1 AND code=$2 AND id<>$3 AND status='CLOSED'
+        ORDER BY COALESCE(closed_at, updated_at) DESC
+        LIMIT 1`,
+      [tenantId, survey.code, surveyId],
+    );
+    if (!baselineQuery.rows[0]) {
+      return aggregateSurveyReport(survey, responses);
+    }
+    const baselineSurvey = this.mapTrustSurvey(baselineQuery.rows[0]);
+    const baselineResponses = await this.pool.query(
+      `SELECT * FROM trust_survey_responses
+        WHERE tenant_id=$1 AND survey_id=$2
+        ORDER BY submitted_at`,
+      [tenantId, baselineSurvey.id],
+    );
+    return aggregateSurveyReport(survey, responses, {
+      survey: baselineSurvey,
+      responses: baselineResponses.rows.map((row) =>
+        this.mapTrustSurveyResponse(row),
+      ),
+    });
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -10739,6 +11197,34 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapTrustSurvey(row: QueryResultRow): TrustSurveyRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      period: row.period,
+      title: row.title,
+      status: row.status,
+      anonymous: Boolean(row.anonymous),
+      questions: (row.questions as TrustSurveyQuestion[] | null) ?? [],
+      openedAt: iso(row.opened_at),
+      closedAt: iso(row.closed_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapTrustSurveyResponse(row: QueryResultRow): TrustSurveyResponse {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      surveyId: row.survey_id,
+      respondentHash: row.respondent_hash,
+      scores: (row.scores as Record<string, number> | null) ?? {},
+      submittedAt: iso(row.submitted_at) ?? new Date().toISOString(),
     };
   }
 

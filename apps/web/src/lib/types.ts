@@ -499,7 +499,21 @@ export interface PolicyReviewReport {
     dpias: number;
     approvedDpias: number;
   };
-  trustSurvey: { available: boolean; note: string };
+  trustSurvey:
+    | { available: false; note: string }
+    | {
+        available: true;
+        surveyId: Uuid;
+        period: string;
+        responseCount: number;
+        dimensions: Record<string, number>;
+        baseline?: {
+          surveyId: Uuid;
+          period: string;
+          responseCount: number;
+          dimensions: Record<string, number>;
+        };
+      };
   subgroupImpact: { available: boolean; note: string };
 }
 
@@ -550,6 +564,40 @@ export interface PlatformIdentity {
   userId: Uuid;
   personId?: Uuid;
   roles: string[];
+}
+
+export interface TrustSurveyQuestion {
+  code: string;
+  prompt: string;
+  dimension: string;
+}
+
+export interface TrustSurveyRun {
+  id: Uuid;
+  code: string;
+  period: string;
+  title: string;
+  status: "DRAFT" | "OPEN" | "CLOSED";
+  anonymous: boolean;
+  questions: TrustSurveyQuestion[];
+  openedAt?: string;
+  closedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TrustSurveyReport {
+  survey: TrustSurveyRun;
+  responseCount: number;
+  averages: Record<string, number>;
+  dimensions: Record<string, number>;
+  distribution: Record<string, Record<string, number>>;
+  baseline?: {
+    surveyId: Uuid;
+    period: string;
+    responseCount: number;
+    dimensions: Record<string, number>;
+  };
 }
 
 export interface ConflictDeclaration {

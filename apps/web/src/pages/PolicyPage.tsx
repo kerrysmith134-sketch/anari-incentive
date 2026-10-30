@@ -784,10 +784,53 @@ export function PolicyPage() {
                     </div>
                   </div>
                 </div>
+                {review.data.trustSurvey.available ? (
+                  <div className="detail-section">
+                    <div className="detail-section__title">
+                      Trust and procedural fairness ·{" "}
+                      {review.data.trustSurvey.period} ·{" "}
+                      {review.data.trustSurvey.responseCount} responses
+                    </div>
+                    <div className="stack" style={{ gap: 6 }}>
+                      {Object.entries(
+                        review.data.trustSurvey.dimensions,
+                      ).map(([dimension, score]) => {
+                        const baseline =
+                          review.data.trustSurvey.available
+                            ? review.data.trustSurvey.baseline?.dimensions[
+                                dimension
+                              ]
+                            : undefined;
+                        return (
+                          <div
+                            key={dimension}
+                            className="inline"
+                            style={{
+                              justifyContent: "space-between",
+                              width: "100%",
+                            }}
+                          >
+                            <span>{titleCase(dimension)}</span>
+                            <span className="muted">
+                              {score.toFixed(2)} / 5
+                              {baseline !== undefined
+                                ? ` · baseline ${baseline.toFixed(2)}`
+                                : " · no baseline"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <InfoNotice tone="warning">
+                    {review.data.trustSurvey.note}
+                  </InfoNotice>
+                )}
                 <InfoNotice tone="warning">
-                  Employee trust/procedural-fairness survey and subgroup impact are
-                  not captured yet. This report is evidence for review, not a
-                  complete INC-12 sign-off.
+                  Contribution/evaluation subgroup impact is not aggregated yet.
+                  This report is evidence for review, not a complete INC-12
+                  sign-off.
                 </InfoNotice>
                 <p className="subtle" style={{ fontSize: 11.5 }}>
                   Window {formatDate(review.data.from)} – {formatDate(review.data.to)}.

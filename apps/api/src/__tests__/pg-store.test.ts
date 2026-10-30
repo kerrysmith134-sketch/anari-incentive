@@ -3048,6 +3048,54 @@ describePg("PgStore vertical slice", () => {
     ).toBeUndefined();
   });
 
+  it("persists anonymous trust-survey responses and aggregates them", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const survey = await platform.createTrustSurvey({
+      tenantId: DEMO_TENANT_ID,
+      code: `PG_TRUST_${Date.now()}`,
+      period: "2026-Q4",
+      title: "PG trust survey",
+      questions: [
+        {
+          code: "FAIRNESS",
+          prompt: "The process is fair.",
+          dimension: "FAIRNESS",
+        },
+      ],
+    });
+    expect(survey.status).toBe("DRAFT");
+    await platform.openTrustSurvey({
+      tenantId: DEMO_TENANT_ID,
+      surveyId: survey.id,
+    });
+    const response = await platform.submitTrustSurveyResponse({
+      tenantId: DEMO_TENANT_ID,
+      surveyId: survey.id,
+      personId: MEMBER,
+      scores: { FAIRNESS: 5 },
+    });
+    expect(response.respondentHash).toMatch(/^sha256:/);
+    await expect(
+      platform.submitTrustSurveyResponse({
+        tenantId: DEMO_TENANT_ID,
+        surveyId: survey.id,
+        personId: MEMBER,
+        scores: { FAIRNESS: 3 },
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const report = await platform.getTrustSurveyReport(
+      DEMO_TENANT_ID,
+      survey.id,
+    );
+    expect(report.responseCount).toBe(1);
+    expect(report.dimensions.FAIRNESS).toBe(5);
+    const closed = await platform.closeTrustSurvey({
+      tenantId: DEMO_TENANT_ID,
+      surveyId: survey.id,
+    });
+    expect(closed.status).toBe("CLOSED");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

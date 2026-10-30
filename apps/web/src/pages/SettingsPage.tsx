@@ -36,6 +36,8 @@ import type {
   DsarRequest,
   PlatformIdentity,
   RetentionPolicy,
+  TrustSurveyReport,
+  TrustSurveyRun,
 } from "../lib/types.js";
 
 export function SettingsPage() {
@@ -55,6 +57,7 @@ export function SettingsPage() {
   const conflicts = useApiQuery<ConflictDeclaration[]>(
     "/api/v1/conflict-declarations",
   );
+  const trustSurveys = useApiQuery<TrustSurveyRun[]>("/api/v1/trust-surveys");
 
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
@@ -98,6 +101,33 @@ export function SettingsPage() {
   const [revokeTarget, setRevokeTarget] =
     useState<ConflictDeclaration | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
+  const [surveyOpen, setSurveyOpen] = useState(false);
+  const [surveySaving, setSurveySaving] = useState(false);
+  const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [surveyCode, setSurveyCode] = useState("TRUST_QUARTERLY");
+  const [surveyPeriod, setSurveyPeriod] = useState("2026-Q4");
+  const [surveyTitle, setSurveyTitle] = useState(
+    "Quarterly trust and procedural fairness",
+  );
+  const [surveyQuestions, setSurveyQuestions] = useState<
+    Array<{ code: string; prompt: string; dimension: string }>
+  >([{ code: "FAIRNESS", prompt: "", dimension: "FAIRNESS" }]);
+  const [respondTarget, setRespondTarget] = useState<TrustSurveyRun | null>(
+    null,
+  );
+  const [respondentId, setRespondentId] = useState(session.personId);
+  const [responseScores, setResponseScores] = useState<
+    Record<string, string>
+  >({});
+  const [responseError, setResponseError] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<TrustSurveyRun | null>(
+    null,
+  );
+  const report = useApiQuery<TrustSurveyReport>(
+    reportTarget
+      ? `/api/v1/trust-surveys/${reportTarget.id}/report`
+      : null,
+  );
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -189,6 +219,121 @@ export function SettingsPage() {
       );
     } finally {
       setSourceSaving(false);
+    }
+  }
+
+  function openSurveyForm() {
+    setSurveyCode("TRUST_QUARTERLY");
+    setSurveyPeriod("2026-Q4");
+    setSurveyTitle("Quarterly trust and procedural fairness");
+    setSurveyQuestions([{ code: "FAIRNESS", prompt: "", dimension: "FAIRNESS" }]);
+    setSurveyError(null);
+    setSurveyOpen(true);
+  }
+
+  async function saveSurvey(event: FormEvent) {
+    event.preventDefault();
+    setSurveySaving(true);
+    setSurveyError(null);
+    try {
+      await api("/api/v1/trust-surveys", {
+        method: "POST",
+        body: {
+          code: surveyCode.trim(),
+          period: surveyPeriod.trim(),
+          title: surveyTitle.trim(),
+          questions: surveyQuestions
+            .filter(
+              (question) =>
+                question.code.trim() &&
+                question.prompt.trim() &&
+                question.dimension.trim(),
+            )
+            .map((question) => ({
+              code: question.code.trim(),
+              prompt: question.prompt.trim(),
+              dimension: question.dimension.trim(),
+            })),
+        },
+      });
+      toast.success("Trust survey created", "Open it when the questions are ready.");
+      setSurveyOpen(false);
+      trustSurveys.reload();
+    } catch (error) {
+      setSurveyError(
+        error instanceof Error
+          ? error.message
+          : "Could not create the survey.",
+      );
+    } finally {
+      setSurveySaving(false);
+    }
+  }
+
+  async function changeSurveyStatus(
+    survey: TrustSurveyRun,
+    action: "open" | "close",
+  ) {
+    try {
+      await api(`/api/v1/trust-surveys/${survey.id}/${action}`, {
+        method: "POST",
+      });
+      toast.success(
+        action === "open" ? "Survey opened" : "Survey closed",
+        survey.title,
+      );
+      trustSurveys.reload();
+    } catch (error) {
+      toast.error(
+        action === "open" ? "Could not open survey" : "Could not close survey",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    }
+  }
+
+  function openRespond(survey: TrustSurveyRun) {
+    setRespondTarget(survey);
+    setRespondentId(session.personId);
+    setResponseScores(
+      Object.fromEntries(survey.questions.map((question) => [question.code, ""])),
+    );
+    setResponseError(null);
+  }
+
+  async function submitSurveyResponse(event: FormEvent) {
+    event.preventDefault();
+    if (!respondTarget) return;
+    setSurveySaving(true);
+    setResponseError(null);
+    try {
+      const scores: Record<string, number> = {};
+      for (const question of respondTarget.questions) {
+        const value = Number(responseScores[question.code]);
+        if (!Number.isFinite(value) || value < 1 || value > 5) {
+          throw new Error(
+            `Enter a score from 1 to 5 for ${question.prompt}`,
+          );
+        }
+        scores[question.code] = value;
+      }
+      await api(`/api/v1/trust-surveys/${respondTarget.id}/responses`, {
+        method: "POST",
+        body: { personId: respondentId, scores },
+      });
+      toast.success(
+        "Response recorded",
+        "Only a pseudonymous hash is stored with the scores.",
+      );
+      setRespondTarget(null);
+      trustSurveys.reload();
+    } catch (error) {
+      setResponseError(
+        error instanceof Error
+          ? error.message
+          : "Could not record the response.",
+      );
+    } finally {
+      setSurveySaving(false);
     }
   }
 
@@ -1190,6 +1335,431 @@ export function SettingsPage() {
             />
           </FormField>
         </form>
+      </Modal>
+
+      <Panel
+        title="Trust surveys"
+        subtitle="Anonymous quarterly pulse on fairness, voice and confidence in the process"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openSurveyForm}
+          >
+            Create survey
+          </Button>
+        }
+        flush
+      >
+        {trustSurveys.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice
+              error={trustSurveys.error}
+              onRetry={trustSurveys.reload}
+            />
+          </div>
+        ) : trustSurveys.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={3} />
+          </div>
+        ) : (trustSurveys.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="people"
+            title="No trust survey"
+            description="Create a survey, open it for responses, then close it to compare the dimension averages with the prior period."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Survey</th>
+                  <th>Period</th>
+                  <th>Status</th>
+                  <th className="cell-num">Questions</th>
+                  <th>Window</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {trustSurveys.data?.map((survey) => (
+                  <tr key={survey.id}>
+                    <td>
+                      <span className="cell-primary">{survey.title}</span>
+                      <span className="cell-sub mono">{survey.code}</span>
+                    </td>
+                    <td>{survey.period}</td>
+                    <td>
+                      <Badge status={survey.status} />
+                    </td>
+                    <td className="cell-num">{survey.questions.length}</td>
+                    <td className="nowrap">
+                      {survey.openedAt
+                        ? formatDate(survey.openedAt)
+                        : "Not opened"}
+                      {survey.closedAt
+                        ? ` – ${formatDate(survey.closedAt)}`
+                        : ""}
+                    </td>
+                    <td className="cell-actions">
+                      <div className="row-actions">
+                        {survey.status === "DRAFT" ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void changeSurveyStatus(survey, "open")}
+                          >
+                            Open
+                          </Button>
+                        ) : null}
+                        {survey.status === "OPEN" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => openRespond(survey)}
+                            >
+                              Respond
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                void changeSurveyStatus(survey, "close")
+                              }
+                            >
+                              Close
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setReportTarget(survey)}
+                        >
+                          Report
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={surveyOpen}
+        title="Create trust survey"
+        description="Questions are scored 1–5. Responses store only a pseudonymous hash and the score set."
+        onClose={() => setSurveyOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSurveyOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="survey-form"
+              loading={surveySaving}
+            >
+              Create survey
+            </Button>
+          </>
+        }
+      >
+        <form id="survey-form" className="stack" onSubmit={saveSurvey}>
+          {surveyError ? (
+            <InfoNotice tone="warning">{surveyError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Code" htmlFor="survey-code">
+              <TextInput
+                id="survey-code"
+                value={surveyCode}
+                onChange={(event) => setSurveyCode(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Period" htmlFor="survey-period">
+              <TextInput
+                id="survey-period"
+                value={surveyPeriod}
+                onChange={(event) => setSurveyPeriod(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField
+              label="Title"
+              htmlFor="survey-title"
+              className="field--full"
+            >
+              <TextInput
+                id="survey-title"
+                value={surveyTitle}
+                onChange={(event) => setSurveyTitle(event.target.value)}
+                required
+              />
+            </FormField>
+          </div>
+          <div className="detail-section">
+            <div className="detail-section__title">Questions</div>
+            <div className="stack">
+              {surveyQuestions.map((question, index) => (
+                <div className="form-grid" key={index}>
+                  <FormField
+                    label="Code"
+                    htmlFor={`survey-question-code-${index}`}
+                  >
+                    <TextInput
+                      id={`survey-question-code-${index}`}
+                      value={question.code}
+                      onChange={(event) =>
+                        setSurveyQuestions((current) =>
+                          current.map((candidate, position) =>
+                            position === index
+                              ? { ...candidate, code: event.target.value }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                  </FormField>
+                  <FormField
+                    label="Prompt"
+                    htmlFor={`survey-question-prompt-${index}`}
+                  >
+                    <TextInput
+                      id={`survey-question-prompt-${index}`}
+                      value={question.prompt}
+                      onChange={(event) =>
+                        setSurveyQuestions((current) =>
+                          current.map((candidate, position) =>
+                            position === index
+                              ? {
+                                  ...candidate,
+                                  prompt: event.target.value,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                  </FormField>
+                  <FormField
+                    label="Dimension"
+                    htmlFor={`survey-question-dimension-${index}`}
+                  >
+                    <TextInput
+                      id={`survey-question-dimension-${index}`}
+                      value={question.dimension}
+                      onChange={(event) =>
+                        setSurveyQuestions((current) =>
+                          current.map((candidate, position) =>
+                            position === index
+                              ? {
+                                  ...candidate,
+                                  dimension: event.target.value,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      required
+                    />
+                  </FormField>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={surveyQuestions.length === 1}
+                    onClick={() =>
+                      setSurveyQuestions((current) =>
+                        current.filter((_, position) => position !== index),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              icon="plus"
+              onClick={() =>
+                setSurveyQuestions((current) => [
+                  ...current,
+                  { code: "", prompt: "", dimension: "" },
+                ])
+              }
+            >
+              Add question
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(respondTarget)}
+        title="Respond to trust survey"
+        onClose={() => setRespondTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRespondTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="survey-response-form"
+              loading={surveySaving}
+            >
+              Submit response
+            </Button>
+          </>
+        }
+      >
+        {respondTarget ? (
+          <form
+            id="survey-response-form"
+            className="stack"
+            onSubmit={submitSurveyResponse}
+          >
+            {responseError ? (
+              <InfoNotice tone="warning">{responseError}</InfoNotice>
+            ) : null}
+            <DefinitionList
+              items={[
+                { label: "Survey", value: respondTarget.title },
+                { label: "Period", value: respondTarget.period },
+                {
+                  label: "Anonymity",
+                  value: "Only a pseudonymous hash is stored with scores.",
+                },
+              ]}
+            />
+            <FormField label="Respondent" htmlFor="survey-respondent">
+              <PersonSelect
+                id="survey-respondent"
+                value={respondentId}
+                onChange={setRespondentId}
+              />
+            </FormField>
+            <div className="form-grid">
+              {respondTarget.questions.map((question) => (
+                <FormField
+                  key={question.code}
+                  label={question.prompt}
+                  htmlFor={`survey-score-${question.code}`}
+                  hint="1 = strongly disagree · 5 = strongly agree"
+                >
+                  <TextInput
+                    id={`survey-score-${question.code}`}
+                    type="number"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={responseScores[question.code] ?? ""}
+                    onChange={(event) =>
+                      setResponseScores((current) => ({
+                        ...current,
+                        [question.code]: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </FormField>
+              ))}
+            </div>
+          </form>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(reportTarget)}
+        title={reportTarget ? `${reportTarget.title} · report` : "Survey report"}
+        onClose={() => setReportTarget(null)}
+        wide
+      >
+        {report.error ? (
+          <ErrorNotice error={report.error} onRetry={report.reload} />
+        ) : report.loading || !report.data ? (
+          <LoadingRows rows={4} />
+        ) : (
+          <div className="stack">
+            <DefinitionList
+              items={[
+                { label: "Period", value: report.data.survey.period },
+                {
+                  label: "Responses",
+                  value: report.data.responseCount,
+                },
+                {
+                  label: "Status",
+                  value: <Badge status={report.data.survey.status} />,
+                },
+              ]}
+            />
+            <div className="detail-section">
+              <div className="detail-section__title">Dimension averages</div>
+              <div className="stack" style={{ gap: 6 }}>
+                {Object.entries(report.data.dimensions).map(
+                  ([dimension, score]) => {
+                    const baseline =
+                      report.data?.baseline?.dimensions[dimension];
+                    return (
+                      <div
+                        key={dimension}
+                        className="inline"
+                        style={{ justifyContent: "space-between", width: "100%" }}
+                      >
+                        <span>{titleCase(dimension)}</span>
+                        <span className="muted">
+                          {score.toFixed(2)} / 5
+                          {baseline !== undefined
+                            ? ` · baseline ${baseline.toFixed(2)}`
+                            : " · no baseline"}
+                        </span>
+                      </div>
+                    );
+                  },
+                )}
+              </div>
+            </div>
+            <div className="detail-section">
+              <div className="detail-section__title">Question averages</div>
+              <div className="stack" style={{ gap: 6 }}>
+                {report.data.survey.questions.map((question) => (
+                  <div
+                    key={question.code}
+                    className="inline"
+                    style={{ justifyContent: "space-between", width: "100%" }}
+                  >
+                    <span>{question.prompt}</span>
+                    <span className="muted">
+                      {report.data?.averages[question.code]?.toFixed(2) ?? "—"} /
+                      5
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <InfoNotice>
+              Result aggregation suppresses individual responses. Baseline
+              compares the most recent closed survey with the same code.
+            </InfoNotice>
+          </div>
+        )}
       </Modal>
 
       <InfoNotice>

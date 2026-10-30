@@ -6680,6 +6680,71 @@ describe("vertical slice", () => {
     expect(afterRetire.body.data.summary.activeSources).toBe(0);
   });
 
+  it("collects anonymous trust-survey responses and reports baselines", async () => {
+    const survey = await call("POST", "/api/v1/trust-surveys", {
+      code: "TRUST_QUARTERLY",
+      period: "2026-Q4",
+      title: "Quarterly trust and fairness",
+      questions: [
+        {
+          code: "FAIRNESS",
+          prompt: "The incentive process is fair.",
+          dimension: "FAIRNESS",
+        },
+        {
+          code: "VOICE",
+          prompt: "I can raise a concern safely.",
+          dimension: "VOICE",
+        },
+      ],
+    });
+    expect(survey.status).toBe(201);
+    expect(survey.body.data.status).toBe("DRAFT");
+    const surveyId = survey.body.data.id as string;
+    expect(
+      (
+        await call("POST", `/api/v1/trust-surveys/${surveyId}/open`)
+      ).status,
+    ).toBe(200);
+    const response = await call(
+      "POST",
+      `/api/v1/trust-surveys/${surveyId}/responses`,
+      {
+        personId: OWNER,
+        scores: { FAIRNESS: 4, VOICE: 5 },
+      },
+    );
+    expect(response.status).toBe(201);
+    expect(response.body.data.respondentHash).toMatch(/^sha256:/);
+    expect(response.body.data.personId).toBeUndefined();
+    const duplicate = await call(
+      "POST",
+      `/api/v1/trust-surveys/${surveyId}/responses`,
+      {
+        personId: OWNER,
+        scores: { FAIRNESS: 3, VOICE: 4 },
+      },
+    );
+    expect(duplicate.status).toBe(409);
+    const report = await call(
+      "GET",
+      `/api/v1/trust-surveys/${surveyId}/report`,
+    );
+    expect(report.status).toBe(200);
+    expect(report.body.data.responseCount).toBe(1);
+    expect(report.body.data.averages.FAIRNESS).toBe(4);
+    expect(report.body.data.dimensions.FAIRNESS).toBe(4);
+    expect(report.body.data.distribution.FAIRNESS["4"]).toBe(1);
+    const closed = await call(
+      "POST",
+      `/api/v1/trust-surveys/${surveyId}/close`,
+    );
+    expect(closed.body.data.status).toBe("CLOSED");
+    const annual = await call("GET", "/api/v1/reports/policy-review");
+    expect(annual.body.data.trustSurvey.available).toBe(true);
+    expect(annual.body.data.trustSurvey.responseCount).toBe(1);
+  });
+
   it("blocks adjudication when an active conflict is declared", async () => {
     const workPackageId = await createAcceptedWorkPackage();
     const created = await call("POST", "/api/v1/contribution-claims", {

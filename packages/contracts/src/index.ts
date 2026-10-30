@@ -92,6 +92,28 @@ export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;
 
+export const trustSurveyQuestionSchema = z.object({
+  code: z.string().min(1),
+  prompt: z.string().min(1),
+  dimension: z.string().min(1),
+});
+
+export const createTrustSurveySchema = z.object({
+  code: z.string().min(1),
+  period: z.string().min(1),
+  title: z.string().min(1),
+  questions: z.array(trustSurveyQuestionSchema).min(1),
+});
+export type CreateTrustSurveyBody = z.infer<typeof createTrustSurveySchema>;
+
+export const submitTrustSurveyResponseSchema = z.object({
+  personId: uuidSchema.optional(),
+  scores: z.record(z.number().min(1).max(5)),
+});
+export type SubmitTrustSurveyResponseBody = z.infer<
+  typeof submitTrustSurveyResponseSchema
+>;
+
 export const createConflictDeclarationSchema = z
   .object({
     personId: uuidSchema,

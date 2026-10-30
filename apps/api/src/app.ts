@@ -22,6 +22,8 @@ import {
   createContributionClaimSchema,
   createConflictDeclarationSchema,
   revokeConflictDeclarationSchema,
+  createTrustSurveySchema,
+  submitTrustSurveyResponseSchema,
   createOrgNodeSchema,
   approveAgentActionSchema,
   createEvidenceLinkSchema,
@@ -1946,6 +1948,7 @@ export function buildApp(
       dpias,
       proposals,
       modelRuns,
+      trustSurveys,
     ] = await Promise.all([
       store.listPolicyVersions(),
       platformStore.listNotices(tenantId),
@@ -1958,6 +1961,7 @@ export function buildApp(
       platformStore.listDpias(tenantId),
       platformStore.listAiScoreProposals(tenantId),
       platformStore.listModelEvaluationRuns(tenantId),
+      platformStore.listTrustSurveys(tenantId),
     ]);
     const noticeCoverage = await Promise.all(
       notices.map((notice) =>
@@ -1984,6 +1988,19 @@ export function buildApp(
     const decidedProposals = proposals.filter(
       (proposal) => proposal.status !== "PENDING",
     );
+    const latestTrustSurvey = trustSurveys
+      .filter((survey) => survey.status === "CLOSED")
+      .sort((a, b) =>
+        (b.closedAt ?? b.updatedAt).localeCompare(
+          a.closedAt ?? a.updatedAt,
+        ),
+      )[0];
+    const trustReport = latestTrustSurvey
+      ? await platformStore.getTrustSurveyReport(
+          tenantId,
+          latestTrustSurvey.id,
+        )
+      : undefined;
     const acceptedProposals = decidedProposals.filter(
       (proposal) => proposal.status === "ACCEPTED",
     ).length;
@@ -2064,10 +2081,19 @@ export function buildApp(
           approvedDpias: dpias.filter((record) => record.status === "APPROVED")
             .length,
         },
-        trustSurvey: {
-          available: false,
-          note: "Employee trust/procedural-fairness survey is not captured yet.",
-        },
+        trustSurvey: trustReport
+          ? {
+              available: true,
+              surveyId: trustReport.survey.id,
+              period: trustReport.survey.period,
+              responseCount: trustReport.responseCount,
+              dimensions: trustReport.dimensions,
+              baseline: trustReport.baseline,
+            }
+          : {
+              available: false,
+              note: "Employee trust/procedural-fairness survey is not captured yet.",
+            },
         subgroupImpact: {
           available: false,
           note: "Contribution/evaluation subgroup impact is not aggregated yet.",
@@ -2556,6 +2582,94 @@ export function buildApp(
         }),
         request,
       );
+  });
+
+  app.post("/api/v1/trust-surveys", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createTrustSurveySchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createTrustSurvey({
+          tenantId: tenantOf(request),
+          code: body.code,
+          period: body.period,
+          title: body.title,
+          questions: body.questions,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/trust-surveys", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listTrustSurveys(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/trust-surveys/:id/report", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getTrustSurveyReport(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/trust-surveys/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getTrustSurvey(tenantOf(request), idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/trust-surveys/:id/open", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await platformStore.openTrustSurvey({
+        tenantId: tenantOf(request),
+        surveyId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/trust-surveys/:id/close", async (request) => {
+    requireRoles(request, "manager");
+    return data(
+      await platformStore.closeTrustSurvey({
+        tenantId: tenantOf(request),
+        surveyId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/trust-surveys/:id/responses", async (request, reply) => {
+    const body = parse(submitTrustSurveyResponseSchema, request.body);
+    const own = ownPersonId(request);
+    const personId = own ?? body.personId;
+    if (!personId) {
+      throw new ForbiddenError(
+        "employee identity is required to submit a trust survey",
+      );
+    }
+    if (own && body.personId && body.personId !== own && !isPrivileged(request)) {
+      throw new ForbiddenError("cannot submit for another person");
+    }
+    return reply.status(201).send(
+      data(
+        await platformStore.submitTrustSurveyResponse({
+          tenantId: tenantOf(request),
+          surveyId: idOf(request),
+          personId,
+          scores: body.scores,
+        }),
+        request,
+      ),
+    );
   });
 
   app.post("/api/v1/attribution-decisions", async (request, reply) => {

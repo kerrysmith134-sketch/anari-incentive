@@ -471,6 +471,162 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/trust-surveys:
+    get:
+      tags: [Compliance]
+      summary: List anonymous trust surveys
+      responses:
+        "200":
+          description: Trust surveys
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Compliance]
+      summary: Create a trust survey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTrustSurvey"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/trust-surveys/{id}:
+    get:
+      tags: [Compliance]
+      summary: Read a trust survey
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Trust survey
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/trust-surveys/{id}/open:
+    post:
+      tags: [Compliance]
+      summary: Open a draft trust survey
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Opened
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/trust-surveys/{id}/close:
+    post:
+      tags: [Compliance]
+      summary: Close an open trust survey
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/trust-surveys/{id}/responses:
+    post:
+      tags: [Compliance]
+      summary: Submit an anonymous trust-survey response
+      description: |
+        Requires a linked person. The response stores a pseudonymous hash of
+        tenant, survey and person plus the score set; it never stores the
+        person id. One response per person per survey.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTrustSurveyResponse"
+      responses:
+        "201":
+          description: Response recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/trust-surveys/{id}/report:
+    get:
+      tags: [Compliance]
+      summary: Report trust-survey aggregates and baseline
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Aggregate report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/attribution-decisions:batch:
     post:
       tags: [Attribution]
@@ -6609,6 +6765,43 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateTrustSurvey:
+      type: object
+      required: [code, period, title, questions]
+      properties:
+        code:
+          type: string
+        period:
+          type: string
+        title:
+          type: string
+        questions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [code, prompt, dimension]
+            properties:
+              code:
+                type: string
+              prompt:
+                type: string
+              dimension:
+                type: string
+
+    SubmitTrustSurveyResponse:
+      type: object
+      required: [scores]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 1
+            maximum: 5
 
     CreateConflictDeclaration:
       type: object

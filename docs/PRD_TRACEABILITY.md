@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（234 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（46 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（235 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（47 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -78,7 +78,7 @@
 | INC-09 A 类池/成本核算 | ⚪ | 明确非目标，未实现 |
 | INC-10 Clawback | 🟡 | 冲销/Recovery 有；无书面同意、分期/困难豁免、最低工资与不追溯已签周期 |
 | INC-11 评价与发展/奖惩分离 | ✅ | EvaluationDecision、AttributionDecision、Ledger 分模型 |
-| INC-12 年度制度审查 | 🟡 | 新增 `GET /reports/policy-review` 与 console Annual review：滚动 12 个月的制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审、DQ、DSAR/DPIA、harness 证据；员工信任调查与子群体影响仍未采集，不能视为完整签收 |
+| INC-12 年度制度审查 | 🟡 | 新增 `GET /reports/policy-review` 与 console Annual review：滚动 12 个月的制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审、DQ、DSAR/DPIA、harness 证据；信任调查已接入年度报告（最近关闭期与 baseline）；子群体影响仍未采集，不能视为完整签收 |
 | INC-13 Policy Pack 契约 | 🟡 | `pack.json` 有 policy/fixtures；缺 roles、workPackageTemplates、evidenceRequirements、simulationData、seed 的契约与校验 |
 
 ### 4. 贡献认定
@@ -139,7 +139,7 @@
 | ORG-02 透明/本人数据/团队聚合 | 🟡 | 本人数据过滤有；团队聚合视图无，且 console 未按角色隐藏导航 |
 | ORG-03 无报复/申诉统计公开 | ❌ | 无承诺记录、无公开统计 |
 | ORG-04 经理培训/模板/校准会 | ❌ | 无培训/校准记录 |
-| ORG-05 信任/程序公平调查 | ❌ | 无基线/季度调查对象或报表 |
+| ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ❌ | 无正式威胁模型/STRIDE/数据流图 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
 | SEC-03 字段级 ABAC/break-glass | ❌ | 只有角色 + 对象/本人过滤；无字段级策略、break-glass 期限/理由/审计 |
@@ -158,7 +158,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **234 unit/API + 46 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **235 unit/API + 47 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -170,12 +170,14 @@
 
 15. **ATT-02 conflict registry**：新增关联方冲突声明、查询、撤销和双向 active 检查；申报认定（单条/批量）在创建前阻断冲突裁决人；迁移 `037_conflict_declarations.sql`，console 可维护。
 
+16. **ORG-05 trust surveys**：新增匿名信任/程序公平调查（DRAFT→OPEN→CLOSED）、伪名响应 hash、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期；迁移 `038_trust_surveys.sql`，console Settings 可创建/开放/关闭/响应/查看报告。
+
 ## 仍建议按 P0 顺序补做
 
 1. **future-dated consent/e-signature**：合同未来生效排期与外部电子签服务。
 2. **扣款与不利决定**：扣款类型/顺序与税费分类；PIP/培训/调岗/adverse action 独立人工流程。
 3. **AI-03 residual**：随机盲审抽样、高风险双人复核、审阅耗时/证据打开的前端分析面板。
-5. **DATA/ORG**：同伴提名/经理证明、员工/经理耗时与信任调查。
+5. **DATA/ORG**：同伴提名/经理证明、员工/经理耗时。
 6. **SEC**：威胁模型、字段级 ABAC、break-glass、导出 DLP/水印、供应商与 egress 策略。
 7. **INC**：角色薪酬模板、平滑阈值/不追溯、机动池治理、clawback 条件；年度审查已有一致性报告，但员工信任调查和子群体影响仍缺。
 8. **DOM-01/MON-07**：字段级契约校验、WORM/双副本/外部锚定。

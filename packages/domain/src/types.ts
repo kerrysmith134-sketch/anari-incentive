@@ -332,6 +332,51 @@ export interface RetentionPolicy {
   createdAt: string;
 }
 
+export interface TrustSurveyQuestion {
+  code: string;
+  prompt: string;
+  dimension: string;
+}
+
+export interface TrustSurveyRun {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  period: string;
+  title: string;
+  status: "DRAFT" | "OPEN" | "CLOSED";
+  anonymous: boolean;
+  questions: TrustSurveyQuestion[];
+  openedAt?: string;
+  closedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Pseudonymous response; the person id is never stored on the response. */
+export interface TrustSurveyResponse {
+  id: UUID;
+  tenantId: UUID;
+  surveyId: UUID;
+  respondentHash: string;
+  scores: Record<string, number>;
+  submittedAt: string;
+}
+
+export interface TrustSurveyReport {
+  survey: TrustSurveyRun;
+  responseCount: number;
+  averages: Record<string, number>;
+  dimensions: Record<string, number>;
+  distribution: Record<string, Record<string, number>>;
+  baseline?: {
+    surveyId: UUID;
+    period: string;
+    responseCount: number;
+    dimensions: Record<string, number>;
+  };
+}
+
 export interface ConflictDeclaration {
   id: UUID;
   tenantId: UUID;
