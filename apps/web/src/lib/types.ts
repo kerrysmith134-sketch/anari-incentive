@@ -745,6 +745,8 @@ export interface ContributionClaim {
   workPackageId: Uuid;
   claimantPersonId: Uuid;
   claimType: string;
+  claimMode: "STANDARD" | "EXCEPTION" | "BACKFILL";
+  exceptionReason?: string;
   claimedContribution: {
     dimensions: string[];
     summary: string;

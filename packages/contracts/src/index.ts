@@ -65,17 +65,29 @@ export const rejectWorkPackageSchema = z.object({
 });
 export type RejectWorkPackageInput = z.infer<typeof rejectWorkPackageSchema>;
 
-export const createContributionClaimSchema = z.object({
-  workPackageId: uuidSchema,
-  claimantPersonId: uuidSchema,
-  claimType: z.string().min(1),
-  claimedContribution: z.object({
-    dimensions: z.array(z.string().min(1)).min(1),
-    summary: z.string().min(1),
-  }),
-  evidenceRefs: z.array(z.string().min(1)).default([]),
-  rationale: z.string().min(3),
-});
+export const createContributionClaimSchema = z
+  .object({
+    workPackageId: uuidSchema,
+    claimantPersonId: uuidSchema,
+    claimType: z.string().min(1),
+    claimMode: z.enum(["STANDARD", "EXCEPTION", "BACKFILL"]).default("STANDARD"),
+    exceptionReason: z.string().min(3).optional(),
+    claimedContribution: z.object({
+      dimensions: z.array(z.string().min(1)).min(1),
+      summary: z.string().min(1),
+    }),
+    evidenceRefs: z.array(z.string().min(1)).default([]),
+    rationale: z.string().min(3),
+  })
+  .superRefine((value, context) => {
+    if (value.claimMode !== "STANDARD" && !value.exceptionReason?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["exceptionReason"],
+        message: "exceptionReason is required for EXCEPTION or BACKFILL claims",
+      });
+    }
+  });
 export type CreateContributionClaimInput = z.input<
   typeof createContributionClaimSchema
 >;

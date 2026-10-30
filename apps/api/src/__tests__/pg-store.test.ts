@@ -2973,6 +2973,28 @@ describePg("PgStore vertical slice", () => {
     expect(retired.version).toBe(2);
   });
 
+  it("persists claim exception provenance", async () => {
+    const workPackageId = await acceptedWorkPackage();
+    const claim = await store.createClaim({
+      workPackageId,
+      claimantPersonId: OWNER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimMode: "EXCEPTION",
+      exceptionReason: "Evidence system outage",
+      claimedContribution: {
+        dimensions: ["QUALITY"],
+        summary: "Late evidence",
+      },
+      evidenceRefs: [],
+      rationale: "Evidence arrived outside the normal window",
+    });
+    expect(claim.claimMode).toBe("EXCEPTION");
+    expect(claim.exceptionReason).toBe("Evidence system outage");
+    const loaded = await store.getClaim(claim.id);
+    expect(loaded.claimMode).toBe("EXCEPTION");
+    expect(loaded.exceptionReason).toBe("Evidence system outage");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

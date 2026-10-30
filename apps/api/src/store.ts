@@ -572,6 +572,12 @@ export class Store implements IncentiveStore {
         "a contribution claim requires a frozen commitment snapshot",
       );
     }
+    const claimMode = input.claimMode ?? "STANDARD";
+    if (claimMode !== "STANDARD" && !input.exceptionReason?.trim()) {
+      throw new ConflictError(
+        "CLAIM_EXCEPTION_REASON_REQUIRED: exception and backfill claims need a reason",
+      );
+    }
     const timestamp = now();
     const claim: ContributionClaim = {
       id: randomUUID(),
@@ -579,6 +585,9 @@ export class Store implements IncentiveStore {
       workPackageId: input.workPackageId,
       claimantPersonId: input.claimantPersonId,
       claimType: input.claimType,
+      claimMode,
+      exceptionReason:
+        claimMode === "STANDARD" ? undefined : input.exceptionReason?.trim(),
       claimedContribution: input.claimedContribution,
       evidenceRefs: input.evidenceRefs ?? [],
       rationale: input.rationale,

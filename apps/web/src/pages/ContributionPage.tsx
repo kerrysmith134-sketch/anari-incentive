@@ -88,6 +88,10 @@ export function ContributionPage() {
   const [claimPackageId, setClaimPackageId] = useState("");
   const [claimantId, setClaimantId] = useState(session.personId);
   const [claimType, setClaimType] = useState("CONTRIBUTION");
+  const [claimMode, setClaimMode] = useState<
+    "STANDARD" | "EXCEPTION" | "BACKFILL"
+  >("STANDARD");
+  const [claimExceptionReason, setClaimExceptionReason] = useState("");
   const [claimDimensions, setClaimDimensions] = useState("execution, ownership");
   const [claimSummary, setClaimSummary] = useState("");
   const [claimRationale, setClaimRationale] = useState("");
@@ -295,6 +299,8 @@ export function ContributionPage() {
     setClaimPackageId(claimablePackages[0]?.id ?? "");
     setClaimantId(session.personId);
     setClaimType("CONTRIBUTION");
+    setClaimMode("STANDARD");
+    setClaimExceptionReason("");
     setClaimDimensions("execution, ownership");
     setClaimSummary("");
     setClaimRationale("");
@@ -322,6 +328,11 @@ export function ContributionPage() {
           workPackageId: claimPackageId,
           claimantPersonId: claimantId,
           claimType: claimType.trim(),
+          claimMode,
+          exceptionReason:
+            claimMode === "STANDARD"
+              ? undefined
+              : claimExceptionReason.trim(),
           claimedContribution: {
             dimensions,
             summary: claimSummary.trim(),
@@ -709,6 +720,11 @@ export function ContributionPage() {
                             <span className="cell-primary">
                               {claim.claimType}
                             </span>
+                            {claim.claimMode !== "STANDARD" ? (
+                              <Badge tone="warning">
+                                {titleCase(claim.claimMode)}
+                              </Badge>
+                            ) : null}
                             <span className="cell-sub">
                               {claim.claimedContribution.summary}
                             </span>
@@ -1181,6 +1197,39 @@ export function ContributionPage() {
               required
             />
           </FormField>
+          <FormField label="Claim mode" htmlFor="claim-mode">
+            <Select
+              id="claim-mode"
+              value={claimMode}
+              onChange={(event) =>
+                setClaimMode(
+                  event.target.value as
+                    | "STANDARD"
+                    | "EXCEPTION"
+                    | "BACKFILL",
+                )
+              }
+            >
+              <option value="STANDARD">Standard</option>
+              <option value="EXCEPTION">Exception</option>
+              <option value="BACKFILL">Backfill</option>
+            </Select>
+          </FormField>
+          {claimMode !== "STANDARD" ? (
+            <FormField
+              label="Exception / backfill reason"
+              htmlFor="claim-exception-reason"
+            >
+              <TextInput
+                id="claim-exception-reason"
+                value={claimExceptionReason}
+                onChange={(event) =>
+                  setClaimExceptionReason(event.target.value)
+                }
+                required
+              />
+            </FormField>
+          ) : null}
           <FormField
             label="Dimensions (comma separated)"
             htmlFor="claim-dimensions"

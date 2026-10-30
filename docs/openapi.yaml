@@ -6482,6 +6482,14 @@ components:
           $ref: "#/components/schemas/Uuid"
         claimType:
           type: string
+        claimMode:
+          type: string
+          enum: [STANDARD, EXCEPTION, BACKFILL]
+          default: STANDARD
+        exceptionReason:
+          type: string
+          minLength: 3
+          description: Required when claimMode is EXCEPTION or BACKFILL.
         claimedContribution:
           type: object
           required: [dimensions, summary]

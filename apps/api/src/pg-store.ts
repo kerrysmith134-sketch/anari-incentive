@@ -558,18 +558,29 @@ export class PgStore implements IncentiveStore {
           "a contribution claim requires a frozen commitment snapshot",
         );
       }
+      const claimMode = input.claimMode ?? "STANDARD";
+      if (claimMode !== "STANDARD" && !input.exceptionReason?.trim()) {
+        throw new ConflictError(
+          "CLAIM_EXCEPTION_REASON_REQUIRED: exception and backfill claims need a reason",
+        );
+      }
       const id = randomUUID();
       await client.query(
         `INSERT INTO contribution_claims
           (id, tenant_id, work_package_id, claimant_person_id, claim_type,
-           claimed_contribution, rationale, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'DRAFT')`,
+           claim_mode, exception_reason, claimed_contribution, rationale,
+           status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'DRAFT')`,
         [
           id,
           this.tenantId,
           input.workPackageId,
           input.claimantPersonId,
           input.claimType,
+          claimMode,
+          claimMode === "STANDARD"
+            ? null
+            : input.exceptionReason?.trim() ?? null,
           JSON.stringify(input.claimedContribution),
           input.rationale,
         ],
@@ -3297,6 +3308,8 @@ export class PgStore implements IncentiveStore {
       workPackageId: row.work_package_id,
       claimantPersonId: row.claimant_person_id,
       claimType: row.claim_type,
+      claimMode: row.claim_mode ?? "STANDARD",
+      exceptionReason: row.exception_reason ?? undefined,
       claimedContribution: row.claimed_contribution,
       evidenceRefs: evidence.rows.map((item) => item.evidence_ref),
       rationale: row.rationale,

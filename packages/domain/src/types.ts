@@ -63,6 +63,8 @@ export interface ContributionClaim {
   workPackageId: UUID;
   claimantPersonId: UUID;
   claimType: string;
+  claimMode: "STANDARD" | "EXCEPTION" | "BACKFILL";
+  exceptionReason?: string;
   claimedContribution: ClaimedContribution;
   evidenceRefs: UUID[];
   rationale: string;

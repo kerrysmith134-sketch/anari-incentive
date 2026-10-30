@@ -6601,6 +6601,40 @@ describe("vertical slice", () => {
     expect(afterRetire.body.data.summary.activeSources).toBe(0);
   });
 
+  it("requires a reason for exception and backfill claims", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const missingReason = await call("POST", "/api/v1/contribution-claims", {
+      workPackageId,
+      claimantPersonId: OWNER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimMode: "EXCEPTION",
+      claimedContribution: {
+        dimensions: ["QUALITY"],
+        summary: "Late evidence submitted after acceptance",
+      },
+      rationale: "Evidence arrived after the normal window",
+    });
+    expect(missingReason.status).toBe(400);
+
+    const created = await call("POST", "/api/v1/contribution-claims", {
+      workPackageId,
+      claimantPersonId: OWNER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimMode: "BACKFILL",
+      exceptionReason: "Evidence system outage during the claim window",
+      claimedContribution: {
+        dimensions: ["QUALITY"],
+        summary: "Late evidence submitted after acceptance",
+      },
+      rationale: "Evidence arrived after the normal window",
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.data.claimMode).toBe("BACKFILL");
+    expect(created.body.data.exceptionReason).toContain("outage");
+    const listed = await call("GET", "/api/v1/contribution-claims");
+    expect(listed.body.data[0].claimMode).toBe("BACKFILL");
+  });
+
   it("runs a proactive agent scan across the tenant", async () => {
     await call("POST", "/api/v1/work-packages", {
       title: "Scan target",
