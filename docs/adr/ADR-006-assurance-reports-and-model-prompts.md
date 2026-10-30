@@ -16,5 +16,5 @@
   - Policy readiness is evidence-based but not a legal opinion. A green report means the recorded controls pass; it does not prove the underlying policy is lawful.
   - The test gate is tenant-configurable and off by default, so enabling it for an existing tenant needs a transition plan for policies without ACTIVE cases.
   - Memory and PostgreSQL must keep behavioural parity; API tests exercise memory and PostgreSQL integration tests exercise constraints and migrations.
-  - Governance tables still rely on tenant-scoped queries rather than PostgreSQL RLS; adding RLS requires separating platform-admin and tenant query paths and is tracked as productisation work.
+  - Governance and remaining tenant tables use PostgreSQL RLS. Tenant queries set `app.tenant_id` inside a transaction; a dedicated platform pool starts connections with `app.platform_admin=on` for platform/master-data access. The worker outbox source also sets `app.tenant_id` per transaction.
   - Prompt templates and test results are internal governance data; they are role-gated through the existing API roles but are not a substitute for a full data-retention or export-DLP design.

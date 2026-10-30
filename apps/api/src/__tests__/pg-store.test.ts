@@ -7,6 +7,7 @@ import {
 } from "@anari/agent-runtime";
 import { PgAgentTaskRepository } from "@anari/agent-persistence";
 import { createAgentContext } from "../agent-context.js";
+import { createPlatformPool } from "../platform-pool.js";
 import { PgPlatformStore } from "../platform-store.js";
 import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
@@ -22,10 +23,12 @@ const describePg = databaseUrl ? describe : describe.skip;
 
 describePg("PgStore vertical slice", () => {
   const pool = new Pool({ connectionString: databaseUrl });
+  const platformPool = createPlatformPool(databaseUrl);
   const store = new PgStore(pool);
 
   afterAll(async () => {
     await pool.end();
+    await platformPool.end();
   });
 
   async function acceptedWorkPackage() {
@@ -324,7 +327,7 @@ describePg("PgStore vertical slice", () => {
     expect(exported.csv).toContain("E001");
     expect(exported.csv).toContain("Sales Lead");
 
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const exportEvidence = await platform.createSettlementExport({
       tenantId: DEMO_TENANT_ID,
       batchId: batch.id,
@@ -1206,7 +1209,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("onboards tenants, users, memberships, persons and identity", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const slug = `pg-tenant-${Date.now()}`;
     const tenant = await platform.createTenant({
       name: "PG design partner",
@@ -1422,7 +1425,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records employee representations and policy consultations", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const representation = await platform.createRepresentation({
       tenantId: DEMO_TENANT_ID,
       bodyName: `PG works council ${Date.now()}`,
@@ -1474,7 +1477,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records and approves DPIA documents", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const dpia = await platform.createDpia({
       tenantId: DEMO_TENANT_ID,
       assessmentType: "DPIA",
@@ -1505,7 +1508,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records and resolves DSAR requests", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const dsar = await platform.createDsar({
       tenantId: DEMO_TENANT_ID,
       personId: OWNER,
@@ -1607,7 +1610,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records retention policies and legal holds", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const dataCategory = `PG_EVIDENCE_${Date.now()}`;
     const policy = await platform.createRetentionPolicy({
       tenantId: DEMO_TENANT_ID,
@@ -1640,7 +1643,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records approval requests with dual decisions", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const idempotencyKey = `pg-approval-${Date.now()}`;
     const request = await platform.createApprovalRequest({
       tenantId: DEMO_TENANT_ID,
@@ -1735,7 +1738,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("enforces budget pool approval, allocation limits and cash gates", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const tenant = await platform.createTenant({
       name: "PG budget tenant",
       slug: `pg-budget-${Date.now()}`,
@@ -1862,7 +1865,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records rule change orders, policy test cases and notice links", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const order = await platform.createRuleChangeOrder({
       tenantId: DEMO_TENANT_ID,
       policyCode: "GENERIC_CONTRIBUTION_V1",
@@ -2015,7 +2018,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records deliverables and acceptance evidence", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const workPackageId = await acceptedWorkPackage();
     const deliverable = await platform.createDeliverable({
       tenantId: DEMO_TENANT_ID,
@@ -2067,7 +2070,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records AI suggestions, model evaluations and workflow runs", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const runtime = new AgentRuntime(
       createAgentContext(store),
       createDefaultTools(),
@@ -2251,7 +2254,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("records integration connections, sync runs, identities and webhooks", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const connection = await platform.createIntegrationConnection({
       tenantId: DEMO_TENANT_ID,
       provider: "hubspot",
@@ -2448,7 +2451,7 @@ describePg("PgStore vertical slice", () => {
   });
 
   it("scopes governance records by tenant", async () => {
-    const platform = new PgPlatformStore(pool);
+    const platform = new PgPlatformStore(platformPool);
     const tenantA = await platform.createTenant({
       name: "Isolation A",
       slug: `isolation-a-${Date.now()}`,
@@ -2554,6 +2557,23 @@ describePg("PgStore vertical slice", () => {
         "SELECT count(*)::int AS count FROM work_packages",
       );
       expect(withoutContext.rows[0].count).toBe(0);
+      const governanceWithoutContext = await client.query(
+        "SELECT count(*)::int AS count FROM people",
+      );
+      expect(governanceWithoutContext.rows[0].count).toBe(0);
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        DEMO_TENANT_ID,
+      ]);
+      const governanceWithContext = await client.query(
+        "SELECT count(*)::int AS count FROM people",
+      );
+      expect(governanceWithContext.rows[0].count).toBeGreaterThan(0);
+      await client.query("ROLLBACK");
+      const platformRows = await platformPool.query(
+        "SELECT count(*)::int AS count FROM people",
+      );
+      expect(platformRows.rows[0].count).toBeGreaterThan(0);
     } finally {
       client.release();
     }

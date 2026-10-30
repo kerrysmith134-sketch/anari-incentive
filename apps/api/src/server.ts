@@ -11,6 +11,7 @@ import {
 } from "@anari/auth";
 import { buildApp, type AgentRuntimeFactory } from "./app.js";
 import { createAgentContext } from "./agent-context.js";
+import { createPlatformPool } from "./platform-pool.js";
 import { OtlpHttpTraceExporter } from "./tracing.js";
 import { Store } from "./store.js";
 import { PgStore } from "./pg-store.js";
@@ -26,6 +27,9 @@ const usePostgres =
 
 const pool = usePostgres
   ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : undefined;
+const platformPool = usePostgres
+  ? createPlatformPool(process.env.DATABASE_URL)
   : undefined;
 
 const resolveStore = (tenantId: string) =>
@@ -67,8 +71,8 @@ const createRuntime: AgentRuntimeFactory | undefined = pool
       )
   : undefined;
 
-const platformStore = pool
-  ? new PgPlatformStore(pool)
+const platformStore = platformPool
+  ? new PgPlatformStore(platformPool)
   : new MemoryPlatformStore({
       demoTenant: {
         id: defaultTenantId,
@@ -180,6 +184,7 @@ async function shutdown(signal: string): Promise<void> {
       .catch((error) => console.error("[tracing] flush failed", error));
   }
   if (pool) await pool.end();
+  if (platformPool) await platformPool.end();
   process.exit(0);
 }
 process.on("SIGINT", () => void shutdown("SIGINT"));

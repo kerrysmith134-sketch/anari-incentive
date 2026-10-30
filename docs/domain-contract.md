@@ -468,7 +468,7 @@ All `/api/v1` routes pass through a Fastify `preHandler`:
 - `AUTH_MODE=dev`: `DevHeaderAuthenticator` accepts `X-Tenant-Id` / `X-User-Id` and is only for local development.
 - Missing or invalid credentials return `401 UNAUTHENTICATED`.
 
-`buildApp` accepts either a single store or a `StoreResolver`. The server passes a resolver and the app caches one store and one agent runtime per authenticated tenant, so two tokens with different tenant claims cannot see each other's work packages, claims, runs or agent tasks. RLS remains defense in depth. `AUTH_MODE=dev` is still a development-only authenticator: it trusts client-supplied headers and must not be exposed in production.
+`buildApp` accepts either a single store or a `StoreResolver`. The server passes a resolver and the app caches one store and one agent runtime per authenticated tenant, so two tokens with different tenant claims cannot see each other's work packages, claims, runs or agent tasks. RLS remains defense in depth: tenant stores set `app.tenant_id` per transaction, the dedicated platform pool starts connections with `app.platform_admin=on` for governance/master-data access, and the worker outbox sets `app.tenant_id` per transaction. `AUTH_MODE=dev` is still a development-only authenticator: it trusts client-supplied headers and must not be exposed in production.
 
 The worker authenticates to the API with either a static `WORKER_TOKEN` or OAuth client credentials (`OIDC_TOKEN_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`); tokens are cached until shortly before expiry. Its token tenant claim must match `TENANT_ID`, because task persistence and API reads both resolve that tenant.
 
