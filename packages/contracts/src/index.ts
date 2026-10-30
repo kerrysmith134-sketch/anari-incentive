@@ -1103,6 +1103,9 @@ export const createEmploymentContractSchema = z.object({
   socialInsuranceRate: decimal.default("0"),
   deductionCapRate: decimal.default("0.2"),
   variableShareCapRate: decimal.default("1"),
+  deductionOrder: z
+    .array(z.enum(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]))
+    .default(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]),
   bankAccountRef: z.string().min(1).optional(),
   consentSignatureRef: z.string().min(1),
   consentSignedAt: z.string().datetime().optional(),
@@ -1118,6 +1121,9 @@ export const amendEmploymentContractSchema = z.object({
   socialInsuranceRate: decimal,
   deductionCapRate: decimal,
   variableShareCapRate: decimal,
+  deductionOrder: z
+    .array(z.enum(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]))
+    .optional(),
   bankAccountRef: z.string().min(1).optional(),
   effectiveFrom: z.string().datetime(),
   consentSignatureRef: z.string().min(1),
@@ -1168,6 +1174,15 @@ export const payrollLineInputSchema = z.object({
   variableShareCapRate: decimal,
   variableShareCapAmount: decimal,
   variableSharePassed: z.boolean(),
+  deductionBreakdown: z
+    .array(
+      z.object({
+        type: z.string().min(1),
+        amount: decimal,
+        priority: z.number().int().min(0),
+      }),
+    )
+    .default([]),
   bankAccountRef: z.string().min(1).optional(),
 });
 export type PayrollLineInput = z.infer<typeof payrollLineInputSchema>;

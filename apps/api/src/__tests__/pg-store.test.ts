@@ -2766,6 +2766,7 @@ describePg("PgStore vertical slice", () => {
       socialInsuranceRate: "0.05",
       deductionCapRate: "0.2",
       variableShareCapRate: "1",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       bankAccountRef: "PG-BANK-001",
       consentSignatureRef: "PG-ESIGN-001",
     });
@@ -2803,6 +2804,7 @@ describePg("PgStore vertical slice", () => {
     expect(calculated.lines?.length).toBe(calculation.lines.length);
     expect(calculated.lines?.[0]?.variableShareCapRate).toBe("1");
     expect(calculated.lines?.[0]?.variableSharePassed).toBe(true);
+    expect(calculated.lines?.[0]?.deductionBreakdown).toEqual([]);
     const approved = await platform.approvePayrollRun({
       tenantId: DEMO_TENANT_ID,
       runId: run.id,
@@ -2840,6 +2842,7 @@ describePg("PgStore vertical slice", () => {
       socialInsuranceRate: "0.05",
       deductionCapRate: "0.2",
       variableShareCapRate: "0.5",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       consentSignatureRef: "PG-ESIGN-1",
     });
     expect(contract.payPlanVersion).toBe(1);
@@ -2853,6 +2856,7 @@ describePg("PgStore vertical slice", () => {
       socialInsuranceRate: "0.06",
       deductionCapRate: "0.2",
       variableShareCapRate: "0.5",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       effectiveFrom: "2026-01-01T00:00:00Z",
       consentSignatureRef: "PG-ESIGN-2",
       approvedBy: ADJUDICATOR,

@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（248 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（56 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（249 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（56 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -57,7 +57,7 @@
 | LG-03 民主程序/员工代表 | ✅ | Representation、Consultation、legal gate ref、readiness 检查 |
 | LG-04 告知/签收 | ✅ | EmployeeNotice、Acknowledgement/Decline、覆盖率门禁；沉默不视为同意 |
 | LG-05 合同/薪酬方案变更 | 🟡 | 新增必填 consent signature、payPlanVersion 和 amendment history；amend 需同意证据且拒绝未来生效日期。仍未接入真正电子签服务，也不支持未来生效排期 |
-| LG-06 最低工资/扣款 | 🟡 | 本轮新增 contract 级 ledger 扣款上限（默认 20%）并在 payroll 行阻断；仍无扣款类型/顺序与税费分类 |
+| LG-06 最低工资/扣款 | 🟡 | 最低工资、contract 级 ledger 扣款上限、tax/social 分列已有；本轮新增 contract `deductionOrder` 与 payroll `deductionBreakdown`（按 REVERSAL/RECOVERY/ADJUSTMENT/OTHER 分组排序）；仍无执行令/员工同意等扣款类型的法定优先级与逐类型上限 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
 | LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；本轮新增数据源登记（owner/SLA/存储区域/跨境/处理者）与字段级 data map；自动删除仍未启用 |
 | LG-09 AI 告知/解释 | ✅ | 新增 `GET /me/ai-explanations` 和 console `My AI record`：员工可见 AI 使用、模型、notice/ack、草稿/决策、建议分数、人工复核与可申诉目标 |
@@ -158,7 +158,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **248 unit/API + 56 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **249 unit/API + 56 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -199,6 +199,8 @@
 29. **AI-02 gold-set registry**：新增 versioned gold set（sample/holdout/label source/owner/refresh due），`requireRegisteredGoldSet=true` 时 evaluation harness 拒绝未注册 datasetRef；迁移 `047_model_evaluation_datasets.sql`，AI 页面可维护；canary 仍未实现。
 
 30. **ATT-05 / DATA-03 evidence default rule**：`scoreEvidence` 返回 `insufficientEvidence`；默认 tenant `evidenceDefaultRule=BLOCK` 时 AI proposal 拒绝无证据维度，显式 `ZERO` 才允许 0 分；新增 scoring/API 测试。
+
+31. **LG-06 deduction order/breakdown**：EmploymentContract 增加 `deductionOrder`，PayrollLine 增加按类型分组的 `deductionBreakdown`，payroll 按合同顺序排序并在 CSV/console 展示；迁移 `048_deduction_order.sql`。法定扣款类型/逐类型上限仍未实现。
 
 ## 仍建议按 P0 顺序补做
 

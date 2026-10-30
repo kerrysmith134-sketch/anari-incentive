@@ -60,10 +60,45 @@ export function calculatePayroll(input: {
     );
     let incentive = 0n;
     let deductions = 0n;
+    const deductionOrder =
+      contract.deductionOrder.length > 0
+        ? contract.deductionOrder
+        : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"];
+    const priorityOf = (entryType: string): number => {
+      const mapped =
+        entryType === "RECOVERY" ||
+        entryType === "REVERSAL" ||
+        entryType === "ADJUSTMENT"
+          ? entryType
+          : "OTHER";
+      const index = deductionOrder.indexOf(mapped);
+      return index === -1 ? deductionOrder.length : index;
+    };
+    const negativeEntries = entries
+      .filter((entry) => parseDecimal(entry.amount) < 0n)
+      .sort((a, b) => priorityOf(a.entryType) - priorityOf(b.entryType));
+    const breakdown = new Map<string, { amount: bigint; priority: number }>();
     for (const entry of entries) {
       const amount = parseDecimal(entry.amount);
-      if (amount >= 0n) incentive += amount;
-      else deductions += -amount;
+      if (amount >= 0n) {
+        incentive += amount;
+        continue;
+      }
+      deductions += -amount;
+    }
+    for (const entry of negativeEntries) {
+      const mapped =
+        entry.entryType === "RECOVERY" ||
+        entry.entryType === "REVERSAL" ||
+        entry.entryType === "ADJUSTMENT"
+          ? entry.entryType
+          : "OTHER";
+      const current = breakdown.get(mapped);
+      const sum = (current?.amount ?? 0n) + -parseDecimal(entry.amount);
+      breakdown.set(mapped, {
+        amount: sum,
+        priority: priorityOf(entry.entryType),
+      });
     }
     const fixed = parseDecimal(contract.fixedMonthlySalary);
     const gross = fixed + incentive;
@@ -115,6 +150,13 @@ export function calculatePayroll(input: {
       variableShareCapRate: formatDecimal(variableShareCapRate),
       variableShareCapAmount: formatDecimal(variableShareCapAmount),
       variableSharePassed,
+      deductionBreakdown: [...breakdown.entries()]
+        .sort((a, b) => a[1].priority - b[1].priority)
+        .map(([type, value]) => ({
+          type,
+          amount: formatDecimal(value.amount),
+          priority: value.priority,
+        })),
       bankAccountRef: contract.bankAccountRef,
     });
   }
@@ -138,7 +180,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,bank_account_ref";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,deduction_breakdown,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -160,6 +202,9 @@ export function payrollCsv(run: PayrollRun): string {
       line.variableShareCapRate,
       line.variableShareCapAmount,
       line.variableSharePassed,
+      line.deductionBreakdown
+        .map((item) => `${item.type}:${item.amount}`)
+        .join("|"),
       line.bankAccountRef,
     ]
       .map(csvField)

@@ -1044,6 +1044,7 @@ export interface EmploymentContract {
   socialInsuranceRate: DecimalString;
   deductionCapRate: DecimalString;
   variableShareCapRate: DecimalString;
+  deductionOrder: string[];
   bankAccountRef?: string;
   payPlanVersion: number;
   consentSignatureRef: string;
@@ -1099,6 +1100,11 @@ export interface PayrollLine {
   variableShareCapRate: DecimalString;
   variableShareCapAmount: DecimalString;
   variableSharePassed: boolean;
+  deductionBreakdown: Array<{
+    type: string;
+    amount: DecimalString;
+    priority: number;
+  }>;
   bankAccountRef?: string;
   createdAt: string;
 }

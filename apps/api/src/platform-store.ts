@@ -1048,6 +1048,7 @@ export interface PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -1068,6 +1069,7 @@ export interface PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5532,6 +5534,7 @@ export class MemoryPlatformStore implements PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -5586,6 +5589,10 @@ export class MemoryPlatformStore implements PlatformStore {
     ) {
       throw new ConflictError("CONTRACT_VARIABLE_SHARE_CAP_OUT_OF_RANGE");
     }
+    const deductionOrder =
+      input.deductionOrder.length > 0
+        ? [...input.deductionOrder]
+        : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"];
     if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
@@ -5619,6 +5626,7 @@ export class MemoryPlatformStore implements PlatformStore {
       variableShareCapRate: formatDecimal(
         parseDecimal(input.variableShareCapRate),
       ),
+      deductionOrder,
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
       consentSignatureRef: input.consentSignatureRef,
@@ -5641,6 +5649,7 @@ export class MemoryPlatformStore implements PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5689,6 +5698,7 @@ export class MemoryPlatformStore implements PlatformStore {
       socialInsuranceRate: contract.socialInsuranceRate,
       deductionCapRate: contract.deductionCapRate,
       variableShareCapRate: contract.variableShareCapRate,
+      deductionOrder: [...contract.deductionOrder],
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -5708,6 +5718,9 @@ export class MemoryPlatformStore implements PlatformStore {
     contract.variableShareCapRate = formatDecimal(
       parseDecimal(input.variableShareCapRate),
     );
+    if (input.deductionOrder.length > 0) {
+      contract.deductionOrder = [...input.deductionOrder];
+    }
     contract.bankAccountRef = input.bankAccountRef;
     contract.payPlanVersion += 1;
     contract.consentSignatureRef = input.consentSignatureRef;
@@ -5721,6 +5734,7 @@ export class MemoryPlatformStore implements PlatformStore {
       socialInsuranceRate: contract.socialInsuranceRate,
       deductionCapRate: contract.deductionCapRate,
       variableShareCapRate: contract.variableShareCapRate,
+      deductionOrder: [...contract.deductionOrder],
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -11564,6 +11578,7 @@ export class PgPlatformStore implements PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -11613,9 +11628,9 @@ export class PgPlatformStore implements PlatformStore {
            start_date, end_date, work_location, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
-           bank_account_ref, pay_plan_version, consent_signature_ref,
-           consent_signed_at, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,1,$17,$18,'ACTIVE',1)
+           deduction_order, bank_account_ref, pay_plan_version,
+           consent_signature_ref, consent_signed_at, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,1,$18,$19,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -11633,6 +11648,11 @@ export class PgPlatformStore implements PlatformStore {
           input.socialInsuranceRate,
           input.deductionCapRate,
           input.variableShareCapRate,
+          JSON.stringify(
+            input.deductionOrder.length > 0
+              ? input.deductionOrder
+              : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+          ),
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
           input.consentSignedAt ?? new Date().toISOString(),
@@ -11661,6 +11681,7 @@ export class PgPlatformStore implements PlatformStore {
     socialInsuranceRate: string;
     deductionCapRate: string;
     variableShareCapRate: string;
+    deductionOrder: string[];
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -11712,6 +11733,8 @@ export class PgPlatformStore implements PlatformStore {
         variableShareCapRate: decimalText(
           String(row.variable_share_cap_rate),
         ),
+        deductionOrder:
+          (row.deduction_order as string[] | null) ?? [],
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
@@ -11720,9 +11743,10 @@ export class PgPlatformStore implements PlatformStore {
         `UPDATE employment_contracts
             SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
                 tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
-                variable_share_cap_rate=$8, bank_account_ref=$9,
-                pay_plan_version=$10, consent_signature_ref=$11,
-                consent_signed_at=$12, version=version+1, updated_at=now()
+                variable_share_cap_rate=$8, deduction_order=$9::jsonb,
+                bank_account_ref=$10, pay_plan_version=$11,
+                consent_signature_ref=$12, consent_signed_at=$13,
+                version=version+1, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -11734,6 +11758,11 @@ export class PgPlatformStore implements PlatformStore {
           input.socialInsuranceRate,
           input.deductionCapRate,
           input.variableShareCapRate,
+          JSON.stringify(
+            input.deductionOrder.length > 0
+              ? input.deductionOrder
+              : ((row.deduction_order as string[] | null) ?? []),
+          ),
           input.bankAccountRef ?? null,
           payPlanVersion,
           input.consentSignatureRef,
@@ -11757,6 +11786,8 @@ export class PgPlatformStore implements PlatformStore {
         variableShareCapRate: decimalText(
           String(updated[0]?.variable_share_cap_rate),
         ),
+        deductionOrder:
+          (updated[0]?.deduction_order as string[] | null) ?? [],
         bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
         payPlanVersion,
       };
@@ -12179,8 +12210,8 @@ export class PgPlatformStore implements PlatformStore {
              minimum_monthly_wage, minimum_wage_passed, deduction_cap_rate,
              deduction_cap_amount, deduction_cap_passed, variable_share_rate,
              variable_share_cap_rate, variable_share_cap_amount,
-             variable_share_passed, bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+             variable_share_passed, deduction_breakdown, bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24)`,
           [
             randomUUID(),
             input.tenantId,
@@ -12204,6 +12235,7 @@ export class PgPlatformStore implements PlatformStore {
             line.variableShareCapRate,
             line.variableShareCapAmount,
             line.variableSharePassed,
+            JSON.stringify(line.deductionBreakdown),
             line.bankAccountRef ?? null,
           ],
         );
@@ -13674,6 +13706,13 @@ export class PgPlatformStore implements PlatformStore {
         decimalText(String(row.deduction_cap_rate)) ?? "0.2",
       variableShareCapRate:
         decimalText(String(row.variable_share_cap_rate)) ?? "1",
+      deductionOrder:
+        (row.deduction_order as string[] | null) ?? [
+          "RECOVERY",
+          "REVERSAL",
+          "ADJUSTMENT",
+          "OTHER",
+        ],
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
       consentSignatureRef: row.consent_signature_ref,
@@ -13734,6 +13773,9 @@ export class PgPlatformStore implements PlatformStore {
       variableShareCapAmount:
         decimalText(String(row.variable_share_cap_amount)) ?? "0",
       variableSharePassed: row.variable_share_passed,
+      deductionBreakdown:
+        (row.deduction_breakdown as PayrollLine["deductionBreakdown"] | null) ??
+        [],
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

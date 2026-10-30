@@ -9046,6 +9046,11 @@ components:
           $ref: "#/components/schemas/Decimal"
         variableShareCapRate:
           $ref: "#/components/schemas/Decimal"
+        deductionOrder:
+          type: array
+          items:
+            type: string
+            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
         bankAccountRef:
           type: string
         consentSignatureRef:
@@ -9071,6 +9076,11 @@ components:
           $ref: "#/components/schemas/Decimal"
         variableShareCapRate:
           $ref: "#/components/schemas/Decimal"
+        deductionOrder:
+          type: array
+          items:
+            type: string
+            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
         bankAccountRef:
           type: string
         effectiveFrom:

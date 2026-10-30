@@ -693,6 +693,19 @@ function RunsTab({
                                     ? "Variable share within cap"
                                     : "Variable share exceeded"}
                                 </Badge>
+                                {line.deductionBreakdown.length > 0 ? (
+                                  <span className="cell-sub">
+                                    {line.deductionBreakdown
+                                      .map(
+                                        (item) =>
+                                          `${titleCase(item.type)} ${formatMoney(
+                                            item.amount,
+                                            line.currency,
+                                          )}`,
+                                      )
+                                      .join(" · ")}
+                                  </span>
+                                ) : null}
                               </div>
                             </td>
                             <td className="cell-actions">
@@ -960,6 +973,9 @@ function ContractsTab({
   const [socialRatePercent, setSocialRatePercent] = useState("0");
   const [deductionCapPercent, setDeductionCapPercent] = useState("20");
   const [variableCapPercent, setVariableCapPercent] = useState("100");
+  const [deductionOrder, setDeductionOrder] = useState(
+    "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
+  );
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -973,6 +989,9 @@ function ContractsTab({
   const [amendSocial, setAmendSocial] = useState("0");
   const [amendCap, setAmendCap] = useState("20");
   const [amendVariableCap, setAmendVariableCap] = useState("100");
+  const [amendDeductionOrder, setAmendDeductionOrder] = useState(
+    "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
+  );
   const [amendEffective, setAmendEffective] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -994,6 +1013,7 @@ function ContractsTab({
     setSocialRatePercent("0");
     setDeductionCapPercent("20");
     setVariableCapPercent("100");
+    setDeductionOrder("RECOVERY, REVERSAL, ADJUSTMENT, OTHER");
     setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
@@ -1021,6 +1041,10 @@ function ContractsTab({
           socialInsuranceRate: String(toNumber(socialRatePercent) / 100),
           deductionCapRate: String(toNumber(deductionCapPercent) / 100),
           variableShareCapRate: String(toNumber(variableCapPercent) / 100),
+          deductionOrder: deductionOrder
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
         },
@@ -1045,6 +1069,7 @@ function ContractsTab({
     setAmendSocial(String(toNumber(contract.socialInsuranceRate) * 100));
     setAmendCap(String(toNumber(contract.deductionCapRate) * 100));
     setAmendVariableCap(String(toNumber(contract.variableShareCapRate) * 100));
+    setAmendDeductionOrder(contract.deductionOrder.join(", "));
     setAmendEffective(new Date().toISOString().slice(0, 10));
     setAmendConsent("");
     setAmendApprover(session.personId);
@@ -1066,6 +1091,10 @@ function ContractsTab({
           socialInsuranceRate: String(toNumber(amendSocial) / 100),
           deductionCapRate: String(toNumber(amendCap) / 100),
           variableShareCapRate: String(toNumber(amendVariableCap) / 100),
+          deductionOrder: amendDeductionOrder
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
           effectiveFrom: toIsoDate(amendEffective),
           consentSignatureRef: amendConsent.trim(),
           approvedBy: amendApprover,
@@ -1356,6 +1385,17 @@ function ContractsTab({
               onChange={(event) => setVariableCapPercent(event.target.value)}
             />
           </FormField>
+          <FormField
+            label="Deduction order"
+            htmlFor="contract-deduction-order"
+            hint="Comma-separated types; payroll groups deductions in this order."
+          >
+            <TextInput
+              id="contract-deduction-order"
+              value={deductionOrder}
+              onChange={(event) => setDeductionOrder(event.target.value)}
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
@@ -1476,6 +1516,18 @@ function ContractsTab({
               step="0.01"
               value={amendVariableCap}
               onChange={(event) => setAmendVariableCap(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Deduction order"
+            htmlFor="amend-deduction-order"
+          >
+            <TextInput
+              id="amend-deduction-order"
+              value={amendDeductionOrder}
+              onChange={(event) =>
+                setAmendDeductionOrder(event.target.value)
+              }
             />
           </FormField>
           <FormField label="Effective date" htmlFor="amend-effective">

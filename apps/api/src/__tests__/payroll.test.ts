@@ -20,6 +20,7 @@ const contract: EmploymentContract = {
   socialInsuranceRate: "0.05",
   deductionCapRate: "0.2",
   variableShareCapRate: "1",
+  deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
   bankAccountRef: "BANK-1",
   payPlanVersion: 1,
   consentSignatureRef: "ESIGN-CAP-1",
@@ -60,6 +61,34 @@ function calculate(negativeAmount: string) {
   });
 }
 
+describe("payroll deduction order", () => {
+  it("groups and sorts deductions by the contract priority", () => {
+    const result = calculatePayroll({
+      contracts: [
+        {
+          ...contract,
+          deductionOrder: ["REVERSAL", "RECOVERY", "ADJUSTMENT", "OTHER"],
+        },
+      ],
+      ledger: [
+        { ...ledger("-300"), id: "recovery", entryType: "RECOVERY" },
+        { ...ledger("-200"), id: "adjustment", entryType: "ADJUSTMENT" },
+        { ...ledger("-100"), id: "reversal", entryType: "REVERSAL" },
+      ],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.deductionBreakdown).toEqual([
+      { type: "REVERSAL", amount: "100", priority: 0 },
+      { type: "RECOVERY", amount: "300", priority: 1 },
+      { type: "ADJUSTMENT", amount: "200", priority: 2 },
+    ]);
+    expect(result.lines[0]?.deductionAmount).toBe("600");
+  });
+});
+
 describe("payroll variable-share cap", () => {
   it("blocks a line when incentive exceeds the configured variable-share cap", () => {
     const result = calculatePayroll({
@@ -97,6 +126,9 @@ describe("payroll deduction cap", () => {
     expect(result.lines[0]?.grossAmount).toBe("8000");
     expect(result.lines[0]?.deductionCapAmount).toBe("1600");
     expect(result.lines[0]?.deductionCapPassed).toBe(false);
+    expect(result.lines[0]?.deductionBreakdown).toEqual([
+      { type: "OTHER", amount: "2000", priority: 3 },
+    ]);
     expect(result.lines[0]?.minimumWagePassed).toBe(true);
     expect(result.blockedCount).toBe(1);
   });
