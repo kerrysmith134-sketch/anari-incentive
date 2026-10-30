@@ -73,6 +73,9 @@ import {
   createSyncScheduleSchema,
   setSyncScheduleEnabledSchema,
   claimDueSyncSchedulesSchema,
+  createEquityGrantSchema,
+  createEquityExerciseSchema,
+  approveEquityExerciseSchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -3762,6 +3765,117 @@ export function buildApp(
         tenantId: tenantOf(request),
         scheduleId: idOf(request),
         enabled: body.enabled,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/equity-grants", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createEquityGrantSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createEquityGrant({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          grantCode: body.grantCode,
+          grantType: body.grantType,
+          totalUnits: body.totalUnits,
+          strikePrice: body.strikePrice,
+          currency: body.currency,
+          grantDate: body.grantDate,
+          vestingStart: body.vestingStart,
+          cliffMonths: body.cliffMonths ?? 0,
+          vestingMonths: body.vestingMonths,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/equity-grants", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listEquityGrants(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/equity-grants/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getEquityGrant(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/equity-grants/:id/vesting", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { asOf?: string };
+    return data(
+      await platformStore.getEquityVesting(
+        tenantOf(request),
+        idOf(request),
+        query.asOf,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/equity-grants/:id/exercises", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createEquityExerciseSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createEquityExercise({
+          tenantId: tenantOf(request),
+          grantId: idOf(request),
+          units: body.units,
+          requestedBy: body.requestedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/equity-exercises", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { grantId?: string };
+    return data(
+      await platformStore.listEquityExercises(
+        tenantOf(request),
+        query.grantId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/equity-exercises/:id/approve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(approveEquityExerciseSchema, request.body);
+    return data(
+      await platformStore.approveEquityExercise({
+        tenantId: tenantOf(request),
+        exerciseId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/equity-exercises/:id/settle", async (request) => {
+    requireRoles(request, "finance");
+    return data(
+      await platformStore.settleEquityExercise({
+        tenantId: tenantOf(request),
+        exerciseId: idOf(request),
       }),
       request,
     );

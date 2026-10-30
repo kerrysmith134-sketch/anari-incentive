@@ -592,6 +592,48 @@
     </section>
 
     <section class="card">
+      <h2>股权台账</h2>
+      <div class="grid">
+        <div><label>员工 ID</label><input id="equityPerson" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>授予编码</label><input id="equityCode" value="OPT-2026-001" /></div>
+        <div><label>类型</label><select id="equityType"><option>OPTION</option><option>RSU</option><option>SAR</option></select></div>
+        <div><label>总单位</label><input id="equityUnits" value="10000" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>行权价</label><input id="equityStrike" value="1.5" /></div>
+        <div><label>币种</label><input id="equityCurrency" value="CNY" /></div>
+        <div><label>授予日（ISO）</label><input id="equityGrantDate" value="2026-01-01T00:00:00Z" /></div>
+        <div><label>归属起算日（ISO）</label><input id="equityVestingStart" value="2026-01-01T00:00:00Z" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>悬崖月数</label><input id="equityCliff" value="12" /></div>
+        <div><label>归属月数</label><input id="equityVestingMonths" value="48" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createEquityGrant" style="width:100%">创建授予</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshEquityGrants" style="width:100%">刷新股权</button></div>
+      </div>
+      <div class="status" id="equityStatus"></div>
+      <pre id="equityVestingResult" hidden></pre>
+      <table>
+        <thead><tr><th>编码</th><th>员工</th><th>类型</th><th>总单位</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="equityGrantRows"></tbody>
+      </table>
+      <div class="grid" style="margin-top:12px">
+        <div><label>授予</label><select id="equityGrantSelect"></select></div>
+        <div><label>行权单位</label><input id="equityExerciseUnits" value="1000" /></div>
+        <div><label>请求人 ID</label><input id="equityRequester" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>批准人 ID</label><input id="equityApprover" value="00000000-0000-4000-8000-000000000003" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createEquityExercise">申请行权</button>
+        <button id="refreshEquityExercises">刷新行权</button>
+      </div>
+      <table>
+        <thead><tr><th>授予</th><th>单位</th><th>成本</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody id="equityExerciseRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>周期就绪度</h2>
       <div class="grid">
         <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
@@ -2086,6 +2128,138 @@
       }
     }
 
+    async function loadEquityGrants() {
+      try {
+        const grants = await api("/api/v1/equity-grants");
+        $("equityGrantRows").innerHTML = grants.map((grant) => `<tr>
+          <td class="mono">${escapeHtml(grant.grantCode)}</td>
+          <td class="mono">${escapeHtml(grant.personId.slice(0, 8))}</td>
+          <td>${escapeHtml(grant.grantType)}</td>
+          <td>${escapeHtml(grant.totalUnits)}</td>
+          <td><span class="pill">${escapeHtml(grant.status)}</span></td>
+          <td><button data-equity-vesting="${grant.id}">查看归属</button></td>
+        </tr>`).join("");
+        $("equityGrantSelect").innerHTML = grants.map(
+          (grant) =>
+            `<option value="${grant.id}">${escapeHtml(grant.grantCode)} (${escapeHtml(grant.totalUnits)})</option>`,
+        ).join("");
+        setStatus("equityStatus", `共 ${grants.length} 个授予`, "ok");
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createEquityGrant() {
+      try {
+        await api("/api/v1/equity-grants", {
+          method: "POST",
+          body: JSON.stringify({
+            personId: $("equityPerson").value.trim(),
+            grantCode: $("equityCode").value.trim(),
+            grantType: $("equityType").value,
+            totalUnits: $("equityUnits").value.trim(),
+            strikePrice: $("equityStrike").value.trim(),
+            currency: $("equityCurrency").value.trim(),
+            grantDate: $("equityGrantDate").value.trim(),
+            vestingStart: $("equityVestingStart").value.trim(),
+            cliffMonths: Number($("equityCliff").value),
+            vestingMonths: Number($("equityVestingMonths").value),
+          }),
+        });
+        setStatus("equityStatus", "股权授予已创建", "ok");
+        await loadEquityGrants();
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function viewEquityVesting(id) {
+      try {
+        const vesting = await api(`/api/v1/equity-grants/${id}/vesting`);
+        $("equityVestingResult").hidden = false;
+        $("equityVestingResult").textContent = JSON.stringify(
+          vesting,
+          null,
+          2,
+        );
+        setStatus(
+          "equityStatus",
+          `已归属 ${vesting.vestedUnits}，可用 ${vesting.availableUnits}`,
+          "ok",
+        );
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadEquityExercises() {
+      try {
+        const exercises = await api("/api/v1/equity-exercises");
+        $("equityExerciseRows").innerHTML = exercises.map((exercise) => `<tr>
+          <td class="mono">${escapeHtml(exercise.grantId.slice(0, 8))}</td>
+          <td>${escapeHtml(exercise.units)}</td>
+          <td>${escapeHtml(exercise.totalCost)} ${escapeHtml(exercise.currency)}</td>
+          <td><span class="pill">${escapeHtml(exercise.status)}</span></td>
+          <td>
+            ${exercise.status === "PENDING" ? `<button data-approve-equity="${exercise.id}">批准</button>` : ""}
+            ${exercise.status === "APPROVED" ? `<button data-settle-equity="${exercise.id}">结算</button>` : ""}
+          </td>
+        </tr>`).join("");
+        setStatus("equityStatus", `共 ${exercises.length} 条行权`, "ok");
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createEquityExercise() {
+      const grantId = $("equityGrantSelect").value;
+      if (!grantId) {
+        setStatus("equityStatus", "请先创建股权授予", "bad");
+        return;
+      }
+      try {
+        await api(`/api/v1/equity-grants/${grantId}/exercises`, {
+          method: "POST",
+          body: JSON.stringify({
+            units: $("equityExerciseUnits").value.trim(),
+            requestedBy: $("equityRequester").value.trim(),
+          }),
+        });
+        setStatus("equityStatus", "行权申请已创建", "ok");
+        await loadEquityExercises();
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function approveEquityExercise(id) {
+      try {
+        await api(`/api/v1/equity-exercises/${id}/approve`, {
+          method: "POST",
+          body: JSON.stringify({
+            approvedBy: $("equityApprover").value.trim(),
+          }),
+        });
+        setStatus("equityStatus", "行权已批准", "ok");
+        await loadEquityExercises();
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
+    async function settleEquityExercise(id) {
+      try {
+        await api(`/api/v1/equity-exercises/${id}/settle`, {
+          method: "POST",
+        });
+        setStatus("equityStatus", "行权已结算", "ok");
+        await loadEquityExercises();
+        await loadEquityGrants();
+      } catch (error) {
+        setStatus("equityStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -2318,6 +2492,29 @@
         );
       }
     });
+    $("createEquityGrant").addEventListener("click", createEquityGrant);
+    $("refreshEquityGrants").addEventListener("click", loadEquityGrants);
+    $("equityGrantRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-equity-vesting]");
+      if (button) viewEquityVesting(button.dataset.equityVesting);
+    });
+    $("createEquityExercise").addEventListener(
+      "click",
+      createEquityExercise,
+    );
+    $("refreshEquityExercises").addEventListener(
+      "click",
+      loadEquityExercises,
+    );
+    $("equityExerciseRows").addEventListener("click", (event) => {
+      const approve = event.target.closest("button[data-approve-equity]");
+      if (approve) {
+        approveEquityExercise(approve.dataset.approveEquity);
+        return;
+      }
+      const settle = event.target.closest("button[data-settle-equity]");
+      if (settle) settleEquityExercise(settle.dataset.settleEquity);
+    });
     $("loadReadiness").addEventListener("click", loadReadiness);
     $("loadPolicyReadiness").addEventListener(
       "click",
@@ -2349,6 +2546,8 @@
         loadPrompts(),
         loadScoreProposals(),
         loadSchedules(),
+        loadEquityGrants(),
+        loadEquityExercises(),
       ]);
     })();
   </script>

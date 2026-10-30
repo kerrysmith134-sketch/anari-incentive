@@ -27,6 +27,7 @@ security:
 tags:
   - name: System
   - name: Work packages
+  - name: Equity
   - name: Contribution claims
   - name: Attribution
   - name: Evaluation
@@ -2824,6 +2825,205 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/equity-grants:
+    get:
+      tags: [Equity]
+      summary: List equity grants
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Equity grants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Equity]
+      summary: Create an equity grant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEquityGrant"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/equity-grants/{id}:
+    get:
+      tags: [Equity]
+      summary: Read an equity grant
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Equity grant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/equity-grants/{id}/vesting:
+    get:
+      tags: [Equity]
+      summary: Compute vesting for an equity grant
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+        - name: asOf
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Vesting result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/equity-grants/{id}/exercises:
+    post:
+      tags: [Equity]
+      summary: Request an equity exercise
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEquityExercise"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/equity-exercises:
+    get:
+      tags: [Equity]
+      summary: List equity exercises
+      parameters:
+        - name: grantId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Exercises
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/equity-exercises/{id}/approve:
+    post:
+      tags: [Equity]
+      summary: Approve an equity exercise
+      description: The requester cannot approve their own exercise.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveEquityExercise"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/equity-exercises/{id}/settle:
+    post:
+      tags: [Equity]
+      summary: Settle an approved equity exercise
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Settled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
 
   /api/v1/integration-connections/{id}/sync-runs:
     get:
@@ -6066,6 +6266,56 @@ components:
         now:
           type: string
           format: date-time
+
+    CreateEquityGrant:
+      type: object
+      required:
+        [personId, grantCode, grantType, totalUnits, strikePrice, currency, grantDate, vestingStart, vestingMonths]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        grantCode:
+          type: string
+        grantType:
+          type: string
+          enum: [OPTION, RSU, SAR]
+        totalUnits:
+          $ref: "#/components/schemas/Decimal"
+        strikePrice:
+          $ref: "#/components/schemas/Decimal"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        grantDate:
+          type: string
+          format: date-time
+        vestingStart:
+          type: string
+          format: date-time
+        cliffMonths:
+          type: integer
+          minimum: 0
+          default: 0
+        vestingMonths:
+          type: integer
+          minimum: 1
+
+    CreateEquityExercise:
+      type: object
+      required: [units, requestedBy]
+      properties:
+        units:
+          $ref: "#/components/schemas/Decimal"
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ApproveEquityExercise:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateSyncRun:
       type: object

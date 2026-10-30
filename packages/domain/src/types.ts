@@ -648,6 +648,67 @@ export interface OperationsCoverageReport {
   };
 }
 
+export type EquityGrantType = "OPTION" | "RSU" | "SAR";
+export type EquityGrantStatus =
+  | "ACTIVE"
+  | "CANCELLED"
+  | "EXHAUSTED"
+  | "EXPIRED";
+export type EquityExerciseStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "SETTLED"
+  | "CANCELLED";
+
+export interface EquityGrant {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  grantCode: string;
+  grantType: EquityGrantType;
+  totalUnits: DecimalString;
+  strikePrice: DecimalString;
+  currency: string;
+  grantDate: string;
+  vestingStart: string;
+  cliffMonths: number;
+  vestingMonths: number;
+  status: EquityGrantStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface EquityExercise {
+  id: UUID;
+  tenantId: UUID;
+  grantId: UUID;
+  personId: UUID;
+  units: DecimalString;
+  strikePrice: DecimalString;
+  totalCost: DecimalString;
+  currency: string;
+  status: EquityExerciseStatus;
+  requestedBy: UUID;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  settledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface EquityVesting {
+  grantId: UUID;
+  asOf: string;
+  vestedUnits: DecimalString;
+  unvestedUnits: DecimalString;
+  exercisedUnits: DecimalString;
+  availableUnits: DecimalString;
+  nextVestAt?: string;
+  fullyVested: boolean;
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

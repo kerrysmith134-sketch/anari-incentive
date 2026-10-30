@@ -21,6 +21,9 @@ import type {
   DsarRequestType,
   EmployeeNotice,
   EmployeeRepresentation,
+  EquityExercise,
+  EquityGrant,
+  EquityVesting,
   ExternalIdentity,
   FinancialFact,
   IntegrationConnection,
@@ -681,6 +684,51 @@ export interface PlatformStore {
     limit: number;
     now?: string;
   }): Promise<SyncSchedule[]>;
+  createEquityGrant(input: {
+    tenantId: string;
+    personId: string;
+    grantCode: string;
+    grantType: EquityGrant["grantType"];
+    totalUnits: string;
+    strikePrice: string;
+    currency: string;
+    grantDate: string;
+    vestingStart: string;
+    cliffMonths: number;
+    vestingMonths: number;
+  }): Promise<EquityGrant>;
+  listEquityGrants(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EquityGrant[]>;
+  getEquityGrant(
+    tenantId: string,
+    grantId: string,
+  ): Promise<EquityGrant>;
+  getEquityVesting(
+    tenantId: string,
+    grantId: string,
+    asOf?: string,
+  ): Promise<EquityVesting>;
+  createEquityExercise(input: {
+    tenantId: string;
+    grantId: string;
+    units: string;
+    requestedBy: string;
+  }): Promise<EquityExercise>;
+  listEquityExercises(
+    tenantId: string,
+    grantId?: string,
+  ): Promise<EquityExercise[]>;
+  approveEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+    approvedBy: string;
+  }): Promise<EquityExercise>;
+  settleEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+  }): Promise<EquityExercise>;
   createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -798,6 +846,8 @@ export class MemoryPlatformStore implements PlatformStore {
     IntegrationMapping
   >();
   private readonly syncSchedules = new Map<string, SyncSchedule>();
+  private readonly equityGrants = new Map<string, EquityGrant>();
+  private readonly equityExercises = new Map<string, EquityExercise>();
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
@@ -3413,6 +3463,241 @@ export class MemoryPlatformStore implements PlatformStore {
     return due.map((schedule) => ({ ...schedule }));
   }
 
+  async createEquityGrant(input: {
+    tenantId: string;
+    personId: string;
+    grantCode: string;
+    grantType: EquityGrant["grantType"];
+    totalUnits: string;
+    strikePrice: string;
+    currency: string;
+    grantDate: string;
+    vestingStart: string;
+    cliffMonths: number;
+    vestingMonths: number;
+  }): Promise<EquityGrant> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (
+      [...this.equityGrants.values()].some(
+        (grant) =>
+          grant.tenantId === input.tenantId &&
+          grant.grantCode === input.grantCode,
+      )
+    ) {
+      throw new ConflictError(
+        `equity grant ${input.grantCode} already exists`,
+      );
+    }
+    if (parseDecimal(input.totalUnits) <= 0n) {
+      throw new ConflictError("EQ_TOTAL_UNITS_MUST_BE_POSITIVE");
+    }
+    if (parseDecimal(input.strikePrice) < 0n) {
+      throw new ConflictError("EQ_STRIKE_PRICE_MUST_BE_NON_NEGATIVE");
+    }
+    if (input.cliffMonths > input.vestingMonths) {
+      throw new ConflictError("EQ_CLIFF_EXCEEDS_VESTING");
+    }
+    const timestamp = now();
+    const grant: EquityGrant = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      grantCode: input.grantCode,
+      grantType: input.grantType,
+      totalUnits: formatDecimal(parseDecimal(input.totalUnits)),
+      strikePrice: formatDecimal(parseDecimal(input.strikePrice)),
+      currency: input.currency,
+      grantDate: input.grantDate,
+      vestingStart: input.vestingStart,
+      cliffMonths: input.cliffMonths,
+      vestingMonths: input.vestingMonths,
+      status: "ACTIVE",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.equityGrants.set(grant.id, grant);
+    return grant;
+  }
+
+  async listEquityGrants(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EquityGrant[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.equityGrants.values()]
+      .filter(
+        (grant) =>
+          grant.tenantId === tenantId &&
+          (!personId || grant.personId === personId),
+      )
+      .sort((a, b) => b.grantDate.localeCompare(a.grantDate));
+  }
+
+  async getEquityGrant(
+    tenantId: string,
+    grantId: string,
+  ): Promise<EquityGrant> {
+    const grant = this.equityGrants.get(grantId);
+    if (!grant || grant.tenantId !== tenantId) {
+      notFound("EquityGrant", grantId);
+    }
+    return grant;
+  }
+
+  async getEquityVesting(
+    tenantId: string,
+    grantId: string,
+    asOf = new Date().toISOString(),
+  ): Promise<EquityVesting> {
+    const grant = await this.getEquityGrant(tenantId, grantId);
+    const exercises = [...this.equityExercises.values()].filter(
+      (exercise) =>
+        exercise.tenantId === tenantId &&
+        exercise.grantId === grant.id,
+    );
+    return computeEquityVesting(grant, exercises, asOf);
+  }
+
+  async createEquityExercise(input: {
+    tenantId: string;
+    grantId: string;
+    units: string;
+    requestedBy: string;
+  }): Promise<EquityExercise> {
+    const grant = await this.getEquityGrant(
+      input.tenantId,
+      input.grantId,
+    );
+    if (grant.status !== "ACTIVE") {
+      throw new ConflictError(`equity grant is ${grant.status}`);
+    }
+    const requester = this.persons.get(input.requestedBy);
+    if (!requester || requester.tenantId !== input.tenantId) {
+      notFound("Person", input.requestedBy);
+    }
+    const units = parseDecimal(input.units);
+    if (units <= 0n) {
+      throw new ConflictError("EQ_UNITS_MUST_BE_POSITIVE");
+    }
+    const vesting = await this.getEquityVesting(
+      input.tenantId,
+      grant.id,
+    );
+    if (units > parseDecimal(vesting.availableUnits)) {
+      throw new ConflictError(
+        `EQ_UNITS_EXCEED_AVAILABLE: ${vesting.availableUnits}`,
+      );
+    }
+    const totalCost = (units * parseDecimal(grant.strikePrice)) / 1_000_000n;
+    const timestamp = now();
+    const exercise: EquityExercise = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      grantId: grant.id,
+      personId: grant.personId,
+      units: formatDecimal(units),
+      strikePrice: grant.strikePrice,
+      totalCost: formatDecimal(totalCost),
+      currency: grant.currency,
+      status: "PENDING",
+      requestedBy: input.requestedBy,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.equityExercises.set(exercise.id, exercise);
+    return exercise;
+  }
+
+  async listEquityExercises(
+    tenantId: string,
+    grantId?: string,
+  ): Promise<EquityExercise[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.equityExercises.values()]
+      .filter(
+        (exercise) =>
+          exercise.tenantId === tenantId &&
+          (!grantId || exercise.grantId === grantId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async approveEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+    approvedBy: string;
+  }): Promise<EquityExercise> {
+    const exercise = this.equityExercises.get(input.exerciseId);
+    if (!exercise || exercise.tenantId !== input.tenantId) {
+      notFound("EquityExercise", input.exerciseId);
+    }
+    if (exercise.status !== "PENDING") {
+      throw new ConflictError(
+        `equity exercise is ${exercise.status}`,
+      );
+    }
+    if (exercise.requestedBy === input.approvedBy) {
+      throw new ConflictError(
+        "EQ_SELF_APPROVAL: the requester cannot approve the exercise",
+      );
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    exercise.status = "APPROVED";
+    exercise.approvedBy = input.approvedBy;
+    exercise.approvedAt = now();
+    exercise.updatedAt = exercise.approvedAt;
+    exercise.version += 1;
+    return exercise;
+  }
+
+  async settleEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+  }): Promise<EquityExercise> {
+    const exercise = this.equityExercises.get(input.exerciseId);
+    if (!exercise || exercise.tenantId !== input.tenantId) {
+      notFound("EquityExercise", input.exerciseId);
+    }
+    if (exercise.status !== "APPROVED") {
+      throw new ConflictError(
+        `equity exercise is ${exercise.status}`,
+      );
+    }
+    exercise.status = "SETTLED";
+    exercise.settledAt = now();
+    exercise.updatedAt = exercise.settledAt;
+    exercise.version += 1;
+    const grant = await this.getEquityGrant(
+      input.tenantId,
+      exercise.grantId,
+    );
+    const settled = [...this.equityExercises.values()]
+      .filter(
+        (candidate) =>
+          candidate.tenantId === input.tenantId &&
+          candidate.grantId === grant.id &&
+          candidate.status !== "CANCELLED",
+      )
+      .reduce((sum, candidate) => sum + parseDecimal(candidate.units), 0n);
+    if (settled >= parseDecimal(grant.totalUnits)) {
+      grant.status = "EXHAUSTED";
+      grant.updatedAt = now();
+      grant.version += 1;
+    }
+    return exercise;
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -3704,6 +3989,60 @@ function decimalText(value: string | null): string | undefined {
   return text.includes(".")
     ? text.replace(/0+$/, "").replace(/\.$/, "")
     : text;
+}
+
+function addUtcMonths(value: Date, months: number): string {
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth() + months,
+      value.getUTCDate(),
+    ),
+  ).toISOString();
+}
+
+function computeEquityVesting(
+  grant: EquityGrant,
+  exercises: EquityExercise[],
+  asOf: string,
+): EquityVesting {
+  const total = parseDecimal(grant.totalUnits);
+  const asOfDate = new Date(asOf);
+  const start = new Date(grant.vestingStart);
+  let elapsedMonths =
+    (asOfDate.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (asOfDate.getUTCMonth() - start.getUTCMonth());
+  if (asOfDate.getUTCDate() < start.getUTCDate()) elapsedMonths -= 1;
+  elapsedMonths = Math.max(0, elapsedMonths);
+  const vestedMonths =
+    elapsedMonths < grant.cliffMonths
+      ? 0
+      : Math.min(grant.vestingMonths, elapsedMonths);
+  const vested =
+    grant.vestingMonths === 0
+      ? 0n
+      : (total * BigInt(vestedMonths)) / BigInt(grant.vestingMonths);
+  const exercised = exercises
+    .filter((exercise) => exercise.status !== "CANCELLED")
+    .reduce((sum, exercise) => sum + parseDecimal(exercise.units), 0n);
+  const available = vested > exercised ? vested - exercised : 0n;
+  let nextVestAt: string | undefined;
+  if (vestedMonths < grant.vestingMonths) {
+    nextVestAt =
+      vestedMonths === 0 && grant.cliffMonths > 0
+        ? addUtcMonths(start, grant.cliffMonths)
+        : addUtcMonths(start, vestedMonths + 1);
+  }
+  return {
+    grantId: grant.id,
+    asOf: asOfDate.toISOString(),
+    vestedUnits: formatDecimal(vested),
+    unvestedUnits: formatDecimal(total > vested ? total - vested : 0n),
+    exercisedUnits: formatDecimal(exercised),
+    availableUnits: formatDecimal(available),
+    nextVestAt,
+    fullyVested: vested === total,
+  };
 }
 
 function money(value: string): bigint {
@@ -6924,6 +7263,289 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async createEquityGrant(input: {
+    tenantId: string;
+    personId: string;
+    grantCode: string;
+    grantType: EquityGrant["grantType"];
+    totalUnits: string;
+    strikePrice: string;
+    currency: string;
+    grantDate: string;
+    vestingStart: string;
+    cliffMonths: number;
+    vestingMonths: number;
+  }): Promise<EquityGrant> {
+    if (parseDecimal(input.totalUnits) <= 0n) {
+      throw new ConflictError("EQ_TOTAL_UNITS_MUST_BE_POSITIVE");
+    }
+    if (parseDecimal(input.strikePrice) < 0n) {
+      throw new ConflictError("EQ_STRIKE_PRICE_MUST_BE_NON_NEGATIVE");
+    }
+    if (input.cliffMonths > input.vestingMonths) {
+      throw new ConflictError("EQ_CLIFF_EXCEEDS_VESTING");
+    }
+    await this.assertTenant(input.tenantId);
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO equity_grants
+          (id, tenant_id, person_id, grant_code, grant_type, total_units,
+           strike_price, currency, grant_date, vesting_start, cliff_months,
+           vesting_months, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ACTIVE',1)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.grantCode,
+          input.grantType,
+          input.totalUnits,
+          input.strikePrice,
+          input.currency,
+          input.grantDate,
+          input.vestingStart,
+          input.cliffMonths,
+          input.vestingMonths,
+        ],
+      );
+      return this.mapEquityGrant(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `equity grant ${input.grantCode} already exists`,
+        );
+      }
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.personId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listEquityGrants(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EquityGrant[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM equity_grants WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY grant_date DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapEquityGrant(row));
+  }
+
+  async getEquityGrant(
+    tenantId: string,
+    grantId: string,
+  ): Promise<EquityGrant> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM equity_grants WHERE tenant_id=$1 AND id=$2",
+      [tenantId, grantId],
+    );
+    if (!rows[0]) notFound("EquityGrant", grantId);
+    return this.mapEquityGrant(rows[0]);
+  }
+
+  async getEquityVesting(
+    tenantId: string,
+    grantId: string,
+    asOf = new Date().toISOString(),
+  ): Promise<EquityVesting> {
+    const grant = await this.getEquityGrant(tenantId, grantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM equity_exercises WHERE tenant_id=$1 AND grant_id=$2",
+      [tenantId, grantId],
+    );
+    return computeEquityVesting(
+      grant,
+      rows.map((row) => this.mapEquityExercise(row)),
+      asOf,
+    );
+  }
+
+  async createEquityExercise(input: {
+    tenantId: string;
+    grantId: string;
+    units: string;
+    requestedBy: string;
+  }): Promise<EquityExercise> {
+    return this.transaction(async (client) => {
+      const { rows: grantRows } = await client.query(
+        `SELECT * FROM equity_grants
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.grantId],
+      );
+      if (!grantRows[0]) notFound("EquityGrant", input.grantId);
+      const grant = this.mapEquityGrant(grantRows[0]);
+      if (grant.status !== "ACTIVE") {
+        throw new ConflictError(`equity grant is ${grant.status}`);
+      }
+      const { rows: personRows } = await client.query(
+        "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.requestedBy],
+      );
+      if (!personRows[0]) {
+        notFound("Person", input.requestedBy);
+      }
+      const { rows: exerciseRows } = await client.query(
+        "SELECT * FROM equity_exercises WHERE tenant_id=$1 AND grant_id=$2",
+        [input.tenantId, input.grantId],
+      );
+      const exercises = exerciseRows.map((row) =>
+        this.mapEquityExercise(row),
+      );
+      const units = parseDecimal(input.units);
+      if (units <= 0n) {
+        throw new ConflictError("EQ_UNITS_MUST_BE_POSITIVE");
+      }
+      const vesting = computeEquityVesting(grant, exercises, now());
+      if (units > parseDecimal(vesting.availableUnits)) {
+        throw new ConflictError(
+          `EQ_UNITS_EXCEED_AVAILABLE: ${vesting.availableUnits}`,
+        );
+      }
+      const totalCost =
+        (units * parseDecimal(grant.strikePrice)) / 1_000_000n;
+      const { rows } = await client.query(
+        `INSERT INTO equity_exercises
+          (id, tenant_id, grant_id, person_id, units, strike_price,
+           total_cost, currency, status, requested_by, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9,1)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          grant.id,
+          grant.personId,
+          formatDecimal(units),
+          grant.strikePrice,
+          formatDecimal(totalCost),
+          grant.currency,
+          input.requestedBy,
+        ],
+      );
+      return this.mapEquityExercise(rows[0]);
+    });
+  }
+
+  async listEquityExercises(
+    tenantId: string,
+    grantId?: string,
+  ): Promise<EquityExercise[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM equity_exercises WHERE tenant_id=$1";
+    if (grantId) {
+      params.push(grantId);
+      sql += " AND grant_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapEquityExercise(row));
+  }
+
+  async approveEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+    approvedBy: string;
+  }): Promise<EquityExercise> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM equity_exercises
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.exerciseId],
+      );
+      if (!rows[0]) notFound("EquityExercise", input.exerciseId);
+      const exercise = this.mapEquityExercise(rows[0]);
+      if (exercise.status !== "PENDING") {
+        throw new ConflictError(
+          `equity exercise is ${exercise.status}`,
+        );
+      }
+      if (exercise.requestedBy === input.approvedBy) {
+        throw new ConflictError(
+          "EQ_SELF_APPROVAL: the requester cannot approve the exercise",
+        );
+      }
+      const { rows: personRows } = await client.query(
+        "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.approvedBy],
+      );
+      if (!personRows[0]) {
+        notFound("Person", input.approvedBy);
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE equity_exercises
+            SET status='APPROVED', approved_by=$3, approved_at=now(),
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.exerciseId, input.approvedBy],
+      );
+      return this.mapEquityExercise(updated[0]);
+    });
+  }
+
+  async settleEquityExercise(input: {
+    tenantId: string;
+    exerciseId: string;
+  }): Promise<EquityExercise> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM equity_exercises
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.exerciseId],
+      );
+      if (!rows[0]) notFound("EquityExercise", input.exerciseId);
+      const exercise = this.mapEquityExercise(rows[0]);
+      if (exercise.status !== "APPROVED") {
+        throw new ConflictError(
+          `equity exercise is ${exercise.status}`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE equity_exercises
+            SET status='SETTLED', settled_at=now(), updated_at=now(),
+                version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.exerciseId],
+      );
+      const { rows: grants } = await client.query(
+        `SELECT * FROM equity_grants
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, exercise.grantId],
+      );
+      const grant = this.mapEquityGrant(grants[0]);
+      const { rows: exerciseRows } = await client.query(
+        "SELECT units FROM equity_exercises WHERE tenant_id=$1 AND grant_id=$2 AND status<>'CANCELLED'",
+        [input.tenantId, exercise.grantId],
+      );
+      const settled = exerciseRows.reduce(
+        (sum, row) => sum + parseDecimal(row.units),
+        0n,
+      );
+      if (settled >= parseDecimal(grant.totalUnits)) {
+        await client.query(
+          `UPDATE equity_grants
+              SET status='EXHAUSTED', updated_at=now(), version=version+1
+            WHERE tenant_id=$1 AND id=$2`,
+          [input.tenantId, exercise.grantId],
+        );
+      }
+      return this.mapEquityExercise(updated[0]);
+    });
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -7857,6 +8479,48 @@ export class PgPlatformStore implements PlatformStore {
       lastRunAt: iso(row.last_run_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapEquityGrant(row: QueryResultRow): EquityGrant {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      grantCode: row.grant_code,
+      grantType: row.grant_type,
+      totalUnits: decimalText(String(row.total_units)) ?? "0",
+      strikePrice: decimalText(String(row.strike_price)) ?? "0",
+      currency: String(row.currency).trim(),
+      grantDate: iso(row.grant_date) ?? new Date().toISOString(),
+      vestingStart: iso(row.vesting_start) ?? new Date().toISOString(),
+      cliffMonths: Number(row.cliff_months),
+      vestingMonths: Number(row.vesting_months),
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+    };
+  }
+
+  private mapEquityExercise(row: QueryResultRow): EquityExercise {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      grantId: row.grant_id,
+      personId: row.person_id,
+      units: decimalText(String(row.units)) ?? "0",
+      strikePrice: decimalText(String(row.strike_price)) ?? "0",
+      totalCost: decimalText(String(row.total_cost)) ?? "0",
+      currency: String(row.currency).trim(),
+      status: row.status,
+      requestedBy: row.requested_by,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      settledAt: iso(row.settled_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
     };
   }
 

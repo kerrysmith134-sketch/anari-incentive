@@ -2614,6 +2614,60 @@ describePg("PgStore vertical slice", () => {
     expect(rows[0]?.count).toBeGreaterThanOrEqual(12);
   });
 
+  it("tracks equity vesting and exercises", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const grant = await platform.createEquityGrant({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      grantCode: `PG-EQ-${Date.now()}`,
+      grantType: "OPTION",
+      totalUnits: "10000",
+      strikePrice: "1.5",
+      currency: "CNY",
+      grantDate: "2025-01-01T00:00:00Z",
+      vestingStart: "2025-01-01T00:00:00Z",
+      cliffMonths: 12,
+      vestingMonths: 48,
+    });
+    const vesting = await platform.getEquityVesting(
+      DEMO_TENANT_ID,
+      grant.id,
+      "2026-01-01T00:00:00Z",
+    );
+    expect(vesting.vestedUnits).toBe("2500");
+    expect(vesting.availableUnits).toBe("2500");
+    const exercise = await platform.createEquityExercise({
+      tenantId: DEMO_TENANT_ID,
+      grantId: grant.id,
+      units: "1000",
+      requestedBy: OWNER,
+    });
+    expect(exercise.totalCost).toBe("1500");
+    await expect(
+      platform.approveEquityExercise({
+        tenantId: DEMO_TENANT_ID,
+        exerciseId: exercise.id,
+        approvedBy: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const approved = await platform.approveEquityExercise({
+      tenantId: DEMO_TENANT_ID,
+      exerciseId: exercise.id,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(approved.status).toBe("APPROVED");
+    const settled = await platform.settleEquityExercise({
+      tenantId: DEMO_TENANT_ID,
+      exerciseId: exercise.id,
+    });
+    expect(settled.status).toBe("SETTLED");
+    expect(
+      (
+        await platform.listEquityExercises(DEMO_TENANT_ID, grant.id)
+      ).map((candidate) => candidate.id),
+    ).toEqual([exercise.id]);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

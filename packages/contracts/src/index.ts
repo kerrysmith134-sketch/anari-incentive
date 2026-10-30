@@ -639,6 +639,37 @@ export type ClaimDueSyncSchedulesBody = z.infer<
   typeof claimDueSyncSchedulesSchema
 >;
 
+export const createEquityGrantSchema = z.object({
+  personId: uuidSchema,
+  grantCode: z.string().min(1),
+  grantType: z.enum(["OPTION", "RSU", "SAR"]),
+  totalUnits: decimal,
+  strikePrice: decimal,
+  currency: z.string().length(3),
+  grantDate: z.string().datetime(),
+  vestingStart: z.string().datetime(),
+  cliffMonths: z.number().int().min(0).default(0),
+  vestingMonths: z.number().int().min(1),
+});
+export type CreateEquityGrantBody = z.infer<
+  typeof createEquityGrantSchema
+>;
+
+export const createEquityExerciseSchema = z.object({
+  units: decimal,
+  requestedBy: uuidSchema,
+});
+export type CreateEquityExerciseBody = z.infer<
+  typeof createEquityExerciseSchema
+>;
+
+export const approveEquityExerciseSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveEquityExerciseBody = z.infer<
+  typeof approveEquityExerciseSchema
+>;
+
 export const upsertExternalIdentitySchema = z.object({
   sourceSystem: z.string().min(1),
   externalId: z.string().min(1),

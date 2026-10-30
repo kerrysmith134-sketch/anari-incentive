@@ -2157,6 +2157,108 @@ describe("policy governance", () => {
   });
 });
 
+describe("equity ledger", () => {
+  it("vests grants and enforces exercise approval separation", async () => {
+    const grant = await call("POST", "/api/v1/equity-grants", {
+      personId: OWNER,
+      grantCode: "OPT-2026-001",
+      grantType: "OPTION",
+      totalUnits: "10000",
+      strikePrice: "1.5",
+      currency: "CNY",
+      grantDate: "2025-01-01T00:00:00Z",
+      vestingStart: "2025-01-01T00:00:00Z",
+      cliffMonths: 12,
+      vestingMonths: 48,
+    });
+    expect(grant.status).toBe(201);
+    expect(grant.body.data.status).toBe("ACTIVE");
+    const grantId = grant.body.data.id as string;
+    const duplicate = await call("POST", "/api/v1/equity-grants", {
+      personId: OWNER,
+      grantCode: "OPT-2026-001",
+      grantType: "OPTION",
+      totalUnits: "100",
+      strikePrice: "1",
+      currency: "CNY",
+      grantDate: "2026-01-01T00:00:00Z",
+      vestingStart: "2026-01-01T00:00:00Z",
+      cliffMonths: 0,
+      vestingMonths: 12,
+    });
+    expect(duplicate.status).toBe(409);
+
+    const beforeCliff = await call(
+      "GET",
+      `/api/v1/equity-grants/${grantId}/vesting?asOf=2025-06-01T00:00:00Z`,
+    );
+    expect(beforeCliff.body.data.vestedUnits).toBe("0");
+    expect(beforeCliff.body.data.nextVestAt).toBe(
+      "2026-01-01T00:00:00.000Z",
+    );
+    const atCliff = await call(
+      "GET",
+      `/api/v1/equity-grants/${grantId}/vesting?asOf=2026-01-01T00:00:00Z`,
+    );
+    expect(atCliff.body.data.vestedUnits).toBe("2500");
+    expect(atCliff.body.data.availableUnits).toBe("2500");
+
+    const exercise = await call(
+      "POST",
+      `/api/v1/equity-grants/${grantId}/exercises`,
+      { units: "1000", requestedBy: OWNER },
+    );
+    expect(exercise.status).toBe(201);
+    expect(exercise.body.data.totalCost).toBe("1500");
+    expect(exercise.body.data.status).toBe("PENDING");
+    const excessive = await call(
+      "POST",
+      `/api/v1/equity-grants/${grantId}/exercises`,
+      { units: "5000", requestedBy: OWNER },
+    );
+    expect(excessive.status).toBe(409);
+    expect(excessive.body.error.message).toContain(
+      "EQ_UNITS_EXCEED_AVAILABLE",
+    );
+
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/equity-exercises/${exercise.body.data.id}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(selfApproval.status).toBe(409);
+    const approved = await call(
+      "POST",
+      `/api/v1/equity-exercises/${exercise.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    const settled = await call(
+      "POST",
+      `/api/v1/equity-exercises/${exercise.body.data.id}/settle`,
+    );
+    expect(settled.status).toBe(200);
+    expect(settled.body.data.status).toBe("SETTLED");
+    const reSettle = await call(
+      "POST",
+      `/api/v1/equity-exercises/${exercise.body.data.id}/settle`,
+    );
+    expect(reSettle.status).toBe(409);
+
+    const grants = await call(
+      "GET",
+      `/api/v1/equity-grants?personId=${OWNER}`,
+    );
+    expect(grants.body.data).toHaveLength(1);
+    const exercises = await call(
+      "GET",
+      `/api/v1/equity-exercises?grantId=${grantId}`,
+    );
+    expect(exercises.body.data).toHaveLength(1);
+  });
+});
+
 describe("deliverables and acceptance", () => {
   it("submits deliverables and records acceptance with separation of duties", async () => {
     const workPackageId = await createAcceptedWorkPackage();

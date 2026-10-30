@@ -235,6 +235,11 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `GET /sync-schedules` | admin/integration | Lists schedules by next run time |
 | `POST /sync-schedules/claim-due` | integration | Atomically claims due enabled schedules, sets `lastRunAt` and advances `nextRunAt`; the runner creates the sync run |
 | `POST /sync-schedules/:id/status` | admin | Enables or disables a schedule |
+| `POST /equity-grants` | admin, person exists, unique grant code, positive units, cliff ≤ vesting | Creates an ACTIVE grant with a versioned vesting schedule |
+| `GET /equity-grants/:id/vesting` | manager/finance, optional `asOf` | Computes vested/unvested/reserved/available units and the next vest date |
+| `POST /equity-grants/:id/exercises` | manager/finance, ACTIVE grant, units ≤ available | Creates a PENDING exercise and computes cost from the strike price |
+| `POST /equity-exercises/:id/approve` | admin, PENDING, requester ≠ approver | Sets APPROVED with approver and timestamp |
+| `POST /equity-exercises/:id/settle` | finance, APPROVED | Sets SETTLED and marks the grant EXHAUSTED when all units are exercised |
 | `POST /integration-connections/:id/sync-runs` | manager/finance, connection exists | Creates a sync run (QUEUED or RUNNING) |
 | `POST /sync-runs/:id/finish` | manager/finance, not finished | Records counts, cursors, error and connection `lastSyncAt` |
 | `POST /external-identities` | manager/finance, person exists if supplied | Upserts by source/external id/object type |
