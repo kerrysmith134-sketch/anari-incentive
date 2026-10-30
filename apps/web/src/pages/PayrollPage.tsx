@@ -706,6 +706,12 @@ function RunsTab({
                                       .join(" · ")}
                                   </span>
                                 ) : null}
+                                {line.deductionTypeCapPassed ? null : (
+                                  <Badge tone="danger">
+                                    Type cap:{" "}
+                                    {line.deductionTypeCapBreaches.join(", ")}
+                                  </Badge>
+                                )}
                               </div>
                             </td>
                             <td className="cell-actions">
@@ -976,6 +982,7 @@ function ContractsTab({
   const [deductionOrder, setDeductionOrder] = useState(
     "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
   );
+  const [deductionTypeCaps, setDeductionTypeCaps] = useState("");
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -992,6 +999,7 @@ function ContractsTab({
   const [amendDeductionOrder, setAmendDeductionOrder] = useState(
     "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
   );
+  const [amendDeductionTypeCaps, setAmendDeductionTypeCaps] = useState("");
   const [amendEffective, setAmendEffective] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -1014,6 +1022,7 @@ function ContractsTab({
     setDeductionCapPercent("20");
     setVariableCapPercent("100");
     setDeductionOrder("RECOVERY, REVERSAL, ADJUSTMENT, OTHER");
+    setDeductionTypeCaps("");
     setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
@@ -1045,6 +1054,12 @@ function ContractsTab({
             .split(",")
             .map((value) => value.trim())
             .filter(Boolean),
+          deductionTypeCaps: Object.fromEntries(
+            deductionTypeCaps
+              .split(",")
+              .map((part) => part.split("=").map((value) => value.trim()))
+              .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
+          ),
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
         },
@@ -1070,6 +1085,11 @@ function ContractsTab({
     setAmendCap(String(toNumber(contract.deductionCapRate) * 100));
     setAmendVariableCap(String(toNumber(contract.variableShareCapRate) * 100));
     setAmendDeductionOrder(contract.deductionOrder.join(", "));
+    setAmendDeductionTypeCaps(
+      Object.entries(contract.deductionTypeCaps ?? {})
+        .map(([type, rate]) => `${type}=${rate}`)
+        .join(", "),
+    );
     setAmendEffective(new Date().toISOString().slice(0, 10));
     setAmendConsent("");
     setAmendApprover(session.personId);
@@ -1095,6 +1115,12 @@ function ContractsTab({
             .split(",")
             .map((value) => value.trim())
             .filter(Boolean),
+          deductionTypeCaps: Object.fromEntries(
+            amendDeductionTypeCaps
+              .split(",")
+              .map((part) => part.split("=").map((value) => value.trim()))
+              .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
+          ),
           effectiveFrom: toIsoDate(amendEffective),
           consentSignatureRef: amendConsent.trim(),
           approvedBy: amendApprover,
@@ -1396,6 +1422,19 @@ function ContractsTab({
               onChange={(event) => setDeductionOrder(event.target.value)}
             />
           </FormField>
+          <FormField
+            label="Deduction type caps"
+            htmlFor="contract-deduction-type-caps"
+            hint="Optional: TYPE=rate of gross, e.g. RECOVERY=0.1. Breaches block the line."
+          >
+            <TextInput
+              id="contract-deduction-type-caps"
+              value={deductionTypeCaps}
+              onChange={(event) =>
+                setDeductionTypeCaps(event.target.value)
+              }
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
@@ -1527,6 +1566,18 @@ function ContractsTab({
               value={amendDeductionOrder}
               onChange={(event) =>
                 setAmendDeductionOrder(event.target.value)
+              }
+            />
+          </FormField>
+          <FormField
+            label="Deduction type caps"
+            htmlFor="amend-deduction-type-caps"
+          >
+            <TextInput
+              id="amend-deduction-type-caps"
+              value={amendDeductionTypeCaps}
+              onChange={(event) =>
+                setAmendDeductionTypeCaps(event.target.value)
               }
             />
           </FormField>

@@ -121,9 +121,24 @@ export function calculatePayroll(input: {
     const variableShareCapAmount =
       (gross * variableShareCapRate) / 1_000_000n;
     const variableSharePassed = incentive <= variableShareCapAmount;
+    const deductionTypeCapBreaches: string[] = [];
+    for (const [type, value] of breakdown.entries()) {
+      const rate = contract.deductionTypeCaps[type];
+      if (!rate) continue;
+      const capRate = parseDecimal(rate);
+      const capAmount = (gross * capRate) / 1_000_000n;
+      if (value.amount > capAmount) {
+        deductionTypeCapBreaches.push(type);
+      }
+    }
+    const deductionTypeCapPassed =
+      deductionTypeCapBreaches.length === 0;
     const minimumWagePassed = net >= minimum;
     const passed =
-      minimumWagePassed && deductionCapPassed && variableSharePassed;
+      minimumWagePassed &&
+      deductionCapPassed &&
+      variableSharePassed &&
+      deductionTypeCapPassed;
     if (!passed) blockedCount += 1;
     totalGross += gross;
     totalDeductions += deductions + tax + socialInsurance;
@@ -150,6 +165,8 @@ export function calculatePayroll(input: {
       variableShareCapRate: formatDecimal(variableShareCapRate),
       variableShareCapAmount: formatDecimal(variableShareCapAmount),
       variableSharePassed,
+      deductionTypeCapPassed,
+      deductionTypeCapBreaches,
       deductionBreakdown: [...breakdown.entries()]
         .sort((a, b) => a[1].priority - b[1].priority)
         .map(([type, value]) => ({
@@ -180,7 +197,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,deduction_breakdown,bank_account_ref";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,deduction_breakdown,deduction_type_cap_passed,deduction_type_cap_breaches,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -205,6 +222,8 @@ export function payrollCsv(run: PayrollRun): string {
       line.deductionBreakdown
         .map((item) => `${item.type}:${item.amount}`)
         .join("|"),
+      line.deductionTypeCapPassed,
+      line.deductionTypeCapBreaches.join("|"),
       line.bankAccountRef,
     ]
       .map(csvField)

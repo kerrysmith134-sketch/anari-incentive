@@ -1099,6 +1099,7 @@ export interface PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -1120,6 +1121,7 @@ export interface PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5767,6 +5769,7 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -5825,6 +5828,14 @@ export class MemoryPlatformStore implements PlatformStore {
       input.deductionOrder.length > 0
         ? [...input.deductionOrder]
         : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"];
+    for (const [type, rate] of Object.entries(input.deductionTypeCaps)) {
+      const parsed = parseDecimal(rate);
+      if (parsed < 0n || parsed > 1_000_000n) {
+        throw new ConflictError(
+          `CONTRACT_DEDUCTION_TYPE_CAP_OUT_OF_RANGE:${type}`,
+        );
+      }
+    }
     if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
@@ -5859,6 +5870,12 @@ export class MemoryPlatformStore implements PlatformStore {
         parseDecimal(input.variableShareCapRate),
       ),
       deductionOrder,
+      deductionTypeCaps: Object.fromEntries(
+        Object.entries(input.deductionTypeCaps).map(([type, rate]) => [
+          type,
+          formatDecimal(parseDecimal(rate)),
+        ]),
+      ),
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
       consentSignatureRef: input.consentSignatureRef,
@@ -5882,6 +5899,7 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5933,6 +5951,7 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionCapRate: contract.deductionCapRate,
       variableShareCapRate: contract.variableShareCapRate,
       deductionOrder: [...contract.deductionOrder],
+      deductionTypeCaps: { ...contract.deductionTypeCaps },
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -6004,6 +6023,14 @@ export class MemoryPlatformStore implements PlatformStore {
     if (input.deductionOrder.length > 0) {
       contract.deductionOrder = [...input.deductionOrder];
     }
+    if (Object.keys(input.deductionTypeCaps).length > 0) {
+      contract.deductionTypeCaps = Object.fromEntries(
+        Object.entries(input.deductionTypeCaps).map(([type, rate]) => [
+          type,
+          formatDecimal(parseDecimal(rate)),
+        ]),
+      );
+    }
     contract.bankAccountRef = input.bankAccountRef;
     const existingAmendments =
       this.contractAmendments.get(contract.id) ?? [];
@@ -6026,6 +6053,7 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionCapRate: contract.deductionCapRate,
       variableShareCapRate: contract.variableShareCapRate,
       deductionOrder: [...contract.deductionOrder],
+      deductionTypeCaps: { ...contract.deductionTypeCaps },
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -12165,6 +12193,7 @@ export class PgPlatformStore implements PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -12214,9 +12243,10 @@ export class PgPlatformStore implements PlatformStore {
            start_date, end_date, work_location, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
-           deduction_order, bank_account_ref, pay_plan_version,
-           consent_signature_ref, consent_signed_at, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,1,$18,$19,'ACTIVE',1)
+           deduction_order, deduction_type_caps, bank_account_ref,
+           pay_plan_version, consent_signature_ref, consent_signed_at,
+           status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,1,$19,$20,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -12239,6 +12269,7 @@ export class PgPlatformStore implements PlatformStore {
               ? input.deductionOrder
               : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
           ),
+          JSON.stringify(input.deductionTypeCaps),
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
           input.consentSignedAt ?? new Date().toISOString(),
@@ -12268,6 +12299,7 @@ export class PgPlatformStore implements PlatformStore {
     deductionCapRate: string;
     variableShareCapRate: string;
     deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -12391,6 +12423,8 @@ export class PgPlatformStore implements PlatformStore {
         ),
         deductionOrder:
           (row.deduction_order as string[] | null) ?? [],
+        deductionTypeCaps:
+          (row.deduction_type_caps as Record<string, string> | null) ?? {},
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
@@ -12410,9 +12444,9 @@ export class PgPlatformStore implements PlatformStore {
             SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
                 tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
                 variable_share_cap_rate=$8, deduction_order=$9::jsonb,
-                bank_account_ref=$10, pay_plan_version=$11,
-                consent_signature_ref=$12, consent_signed_at=$13,
-                version=version+1, updated_at=now()
+                deduction_type_caps=$10::jsonb, bank_account_ref=$11,
+                pay_plan_version=$12, consent_signature_ref=$13,
+                consent_signed_at=$14, version=version+1, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -12428,6 +12462,12 @@ export class PgPlatformStore implements PlatformStore {
             input.deductionOrder.length > 0
               ? input.deductionOrder
               : ((row.deduction_order as string[] | null) ?? []),
+          ),
+          JSON.stringify(
+            Object.keys(input.deductionTypeCaps).length > 0
+              ? input.deductionTypeCaps
+              : ((row.deduction_type_caps as Record<string, string> | null) ??
+                {}),
           ),
           input.bankAccountRef ?? null,
           payPlanVersion,
@@ -12454,6 +12494,9 @@ export class PgPlatformStore implements PlatformStore {
         ),
         deductionOrder:
           (updated[0]?.deduction_order as string[] | null) ?? [],
+        deductionTypeCaps:
+          (updated[0]?.deduction_type_caps as Record<string, string> | null) ??
+          {},
         bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
         payPlanVersion,
       };
@@ -12974,8 +13017,10 @@ export class PgPlatformStore implements PlatformStore {
              minimum_monthly_wage, minimum_wage_passed, deduction_cap_rate,
              deduction_cap_amount, deduction_cap_passed, variable_share_rate,
              variable_share_cap_rate, variable_share_cap_amount,
-             variable_share_passed, deduction_breakdown, bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24)`,
+             variable_share_passed, deduction_breakdown,
+             deduction_type_cap_passed, deduction_type_cap_breaches,
+             bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26)`,
           [
             randomUUID(),
             input.tenantId,
@@ -13000,6 +13045,8 @@ export class PgPlatformStore implements PlatformStore {
             line.variableShareCapAmount,
             line.variableSharePassed,
             JSON.stringify(line.deductionBreakdown),
+            line.deductionTypeCapPassed,
+            JSON.stringify(line.deductionTypeCapBreaches),
             line.bankAccountRef ?? null,
           ],
         );
@@ -14524,6 +14571,8 @@ export class PgPlatformStore implements PlatformStore {
           "ADJUSTMENT",
           "OTHER",
         ],
+      deductionTypeCaps:
+        (row.deduction_type_caps as Record<string, string> | null) ?? {},
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
       consentSignatureRef: row.consent_signature_ref,
@@ -14591,6 +14640,9 @@ export class PgPlatformStore implements PlatformStore {
       deductionBreakdown:
         (row.deduction_breakdown as PayrollLine["deductionBreakdown"] | null) ??
         [],
+      deductionTypeCapPassed: row.deduction_type_cap_passed,
+      deductionTypeCapBreaches:
+        (row.deduction_type_cap_breaches as string[] | null) ?? [],
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

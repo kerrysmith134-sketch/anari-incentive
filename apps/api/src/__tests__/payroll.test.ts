@@ -21,6 +21,7 @@ const contract: EmploymentContract = {
   deductionCapRate: "0.2",
   variableShareCapRate: "1",
   deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+  deductionTypeCaps: {},
   bankAccountRef: "BANK-1",
   payPlanVersion: 1,
   consentSignatureRef: "ESIGN-CAP-1",
@@ -60,6 +61,29 @@ function calculate(negativeAmount: string) {
     periodEnd: "2026-10-31T23:59:59.000Z",
   });
 }
+
+describe("payroll deduction type caps", () => {
+  it("blocks a line when one deduction type exceeds its cap", () => {
+    const result = calculatePayroll({
+      contracts: [
+        {
+          ...contract,
+          deductionTypeCaps: { RECOVERY: "0.02" },
+        },
+      ],
+      ledger: [
+        { ...ledger("-300"), id: "recovery-cap", entryType: "RECOVERY" },
+      ],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.deductionTypeCapPassed).toBe(false);
+    expect(result.lines[0]?.deductionTypeCapBreaches).toEqual(["RECOVERY"]);
+    expect(result.blockedCount).toBe(1);
+  });
+});
 
 describe("payroll deduction order", () => {
   it("groups and sorts deductions by the contract priority", () => {

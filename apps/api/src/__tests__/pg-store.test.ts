@@ -2763,6 +2763,7 @@ describePg("PgStore vertical slice", () => {
       deductionCapRate: "0.2",
       variableShareCapRate: "1",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
       bankAccountRef: "PG-BANK-001",
       consentSignatureRef: "PG-ESIGN-001",
     });
@@ -2839,6 +2840,7 @@ describePg("PgStore vertical slice", () => {
       deductionCapRate: "0.2",
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
       consentSignatureRef: "PG-ESIGN-1",
     });
     expect(contract.payPlanVersion).toBe(1);
@@ -2853,6 +2855,7 @@ describePg("PgStore vertical slice", () => {
       deductionCapRate: "0.2",
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
       effectiveFrom: "2026-01-01T00:00:00Z",
       consentSignatureRef: "PG-ESIGN-2",
       approvedBy: ADJUDICATOR,
@@ -3421,6 +3424,7 @@ describePg("PgStore vertical slice", () => {
       deductionCapRate: "0.2",
       variableShareCapRate: "1",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
       consentSignatureRef: "PG-FUTURE-ESIGN-1",
     });
     const unchanged = await platform.amendEmploymentContract({
@@ -3433,6 +3437,7 @@ describePg("PgStore vertical slice", () => {
       deductionCapRate: "0.2",
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
       effectiveFrom: "2027-01-01T00:00:00Z",
       consentSignatureRef: "PG-FUTURE-ESIGN-2",
       approvedBy: ADJUDICATOR,
