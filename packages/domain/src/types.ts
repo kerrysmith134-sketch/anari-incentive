@@ -739,6 +739,75 @@ export interface Bounty {
   version: number;
 }
 
+export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACTOR";
+export type EmploymentContractStatus = "ACTIVE" | "ENDED";
+
+export interface EmploymentContract {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  contractCode: string;
+  employmentType: EmploymentType;
+  startDate: string;
+  endDate?: string;
+  workLocation: string;
+  currency: string;
+  fixedMonthlySalary: DecimalString;
+  minimumMonthlyWage: DecimalString;
+  status: EmploymentContractStatus;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export type PayrollRunStatus =
+  | "DRAFT"
+  | "CALCULATED"
+  | "BLOCKED"
+  | "APPROVED"
+  | "PAID"
+  | "CANCELLED";
+
+export interface PayrollLine {
+  id: UUID;
+  tenantId: UUID;
+  runId: UUID;
+  personId: UUID;
+  contractId: UUID;
+  currency: string;
+  fixedAmount: DecimalString;
+  incentiveAmount: DecimalString;
+  grossAmount: DecimalString;
+  deductionAmount: DecimalString;
+  netAmount: DecimalString;
+  minimumMonthlyWage: DecimalString;
+  minimumWagePassed: boolean;
+  createdAt: string;
+}
+
+export interface PayrollRun {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  periodStart: string;
+  periodEnd: string;
+  currency: string;
+  status: PayrollRunStatus;
+  preparedBy: UUID;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  paidAt?: string;
+  totalGross: DecimalString;
+  totalDeductions: DecimalString;
+  totalNet: DecimalString;
+  lineCount: number;
+  blockedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lines?: PayrollLine[];
+}
+
 export interface PolicyNotice {
   id: UUID;
   tenantId: UUID;

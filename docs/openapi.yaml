@@ -29,6 +29,7 @@ tags:
   - name: Work packages
   - name: Equity
   - name: Bounty
+  - name: Payroll
   - name: Contribution claims
   - name: Attribution
   - name: Evaluation
@@ -3188,6 +3189,220 @@ paths:
     post:
       tags: [Bounty]
       summary: Cancel an unaccepted bounty
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/employment-contracts:
+    get:
+      tags: [Payroll]
+      summary: List employment contracts
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Contracts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Create an employment contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmploymentContract"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/payroll-runs:
+    get:
+      tags: [Payroll]
+      summary: List payroll runs
+      parameters:
+        - name: cycleId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Payroll runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Create a draft payroll run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePayrollRun"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/payroll-runs/{id}:
+    get:
+      tags: [Payroll]
+      summary: Read a payroll run with lines
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Payroll run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/payroll-runs/{id}/calculate:
+    post:
+      tags: [Payroll]
+      summary: Calculate payroll from contracts and locked ledger entries
+      description: |
+        Combines fixed salary with LOCKED ledger entries for the run's cycle.
+        Lines below the contract's declared minimum wage block approval.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Calculated or blocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/payroll-runs/{id}/approve:
+    post:
+      tags: [Payroll]
+      summary: Approve a calculated payroll run
+      description: The preparer cannot approve the run; blocked runs cannot be approved.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovePayrollRun"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/payroll-runs/{id}/pay:
+    post:
+      tags: [Payroll]
+      summary: Mark an approved payroll run paid
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Paid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/payroll-runs/{id}/cancel:
+    post:
+      tags: [Payroll]
+      summary: Cancel an unpaid payroll run
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -6542,6 +6757,61 @@ components:
           $ref: "#/components/schemas/Uuid"
         paymentRef:
           type: string
+
+    CreateEmploymentContract:
+      type: object
+      required:
+        [personId, contractCode, employmentType, startDate, workLocation, currency, fixedMonthlySalary, minimumMonthlyWage]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        contractCode:
+          type: string
+        employmentType:
+          type: string
+          enum: [FULL_TIME, PART_TIME, CONTRACTOR]
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        workLocation:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        fixedMonthlySalary:
+          $ref: "#/components/schemas/Decimal"
+        minimumMonthlyWage:
+          $ref: "#/components/schemas/Decimal"
+
+    CreatePayrollRun:
+      type: object
+      required: [cycleId, periodStart, periodEnd, currency, preparedBy]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        preparedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    ApprovePayrollRun:
+      type: object
+      required: [approvedBy]
+      properties:
+        approvedBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateSyncRun:
       type: object

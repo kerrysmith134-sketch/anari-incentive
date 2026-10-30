@@ -661,6 +661,49 @@
     </section>
 
     <section class="card">
+      <h2>HRIS 与薪酬</h2>
+      <div class="grid">
+        <div><label>员工 ID</label><input id="contractPerson" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div><label>合同编码</label><input id="contractCode" value="CT-2026-001" /></div>
+        <div><label>雇佣类型</label><select id="contractType"><option>FULL_TIME</option><option>PART_TIME</option><option>CONTRACTOR</option></select></div>
+        <div><label>开始日期（ISO）</label><input id="contractStart" value="2025-01-01T00:00:00Z" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>工作地</label><input id="contractLocation" value="Shanghai" /></div>
+        <div><label>币种</label><input id="contractCurrency" value="CNY" /></div>
+        <div><label>固定月薪</label><input id="contractFixed" value="8000" /></div>
+        <div><label>法定最低月薪</label><input id="contractMinimum" value="2690" /></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="createContract">创建合同</button>
+        <button id="refreshContracts">刷新合同</button>
+      </div>
+      <div class="status" id="payrollStatus"></div>
+      <table>
+        <thead><tr><th>编码</th><th>员工</th><th>类型</th><th>固定月薪</th><th>最低月薪</th><th>状态</th></tr></thead>
+        <tbody id="contractRows"></tbody>
+      </table>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>周期 ID</label><input id="payrollCycle" value="00000000-0000-4000-8000-000000000020" /></div>
+        <div><label>周期开始</label><input id="payrollStart" value="2026-10-01T00:00:00Z" /></div>
+        <div><label>周期结束</label><input id="payrollEnd" value="2026-10-31T23:59:59Z" /></div>
+        <div><label>币种</label><input id="payrollCurrency" value="CNY" /></div>
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>制表人 ID</label><input id="payrollPreparedBy" value="00000000-0000-4000-8000-000000000003" /></div>
+        <div><label>批准人 ID</label><input id="payrollApprover" value="00000000-0000-4000-8000-000000000001" /></div>
+        <div style="display:flex;align-items:flex-end"><button class="primary" id="createPayrollRun" style="width:100%">创建薪酬批次</button></div>
+        <div style="display:flex;align-items:flex-end"><button id="refreshPayrollRuns" style="width:100%">刷新薪酬批次</button></div>
+      </div>
+      <pre id="payrollRunResult" hidden></pre>
+      <table>
+        <thead><tr><th>周期</th><th>状态</th><th>应发/净发</th><th>阻断</th><th>操作</th></tr></thead>
+        <tbody id="payrollRunRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <h2>周期就绪度</h2>
       <div class="grid">
         <div><label>周期 ID</label><input id="readinessCycle" value="00000000-0000-4000-8000-000000000020" /></div>
@@ -2354,6 +2397,110 @@
       }
     }
 
+    async function loadContracts() {
+      try {
+        const contracts = await api("/api/v1/employment-contracts");
+        $("contractRows").innerHTML = contracts.map((contract) => `<tr>
+          <td class="mono">${escapeHtml(contract.contractCode)}</td>
+          <td class="mono">${escapeHtml(contract.personId.slice(0, 8))}</td>
+          <td>${escapeHtml(contract.employmentType)}</td>
+          <td>${escapeHtml(contract.fixedMonthlySalary)} ${escapeHtml(contract.currency)}</td>
+          <td>${escapeHtml(contract.minimumMonthlyWage)}</td>
+          <td><span class="pill">${escapeHtml(contract.status)}</span></td>
+        </tr>`).join("");
+        setStatus("payrollStatus", `共 ${contracts.length} 份合同`, "ok");
+      } catch (error) {
+        setStatus("payrollStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createContract() {
+      try {
+        await api("/api/v1/employment-contracts", {
+          method: "POST",
+          body: JSON.stringify({
+            personId: $("contractPerson").value.trim(),
+            contractCode: $("contractCode").value.trim(),
+            employmentType: $("contractType").value,
+            startDate: $("contractStart").value.trim(),
+            workLocation: $("contractLocation").value.trim(),
+            currency: $("contractCurrency").value.trim(),
+            fixedMonthlySalary: $("contractFixed").value.trim(),
+            minimumMonthlyWage: $("contractMinimum").value.trim(),
+          }),
+        });
+        setStatus("payrollStatus", "合同已创建", "ok");
+        await loadContracts();
+      } catch (error) {
+        setStatus("payrollStatus", String(error.message), "bad");
+      }
+    }
+
+    async function loadPayrollRuns() {
+      try {
+        const runs = await api("/api/v1/payroll-runs");
+        $("payrollRunRows").innerHTML = runs.map((run) => `<tr>
+          <td class="mono">${escapeHtml(run.cycleId.slice(0, 8))}</td>
+          <td><span class="pill">${escapeHtml(run.status)}</span></td>
+          <td>${escapeHtml(run.totalGross)} / ${escapeHtml(run.totalNet)} ${escapeHtml(run.currency)}</td>
+          <td>${run.blockedCount}</td>
+          <td>
+            ${["DRAFT", "CALCULATED", "BLOCKED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="calculate">计算</button>` : ""}
+            ${run.status === "CALCULATED" ? `<button data-payroll="${run.id}" data-payroll-action="approve">批准</button>` : ""}
+            ${run.status === "APPROVED" ? `<button data-payroll="${run.id}" data-payroll-action="pay">发放</button>` : ""}
+            ${!["PAID", "CANCELLED"].includes(run.status) ? `<button data-payroll="${run.id}" data-payroll-action="cancel">取消</button>` : ""}
+            <button data-payroll="${run.id}" data-payroll-action="view">详情</button>
+          </td>
+        </tr>`).join("");
+        setStatus("payrollStatus", `共 ${runs.length} 个薪酬批次`, "ok");
+      } catch (error) {
+        setStatus("payrollStatus", String(error.message), "bad");
+      }
+    }
+
+    async function createPayrollRun() {
+      try {
+        await api("/api/v1/payroll-runs", {
+          method: "POST",
+          body: JSON.stringify({
+            cycleId: $("payrollCycle").value.trim(),
+            periodStart: $("payrollStart").value.trim(),
+            periodEnd: $("payrollEnd").value.trim(),
+            currency: $("payrollCurrency").value.trim(),
+            preparedBy: $("payrollPreparedBy").value.trim(),
+          }),
+        });
+        setStatus("payrollStatus", "薪酬批次已创建", "ok");
+        await loadPayrollRuns();
+      } catch (error) {
+        setStatus("payrollStatus", String(error.message), "bad");
+      }
+    }
+
+    async function payrollAction(id, action) {
+      try {
+        if (action === "view") {
+          const run = await api(`/api/v1/payroll-runs/${id}`);
+          $("payrollRunResult").hidden = false;
+          $("payrollRunResult").textContent = JSON.stringify(run, null, 2);
+          setStatus("payrollStatus", "薪酬批次详情已加载", "ok");
+          return;
+        }
+        const body =
+          action === "approve"
+            ? { approvedBy: $("payrollApprover").value.trim() }
+            : {};
+        await api(`/api/v1/payroll-runs/${id}/${action}`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setStatus("payrollStatus", "薪酬批次状态已更新", "ok");
+        await loadPayrollRuns();
+      } catch (error) {
+        setStatus("payrollStatus", String(error.message), "bad");
+      }
+    }
+
     async function loadAi() {
       try {
         const [suggestions, evaluations, workflows] = await Promise.all([
@@ -2617,6 +2764,22 @@
         bountyAction(button.dataset.bounty, button.dataset.action);
       }
     });
+    $("createContract").addEventListener("click", createContract);
+    $("refreshContracts").addEventListener("click", loadContracts);
+    $("createPayrollRun").addEventListener("click", createPayrollRun);
+    $("refreshPayrollRuns").addEventListener(
+      "click",
+      loadPayrollRuns,
+    );
+    $("payrollRunRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-payroll]");
+      if (button) {
+        payrollAction(
+          button.dataset.payroll,
+          button.dataset.payrollAction,
+        );
+      }
+    });
     $("loadReadiness").addEventListener("click", loadReadiness);
     $("loadPolicyReadiness").addEventListener(
       "click",
@@ -2651,6 +2814,8 @@
         loadEquityGrants(),
         loadEquityExercises(),
         loadBounties(),
+        loadContracts(),
+        loadPayrollRuns(),
       ]);
     })();
   </script>

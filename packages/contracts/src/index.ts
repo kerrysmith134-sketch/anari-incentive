@@ -697,6 +697,61 @@ export const acceptBountySchema = z.object({
 });
 export type AcceptBountyBody = z.infer<typeof acceptBountySchema>;
 
+export const createEmploymentContractSchema = z.object({
+  personId: uuidSchema,
+  contractCode: z.string().min(1),
+  employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACTOR"]),
+  startDate: z.string().datetime(),
+  endDate: z.string().datetime().optional(),
+  workLocation: z.string().min(1),
+  currency: z.string().length(3),
+  fixedMonthlySalary: decimal,
+  minimumMonthlyWage: decimal,
+});
+export type CreateEmploymentContractBody = z.infer<
+  typeof createEmploymentContractSchema
+>;
+
+export const createPayrollRunSchema = z.object({
+  cycleId: uuidSchema,
+  periodStart: z.string().datetime(),
+  periodEnd: z.string().datetime(),
+  currency: z.string().length(3),
+  preparedBy: uuidSchema,
+});
+export type CreatePayrollRunBody = z.infer<typeof createPayrollRunSchema>;
+
+export const approvePayrollRunSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApprovePayrollRunBody = z.infer<
+  typeof approvePayrollRunSchema
+>;
+
+export const payrollLineInputSchema = z.object({
+  personId: uuidSchema,
+  contractId: uuidSchema,
+  fixedAmount: decimal,
+  incentiveAmount: decimal,
+  grossAmount: decimal,
+  deductionAmount: decimal,
+  netAmount: decimal,
+  minimumMonthlyWage: decimal,
+  minimumWagePassed: z.boolean(),
+});
+export type PayrollLineInput = z.infer<typeof payrollLineInputSchema>;
+
+export const savePayrollCalculationSchema = z.object({
+  lines: z.array(payrollLineInputSchema).min(1),
+  totalGross: decimal,
+  totalDeductions: decimal,
+  totalNet: decimal,
+  blockedCount: z.number().int().min(0),
+});
+export type SavePayrollCalculationBody = z.infer<
+  typeof savePayrollCalculationSchema
+>;
+
 export const upsertExternalIdentitySchema = z.object({
   sourceSystem: z.string().min(1),
   externalId: z.string().min(1),

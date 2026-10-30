@@ -22,6 +22,7 @@ import type {
   DsarRequestType,
   EmployeeNotice,
   EmployeeRepresentation,
+  EmploymentContract,
   EquityExercise,
   EquityGrant,
   EquityVesting,
@@ -42,6 +43,8 @@ import type {
   PlatformPerson,
   PlatformTenant,
   PlatformUser,
+  PayrollLine,
+  PayrollRun,
   PolicyAcknowledgement,
   PolicyConsultation,
   PolicyNotice,
@@ -765,6 +768,64 @@ export interface PlatformStore {
     tenantId: string;
     bountyId: string;
   }): Promise<Bounty>;
+  createEmploymentContract(input: {
+    tenantId: string;
+    personId: string;
+    contractCode: string;
+    employmentType: EmploymentContract["employmentType"];
+    startDate: string;
+    endDate?: string;
+    workLocation: string;
+    currency: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+  }): Promise<EmploymentContract>;
+  listEmploymentContracts(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EmploymentContract[]>;
+  getEmploymentContract(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContract>;
+  createPayrollRun(input: {
+    tenantId: string;
+    cycleId: string;
+    periodStart: string;
+    periodEnd: string;
+    currency: string;
+    preparedBy: string;
+  }): Promise<PayrollRun>;
+  listPayrollRuns(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<PayrollRun[]>;
+  getPayrollRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<PayrollRun>;
+  savePayrollCalculation(input: {
+    tenantId: string;
+    runId: string;
+    lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
+    totalGross: string;
+    totalDeductions: string;
+    totalNet: string;
+    blockedCount: number;
+  }): Promise<PayrollRun>;
+  approvePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    approvedBy: string;
+  }): Promise<PayrollRun>;
+  payPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun>;
+  cancelPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun>;
   createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -885,6 +946,12 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly equityGrants = new Map<string, EquityGrant>();
   private readonly equityExercises = new Map<string, EquityExercise>();
   private readonly bounties = new Map<string, Bounty>();
+  private readonly employmentContracts = new Map<
+    string,
+    EmploymentContract
+  >();
+  private readonly payrollRuns = new Map<string, PayrollRun>();
+  private readonly payrollLines = new Map<string, PayrollLine[]>();
   private readonly syncRuns = new Map<string, SyncRun>();
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
@@ -3878,6 +3945,279 @@ export class MemoryPlatformStore implements PlatformStore {
     bounty.updatedAt = bounty.cancelledAt;
     bounty.version += 1;
     return bounty;
+  }
+
+  async createEmploymentContract(input: {
+    tenantId: string;
+    personId: string;
+    contractCode: string;
+    employmentType: EmploymentContract["employmentType"];
+    startDate: string;
+    endDate?: string;
+    workLocation: string;
+    currency: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+  }): Promise<EmploymentContract> {
+    if (!this.tenants.has(input.tenantId)) {
+      notFound("Tenant", input.tenantId);
+    }
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (
+      [...this.employmentContracts.values()].some(
+        (contract) =>
+          contract.tenantId === input.tenantId &&
+          contract.contractCode === input.contractCode,
+      )
+    ) {
+      throw new ConflictError(
+        `employment contract ${input.contractCode} already exists`,
+      );
+    }
+    if (parseDecimal(input.fixedMonthlySalary) < 0n) {
+      throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
+    }
+    if (parseDecimal(input.minimumMonthlyWage) < 0n) {
+      throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
+    }
+    if (
+      input.endDate &&
+      Date.parse(input.endDate) <= Date.parse(input.startDate)
+    ) {
+      throw new ConflictError("CONTRACT_END_BEFORE_START");
+    }
+    const timestamp = now();
+    const contract: EmploymentContract = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      contractCode: input.contractCode,
+      employmentType: input.employmentType,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      workLocation: input.workLocation,
+      currency: input.currency,
+      fixedMonthlySalary: formatDecimal(
+        parseDecimal(input.fixedMonthlySalary),
+      ),
+      minimumMonthlyWage: formatDecimal(
+        parseDecimal(input.minimumMonthlyWage),
+      ),
+      status: "ACTIVE",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.employmentContracts.set(contract.id, contract);
+    return contract;
+  }
+
+  async listEmploymentContracts(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EmploymentContract[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.employmentContracts.values()]
+      .filter(
+        (contract) =>
+          contract.tenantId === tenantId &&
+          (!personId || contract.personId === personId),
+      )
+      .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  }
+
+  async getEmploymentContract(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContract> {
+    const contract = this.employmentContracts.get(contractId);
+    if (!contract || contract.tenantId !== tenantId) {
+      notFound("EmploymentContract", contractId);
+    }
+    return contract;
+  }
+
+  async createPayrollRun(input: {
+    tenantId: string;
+    cycleId: string;
+    periodStart: string;
+    periodEnd: string;
+    currency: string;
+    preparedBy: string;
+  }): Promise<PayrollRun> {
+    const preparer = this.persons.get(input.preparedBy);
+    if (!preparer || preparer.tenantId !== input.tenantId) {
+      notFound("Person", input.preparedBy);
+    }
+    if (Date.parse(input.periodEnd) <= Date.parse(input.periodStart)) {
+      throw new ConflictError("PAYROLL_PERIOD_INVALID");
+    }
+    const timestamp = now();
+    const run: PayrollRun = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      cycleId: input.cycleId,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      currency: input.currency,
+      status: "DRAFT",
+      preparedBy: input.preparedBy,
+      totalGross: "0",
+      totalDeductions: "0",
+      totalNet: "0",
+      lineCount: 0,
+      blockedCount: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.payrollRuns.set(run.id, run);
+    return { ...run, lines: [] };
+  }
+
+  async listPayrollRuns(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<PayrollRun[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.payrollRuns.values()]
+      .filter(
+        (run) =>
+          run.tenantId === tenantId &&
+          (!cycleId || run.cycleId === cycleId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((run) => ({
+        ...run,
+        lines: (this.payrollLines.get(run.id) ?? []).map((line) => ({
+          ...line,
+        })),
+      }));
+  }
+
+  async getPayrollRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(runId);
+    if (!run || run.tenantId !== tenantId) {
+      notFound("PayrollRun", runId);
+    }
+    return {
+      ...run,
+      lines: (this.payrollLines.get(run.id) ?? []).map((line) => ({
+        ...line,
+      })),
+    };
+  }
+
+  async savePayrollCalculation(input: {
+    tenantId: string;
+    runId: string;
+    lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
+    totalGross: string;
+    totalDeductions: string;
+    totalNet: string;
+    blockedCount: number;
+  }): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(input.runId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("PayrollRun", input.runId);
+    }
+    if (
+      run.status !== "DRAFT" &&
+      run.status !== "CALCULATED" &&
+      run.status !== "BLOCKED"
+    ) {
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    const timestamp = now();
+    const lines: PayrollLine[] = input.lines.map((line) => ({
+      ...line,
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      runId: input.runId,
+      createdAt: timestamp,
+    }));
+    this.payrollLines.set(input.runId, lines);
+    run.status = input.blockedCount > 0 ? "BLOCKED" : "CALCULATED";
+    run.totalGross = formatDecimal(parseDecimal(input.totalGross));
+    run.totalDeductions = formatDecimal(
+      parseDecimal(input.totalDeductions),
+    );
+    run.totalNet = formatDecimal(parseDecimal(input.totalNet));
+    run.lineCount = lines.length;
+    run.blockedCount = input.blockedCount;
+    run.updatedAt = timestamp;
+    run.version += 1;
+    return { ...run, lines: lines.map((line) => ({ ...line })) };
+  }
+
+  async approvePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    approvedBy: string;
+  }): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(input.runId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("PayrollRun", input.runId);
+    }
+    if (run.status !== "CALCULATED") {
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    if (run.preparedBy === input.approvedBy) {
+      throw new ConflictError(
+        "PAYROLL_SELF_APPROVAL: the preparer cannot approve the run",
+      );
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    run.status = "APPROVED";
+    run.approvedBy = input.approvedBy;
+    run.approvedAt = now();
+    run.updatedAt = run.approvedAt;
+    run.version += 1;
+    return run;
+  }
+
+  async payPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(input.runId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("PayrollRun", input.runId);
+    }
+    if (run.status !== "APPROVED") {
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    run.status = "PAID";
+    run.paidAt = now();
+    run.updatedAt = run.paidAt;
+    run.version += 1;
+    return run;
+  }
+
+  async cancelPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun> {
+    const run = this.payrollRuns.get(input.runId);
+    if (!run || run.tenantId !== input.tenantId) {
+      notFound("PayrollRun", input.runId);
+    }
+    if (run.status === "PAID" || run.status === "CANCELLED") {
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    run.status = "CANCELLED";
+    run.updatedAt = now();
+    run.version += 1;
+    return run;
   }
 
   async createSyncRun(input: {
@@ -7924,6 +8264,334 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapBounty(rows[0]);
   }
 
+  async createEmploymentContract(input: {
+    tenantId: string;
+    personId: string;
+    contractCode: string;
+    employmentType: EmploymentContract["employmentType"];
+    startDate: string;
+    endDate?: string;
+    workLocation: string;
+    currency: string;
+    fixedMonthlySalary: string;
+    minimumMonthlyWage: string;
+  }): Promise<EmploymentContract> {
+    if (parseDecimal(input.fixedMonthlySalary) < 0n) {
+      throw new ConflictError("CONTRACT_FIXED_SALARY_NEGATIVE");
+    }
+    if (parseDecimal(input.minimumMonthlyWage) < 0n) {
+      throw new ConflictError("CONTRACT_MINIMUM_WAGE_NEGATIVE");
+    }
+    if (
+      input.endDate &&
+      Date.parse(input.endDate) <= Date.parse(input.startDate)
+    ) {
+      throw new ConflictError("CONTRACT_END_BEFORE_START");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO employment_contracts
+          (id, tenant_id, person_id, contract_code, employment_type,
+           start_date, end_date, work_location, currency,
+           fixed_monthly_salary, minimum_monthly_wage, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACTIVE',1)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.contractCode,
+          input.employmentType,
+          input.startDate,
+          input.endDate ?? null,
+          input.workLocation,
+          input.currency,
+          input.fixedMonthlySalary,
+          input.minimumMonthlyWage,
+        ],
+      );
+      return this.mapEmploymentContract(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") {
+        throw new ConflictError(
+          `employment contract ${input.contractCode} already exists`,
+        );
+      }
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.personId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listEmploymentContracts(
+    tenantId: string,
+    personId?: string,
+  ): Promise<EmploymentContract[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM employment_contracts WHERE tenant_id=$1";
+    if (personId) {
+      params.push(personId);
+      sql += " AND person_id=$2";
+    }
+    sql += " ORDER BY start_date DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapEmploymentContract(row));
+  }
+
+  async getEmploymentContract(
+    tenantId: string,
+    contractId: string,
+  ): Promise<EmploymentContract> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM employment_contracts WHERE tenant_id=$1 AND id=$2",
+      [tenantId, contractId],
+    );
+    if (!rows[0]) notFound("EmploymentContract", contractId);
+    return this.mapEmploymentContract(rows[0]);
+  }
+
+  async createPayrollRun(input: {
+    tenantId: string;
+    cycleId: string;
+    periodStart: string;
+    periodEnd: string;
+    currency: string;
+    preparedBy: string;
+  }): Promise<PayrollRun> {
+    if (Date.parse(input.periodEnd) <= Date.parse(input.periodStart)) {
+      throw new ConflictError("PAYROLL_PERIOD_INVALID");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO payroll_runs
+          (id, tenant_id, cycle_id, period_start, period_end, currency,
+           status, prepared_by)
+         VALUES ($1,$2,$3,$4,$5,$6,'DRAFT',$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.cycleId,
+          input.periodStart,
+          input.periodEnd,
+          input.currency,
+          input.preparedBy,
+        ],
+      );
+      return this.mapPayrollRun(rows[0], []);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(`Person ${input.preparedBy} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listPayrollRuns(
+    tenantId: string,
+    cycleId?: string,
+  ): Promise<PayrollRun[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM payroll_runs WHERE tenant_id=$1";
+    if (cycleId) {
+      params.push(cycleId);
+      sql += " AND cycle_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    const runs: PayrollRun[] = [];
+    for (const row of rows) {
+      const { rows: lines } = await this.pool.query(
+        "SELECT * FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2 ORDER BY person_id",
+        [tenantId, row.id],
+      );
+      runs.push(
+        this.mapPayrollRun(
+          row,
+          lines.map((line) => this.mapPayrollLine(line)),
+        ),
+      );
+    }
+    return runs;
+  }
+
+  async getPayrollRun(
+    tenantId: string,
+    runId: string,
+  ): Promise<PayrollRun> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM payroll_runs WHERE tenant_id=$1 AND id=$2",
+      [tenantId, runId],
+    );
+    if (!rows[0]) notFound("PayrollRun", runId);
+    const { rows: lines } = await this.pool.query(
+      "SELECT * FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2 ORDER BY person_id",
+      [tenantId, runId],
+    );
+    return this.mapPayrollRun(
+      rows[0],
+      lines.map((line) => this.mapPayrollLine(line)),
+    );
+  }
+
+  async savePayrollCalculation(input: {
+    tenantId: string;
+    runId: string;
+    lines: Array<Omit<PayrollLine, "id" | "tenantId" | "runId" | "createdAt">>;
+    totalGross: string;
+    totalDeductions: string;
+    totalNet: string;
+    blockedCount: number;
+  }): Promise<PayrollRun> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM payroll_runs
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.runId],
+      );
+      if (!rows[0]) notFound("PayrollRun", input.runId);
+      if (!["DRAFT", "CALCULATED", "BLOCKED"].includes(rows[0].status)) {
+        throw new ConflictError(`payroll run is ${rows[0].status}`);
+      }
+      await client.query(
+        "DELETE FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2",
+        [input.tenantId, input.runId],
+      );
+      for (const line of input.lines) {
+        await client.query(
+          `INSERT INTO payroll_lines
+            (id, tenant_id, run_id, person_id, contract_id, currency,
+             fixed_amount, incentive_amount, gross_amount, deduction_amount,
+             net_amount, minimum_monthly_wage, minimum_wage_passed)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [
+            randomUUID(),
+            input.tenantId,
+            input.runId,
+            line.personId,
+            line.contractId,
+            line.currency,
+            line.fixedAmount,
+            line.incentiveAmount,
+            line.grossAmount,
+            line.deductionAmount,
+            line.netAmount,
+            line.minimumMonthlyWage,
+            line.minimumWagePassed,
+          ],
+        );
+      }
+      const status = input.blockedCount > 0 ? "BLOCKED" : "CALCULATED";
+      const { rows: updated } = await client.query(
+        `UPDATE payroll_runs
+            SET status=$3, total_gross=$4, total_deductions=$5,
+                total_net=$6, line_count=$7, blocked_count=$8,
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.runId,
+          status,
+          input.totalGross,
+          input.totalDeductions,
+          input.totalNet,
+          input.lines.length,
+          input.blockedCount,
+        ],
+      );
+      const { rows: lines } = await client.query(
+        "SELECT * FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2 ORDER BY person_id",
+        [input.tenantId, input.runId],
+      );
+      return this.mapPayrollRun(
+        updated[0],
+        lines.map((line) => this.mapPayrollLine(line)),
+      );
+    });
+  }
+
+  async approvePayrollRun(input: {
+    tenantId: string;
+    runId: string;
+    approvedBy: string;
+  }): Promise<PayrollRun> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM payroll_runs
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.runId],
+      );
+      if (!rows[0]) notFound("PayrollRun", input.runId);
+      const run = this.mapPayrollRun(rows[0], []);
+      if (run.status !== "CALCULATED") {
+        throw new ConflictError(`payroll run is ${run.status}`);
+      }
+      if (run.preparedBy === input.approvedBy) {
+        throw new ConflictError(
+          "PAYROLL_SELF_APPROVAL: the preparer cannot approve the run",
+        );
+      }
+      const { rows: personRows } = await client.query(
+        "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.approvedBy],
+      );
+      if (!personRows[0]) notFound("Person", input.approvedBy);
+      const { rows: updated } = await client.query(
+        `UPDATE payroll_runs
+            SET status='APPROVED', approved_by=$3, approved_at=now(),
+                updated_at=now(), version=version+1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.runId, input.approvedBy],
+      );
+      return this.mapPayrollRun(updated[0], []);
+    });
+  }
+
+  async payPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun> {
+    const { rows } = await this.pool.query(
+      `UPDATE payroll_runs
+          SET status='PAID', paid_at=now(), updated_at=now(),
+              version=version+1
+        WHERE tenant_id=$1 AND id=$2 AND status='APPROVED'
+        RETURNING *`,
+      [input.tenantId, input.runId],
+    );
+    if (!rows[0]) {
+      const run = await this.getPayrollRun(input.tenantId, input.runId);
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    return this.mapPayrollRun(rows[0], []);
+  }
+
+  async cancelPayrollRun(input: {
+    tenantId: string;
+    runId: string;
+  }): Promise<PayrollRun> {
+    const { rows } = await this.pool.query(
+      `UPDATE payroll_runs
+          SET status='CANCELLED', updated_at=now(), version=version+1
+        WHERE tenant_id=$1 AND id=$2
+          AND status NOT IN ('PAID','CANCELLED')
+        RETURNING *`,
+      [input.tenantId, input.runId],
+    );
+    if (!rows[0]) {
+      const run = await this.getPayrollRun(input.tenantId, input.runId);
+      throw new ConflictError(`payroll run is ${run.status}`);
+    }
+    return this.mapPayrollRun(rows[0], []);
+  }
+
   async createSyncRun(input: {
     tenantId: string;
     connectionId: string;
@@ -8924,6 +9592,76 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapEmploymentContract(row: QueryResultRow): EmploymentContract {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      contractCode: row.contract_code,
+      employmentType: row.employment_type,
+      startDate: iso(row.start_date) ?? new Date().toISOString(),
+      endDate: iso(row.end_date),
+      workLocation: row.work_location,
+      currency: String(row.currency).trim(),
+      fixedMonthlySalary:
+        decimalText(String(row.fixed_monthly_salary)) ?? "0",
+      minimumMonthlyWage:
+        decimalText(String(row.minimum_monthly_wage)) ?? "0",
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+    };
+  }
+
+  private mapPayrollLine(row: QueryResultRow): PayrollLine {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      runId: row.run_id,
+      personId: row.person_id,
+      contractId: row.contract_id,
+      currency: String(row.currency).trim(),
+      fixedAmount: decimalText(String(row.fixed_amount)) ?? "0",
+      incentiveAmount: decimalText(String(row.incentive_amount)) ?? "0",
+      grossAmount: decimalText(String(row.gross_amount)) ?? "0",
+      deductionAmount: decimalText(String(row.deduction_amount)) ?? "0",
+      netAmount: decimalText(String(row.net_amount)) ?? "0",
+      minimumMonthlyWage:
+        decimalText(String(row.minimum_monthly_wage)) ?? "0",
+      minimumWagePassed: row.minimum_wage_passed,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapPayrollRun(
+    row: QueryResultRow,
+    lines: PayrollLine[],
+  ): PayrollRun {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      periodStart: iso(row.period_start) ?? new Date().toISOString(),
+      periodEnd: iso(row.period_end) ?? new Date().toISOString(),
+      currency: String(row.currency).trim(),
+      status: row.status,
+      preparedBy: row.prepared_by,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      paidAt: iso(row.paid_at),
+      totalGross: decimalText(String(row.total_gross)) ?? "0",
+      totalDeductions: decimalText(String(row.total_deductions)) ?? "0",
+      totalNet: decimalText(String(row.total_net)) ?? "0",
+      lineCount: Number(row.line_count),
+      blockedCount: Number(row.blocked_count),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+      lines,
     };
   }
 

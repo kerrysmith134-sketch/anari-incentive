@@ -80,6 +80,9 @@ import {
   claimBountySchema,
   submitBountySchema,
   acceptBountySchema,
+  createEmploymentContractSchema,
+  createPayrollRunSchema,
+  approvePayrollRunSchema,
   finishSyncRunSchema,
   upsertExternalIdentitySchema,
   receiveWebhookSchema,
@@ -163,6 +166,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { ApiMetrics } from "./metrics.js";
+import { calculatePayroll } from "./payroll.js";
 import { runPolicyTestCase } from "./policy-test-runner.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import type { SpanRecorder } from "./tracing.js";
@@ -3970,6 +3974,147 @@ export function buildApp(
       await platformStore.cancelBounty({
         tenantId: tenantOf(request),
         bountyId: idOf(request),
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/employment-contracts", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createEmploymentContractSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createEmploymentContract({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          contractCode: body.contractCode,
+          employmentType: body.employmentType,
+          startDate: body.startDate,
+          endDate: body.endDate,
+          workLocation: body.workLocation,
+          currency: body.currency,
+          fixedMonthlySalary: body.fixedMonthlySalary,
+          minimumMonthlyWage: body.minimumMonthlyWage,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/employment-contracts", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { personId?: string };
+    return data(
+      await platformStore.listEmploymentContracts(
+        tenantOf(request),
+        query.personId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/payroll-runs", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createPayrollRunSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createPayrollRun({
+          tenantId: tenantOf(request),
+          cycleId: body.cycleId,
+          periodStart: body.periodStart,
+          periodEnd: body.periodEnd,
+          currency: body.currency,
+          preparedBy: body.preparedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/payroll-runs", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { cycleId?: string };
+    return data(
+      await platformStore.listPayrollRuns(
+        tenantOf(request),
+        query.cycleId,
+      ),
+      request,
+    );
+  });
+
+  app.get("/api/v1/payroll-runs/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getPayrollRun(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/payroll-runs/:id/calculate", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const run = await platformStore.getPayrollRun(
+      tenantId,
+      idOf(request),
+    );
+    const contracts = await platformStore.listEmploymentContracts(
+      tenantId,
+    );
+    const ledger = await storeFor(request).listLedger();
+    const calculation = calculatePayroll({
+      contracts,
+      ledger,
+      cycleId: run.cycleId,
+      currency: run.currency,
+      periodStart: run.periodStart,
+      periodEnd: run.periodEnd,
+    });
+    const saved = await platformStore.savePayrollCalculation({
+      tenantId,
+      runId: run.id,
+      lines: calculation.lines,
+      totalGross: calculation.totalGross,
+      totalDeductions: calculation.totalDeductions,
+      totalNet: calculation.totalNet,
+      blockedCount: calculation.blockedCount,
+    });
+    countEvent("payroll_run_calculated");
+    if (saved.blockedCount > 0) countEvent("payroll_run_blocked");
+    return data(saved, request);
+  });
+
+  app.post("/api/v1/payroll-runs/:id/approve", async (request) => {
+    requireRoles(request, "admin", "finance");
+    const body = parse(approvePayrollRunSchema, request.body);
+    const run = await platformStore.approvePayrollRun({
+      tenantId: tenantOf(request),
+      runId: idOf(request),
+      approvedBy: body.approvedBy,
+    });
+    countEvent("payroll_run_approved");
+    return data(run, request);
+  });
+
+  app.post("/api/v1/payroll-runs/:id/pay", async (request) => {
+    requireRoles(request, "finance");
+    const run = await platformStore.payPayrollRun({
+      tenantId: tenantOf(request),
+      runId: idOf(request),
+    });
+    countEvent("payroll_run_paid");
+    return data(run, request);
+  });
+
+  app.post("/api/v1/payroll-runs/:id/cancel", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.cancelPayrollRun({
+        tenantId: tenantOf(request),
+        runId: idOf(request),
       }),
       request,
     );

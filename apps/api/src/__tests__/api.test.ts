@@ -2336,6 +2336,110 @@ describe("bounty marketplace", () => {
   });
 });
 
+describe("payroll", () => {
+  it("calculates payroll and blocks sub-minimum lines", async () => {
+    const contract = await call(
+      "POST",
+      "/api/v1/employment-contracts",
+      {
+        personId: OWNER,
+        contractCode: "CT-2026-001",
+        employmentType: "FULL_TIME",
+        startDate: "2025-01-01T00:00:00Z",
+        workLocation: "Shanghai",
+        currency: "CNY",
+        fixedMonthlySalary: "8000",
+        minimumMonthlyWage: "2690",
+      },
+    );
+    expect(contract.status).toBe(201);
+    const duplicate = await call(
+      "POST",
+      "/api/v1/employment-contracts",
+      {
+        personId: OWNER,
+        contractCode: "CT-2026-001",
+        employmentType: "FULL_TIME",
+        startDate: "2025-01-01T00:00:00Z",
+        workLocation: "Shanghai",
+        currency: "CNY",
+        fixedMonthlySalary: "8000",
+        minimumMonthlyWage: "2690",
+      },
+    );
+    expect(duplicate.status).toBe(409);
+
+    const run = await call("POST", "/api/v1/payroll-runs", {
+      cycleId: CYCLE,
+      periodStart: "2026-10-01T00:00:00Z",
+      periodEnd: "2026-10-31T23:59:59Z",
+      currency: "CNY",
+      preparedBy: ADJUDICATOR,
+    });
+    expect(run.status).toBe(201);
+    const runId = run.body.data.id as string;
+    const calculated = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/calculate`,
+    );
+    expect(calculated.status).toBe(200);
+    expect(calculated.body.data.status).toBe("CALCULATED");
+    expect(calculated.body.data.lineCount).toBe(1);
+    expect(calculated.body.data.totalGross).toBe("8000");
+    expect(calculated.body.data.totalNet).toBe("8000");
+    expect(calculated.body.data.blockedCount).toBe(0);
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(selfApproval.status).toBe(409);
+    const approved = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    const paid = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/pay`,
+    );
+    expect(paid.status).toBe(200);
+    expect(paid.body.data.status).toBe("PAID");
+
+    await call("POST", "/api/v1/employment-contracts", {
+      personId: MEMBER,
+      contractCode: "CT-2026-002",
+      employmentType: "PART_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "1000",
+      minimumMonthlyWage: "2690",
+    });
+    const blockedRun = await call("POST", "/api/v1/payroll-runs", {
+      cycleId: CYCLE,
+      periodStart: "2026-10-01T00:00:00Z",
+      periodEnd: "2026-10-31T23:59:59Z",
+      currency: "CNY",
+      preparedBy: ADJUDICATOR,
+    });
+    const blocked = await call(
+      "POST",
+      `/api/v1/payroll-runs/${blockedRun.body.data.id}/calculate`,
+    );
+    expect(blocked.body.data.status).toBe("BLOCKED");
+    expect(blocked.body.data.blockedCount).toBe(1);
+    const blockedApproval = await call(
+      "POST",
+      `/api/v1/payroll-runs/${blockedRun.body.data.id}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(blockedApproval.status).toBe(409);
+  });
+});
+
 describe("deliverables and acceptance", () => {
   it("submits deliverables and records acceptance with separation of duties", async () => {
     const workPackageId = await createAcceptedWorkPackage();

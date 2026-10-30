@@ -9,6 +9,7 @@ import { PgAgentTaskRepository } from "@anari/agent-persistence";
 import { createAgentContext } from "../agent-context.js";
 import { createPlatformPool } from "../platform-pool.js";
 import { PgPlatformStore } from "../platform-store.js";
+import { calculatePayroll } from "../payroll.js";
 import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
 import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
@@ -2711,6 +2712,62 @@ describePg("PgStore vertical slice", () => {
         await platform.listBounties(DEMO_TENANT_ID, "ACCEPTED")
       ).map((candidate) => candidate.id),
     ).toContain(bounty.id);
+  });
+
+  it("persists payroll runs and blocks sub-minimum lines", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    await platform.createEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      contractCode: `PG-CT-${Date.now()}`,
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "8000",
+      minimumMonthlyWage: "2690",
+    });
+    const run = await platform.createPayrollRun({
+      tenantId: DEMO_TENANT_ID,
+      cycleId: CYCLE,
+      periodStart: "2026-10-01T00:00:00Z",
+      periodEnd: "2026-10-31T23:59:59Z",
+      currency: "CNY",
+      preparedBy: ADJUDICATOR,
+    });
+    const contracts = await platform.listEmploymentContracts(
+      DEMO_TENANT_ID,
+    );
+    const calculation = calculatePayroll({
+      contracts,
+      ledger: [],
+      cycleId: CYCLE,
+      currency: "CNY",
+      periodStart: run.periodStart,
+      periodEnd: run.periodEnd,
+    });
+    const calculated = await platform.savePayrollCalculation({
+      tenantId: DEMO_TENANT_ID,
+      runId: run.id,
+      lines: calculation.lines,
+      totalGross: calculation.totalGross,
+      totalDeductions: calculation.totalDeductions,
+      totalNet: calculation.totalNet,
+      blockedCount: calculation.blockedCount,
+    });
+    expect(calculated.status).toBe("CALCULATED");
+    expect(calculated.lines?.length).toBe(calculation.lines.length);
+    const approved = await platform.approvePayrollRun({
+      tenantId: DEMO_TENANT_ID,
+      runId: run.id,
+      approvedBy: OWNER,
+    });
+    expect(approved.status).toBe("APPROVED");
+    const paid = await platform.payPayrollRun({
+      tenantId: DEMO_TENANT_ID,
+      runId: run.id,
+    });
+    expect(paid.status).toBe("PAID");
   });
 
   it("applies RLS when the app role is not a superuser", async () => {
