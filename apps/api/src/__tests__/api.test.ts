@@ -2962,6 +2962,19 @@ describe("integrations", () => {
     expect(connection.body.data.status).toBe("ACTIVE");
     const connectionId = connection.body.data.id as string;
 
+    const presets = await call(
+      "GET",
+      "/api/v1/integration-mapping-presets",
+    );
+    expect(presets.status).toBe(200);
+    expect(
+      presets.body.data.some(
+        (preset: { code: string; fieldMap: Record<string, string> }) =>
+          preset.code === "hubspot-deals" &&
+          preset.fieldMap.sourceRecordId === "id",
+      ),
+    ).toBe(true);
+
     const paused = await call(
       "POST",
       `/api/v1/integration-connections/${connectionId}/status`,

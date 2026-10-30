@@ -139,6 +139,7 @@ import {
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import { scoreEvidence, type EvaluationGate } from "@anari/ai-gate";
 import {
+  FIELD_MAPPING_PRESETS,
   verifyFeishuSignature,
   verifyHubSpotSignature,
   verifyWebhookSignature,
@@ -3716,6 +3717,11 @@ export function buildApp(
       }),
       request,
     );
+  });
+
+  app.get("/api/v1/integration-mapping-presets", async (request) => {
+    requireRoles(request, "admin", "integration", "manager", "finance");
+    return data(FIELD_MAPPING_PRESETS, request);
   });
 
   app.post("/api/v1/integration-connections/:id/schedules", async (request, reply) => {

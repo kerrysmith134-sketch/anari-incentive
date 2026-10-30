@@ -3516,6 +3516,22 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/integration-mapping-presets:
+    get:
+      tags: [Ingestion]
+      summary: List starter field-mapping presets
+      responses:
+        "200":
+          description: Mapping presets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/integration-connections/{id}/sync-runs:
     get:
       tags: [Ingestion]

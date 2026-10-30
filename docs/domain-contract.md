@@ -231,6 +231,7 @@ Approval consumption is checked before the guarded action: the action type (`CAL
 | `POST /integration-connections` | admin | Creates an ACTIVE connection with a credential reference |
 | `POST /integration-connections/:id/mappings` | admin, connection exists, no ACTIVE mapping with the same name | Creates an ACTIVE versioned CSV/HTTP field mapping |
 | `POST /integration-mappings/:id/retire` | admin, ACTIVE | Sets RETIRED and records `retiredAt` |
+| `GET /integration-mapping-presets` | manager/finance/integration | Returns starter HubSpot/Feishu/ERP mapping templates (reference data, not auto-applied) |
 | `POST /integration-connections/:id/schedules` | admin, connection exists, unique name per connection | Creates an enabled interval schedule |
 | `GET /sync-schedules` | admin/integration | Lists schedules by next run time |
 | `POST /sync-schedules/claim-due` | integration | Atomically claims due enabled schedules, sets `lastRunAt` and advances `nextRunAt`; the runner creates the sync run |
