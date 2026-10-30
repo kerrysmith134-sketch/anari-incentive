@@ -827,6 +827,54 @@ export function PolicyPage() {
                     {review.data.trustSurvey.note}
                   </InfoNotice>
                 )}
+                <div className="detail-section">
+                  <div className="detail-section__title">
+                    Reviewer consistency ·{" "}
+                    {review.data.reviewConsistency.claimsDecided} claims decided
+                  </div>
+                  {review.data.reviewConsistency.reviewers.length === 0 ? (
+                    <p className="muted">No attribution decision in this window.</p>
+                  ) : (
+                    <div className="stack" style={{ gap: 6 }}>
+                      {review.data.reviewConsistency.reviewers.map(
+                        (reviewer) => (
+                          <div
+                            key={reviewer.reviewerPersonId}
+                            className="inline"
+                            style={{
+                              justifyContent: "space-between",
+                              width: "100%",
+                            }}
+                          >
+                            <span className="mono">
+                              {shortId(reviewer.reviewerPersonId, 10)}
+                            </span>
+                            <span className="muted">
+                              {reviewer.decisions} decisions ·{" "}
+                              {formatPercent(reviewer.confirmedRate)} confirmed ·{" "}
+                              {formatPercent(reviewer.rejectedRate)} rejected ·{" "}
+                              {reviewer.averageDaysToDecision.toFixed(1)}d avg
+                            </span>
+                          </div>
+                        ),
+                      )}
+                      <div
+                        className="inline"
+                        style={{
+                          justifyContent: "space-between",
+                          width: "100%",
+                        }}
+                      >
+                        <span>Repeated decisions</span>
+                        <span className="muted">
+                          {review.data.reviewConsistency.claimsWithMultipleDecisions}{" "}
+                          · {review.data.reviewConsistency.claimsWithChangedOutcome}{" "}
+                          changed outcome
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <InfoNotice tone="warning">
                   Contribution/evaluation subgroup impact is not aggregated yet.
                   This report is evidence for review, not a complete INC-12

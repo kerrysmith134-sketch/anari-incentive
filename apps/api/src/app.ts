@@ -2217,6 +2217,7 @@ export function buildApp(
       notices,
       appeals,
       claims,
+      attributionDecisions,
       decisions,
       drafts,
       issues,
@@ -2232,6 +2233,7 @@ export function buildApp(
       platformStore.listNotices(tenantId),
       store.listAppeals(),
       store.listClaims(),
+      store.listDecisions(),
       store.listEvaluationDecisions(),
       store.listEvaluationDrafts(),
       store.listDataQualityIssues(),
@@ -2281,6 +2283,74 @@ export function buildApp(
           latestTrustSurvey.id,
         )
       : undefined;
+    const latestDecisionByClaim = new Map<
+      string,
+      (typeof attributionDecisions)[number]
+    >();
+    const decisionCountByClaim = new Map<string, number>();
+    const statusesByClaim = new Map<string, Set<string>>();
+    for (const decision of attributionDecisions) {
+      const current = latestDecisionByClaim.get(decision.claimId);
+      if (
+        !current ||
+        decision.decisionVersion > current.decisionVersion
+      ) {
+        latestDecisionByClaim.set(decision.claimId, decision);
+      }
+      decisionCountByClaim.set(
+        decision.claimId,
+        (decisionCountByClaim.get(decision.claimId) ?? 0) + 1,
+      );
+      const statuses =
+        statusesByClaim.get(decision.claimId) ?? new Set<string>();
+      statuses.add(decision.status);
+      statusesByClaim.set(decision.claimId, statuses);
+    }
+    const claimById = new Map(claims.map((claim) => [claim.id, claim]));
+    const reviewerStats = new Map<
+      string,
+      {
+        decisions: number;
+        confirmed: number;
+        partiallyConfirmed: number;
+        rejected: number;
+        totalDays: number;
+        timedDecisions: number;
+      }
+    >();
+    for (const decision of latestDecisionByClaim.values()) {
+      const stats = reviewerStats.get(decision.adjudicatorPersonId) ?? {
+        decisions: 0,
+        confirmed: 0,
+        partiallyConfirmed: 0,
+        rejected: 0,
+        totalDays: 0,
+        timedDecisions: 0,
+      };
+      stats.decisions += 1;
+      if (decision.status === "CONFIRMED") stats.confirmed += 1;
+      if (decision.status === "PARTIALLY_CONFIRMED") {
+        stats.partiallyConfirmed += 1;
+      }
+      if (decision.status === "REJECTED") stats.rejected += 1;
+      const submittedAt = claimById.get(decision.claimId)?.submittedAt;
+      if (submittedAt) {
+        const days =
+          (Date.parse(decision.createdAt) - Date.parse(submittedAt)) /
+          (24 * 60 * 60 * 1000);
+        if (Number.isFinite(days) && days >= 0) {
+          stats.totalDays += days;
+          stats.timedDecisions += 1;
+        }
+      }
+      reviewerStats.set(decision.adjudicatorPersonId, stats);
+    }
+    const repeatedClaims = [...decisionCountByClaim.values()].filter(
+      (count) => count > 1,
+    ).length;
+    const changedOutcomeClaims = [...statusesByClaim.values()].filter(
+      (statuses) => statuses.size > 1,
+    ).length;
     const acceptedProposals = decidedProposals.filter(
       (proposal) => proposal.status === "ACCEPTED",
     ).length;
@@ -2325,6 +2395,39 @@ export function buildApp(
         evaluations: {
           drafts: drafts.length,
           decisions: decisions.length,
+        },
+        reviewConsistency: {
+          reviewers: [...reviewerStats.entries()].map(
+            ([reviewerPersonId, stats]) => ({
+              reviewerPersonId,
+              decisions: stats.decisions,
+              confirmedRate:
+                stats.decisions === 0
+                  ? 0
+                  : stats.confirmed / stats.decisions,
+              partiallyConfirmedRate:
+                stats.decisions === 0
+                  ? 0
+                  : stats.partiallyConfirmed / stats.decisions,
+              rejectedRate:
+                stats.decisions === 0
+                  ? 0
+                  : stats.rejected / stats.decisions,
+              averageDaysToDecision:
+                stats.timedDecisions === 0
+                  ? 0
+                  : Math.round(
+                      (stats.totalDays / stats.timedDecisions) * 10,
+                    ) / 10,
+            }),
+          ),
+          claimsDecided: latestDecisionByClaim.size,
+          claimsWithMultipleDecisions: repeatedClaims,
+          claimsWithChangedOutcome: changedOutcomeClaims,
+          subgroupImpact: {
+            available: false,
+            note: "Protected-attribute subgroup impact is not collected; review by role/location is available through stratified coverage.",
+          },
         },
         aiReview: {
           total: proposals.length,

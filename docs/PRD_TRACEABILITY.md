@@ -93,7 +93,7 @@
 | ATT-06 先独立判断/AI 草稿/盲审 | ❌ | 无独立判断记录、盲审样本、校准会；AI proposal 直接展示给 reviewer |
 | ATT-07 申诉由非原决定人/SLA/证据披露 | 🟡 | 非原决定人复核 + 本轮新增 dueAt/evidenceRefs/SLA skill；无正式证据披露/无报复承诺流程 |
 | ATT-08 贡献/绩效分离 | ✅ | 独立对象和 API |
-| ATT-09 子群体/一致性审计 | 🟡 | AI 模型有 subgroup metrics；贡献评审人一致性/季度报告未实现 |
+| ATT-09 子群体/一致性审计 | 🟡 | 本轮新增 quarterly policy-review `reviewConsistency`：按评审人统计 decision/confirmed/partial/rejected 比例、平均决策天数、重复决策与结果变化数，console Annual review 展示；受保护属性的 subgroup impact 仍未采集，明确标注不可用 |
 
 ### 5. AI / Agent
 
@@ -201,6 +201,8 @@
 30. **ATT-05 / DATA-03 evidence default rule**：`scoreEvidence` 返回 `insufficientEvidence`；默认 tenant `evidenceDefaultRule=BLOCK` 时 AI proposal 拒绝无证据维度，显式 `ZERO` 才允许 0 分；新增 scoring/API 测试。
 
 31. **LG-06 deduction order/breakdown**：EmploymentContract 增加 `deductionOrder`，PayrollLine 增加按类型分组的 `deductionBreakdown`，payroll 按合同顺序排序并在 CSV/console 展示；迁移 `048_deduction_order.sql`。法定扣款类型/逐类型上限仍未实现。
+
+32. **ATT-09 reviewer consistency**：年度审查报告新增按 adjudicator 的一致性/结果/时长统计与重复决策/结果变化计数，Policy Annual review 展示；子群体影响仍因不采集受保护属性而不可用。
 
 ## 仍建议按 P0 顺序补做
 

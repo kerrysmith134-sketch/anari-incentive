@@ -7411,6 +7411,14 @@ describe("vertical slice", () => {
       decisionBody,
     );
     expect(allowed.status).toBe(201);
+    const annual = await call("GET", "/api/v1/reports/policy-review");
+    expect(annual.body.data.reviewConsistency.claimsDecided).toBe(1);
+    expect(
+      annual.body.data.reviewConsistency.reviewers[0].reviewerPersonId,
+    ).toBe(ADJUDICATOR);
+    expect(
+      annual.body.data.reviewConsistency.reviewers[0].confirmedRate,
+    ).toBe(1);
   });
 
   it("requires a reason for exception and backfill claims", async () => {

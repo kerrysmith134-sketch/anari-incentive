@@ -501,6 +501,20 @@ export interface PolicyReviewReport {
   };
   claims: { total: number; decided: number };
   evaluations: { drafts: number; decisions: number };
+  reviewConsistency: {
+    reviewers: Array<{
+      reviewerPersonId: Uuid;
+      decisions: number;
+      confirmedRate: number;
+      partiallyConfirmedRate: number;
+      rejectedRate: number;
+      averageDaysToDecision: number;
+    }>;
+    claimsDecided: number;
+    claimsWithMultipleDecisions: number;
+    claimsWithChangedOutcome: number;
+    subgroupImpact: { available: boolean; note: string };
+  };
   aiReview: {
     total: number;
     decided: number;
