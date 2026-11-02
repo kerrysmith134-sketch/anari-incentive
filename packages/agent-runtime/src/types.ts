@@ -137,6 +137,7 @@ export interface AgentToolExecutionContext {
 export interface AgentTool {
   name: string;
   riskTier: RiskTier;
+  access: "READ" | "WRITE";
   description: string;
   execute(
     input: Record<string, unknown>,

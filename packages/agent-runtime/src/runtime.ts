@@ -54,6 +54,11 @@ export interface AgentRuntimeOptions {
   /** Actions at or above this tier require human approval. Defaults to T3. */
   requireApprovalAtOrAbove?: RiskTier;
   actor?: string;
+  /**
+   * READER runtimes may observe/draft but cannot execute WRITE tools. ACTOR
+   * runtimes may execute; BOTH keeps the legacy behaviour.
+   */
+  role?: "READER" | "ACTOR" | "BOTH";
   /** Optional durable adapter; omitted for tests and local in-memory use. */
   repository?: AgentTaskRepository;
 }
@@ -373,6 +378,21 @@ export class AgentRuntime {
         actionId: action.id,
         status: "FAILED",
         error: `unknown tool: ${action.tool}`,
+      };
+    }
+    if (this.options.role === "READER" && tool.access === "WRITE") {
+      this.audit.push({
+        taskId: task.id,
+        actionId: action.id,
+        tool: action.tool,
+        actor: this.options.actor ?? "system",
+        at: now(),
+        detail: `blocked write tool in READER role: ${action.tool}`,
+      });
+      return {
+        actionId: action.id,
+        status: "REJECTED",
+        error: "READER_ROLE_CANNOT_WRITE",
       };
     }
     try {

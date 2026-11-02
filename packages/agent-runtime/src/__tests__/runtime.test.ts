@@ -25,7 +25,9 @@ import {
   createDefaultTools,
   type AgentAuditEntry,
   type AgentContext,
+  type AgentSkill,
   type AgentTask,
+  type AgentTool,
   type AgentTaskRepository,
 } from "../index.js";
 
@@ -249,6 +251,62 @@ class FakeRepository implements AgentTaskRepository {
     this.audit.push({ ...entry });
   }
 }
+
+describe("agent runtime role isolation", () => {
+  it("blocks WRITE tools when the runtime is in READER role", async () => {
+    const context = new FakeContext();
+    const writeTool: AgentTool = {
+      name: "write_test",
+      riskTier: "T0",
+      access: "WRITE",
+      description: "Write test",
+      async execute() {
+        return { wrote: true };
+      },
+    };
+    const skill: AgentSkill = {
+      name: "TEST_WRITE",
+      async observe() {
+        return [
+          {
+            code: "TEST",
+            severity: "INFO",
+            subjectType: "WORK_PACKAGE",
+            subjectId: "wp-1",
+            message: "test",
+          },
+        ];
+      },
+      plan() {
+        return [
+          {
+            id: "action-1",
+            tool: "write_test",
+            riskTier: "T0",
+            targetType: "WORK_PACKAGE",
+            targetId: "wp-1",
+            description: "write",
+            payload: {},
+            requiresApproval: false,
+          },
+        ];
+      },
+    };
+    const agent = new AgentRuntime(context, [writeTool], { TEST_WRITE: skill }, {
+      actor: "reader",
+      role: "READER",
+    });
+    const task = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "TEST_WRITE",
+      triggerType: "MANUAL",
+      idempotencyKey: "reader-role-1",
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.results[0]?.status).toBe("REJECTED");
+    expect(ran.results[0]?.error).toBe("READER_ROLE_CANNOT_WRITE");
+  });
+});
 
 describe("agent runtime", () => {
   it("runs a proactive evidence-gap scan and waits for approval on escalation", async () => {

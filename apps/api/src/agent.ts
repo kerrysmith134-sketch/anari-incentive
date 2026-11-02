@@ -11,6 +11,14 @@ export function createAgentRuntime(store: IncentiveStore): AgentRuntime {
     createAgentContext(store),
     createDefaultTools(),
     createDefaultSkills(),
-    { requireApprovalAtOrAbove: "T3", actor: "agent-runtime" },
+    {
+      requireApprovalAtOrAbove: "T3",
+      actor: "agent-runtime",
+      role:
+        process.env.AGENT_ROLE === "READER" ||
+        process.env.AGENT_ROLE === "ACTOR"
+          ? process.env.AGENT_ROLE
+          : "BOTH",
+    },
   );
 }

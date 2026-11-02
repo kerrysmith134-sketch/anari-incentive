@@ -56,6 +56,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "record_finding",
       riskTier: "T0",
+      access: "READ",
       description: "Record a read-only finding for review.",
       async execute(input) {
         return { recorded: true, finding: input.finding };
@@ -64,6 +65,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "create_todo",
       riskTier: "T1",
+      access: "WRITE",
       description: "Create a low-risk follow-up todo for a responsible person.",
       async execute(input) {
         return { todoId: randomUUID(), targetId: input.targetId ?? null };
@@ -72,6 +74,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "request_evidence",
       riskTier: "T1",
+      access: "WRITE",
       description: "Ask the responsible person to supply missing evidence.",
       async execute(input, context) {
         return notify(context, input, "EVIDENCE");
@@ -80,6 +83,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "record_data_quality_issue",
       riskTier: "T1",
+      access: "WRITE",
       description: "Persist a data-quality issue for follow-up.",
       async execute(input, context) {
         const objectType = input.objectType;
@@ -111,6 +115,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "create_evaluation_draft",
       riskTier: "T1",
+      access: "WRITE",
       description:
         "Create an evidence-bound evaluation draft for human review; never a decision.",
       async execute(input, context, execution) {
@@ -159,6 +164,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "notify_owner",
       riskTier: "T1",
+      access: "WRITE",
       description: "Notify the work-package owner or manager.",
       async execute(input, context) {
         return notify(context, input, "OWNER");
@@ -167,6 +173,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "notify_finance",
       riskTier: "T1",
+      access: "WRITE",
       description: "Notify finance/settlement owner.",
       async execute(input, context) {
         return notify(context, input, "FINANCE");
@@ -175,6 +182,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "escalate",
       riskTier: "T2",
+      access: "WRITE",
       description: "Escalate a blocking issue to a manager or review queue.",
       async execute(input, context) {
         return notify(context, input, "MANAGER");
@@ -183,6 +191,7 @@ export function createDefaultTools(): AgentTool[] {
     {
       name: "publish_policy",
       riskTier: "T3",
+      access: "WRITE",
       description:
         "Publish a policy version. Must be approved by an authorized human.",
       async execute(input, context, execution) {
