@@ -40,6 +40,7 @@ import type {
   EvaluationCycle,
   PayrollRun,
 } from "../lib/types.js";
+import type { ESignEnvelopeView } from "../lib/ops-types.js";
 
 const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACTOR"] as const;
 
@@ -1034,6 +1035,51 @@ function ContractsTab({
   const [amendConsent, setAmendConsent] = useState("");
   const [amendApprover, setAmendApprover] = useState(session.personId);
   const [amendError, setAmendError] = useState<string | null>(null);
+  const envelopes = useApiQuery<ESignEnvelopeView[]>(
+    "/api/v1/esign-envelopes",
+  );
+  const [esignOpen, setEsignOpen] = useState(false);
+  const [esignContractId, setEsignContractId] = useState("");
+  const [esignProvider, setEsignProvider] = useState("");
+  const [esignRef, setEsignRef] = useState("");
+  const [esignHash, setEsignHash] = useState("");
+  const [esignSigner, setEsignSigner] = useState(session.personId);
+  const [esignError, setEsignError] = useState<string | null>(null);
+
+  function openEsign() {
+    setEsignContractId(contracts[0]?.id ?? "");
+    setEsignProvider("");
+    setEsignRef("");
+    setEsignHash("");
+    setEsignSigner(session.personId);
+    setEsignError(null);
+    setEsignOpen(true);
+  }
+
+  async function createEsign() {
+    setEsignError(null);
+    try {
+      await api("/api/v1/esign-envelopes", {
+        method: "POST",
+        body: {
+          contractId: esignContractId,
+          provider: esignProvider.trim(),
+          envelopeRef: esignRef.trim(),
+          documentHash: esignHash.trim(),
+          signerPersonId: esignSigner,
+        },
+      });
+      toast.success("E-sign envelope registered", esignRef);
+      setEsignOpen(false);
+      envelopes.reload();
+    } catch (caught) {
+      setEsignError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not register envelope",
+      );
+    }
+  }
 
   function openForm() {
     setPersonId(people[0]?.id ?? "");
@@ -1278,6 +1324,61 @@ function ContractsTab({
           </table>
         </div>
       )}
+
+      <div className="detail-section" style={{ padding: 16 }}>
+        <div
+          className="inline"
+          style={{ justifyContent: "space-between", width: "100%" }}
+        >
+          <div className="detail-section__title" style={{ margin: 0 }}>
+            E-sign envelopes
+          </div>
+          <Button size="sm" variant="secondary" icon="plus" onClick={openEsign}>
+            Register envelope
+          </Button>
+        </div>
+        {envelopes.error ? (
+          <ErrorNotice error={envelopes.error} onRetry={envelopes.reload} />
+        ) : envelopes.loading ? (
+          <LoadingRows rows={2} />
+        ) : (envelopes.data?.length ?? 0) === 0 ? (
+          <p className="muted">
+            No e-sign envelope. Contracts require a consent signature reference;
+            providers confirm completion through the signed callback.
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Contract</th>
+                  <th>Provider</th>
+                  <th>Envelope</th>
+                  <th>Status</th>
+                  <th>Signer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(envelopes.data ?? []).map((envelope) => (
+                  <tr key={envelope.id}>
+                    <td className="mono">
+                      {contracts.find(
+                        (contract) => contract.id === envelope.contractId,
+                      )?.contractCode ?? shortId(envelope.contractId, 10)}
+                    </td>
+                    <td>{envelope.provider}</td>
+                    <td className="mono">{envelope.envelopeRef}</td>
+                    <td>
+                      <Badge status={envelope.status} />
+                    </td>
+                    <td>{displayName(envelope.signerPersonId, people)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <Modal
         open={open}
@@ -1717,6 +1818,79 @@ function ContractsTab({
             />
           </FormField>
         </form>
+      </Modal>
+
+      <Modal
+        open={esignOpen}
+        title="Register e-sign envelope"
+        description="The provider callback writes the signed consent reference back to the contract."
+        onClose={() => setEsignOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEsignOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createEsign}>
+              Register
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {esignError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{esignError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Contract" htmlFor="esign-contract">
+            <Select
+              id="esign-contract"
+              value={esignContractId}
+              onChange={(event) => setEsignContractId(event.target.value)}
+              required
+            >
+              <option value="">Select a contract</option>
+              {contracts.map((contract) => (
+                <option key={contract.id} value={contract.id}>
+                  {contract.contractCode}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Provider" htmlFor="esign-provider">
+            <TextInput
+              id="esign-provider"
+              value={esignProvider}
+              onChange={(event) => setEsignProvider(event.target.value)}
+              placeholder="docusign"
+              required
+            />
+          </FormField>
+          <FormField label="Envelope reference" htmlFor="esign-ref">
+            <TextInput
+              id="esign-ref"
+              value={esignRef}
+              onChange={(event) => setEsignRef(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Document hash" htmlFor="esign-hash">
+            <TextInput
+              id="esign-hash"
+              value={esignHash}
+              onChange={(event) => setEsignHash(event.target.value)}
+              placeholder="sha256:…"
+              required
+            />
+          </FormField>
+          <FormField label="Signer" htmlFor="esign-signer">
+            <PersonSelect
+              id="esign-signer"
+              value={esignSigner}
+              onChange={setEsignSigner}
+            />
+          </FormField>
+        </div>
       </Modal>
     </Panel>
   );

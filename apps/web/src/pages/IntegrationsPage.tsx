@@ -32,6 +32,7 @@ import type {
   SyncRun,
   SyncSchedule,
 } from "../lib/types.js";
+import type { ExternalIdentityView } from "../lib/ops-types.js";
 
 export function IntegrationsPage() {
   useDocumentTitle("Integrations");
@@ -282,6 +283,7 @@ export function IntegrationsPage() {
                       label: "Sync runs",
                       count: syncRuns.data?.length ?? 0,
                     },
+                    { id: "identities", label: "Identities" },
                   ]}
                   active={detailTab}
                   onChange={setDetailTab}
@@ -327,6 +329,9 @@ export function IntegrationsPage() {
                       onQueue={() => void queueSync(selected)}
                       busy={statusBusy}
                     />
+                  ) : null}
+                  {detailTab === "identities" ? (
+                    <IdentitiesSection />
                   ) : null}
                 </div>
               </Panel>
@@ -1118,5 +1123,171 @@ function RunsSection({
         </div>
       )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------ identities */
+
+function IdentitiesSection() {
+  const toast = useToast();
+  const identities = useApiQuery<ExternalIdentityView[]>(
+    "/api/v1/external-identities",
+  );
+  const [open, setOpen] = useState(false);
+  const [sourceSystem, setSourceSystem] = useState("");
+  const [externalId, setExternalId] = useState("");
+  const [objectType, setObjectType] = useState("PERSON");
+  const [personId, setPersonId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function openForm() {
+    setSourceSystem("");
+    setExternalId("");
+    setObjectType("PERSON");
+    setPersonId("");
+    setError(null);
+    setOpen(true);
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api("/api/v1/external-identities", {
+        method: "POST",
+        body: {
+          sourceSystem: sourceSystem.trim(),
+          externalId: externalId.trim(),
+          objectType: objectType.trim(),
+          personId: personId.trim() || undefined,
+        },
+      });
+      toast.success("External identity mapped", externalId);
+      setOpen(false);
+      identities.reload();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not map identity",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div
+        className="inline"
+        style={{ justifyContent: "space-between", width: "100%", marginBottom: 10 }}
+      >
+        <span className="muted">
+          Source-system identifiers mapped to internal people.
+        </span>
+        <Button size="sm" variant="secondary" icon="plus" onClick={openForm}>
+          Map identity
+        </Button>
+      </div>
+      {identities.error ? (
+        <ErrorNotice error={identities.error} onRetry={identities.reload} />
+      ) : identities.loading ? (
+        <LoadingRows rows={3} />
+      ) : (identities.data?.length ?? 0) === 0 ? (
+        <p className="muted">No external identity mapped yet.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>External id</th>
+                <th>Object</th>
+                <th>Person</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(identities.data ?? []).map((identity) => (
+                <tr key={identity.id}>
+                  <td>{identity.sourceSystem}</td>
+                  <td className="mono">{identity.externalId}</td>
+                  <td>{identity.objectType}</td>
+                  <td className="mono">
+                    {identity.personId
+                      ? shortId(identity.personId, 10)
+                      : "unmapped"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal
+        open={open}
+        title="Map external identity"
+        onClose={() => setOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="identity-form"
+              loading={busy}
+            >
+              Map identity
+            </Button>
+          </>
+        }
+      >
+        <form id="identity-form" onSubmit={submit} className="form-grid">
+          {error ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{error}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Source system" htmlFor="identity-source">
+            <TextInput
+              id="identity-source"
+              value={sourceSystem}
+              onChange={(event) => setSourceSystem(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="External id" htmlFor="identity-external">
+            <TextInput
+              id="identity-external"
+              value={externalId}
+              onChange={(event) => setExternalId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Object type" htmlFor="identity-object">
+            <TextInput
+              id="identity-object"
+              value={objectType}
+              onChange={(event) => setObjectType(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Person id (optional)"
+            htmlFor="identity-person"
+            className="field--full"
+          >
+            <TextInput
+              id="identity-person"
+              value={personId}
+              onChange={(event) => setPersonId(event.target.value)}
+              placeholder="UUID"
+            />
+          </FormField>
+        </form>
+      </Modal>
+    </div>
   );
 }

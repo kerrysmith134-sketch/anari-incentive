@@ -32,6 +32,11 @@ const AiPage = lazy(() =>
     default: module.AiPage,
   })),
 );
+const AgentOpsPage = lazy(() =>
+  import("./pages/AgentOpsPage.js").then((module) => ({
+    default: module.AgentOpsPage,
+  })),
+);
 const ApprovalsPage = lazy(() =>
   import("./pages/ApprovalsPage.js").then((module) => ({
     default: module.ApprovalsPage,
@@ -85,6 +90,16 @@ const PolicyPage = lazy(() =>
 const RewardsPage = lazy(() =>
   import("./pages/RewardsPage.js").then((module) => ({
     default: module.RewardsPage,
+  })),
+);
+const RegistriesPage = lazy(() =>
+  import("./pages/RegistriesPage.js").then((module) => ({
+    default: module.RegistriesPage,
+  })),
+);
+const FieldAccessPage = lazy(() =>
+  import("./pages/FieldAccessPage.js").then((module) => ({
+    default: module.FieldAccessPage,
   })),
 );
 const SettlementsPage = lazy(() =>
@@ -172,9 +187,12 @@ export function App() {
                     <Route path="/contribution" element={<ContributionPage />} />
                     <Route path="/payroll" element={<PayrollPage />} />
                     <Route path="/rewards" element={<RewardsPage />} />
+                    <Route path="/registries" element={<RegistriesPage />} />
+                    <Route path="/field-access" element={<FieldAccessPage />} />
                     <Route path="/settlements" element={<SettlementsPage />} />
                     <Route path="/adverse-actions" element={<AdverseActionsPage />} />
                     <Route path="/ai" element={<AiPage />} />
+                    <Route path="/agent-ops" element={<AgentOpsPage />} />
                     <Route path="/policy" element={<PolicyPage />} />
                     <Route path="/exceptions" element={<ExceptionsPage />} />
                     <Route path="/audit" element={<AuditPage />} />

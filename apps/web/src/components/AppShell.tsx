@@ -69,6 +69,12 @@ const NAV: NavGroup[] = [
         icon: "wallet",
         allowed: ["finance", "admin"],
       },
+      {
+        to: "/registries",
+        label: "Registries",
+        icon: "layers",
+        allowed: ["manager", "finance", "admin"],
+      },
     ],
   },
   {
@@ -77,6 +83,12 @@ const NAV: NavGroup[] = [
       {
         to: "/ai",
         label: "AI assurance",
+        icon: "ai",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/agent-ops",
+        label: "Agent ops",
         icon: "ai",
         allowed: ["manager", "finance", "admin"],
       },
@@ -125,6 +137,12 @@ const NAV: NavGroup[] = [
         to: "/settings",
         label: "Settings",
         icon: "settings",
+        allowed: ["admin"],
+      },
+      {
+        to: "/field-access",
+        label: "Field access",
+        icon: "shield",
         allowed: ["admin"],
       },
     ],

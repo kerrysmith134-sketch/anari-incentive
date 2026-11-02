@@ -1,0 +1,923 @@
+import { useState } from "react";
+import {
+  Badge,
+  Button,
+  DefinitionList,
+  EmptyState,
+  ErrorNotice,
+  FormField,
+  InfoNotice,
+  LoadingRows,
+  Modal,
+  PageHeader,
+  Panel,
+  Select,
+  Tabs,
+  Textarea,
+  TextInput,
+} from "../components/ui.js";
+import { PersonSelect, usePeople } from "../components/PersonSelect.js";
+import { useAuth } from "../contexts/AuthContext.js";
+import { useToast } from "../contexts/ToastContext.js";
+import { ApiError, api } from "../lib/api.js";
+import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { formatDateTime, shortId, titleCase } from "../lib/format.js";
+import type {
+  AgentActionView,
+  AgentTaskView,
+  AiSuggestionLogView,
+  WorkflowRunView,
+} from "../lib/ops-types.js";
+
+const AGENT_TYPES = [
+  "EVIDENCE_GAP",
+  "SETTLEMENT_READINESS",
+  "CONTRIBUTION_ANOMALY",
+  "POLICY_PROPOSAL",
+  "DATA_QUALITY",
+  "APPEAL_SLA",
+  "EVALUATION_DRAFT",
+];
+const TRIGGER_TYPES = ["MANUAL", "EVENT", "SCHEDULE", "THRESHOLD"];
+
+export function AgentOpsPage() {
+  useDocumentTitle("Agent operations");
+  const { session } = useAuth();
+  const toast = useToast();
+  const { people } = usePeople();
+  const tasks = useApiQuery<AgentTaskView[]>("/api/v1/agent-tasks");
+  const workflows = useApiQuery<WorkflowRunView[]>("/api/v1/workflow-runs");
+  const suggestions = useApiQuery<AiSuggestionLogView[]>(
+    "/api/v1/ai-suggestion-logs",
+  );
+  const [tab, setTab] = useState("tasks");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [enqueueOpen, setEnqueueOpen] = useState(false);
+  const [agentType, setAgentType] = useState(AGENT_TYPES[0] as string);
+  const [triggerType, setTriggerType] = useState("MANUAL");
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [taskInput, setTaskInput] = useState("{}");
+  const [enqueueError, setEnqueueError] = useState<string | null>(null);
+  const [actionTarget, setActionTarget] = useState<{
+    task: AgentTaskView;
+    action: AgentActionView;
+  } | null>(null);
+  const [actionDecision, setActionDecision] = useState<"approve" | "reject">(
+    "approve",
+  );
+  const [approver, setApprover] = useState(session.personId);
+  const [actionReason, setActionReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [workflowTaskId, setWorkflowTaskId] = useState("");
+  const [workflowName, setWorkflowName] = useState("");
+  const [workflowVersion, setWorkflowVersion] = useState("1");
+  const [workflowStep, setWorkflowStep] = useState("");
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [suggestionOpen, setSuggestionOpen] = useState(false);
+  const [suggestionTaskId, setSuggestionTaskId] = useState("");
+  const [suggestionTargetType, setSuggestionTargetType] = useState("");
+  const [suggestionType, setSuggestionType] = useState("");
+  const [suggestionPromptVersion, setSuggestionPromptVersion] = useState("v1");
+  const [suggestionInputHash, setSuggestionInputHash] = useState("");
+  const [suggestionOutput, setSuggestionOutput] = useState("{}");
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+
+  const taskList = tasks.data ?? [];
+  const workflowList = workflows.data ?? [];
+  const suggestionList = suggestions.data ?? [];
+
+  async function scan() {
+    setBusy("scan");
+    try {
+      const result = await api<AgentTaskView[]>("/api/v1/agent-tasks/scan", {
+        method: "POST",
+        body: {},
+      });
+      toast.success("Agent scan finished", `${result.length} task(s) ran`);
+      tasks.reload();
+      workflows.reload();
+    } catch (caught) {
+      toast.error(
+        "Scan failed",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runTask(task: AgentTaskView) {
+    setBusy(`run:${task.id}`);
+    try {
+      await api(`/api/v1/agent-tasks/${task.id}/run`, { method: "POST" });
+      toast.success("Task executed", shortId(task.id));
+      tasks.reload();
+    } catch (caught) {
+      toast.error(
+        "Execution failed",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function enqueueTask() {
+    setEnqueueError(null);
+    try {
+      const input = JSON.parse(taskInput) as Record<string, unknown>;
+      await api("/api/v1/agent-tasks", {
+        method: "POST",
+        body: {
+          agentType,
+          triggerType,
+          input,
+          idempotencyKey: idempotencyKey.trim(),
+        },
+      });
+      toast.success("Agent task queued", agentType);
+      setEnqueueOpen(false);
+      tasks.reload();
+    } catch (caught) {
+      setEnqueueError(
+        caught instanceof Error ? caught.message : "Could not enqueue task",
+      );
+    }
+  }
+
+  async function decideAction() {
+    if (!actionTarget) return;
+    setActionError(null);
+    try {
+      await api(
+        `/api/v1/agent-tasks/${actionTarget.task.id}/${actionDecision}`,
+        {
+          method: "POST",
+          body: {
+            actionId: actionTarget.action.id,
+            approverPersonId: approver,
+            ...(actionDecision === "reject"
+              ? { reason: actionReason.trim() }
+              : {}),
+          },
+        },
+      );
+      toast.success(
+        actionDecision === "approve" ? "Action approved" : "Action rejected",
+        actionTarget.action.tool,
+      );
+      setActionTarget(null);
+      tasks.reload();
+    } catch (caught) {
+      setActionError(
+        caught instanceof ApiError ? caught.message : "Could not record decision",
+      );
+    }
+  }
+
+  async function createWorkflow() {
+    setWorkflowError(null);
+    try {
+      await api("/api/v1/workflow-runs", {
+        method: "POST",
+        body: {
+          agentTaskId: workflowTaskId.trim(),
+          workflowName: workflowName.trim(),
+          workflowVersion: workflowVersion.trim(),
+          status: "RUNNING",
+          currentStep: workflowStep.trim() || undefined,
+        },
+      });
+      toast.success("Workflow run recorded", workflowName);
+      setWorkflowOpen(false);
+      workflows.reload();
+    } catch (caught) {
+      setWorkflowError(
+        caught instanceof Error ? caught.message : "Could not record workflow",
+      );
+    }
+  }
+
+  async function finishWorkflow(run: WorkflowRunView) {
+    setBusy(`finish:${run.id}`);
+    try {
+      await api(`/api/v1/workflow-runs/${run.id}/finish`, {
+        method: "POST",
+        body: { status: "SUCCEEDED" },
+      });
+      toast.success("Workflow finished", run.workflowName);
+      workflows.reload();
+    } catch (caught) {
+      toast.error(
+        "Could not finish workflow",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createSuggestion() {
+    setSuggestionError(null);
+    try {
+      const outputJson = JSON.parse(suggestionOutput) as Record<string, unknown>;
+      await api("/api/v1/ai-suggestion-logs", {
+        method: "POST",
+        body: {
+          agentTaskId: suggestionTaskId.trim(),
+          targetType: suggestionTargetType.trim(),
+          suggestionType: suggestionType.trim(),
+          promptVersion: suggestionPromptVersion.trim(),
+          inputHash: suggestionInputHash.trim(),
+          outputJson,
+          validationStatus: "UNVERIFIED",
+        },
+      });
+      toast.success("Suggestion logged", suggestionType);
+      setSuggestionOpen(false);
+      suggestions.reload();
+    } catch (caught) {
+      setSuggestionError(
+        caught instanceof Error ? caught.message : "Could not log suggestion",
+      );
+    }
+  }
+
+  async function acceptSuggestion(suggestion: AiSuggestionLogView) {
+    setBusy(`accept:${suggestion.id}`);
+    try {
+      await api(`/api/v1/ai-suggestion-logs/${suggestion.id}/accept`, {
+        method: "POST",
+        body: { acceptedBy: session.personId },
+      });
+      toast.success("Suggestion accepted", suggestion.suggestionType);
+      suggestions.reload();
+    } catch (caught) {
+      toast.error(
+        "Could not accept suggestion",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const pendingActions = taskList.flatMap((task) =>
+    task.status === "WAITING_APPROVAL"
+      ? task.actions
+          .filter((action) => action.requiresApproval)
+          .map((action) => ({ task, action }))
+      : [],
+  );
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Bounded automation"
+        title="Agent operations"
+        description="Proactive agent tasks, their approval gates, workflow runs and suggestion logs. T2/T3 actions require a human; every step is audited."
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon="play"
+              loading={busy === "scan"}
+              onClick={scan}
+            >
+              Run scan
+            </Button>
+            <Button
+              variant="primary"
+              icon="plus"
+              onClick={() => {
+                setAgentType(AGENT_TYPES[0] as string);
+                setTriggerType("MANUAL");
+                setIdempotencyKey(`manual-${Date.now()}`);
+                setTaskInput("{}");
+                setEnqueueError(null);
+                setEnqueueOpen(true);
+              }}
+            >
+              Enqueue task
+            </Button>
+          </>
+        }
+      />
+
+      <Tabs
+        items={[
+          { id: "tasks", label: "Agent tasks", count: taskList.length },
+          {
+            id: "approvals",
+            label: "Pending actions",
+            count: pendingActions.length,
+          },
+          { id: "workflows", label: "Workflow runs", count: workflowList.length },
+          {
+            id: "suggestions",
+            label: "Suggestion logs",
+            count: suggestionList.length,
+          },
+        ]}
+        active={tab}
+        onChange={setTab}
+        label="Agent views"
+      />
+
+      <div className="tab-panel">
+        {tab === "tasks" ? (
+          <Panel title="Agent tasks" flush>
+            {tasks.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={tasks.error} onRetry={tasks.reload} />
+              </div>
+            ) : tasks.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={4} />
+              </div>
+            ) : taskList.length === 0 ? (
+              <EmptyState
+                icon="ai"
+                title="No agent task"
+                description="Queue a task manually or run a scan to let the agent observe evidence gaps and settlement readiness."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Task</th>
+                      <th>Agent</th>
+                      <th>Status</th>
+                      <th>Risk</th>
+                      <th>Findings</th>
+                      <th>Updated</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taskList.map((task) => (
+                      <tr key={task.id}>
+                        <td>
+                          <span className="cell-primary mono">
+                            {shortId(task.id, 10)}
+                          </span>
+                          <span className="cell-sub">
+                            {task.triggerType}
+                            {task.triggerRef ? ` · ${task.triggerRef}` : ""}
+                          </span>
+                        </td>
+                        <td>{titleCase(task.agentType)}</td>
+                        <td>
+                          <Badge status={task.status} />
+                        </td>
+                        <td>
+                          <Badge tone={task.riskTier === "T3" ? "danger" : "neutral"}>
+                            {task.riskTier}
+                          </Badge>
+                        </td>
+                        <td>{task.findings.length}</td>
+                        <td className="nowrap">
+                          {formatDateTime(task.updatedAt)}
+                        </td>
+                        <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={busy === `run:${task.id}`}
+                            onClick={() => runTask(task)}
+                          >
+                            Run
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : tab === "approvals" ? (
+          <Panel
+            title="Pending agent actions"
+            subtitle="Approving executes the action; T3 policy publication stays admin-only"
+            flush
+          >
+            {pendingActions.length === 0 ? (
+              <EmptyState
+                icon="approvals"
+                title="Nothing awaiting approval"
+                description="T0/T1 actions run automatically; higher-risk actions appear here."
+              />
+            ) : (
+              <div className="stack" style={{ padding: 16, gap: 12 }}>
+                {pendingActions.map(({ task, action }) => (
+                  <div key={`${task.id}:${action.id}`} className="notice">
+                    <DefinitionList
+                      items={[
+                        {
+                          label: "Task",
+                          value: `${titleCase(task.agentType)} · ${shortId(task.id, 10)}`,
+                        },
+                        { label: "Tool", value: action.tool },
+                        { label: "Risk", value: action.riskTier },
+                        { label: "Target", value: `${action.targetType} ${shortId(action.targetId, 10)}` },
+                      ]}
+                    />
+                    <p className="muted">{action.description}</p>
+                    <div className="row-actions">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => {
+                          setActionTarget({ task, action });
+                          setActionDecision("approve");
+                          setApprover(session.personId);
+                          setActionReason("");
+                          setActionError(null);
+                        }}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setActionTarget({ task, action });
+                          setActionDecision("reject");
+                          setApprover(session.personId);
+                          setActionReason("");
+                          setActionError(null);
+                        }}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+        ) : tab === "workflows" ? (
+          <Panel
+            title="Workflow runs"
+            subtitle="Task-linked workflow executions"
+            flush
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={() => {
+                  setWorkflowTaskId(taskList[0]?.id ?? "");
+                  setWorkflowName("");
+                  setWorkflowVersion("1");
+                  setWorkflowStep("");
+                  setWorkflowError(null);
+                  setWorkflowOpen(true);
+                }}
+              >
+                New run
+              </Button>
+            }
+          >
+            {workflows.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={workflows.error} onRetry={workflows.reload} />
+              </div>
+            ) : workflows.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : workflowList.length === 0 ? (
+              <EmptyState
+                icon="clock"
+                title="No workflow run"
+                description="Workflow runs record multi-step agent executions and their current step."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Workflow</th>
+                      <th>Task</th>
+                      <th>Status</th>
+                      <th>Started</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workflowList.map((run) => (
+                      <tr key={run.id}>
+                        <td>
+                          <span className="cell-primary">
+                            {run.workflowName} v{run.workflowVersion}
+                          </span>
+                          <span className="cell-sub">
+                            {run.currentStep ?? "no step"}
+                          </span>
+                        </td>
+                        <td className="mono">{shortId(run.agentTaskId, 10)}</td>
+                        <td>
+                          <Badge status={run.status} />
+                        </td>
+                        <td className="nowrap">
+                          {formatDateTime(run.startedAt)}
+                        </td>
+                        <td className="cell-actions">
+                          {!run.finishedAt ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={busy === `finish:${run.id}`}
+                              onClick={() => finishWorkflow(run)}
+                            >
+                              Finish
+                            </Button>
+                          ) : (
+                            <span className="subtle">
+                              {run.finishedAt
+                                ? formatDateTime(run.finishedAt)
+                                : "—"}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : (
+          <Panel
+            title="AI suggestion logs"
+            subtitle="Model outputs linked to an agent task; acceptance is attributed"
+            flush
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={() => {
+                  setSuggestionTaskId(taskList[0]?.id ?? "");
+                  setSuggestionTargetType("");
+                  setSuggestionType("");
+                  setSuggestionPromptVersion("v1");
+                  setSuggestionInputHash("");
+                  setSuggestionOutput("{}");
+                  setSuggestionError(null);
+                  setSuggestionOpen(true);
+                }}
+              >
+                Log suggestion
+              </Button>
+            }
+          >
+            {suggestions.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice
+                  error={suggestions.error}
+                  onRetry={suggestions.reload}
+                />
+              </div>
+            ) : suggestions.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : suggestionList.length === 0 ? (
+              <EmptyState
+                icon="ai"
+                title="No suggestion log"
+                description="Suggestions are non-scoring model outputs reviewed by a human."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Suggestion</th>
+                      <th>Target</th>
+                      <th>Validation</th>
+                      <th>Created</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suggestionList.map((suggestion) => (
+                      <tr key={suggestion.id}>
+                        <td>
+                          <span className="cell-primary">
+                            {suggestion.suggestionType}
+                          </span>
+                          <span className="cell-sub">
+                            {suggestion.modelProvider ?? "model"} ·{" "}
+                            {suggestion.modelName ?? "n/a"} ·{" "}
+                            {suggestion.promptVersion}
+                          </span>
+                        </td>
+                        <td>
+                          {suggestion.targetType}
+                          <span className="cell-sub mono">
+                            {suggestion.targetId
+                              ? shortId(suggestion.targetId, 10)
+                              : "—"}
+                          </span>
+                        </td>
+                        <td>
+                          <Badge status={suggestion.validationStatus} />
+                        </td>
+                        <td className="nowrap">
+                          {formatDateTime(suggestion.createdAt)}
+                        </td>
+                        <td className="cell-actions">
+                          {suggestion.acceptedAt ? (
+                            <span className="subtle">
+                              accepted {formatDateTime(suggestion.acceptedAt)}
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              loading={busy === `accept:${suggestion.id}`}
+                              onClick={() => acceptSuggestion(suggestion)}
+                            >
+                              Accept
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        )}
+      </div>
+
+      <Modal
+        open={enqueueOpen}
+        title="Enqueue agent task"
+        description="The idempotency key prevents duplicate work."
+        onClose={() => setEnqueueOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEnqueueOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={enqueueTask}>
+              Enqueue
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {enqueueError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{enqueueError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Agent type" htmlFor="agent-type">
+            <Select
+              id="agent-type"
+              value={agentType}
+              onChange={(event) => setAgentType(event.target.value)}
+            >
+              {AGENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {titleCase(type)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Trigger" htmlFor="agent-trigger">
+            <Select
+              id="agent-trigger"
+              value={triggerType}
+              onChange={(event) => setTriggerType(event.target.value)}
+            >
+              {TRIGGER_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {titleCase(type)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Idempotency key" htmlFor="agent-key">
+            <TextInput
+              id="agent-key"
+              value={idempotencyKey}
+              onChange={(event) => setIdempotencyKey(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Input JSON" htmlFor="agent-input" className="field--full">
+            <Textarea
+              id="agent-input"
+              value={taskInput}
+              onChange={(event) => setTaskInput(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(actionTarget)}
+        title={actionDecision === "approve" ? "Approve agent action" : "Reject agent action"}
+        description={actionTarget?.action.description}
+        onClose={() => setActionTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setActionTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={decideAction}>
+              {actionDecision === "approve" ? "Approve" : "Reject"}
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {actionError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{actionError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Approver" htmlFor="agent-approver">
+            <PersonSelect
+              id="agent-approver"
+              value={approver}
+              onChange={setApprover}
+            />
+          </FormField>
+          {actionDecision === "reject" ? (
+            <FormField
+              label="Reason"
+              htmlFor="agent-reject-reason"
+              className="field--full"
+            >
+              <Textarea
+                id="agent-reject-reason"
+                value={actionReason}
+                onChange={(event) => setActionReason(event.target.value)}
+                required
+              />
+            </FormField>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={workflowOpen}
+        title="New workflow run"
+        onClose={() => setWorkflowOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWorkflowOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createWorkflow}>
+              Record run
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {workflowError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{workflowError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Agent task" htmlFor="workflow-task">
+            <Select
+              id="workflow-task"
+              value={workflowTaskId}
+              onChange={(event) => setWorkflowTaskId(event.target.value)}
+              required
+            >
+              <option value="">Select a task</option>
+              {taskList.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {titleCase(task.agentType)} · {shortId(task.id, 8)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Workflow name" htmlFor="workflow-name">
+            <TextInput
+              id="workflow-name"
+              value={workflowName}
+              onChange={(event) => setWorkflowName(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Version" htmlFor="workflow-version">
+            <TextInput
+              id="workflow-version"
+              value={workflowVersion}
+              onChange={(event) => setWorkflowVersion(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Current step" htmlFor="workflow-step">
+            <TextInput
+              id="workflow-step"
+              value={workflowStep}
+              onChange={(event) => setWorkflowStep(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={suggestionOpen}
+        title="Log AI suggestion"
+        onClose={() => setSuggestionOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSuggestionOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createSuggestion}>
+              Log suggestion
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {suggestionError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{suggestionError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Agent task" htmlFor="suggestion-task">
+            <Select
+              id="suggestion-task"
+              value={suggestionTaskId}
+              onChange={(event) => setSuggestionTaskId(event.target.value)}
+              required
+            >
+              <option value="">Select a task</option>
+              {taskList.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {titleCase(task.agentType)} · {shortId(task.id, 8)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Target type" htmlFor="suggestion-target">
+            <TextInput
+              id="suggestion-target"
+              value={suggestionTargetType}
+              onChange={(event) => setSuggestionTargetType(event.target.value)}
+              placeholder="WORK_PACKAGE"
+              required
+            />
+          </FormField>
+          <FormField label="Suggestion type" htmlFor="suggestion-type">
+            <TextInput
+              id="suggestion-type"
+              value={suggestionType}
+              onChange={(event) => setSuggestionType(event.target.value)}
+              placeholder="EVIDENCE_REMINDER"
+              required
+            />
+          </FormField>
+          <FormField label="Prompt version" htmlFor="suggestion-prompt">
+            <TextInput
+              id="suggestion-prompt"
+              value={suggestionPromptVersion}
+              onChange={(event) =>
+                setSuggestionPromptVersion(event.target.value)
+              }
+              required
+            />
+          </FormField>
+          <FormField label="Input hash" htmlFor="suggestion-hash">
+            <TextInput
+              id="suggestion-hash"
+              value={suggestionInputHash}
+              onChange={(event) => setSuggestionInputHash(event.target.value)}
+              placeholder="sha256:…"
+              required
+            />
+          </FormField>
+          <FormField
+            label="Output JSON"
+            htmlFor="suggestion-output"
+            className="field--full"
+          >
+            <Textarea
+              id="suggestion-output"
+              value={suggestionOutput}
+              onChange={(event) => setSuggestionOutput(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+    </>
+  );
+}
