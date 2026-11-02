@@ -170,7 +170,7 @@ import {
   settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
-import type { CreateCalculationRunInput } from "@anari/contracts";
+import type { CreateCalculationRunInput, FieldAccessPolicy } from "@anari/contracts";
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
@@ -559,7 +559,7 @@ export const RETENTION_RECOMMENDATIONS = [
   },
 ] as const;
 
-export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
+export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, FieldAccessPolicy> = {
   ...DEFAULT_PAYROLL_FIELD_POLICIES,
   "CALCULATION_LINE.baseAmount": ["finance", "admin"],
   "CALCULATION_LINE.rawAmount": ["finance", "admin"],
@@ -579,6 +579,75 @@ export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
 
 const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
 
+type DenialMode = "OMIT" | "ZERO" | "REDACT";
+
+interface NormalizedFieldPolicy {
+  roles: string[];
+  allowSelf: boolean;
+  onDeny?: DenialMode;
+}
+
+/** Accept both the legacy role array and the object form from ADR-009. */
+export function normalizeFieldPolicy(
+  value: unknown,
+): NormalizedFieldPolicy | undefined {
+  if (Array.isArray(value)) {
+    return {
+      roles: value.filter((role): role is string => typeof role === "string"),
+      allowSelf: true,
+    };
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as {
+    allowRoles?: unknown;
+    allowSelf?: unknown;
+    onDeny?: unknown;
+  };
+  const roles = Array.isArray(candidate.allowRoles)
+    ? candidate.allowRoles.filter(
+        (role): role is string => typeof role === "string",
+      )
+    : [];
+  const allowSelf =
+    typeof candidate.allowSelf === "boolean" ? candidate.allowSelf : true;
+  const onDeny =
+    candidate.onDeny === "OMIT" ||
+    candidate.onDeny === "ZERO" ||
+    candidate.onDeny === "REDACT"
+      ? candidate.onDeny
+      : undefined;
+  if (roles.length === 0 && candidate.allowSelf === undefined) {
+    return undefined;
+  }
+  return { roles, allowSelf, onDeny };
+}
+
+export function fieldPolicyAllows(
+  policy: NormalizedFieldPolicy,
+  roles: string[],
+  isSelf: boolean,
+): boolean {
+  if (roles.includes("admin")) return true;
+  if (isSelf && policy.allowSelf) return true;
+  return policy.roles.some((role) => roles.includes(role));
+}
+
+export function deniedFieldValue(
+  field: string,
+  current: unknown,
+  onDeny?: DenialMode,
+): unknown {
+  if (onDeny === "OMIT") return undefined;
+  if (onDeny === "ZERO") return "0";
+  if (onDeny === "REDACT") return "[REDACTED]";
+  // Legacy inference keeps existing array policies behaving as before.
+  if (/Ref$/.test(field)) return undefined;
+  if (typeof current === "string" && DECIMAL_STRING_PATTERN.test(current)) {
+    return "0";
+  }
+  return "[REDACTED]";
+}
+
 /**
  * Apply the tenant field-access matrix to a single flat resource. This is the
  * generic path used by resources added after payroll and calculation lines;
@@ -592,12 +661,12 @@ export function redactResourceFields<T extends object>(
     personId?: string;
     recordPersonId?: string;
     roles: string[];
-    policies?: Record<string, string[]>;
+    policies?: Record<string, FieldAccessPolicy>;
   },
 ): T & { redactedFields?: string[] } {
-  if (viewer.personId && viewer.personId === viewer.recordPersonId) {
-    return resource;
-  }
+  const isSelf = Boolean(
+    viewer.personId && viewer.personId === viewer.recordPersonId,
+  );
   const policies = {
     ...DEFAULT_FIELD_ACCESS_POLICIES,
     ...(viewer.policies ?? {}),
@@ -606,27 +675,14 @@ export function redactResourceFields<T extends object>(
   const next: Record<string, unknown> = {
     ...(resource as Record<string, unknown>),
   };
-  for (const [key, allowed] of Object.entries(policies)) {
-    if (!Array.isArray(allowed)) continue;
+  for (const [key, rawPolicy] of Object.entries(policies)) {
+    const policy = normalizeFieldPolicy(rawPolicy);
+    if (!policy) continue;
     const [resourceKey, field] = key.split(".");
     if (resourceKey !== resourceName || !field || !(field in next)) continue;
-    if (
-      viewer.roles.includes("admin") ||
-      allowed.some((role) => viewer.roles.includes(role))
-    ) {
-      continue;
-    }
+    if (fieldPolicyAllows(policy, viewer.roles, isSelf)) continue;
     redacted.push(field);
-    if (/Ref$/.test(field)) {
-      next[field] = undefined;
-    } else if (
-      typeof next[field] === "string" &&
-      DECIMAL_STRING_PATTERN.test(next[field] as string)
-    ) {
-      next[field] = "0";
-    } else {
-      next[field] = "[REDACTED]";
-    }
+    next[field] = deniedFieldValue(field, next[field], policy.onDeny);
   }
   return redacted.length === 0
     ? resource
@@ -649,7 +705,7 @@ export function redactContractAmendmentTerms<
     personId?: string;
     recordPersonId?: string;
     roles: string[];
-    policies?: Record<string, string[]>;
+    policies?: Record<string, FieldAccessPolicy>;
   },
 ): T & { redactedFields?: string[] } {
   const before = redactResourceFields(
@@ -680,7 +736,7 @@ export function redactSettlementBatchFields(
   viewer: {
     personId?: string;
     roles: string[];
-    policies?: Record<string, string[]>;
+    policies?: Record<string, FieldAccessPolicy>;
   },
 ): SettlementBatch {
   if (!batch.lines?.length) return batch;
@@ -705,7 +761,7 @@ export function redactCalculationRunFields(
   run: CalculationRun,
   viewer: {
     roles: string[];
-    policies?: Record<string, string[]>;
+    policies?: Record<string, FieldAccessPolicy>;
   },
 ): CalculationRun {
   const policies = {
@@ -717,21 +773,17 @@ export function redactCalculationRunFields(
     lines: run.lines.map((line) => {
       const redacted: string[] = [];
       const next: Record<string, unknown> = { ...line };
-      for (const [key, allowed] of Object.entries(policies)) {
-        if (!Array.isArray(allowed)) continue;
+      for (const [key, rawPolicy] of Object.entries(policies)) {
+        const policy = normalizeFieldPolicy(rawPolicy);
+        if (!policy) continue;
         const [resource, field] = key.split(".");
         if (resource !== "CALCULATION_LINE" || !field) continue;
-        if (
-          viewer.roles.includes("admin") ||
-          allowed.some((role) => viewer.roles.includes(role))
-        ) {
-          continue;
-        }
+        if (fieldPolicyAllows(policy, viewer.roles, false)) continue;
         redacted.push(field);
-        if (field === "trace") {
+        if (field === "trace" && !policy.onDeny) {
           next.trace = {};
         } else if (field in next) {
-          next[field] = "0";
+          next[field] = deniedFieldValue(field, next[field], policy.onDeny);
         }
       }
       return redacted.length === 0
@@ -750,7 +802,7 @@ export function redactPayrollFields(
   viewer: {
     personId?: string;
     roles: string[];
-    policies?: Record<string, string[]>;
+    policies?: Record<string, FieldAccessPolicy>;
     breakGlass: boolean;
   },
 ): PayrollRun {
@@ -764,22 +816,18 @@ export function redactPayrollFields(
       if (line.personId === viewer.personId) return line;
       const redacted: string[] = [];
       const next: PayrollLine = { ...line };
-      for (const [key, allowed] of Object.entries(policies)) {
-        if (!Array.isArray(allowed)) continue;
+      for (const [key, rawPolicy] of Object.entries(policies)) {
+        const policy = normalizeFieldPolicy(rawPolicy);
+        if (!policy) continue;
         const [resource, field] = key.split(".");
         if (resource !== "PAYROLL_LINE" || !field) continue;
         if (field === "bankAccountRef" && viewer.breakGlass) continue;
-        if (
-          viewer.roles.includes("admin") ||
-          allowed.some((role) => viewer.roles.includes(role))
-        ) {
-          continue;
-        }
+        if (fieldPolicyAllows(policy, viewer.roles, false)) continue;
         redacted.push(field);
-        if (field === "bankAccountRef") {
-          next.bankAccountRef = undefined;
-        } else if (field in next) {
-          (next as unknown as Record<string, unknown>)[field] = "0";
+        if (field in next) {
+          const current = (next as unknown as Record<string, unknown>)[field];
+          (next as unknown as Record<string, unknown>)[field] =
+            deniedFieldValue(field, current, policy.onDeny);
         }
       }
       return redacted.length === 0
@@ -943,24 +991,24 @@ export function buildApp(
   let readinessProbe: IncentiveStore | undefined;
   const fieldPolicyCache = new WeakMap<
     FastifyRequest,
-    Record<string, string[]> | null
+    Record<string, FieldAccessPolicy> | null
   >();
 
   /** Resolve tenant field-access overrides once per request. */
   async function fieldPoliciesFor(
     request: FastifyRequest,
-  ): Promise<Record<string, string[]> | undefined> {
+  ): Promise<Record<string, FieldAccessPolicy> | undefined> {
     if (fieldPolicyCache.has(request)) {
       return fieldPolicyCache.get(request) ?? undefined;
     }
-    let policies: Record<string, string[]> | null = null;
+    let policies: Record<string, FieldAccessPolicy> | null = null;
     try {
       const tenant = await platformStore.getTenant(tenantOf(request));
       const configured = (
         tenant.settings as { fieldAccessPolicies?: unknown }
       ).fieldAccessPolicies;
       if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
+        policies = configured as Record<string, FieldAccessPolicy>;
       }
     } catch {
       policies = null;
@@ -1213,14 +1261,14 @@ export function buildApp(
           ),
         )
       : false;
-    let policies: Record<string, string[]> | undefined;
+    let policies: Record<string, FieldAccessPolicy> | undefined;
     try {
       const tenant = await platformStore.getTenant(tenantOf(request));
       const configured = (
         tenant.settings as { payrollFieldPolicies?: unknown }
       ).payrollFieldPolicies;
       if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
+        policies = configured as Record<string, FieldAccessPolicy>;
       }
     } catch {
       policies = undefined;
@@ -5891,9 +5939,9 @@ export function buildApp(
     const configured = (
       tenant.settings as { fieldAccessPolicies?: unknown }
     ).fieldAccessPolicies;
-    const policies =
+    const policies: Record<string, FieldAccessPolicy> =
       configured && typeof configured === "object"
-        ? (configured as Record<string, string[]>)
+        ? (configured as Record<string, FieldAccessPolicy>)
         : {};
     return data(
       {
@@ -8940,18 +8988,7 @@ export function buildApp(
     if (roles.includes("admin")) {
       return data(runs, request);
     }
-    let policies: Record<string, string[]> | undefined;
-    try {
-      const tenant = await platformStore.getTenant(tenantOf(request));
-      const configured = (
-        tenant.settings as { fieldAccessPolicies?: unknown }
-      ).fieldAccessPolicies;
-      if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
-      }
-    } catch {
-      policies = undefined;
-    }
+    const policies = await fieldPoliciesFor(request);
     return data(
       runs.map((run) => redactCalculationRunFields(run, { roles, policies })),
       request,
@@ -8973,18 +9010,7 @@ export function buildApp(
     if (roles.includes("admin")) {
       return data(run, request);
     }
-    let policies: Record<string, string[]> | undefined;
-    try {
-      const tenant = await platformStore.getTenant(tenantOf(request));
-      const configured = (
-        tenant.settings as { fieldAccessPolicies?: unknown }
-      ).fieldAccessPolicies;
-      if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
-      }
-    } catch {
-      policies = undefined;
-    }
+    const policies = await fieldPoliciesFor(request);
     return data(
       redactCalculationRunFields(run, { roles, policies }),
       request,

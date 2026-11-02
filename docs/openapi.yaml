@@ -9086,6 +9086,24 @@ components:
       type: string
       enum: [GENDER, AGE_BAND, REGION, TENURE_BAND, EMPLOYMENT_TYPE]
 
+    FieldAccessPolicyObject:
+      type: object
+      additionalProperties: false
+      properties:
+        allowRoles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        allowSelf:
+          type: boolean
+        onDeny:
+          type: string
+          enum: [OMIT, ZERO, REDACT]
+      anyOf:
+        - required: [allowRoles]
+        - required: [allowSelf]
+
     UpdateFieldAccessPolicies:
       type: object
       required: [policies]
@@ -9093,10 +9111,12 @@ components:
         policies:
           type: object
           additionalProperties:
-            type: array
-            minItems: 1
-            items:
-              type: string
+            oneOf:
+              - type: array
+                minItems: 1
+                items:
+                  type: string
+              - $ref: "#/components/schemas/FieldAccessPolicyObject"
           propertyNames:
             pattern: '^(PAYROLL_LINE|CALCULATION_LINE|EMPLOYMENT_CONTRACT|EVIDENCE|SETTLEMENT_LINE|AI_PROPOSAL)\.[A-Za-z][A-Za-z0-9_]*$' 
 

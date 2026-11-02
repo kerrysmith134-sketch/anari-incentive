@@ -7160,6 +7160,97 @@ describe("vertical slice", () => {
     );
   });
 
+  it("supports object field policies with explicit denial modes", () => {
+    const contract = {
+      personId: OWNER,
+      bankAccountRef: "BANK-001",
+      fixedMonthlySalary: "8000",
+      note: "private",
+    };
+    const narrowed = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      roles: ["finance"],
+      policies: {
+        "EMPLOYMENT_CONTRACT.bankAccountRef": { allowRoles: ["admin"] },
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["admin"],
+          onDeny: "ZERO",
+        },
+        "EMPLOYMENT_CONTRACT.note": {
+          allowRoles: ["admin"],
+          onDeny: "REDACT",
+        },
+      },
+    });
+    expect(narrowed.bankAccountRef).toBeUndefined();
+    expect(narrowed.fixedMonthlySalary).toBe("0");
+    expect(narrowed.note).toBe("[REDACTED]");
+    expect(narrowed.redactedFields).toEqual(
+      expect.arrayContaining([
+        "bankAccountRef",
+        "fixedMonthlySalary",
+        "note",
+      ]),
+    );
+
+    const selfAllowed = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      personId: OWNER,
+      recordPersonId: OWNER,
+      roles: ["employee"],
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": { allowRoles: ["finance"] },
+      },
+    });
+    expect(selfAllowed.fixedMonthlySalary).toBe("8000");
+
+    const selfDenied = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      personId: OWNER,
+      recordPersonId: OWNER,
+      roles: ["employee"],
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["finance"],
+          allowSelf: false,
+        },
+      },
+    });
+    expect(selfDenied.fixedMonthlySalary).toBe("0");
+    expect(selfDenied.redactedFields).toContain("fixedMonthlySalary");
+  });
+
+  it("validates object field policies and rejects unsupported predicates", async () => {
+    const accepted = await call("PUT", "/api/v1/field-access-policies", {
+      policies: {
+        "EMPLOYMENT_CONTRACT.bankAccountRef": {
+          allowRoles: ["finance"],
+          onDeny: "OMIT",
+        },
+        "EVIDENCE.sourceUri": { allowSelf: true },
+      },
+    });
+    expect(accepted.status).toBe(200);
+    const fetched = await call("GET", "/api/v1/field-access-policies");
+    expect(
+      fetched.body.data.effective["EMPLOYMENT_CONTRACT.bankAccountRef"],
+    ).toEqual({ allowRoles: ["finance"], onDeny: "OMIT" });
+
+    const unsupported = await call("PUT", "/api/v1/field-access-policies", {
+      policies: {
+        "EVIDENCE.sourceUri": {
+          allowRoles: ["finance"],
+          match: { sameLegalEntity: true },
+        },
+      },
+    });
+    expect(unsupported.status).toBe(400);
+    expect(unsupported.body.error.code).toBe("VALIDATION_ERROR");
+
+    const empty = await call("PUT", "/api/v1/field-access-policies", {
+      policies: { "EVIDENCE.sourceUri": {} },
+    });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("applies tenant evidence payload policies on the evidence list", async () => {
     const platformStore = new MemoryPlatformStore();
     const tenant = await platformStore.createTenant({

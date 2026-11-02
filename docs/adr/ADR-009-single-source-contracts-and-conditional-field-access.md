@@ -1,6 +1,6 @@
 # ADR-009: Single-source contracts and conditional field access
 
-- Status: Proposed
+- Status: Accepted (phased)
 - Date: 2026-11-02
 - Owners: Platform / Security Engineering
 - Related: ADR-002 (canonical domain contract), ADR-003 (money-path invariants), ADR-008 (system-level policy defaults), PRD V4.1 DOM-01, SEC-03, SEC-06
@@ -87,6 +87,12 @@ Rules:
   not silently zeroed when omission is safer.
 - Every policy write is audited with before/after; redacted responses keep
   returning `redactedFields` so callers know data was withheld.
+
+Implementation status: `allowRoles`, `allowSelf` and `onDeny` are implemented
+across payroll lines, calculation lines and the generic resource path. The
+object form is strict — unknown keys such as `match` are rejected with
+`VALIDATION_ERROR` until the predicate whitelist ships. `allowSelf: false`
+denies the record subject even though self-access is otherwise the default.
 
 Admin bypass remains, but reading another tenant's data is still impossible
 (RLS and tenant scoping are orthogonal to field policies).

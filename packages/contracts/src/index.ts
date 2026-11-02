@@ -1824,6 +1824,31 @@ export type CreatePlatformUserBody = z.infer<
   typeof createPlatformUserSchema
 >;
 
+/**
+ * Object form of a field policy. Conditions are intentionally limited: only
+ * `allowRoles`/`allowSelf`/`onDeny` are accepted today; unknown keys such as
+ * `match` are rejected until the predicate whitelist in ADR-009 ships.
+ */
+export const fieldAccessPolicyObjectSchema = z
+  .object({
+    allowRoles: z.array(z.string().min(1)).min(1).optional(),
+    allowSelf: z.boolean().optional(),
+    onDeny: z.enum(["OMIT", "ZERO", "REDACT"]).optional(),
+  })
+  .strict()
+  .refine((value) => value.allowRoles !== undefined || value.allowSelf !== undefined, {
+    message: "policy must set allowRoles or allowSelf",
+  });
+
+export const fieldAccessPolicySchema = z.union([
+  z.array(z.string().min(1)).min(1),
+  fieldAccessPolicyObjectSchema,
+]);
+export type FieldAccessPolicyObject = z.infer<
+  typeof fieldAccessPolicyObjectSchema
+>;
+export type FieldAccessPolicy = z.infer<typeof fieldAccessPolicySchema>;
+
 export const fieldAccessPoliciesSchema = z.record(
   z
     .string()
@@ -1831,7 +1856,7 @@ export const fieldAccessPoliciesSchema = z.record(
       /^(PAYROLL_LINE|CALCULATION_LINE|EMPLOYMENT_CONTRACT|EVIDENCE|SETTLEMENT_LINE|AI_PROPOSAL)\.[A-Za-z][A-Za-z0-9_]*$/,
       "policy key must be RESOURCE.field",
     ),
-  z.array(z.string().min(1)).min(1),
+  fieldAccessPolicySchema,
 );
 
 export const updateFieldAccessPoliciesSchema = z.object({
