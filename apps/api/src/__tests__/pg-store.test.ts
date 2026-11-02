@@ -2837,6 +2837,7 @@ describePg("PgStore vertical slice", () => {
       employmentType: "FULL_TIME",
       startDate: "2025-01-01T00:00:00Z",
       workLocation: "Shanghai",
+      legalEntity: "PG-Entity",
       currency: "CNY",
       fixedMonthlySalary: "9000",
       minimumMonthlyWage: "2690",
@@ -2851,6 +2852,7 @@ describePg("PgStore vertical slice", () => {
     });
     expect(contract.payPlanVersion).toBe(1);
     expect(contract.consentSignatureRef).toBe("PG-ESIGN-1");
+    expect(contract.legalEntity).toBe("PG-Entity");
     const amended = await platform.amendEmploymentContract({
       tenantId: DEMO_TENANT_ID,
       contractId: contract.id,

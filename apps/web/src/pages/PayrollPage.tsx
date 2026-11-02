@@ -994,6 +994,7 @@ function ContractsTab({
   );
   const [endDate, setEndDate] = useState("");
   const [workLocation, setWorkLocation] = useState("");
+  const [legalEntity, setLegalEntity] = useState("");
   const [currency, setCurrency] = useState("CNY");
   const [fixedMonthlySalary, setFixedMonthlySalary] = useState("");
   const [minimumMonthlyWage, setMinimumMonthlyWage] = useState("");
@@ -1072,6 +1073,7 @@ function ContractsTab({
           startDate: toIsoDate(startDate),
           endDate: endDate ? toIsoDate(endDate) : undefined,
           workLocation: workLocation.trim(),
+          legalEntity: legalEntity.trim() || undefined,
           currency: currency.toUpperCase(),
           fixedMonthlySalary,
           minimumMonthlyWage,
@@ -1237,7 +1239,9 @@ function ContractsTab({
                   <td>
                     <span>{displayName(contract.personId, people)}</span>
                     <span className="cell-sub">
-                      {contract.workLocation}
+                      {contract.legalEntity
+                        ? `${contract.workLocation} · ${contract.legalEntity}`
+                        : contract.workLocation}
                     </span>
                   </td>
                   <td>{titleCase(contract.employmentType)}</td>
@@ -1339,6 +1343,17 @@ function ContractsTab({
               onChange={(event) => setWorkLocation(event.target.value)}
               placeholder="Shanghai"
               required
+            />
+          </FormField>
+          <FormField
+            label="Legal entity (optional)"
+            htmlFor="contract-legal-entity"
+          >
+            <TextInput
+              id="contract-legal-entity"
+              value={legalEntity}
+              onChange={(event) => setLegalEntity(event.target.value)}
+              placeholder="Anari Shanghai Co., Ltd."
             />
           </FormField>
           <FormField label="Start date" htmlFor="contract-start">

@@ -9109,6 +9109,8 @@ components:
               type: boolean
             sameOrgNode:
               type: boolean
+            sameLegalEntity:
+              type: boolean
             subjectEmploymentActive:
               type: boolean
             viewerEmploymentActive:
@@ -10126,6 +10128,8 @@ components:
           type: string
           format: date-time
         workLocation:
+          type: string
+        legalEntity:
           type: string
         currency:
           type: string

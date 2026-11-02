@@ -1315,6 +1315,8 @@ export const createEmploymentContractSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime().optional(),
   workLocation: z.string().min(1),
+  /** Employing legal entity; required for sameLegalEntity field predicates. */
+  legalEntity: z.string().min(1).optional(),
   currency: z.string().length(3),
   fixedMonthlySalary: decimal,
   minimumMonthlyWage: decimal,
@@ -1838,6 +1840,7 @@ export const fieldAccessMatchSchema = z
   .object({
     isSubjectManager: z.boolean().optional(),
     sameOrgNode: z.boolean().optional(),
+    sameLegalEntity: z.boolean().optional(),
     subjectEmploymentActive: z.boolean().optional(),
     viewerEmploymentActive: z.boolean().optional(),
   })

@@ -1210,6 +1210,8 @@ export interface EmploymentContract {
   startDate: string;
   endDate?: string;
   workLocation: string;
+  /** Employing legal entity, when the tenant records it. */
+  legalEntity?: string;
   currency: string;
   fixedMonthlySalary: DecimalString;
   minimumMonthlyWage: DecimalString;

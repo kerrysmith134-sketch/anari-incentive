@@ -591,6 +591,7 @@ export interface FieldAccessMatchContext {
   managerByPerson: Map<string, string | undefined>;
   activePersons: Set<string>;
   orgNodesByPerson: Map<string, Set<string>>;
+  legalEntityByPerson: Map<string, string | undefined>;
 }
 
 interface NormalizedFieldPolicy {
@@ -650,6 +651,24 @@ export function fieldPolicyAllows(
   return policy.roles.some((role) => roles.includes(role));
 }
 
+/**
+ * Admin and self-access are unconditional grants; predicates only narrow the
+ * role-based path. This keeps a manager's own record visible under a
+ * subject-manager policy.
+ */
+export function fieldPolicyAllowsWithMatch(
+  policy: NormalizedFieldPolicy,
+  roles: string[],
+  isSelf: boolean,
+  context: FieldAccessMatchContext | undefined,
+  subjectPersonId: string | undefined,
+): boolean {
+  if (roles.includes("admin")) return true;
+  if (isSelf && policy.allowSelf) return true;
+  if (!policy.roles.some((role) => roles.includes(role))) return false;
+  return fieldPolicyMatches(policy, context, subjectPersonId);
+}
+
 function evaluateFieldPredicate(
   predicate: keyof FieldAccessMatch,
   context: FieldAccessMatchContext,
@@ -680,6 +699,16 @@ function evaluateFieldPredicate(
       const subjectNodes = context.orgNodesByPerson.get(subjectPersonId);
       if (!viewerNodes?.size || !subjectNodes?.size) return false;
       return [...viewerNodes].some((node) => subjectNodes.has(node));
+    }
+    case "sameLegalEntity": {
+      if (!subjectPersonId || !context.viewerPersonId) return false;
+      const viewerEntity = context.legalEntityByPerson.get(
+        context.viewerPersonId,
+      );
+      const subjectEntity = context.legalEntityByPerson.get(subjectPersonId);
+      return Boolean(
+        viewerEntity && subjectEntity && viewerEntity === subjectEntity,
+      );
     }
     default:
       return false;
@@ -761,8 +790,13 @@ export function redactResourceFields<T extends object>(
     if (resourceKey !== resourceName || !field || !(field in next)) continue;
     const subjectPersonId = viewer.subjectPersonId ?? viewer.recordPersonId;
     if (
-      fieldPolicyAllows(policy, viewer.roles, isSelf) &&
-      fieldPolicyMatches(policy, viewer.matchContext, subjectPersonId)
+      fieldPolicyAllowsWithMatch(
+        policy,
+        viewer.roles,
+        isSelf,
+        viewer.matchContext,
+        subjectPersonId,
+      )
     ) {
       continue;
     }
@@ -867,8 +901,13 @@ export function redactCalculationRunFields(
         const [resource, field] = key.split(".");
         if (resource !== "CALCULATION_LINE" || !field) continue;
         if (
-          fieldPolicyAllows(policy, viewer.roles, false) &&
-          fieldPolicyMatches(policy, viewer.matchContext, line.personId)
+          fieldPolicyAllowsWithMatch(
+            policy,
+            viewer.roles,
+            false,
+            viewer.matchContext,
+            line.personId,
+          )
         ) {
           continue;
         }
@@ -917,8 +956,13 @@ export function redactPayrollFields(
         if (resource !== "PAYROLL_LINE" || !field) continue;
         if (field === "bankAccountRef" && viewer.breakGlass) continue;
         if (
-          fieldPolicyAllows(policy, viewer.roles, false) &&
-          fieldPolicyMatches(policy, viewer.matchContext, line.personId)
+          fieldPolicyAllowsWithMatch(
+            policy,
+            viewer.roles,
+            false,
+            viewer.matchContext,
+            line.personId,
+          )
         ) {
           continue;
         }
@@ -1155,6 +1199,13 @@ export function buildApp(
       nodes.add(assignment.orgNodeId);
       orgNodesByPerson.set(assignment.personId, nodes);
     }
+    const legalEntityByPerson = new Map<string, string | undefined>();
+    for (const contract of contracts) {
+      if (contract.status !== "ACTIVE" || !contract.legalEntity) continue;
+      if (!legalEntityByPerson.has(contract.personId)) {
+        legalEntityByPerson.set(contract.personId, contract.legalEntity);
+      }
+    }
     const context: FieldAccessMatchContext = {
       viewerPersonId: ownPersonId(request),
       managerByPerson: new Map(
@@ -1166,6 +1217,7 @@ export function buildApp(
           .map((contract) => contract.personId),
       ),
       orgNodesByPerson,
+      legalEntityByPerson,
     };
     fieldMatchCache.set(request, context);
     return context;
@@ -8451,6 +8503,7 @@ export function buildApp(
           startDate: body.startDate,
           endDate: body.endDate,
           workLocation: body.workLocation,
+          legalEntity: body.legalEntity,
           currency: body.currency,
           fixedMonthlySalary: body.fixedMonthlySalary,
           minimumMonthlyWage: body.minimumMonthlyWage,

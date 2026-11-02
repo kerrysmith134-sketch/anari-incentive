@@ -164,6 +164,7 @@
         "deductionOrder",
         "deductionTypeCaps",
         "endDate",
+        "legalEntity",
         "smoothingThresholdRate",
         "socialInsuranceRate",
         "taxRate",

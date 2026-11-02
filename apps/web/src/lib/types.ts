@@ -122,6 +122,7 @@ export interface EmploymentContract {
   startDate: string;
   endDate?: string;
   workLocation: string;
+  legalEntity?: string;
   currency: string;
   fixedMonthlySalary: DecimalString;
   minimumMonthlyWage: DecimalString;

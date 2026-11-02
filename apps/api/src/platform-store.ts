@@ -1207,6 +1207,7 @@ export interface PlatformStore {
     startDate: string;
     endDate?: string;
     workLocation: string;
+    legalEntity?: string;
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
@@ -6374,6 +6375,7 @@ export class MemoryPlatformStore implements PlatformStore {
     startDate: string;
     endDate?: string;
     workLocation: string;
+    legalEntity?: string;
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
@@ -6471,6 +6473,7 @@ export class MemoryPlatformStore implements PlatformStore {
       startDate: input.startDate,
       endDate: input.endDate,
       workLocation: input.workLocation,
+      legalEntity: input.legalEntity,
       currency: input.currency,
       fixedMonthlySalary: formatDecimal(
         parseDecimal(input.fixedMonthlySalary),
@@ -13381,6 +13384,7 @@ export class PgPlatformStore implements PlatformStore {
     startDate: string;
     endDate?: string;
     workLocation: string;
+    legalEntity?: string;
     currency: string;
     fixedMonthlySalary: string;
     minimumMonthlyWage: string;
@@ -13438,13 +13442,13 @@ export class PgPlatformStore implements PlatformStore {
       const { rows } = await this.pool.query(
         `INSERT INTO employment_contracts
           (id, tenant_id, person_id, contract_code, employment_type,
-           start_date, end_date, work_location, currency,
+           start_date, end_date, work_location, legal_entity, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
            deduction_order, deduction_type_caps, smoothing_threshold_rate,
            compensation_template_code, bank_account_ref, pay_plan_version,
            consent_signature_ref, consent_signed_at, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,$19,$20,1,$21,$22,'ACTIVE',1)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,1,$22,$23,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -13455,6 +13459,7 @@ export class PgPlatformStore implements PlatformStore {
           input.startDate,
           input.endDate ?? null,
           input.workLocation,
+          input.legalEntity ?? null,
           input.currency,
           input.fixedMonthlySalary,
           input.minimumMonthlyWage,
@@ -15883,6 +15888,7 @@ export class PgPlatformStore implements PlatformStore {
       startDate: iso(row.start_date) ?? new Date().toISOString(),
       endDate: iso(row.end_date),
       workLocation: row.work_location,
+      legalEntity: row.legal_entity ?? undefined,
       currency: String(row.currency).trim(),
       fixedMonthlySalary:
         decimalText(String(row.fixed_monthly_salary)) ?? "0",

@@ -7237,7 +7237,7 @@ describe("vertical slice", () => {
       policies: {
         "EVIDENCE.sourceUri": {
           allowRoles: ["finance"],
-          match: { sameLegalEntity: true },
+          match: { sameDepartment: true },
         },
       },
     });
@@ -7350,9 +7350,11 @@ describe("vertical slice", () => {
     const managerAApp = appFor(managerA.id, ["manager"]);
     const managerBApp = appFor(managerB.id, ["manager"]);
 
-    for (const [person, code, salary] of [
-      [reportA, "CT-R-A", "8000"],
-      [reportB, "CT-R-B", "9000"],
+    for (const [person, code, salary, legalEntity] of [
+      [managerA, "CT-M-A", "10000", "Entity-A"],
+      [managerB, "CT-M-B", "11000", "Entity-B"],
+      [reportA, "CT-R-A", "8000", "Entity-A"],
+      [reportB, "CT-R-B", "9000", "Entity-B"],
     ] as const) {
       const created = await adminApp.inject({
         method: "POST",
@@ -7363,6 +7365,7 @@ describe("vertical slice", () => {
           employmentType: "FULL_TIME",
           startDate: "2025-01-01T00:00:00Z",
           workLocation: "Shanghai",
+          legalEntity,
           currency: "CNY",
           fixedMonthlySalary: salary,
           minimumMonthlyWage: "2690",
@@ -7438,6 +7441,32 @@ describe("vertical slice", () => {
     const orgView = await salaryByPerson(orgApp);
     expect(orgView[reportA.id]).toBe("8000");
     expect(orgView[reportB.id]).toBe("0");
+
+    const legalPolicy = {
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["manager"],
+          match: { sameLegalEntity: true },
+          onDeny: "ZERO",
+        },
+      },
+    };
+    const legalApp = appFor(managerA.id, ["manager"]);
+    const adminApp3 = appFor(undefined, ["admin"]);
+    expect(
+      (
+        await adminApp3.inject({
+          method: "PUT",
+          url: "/api/v1/field-access-policies",
+          payload: legalPolicy,
+        } as never)
+      ).statusCode,
+    ).toBe(200);
+    const legalView = await salaryByPerson(legalApp);
+    expect(legalView[managerA.id]).toBe("10000");
+    expect(legalView[reportA.id]).toBe("8000");
+    expect(legalView[reportB.id]).toBe("0");
+    expect(legalView[managerB.id]).toBe("0");
   });
 
   it("applies tenant evidence payload policies on the evidence list", async () => {

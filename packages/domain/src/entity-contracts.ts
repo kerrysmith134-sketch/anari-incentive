@@ -38,6 +38,7 @@ export const CORE_ENTITY_CONTRACTS: readonly EntityContract[] = [
       "end_date",
       "fixed_monthly_salary",
       "id",
+      "legal_entity",
       "minimum_monthly_wage",
       "pay_plan_version",
       "person_id",
