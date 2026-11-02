@@ -1,8 +1,8 @@
-# PRD V4.1 落地核对（2026-10-30）
+# PRD V4.1 落地核对（2026-11-02）
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
-**代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（279 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（63 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
+**验证**：`npm run typecheck`、`npm test`（279 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -10,14 +10,14 @@
 
 对照 PRD 的 **P0 验收要求**，剩余缺口已收敛为：
 
-1. **法律门禁的最后一公里**：LG-05 已具备未来排期与 provider callback 适配，实际电子签账号/合同由部署配置；LG-06 已有最低工资、扣款上限、deduction order/breakdown、逐类型上限与 tax/social 分列，法定扣款类型的最终法律映射仍待法务。
+1. **法律门禁的最后一公里**：LG-05 已具备未来排期与 provider callback 适配，实际电子签账号/合同由部署配置；LG-06 已有最低工资、扣款上限、deduction order/breakdown、逐类型上限、tax/social 分列与 clawback 逐期校验，ADR-008 固定扣款顺序；执行令/员工授权的最终法律映射仍待法务确认。
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
-3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。。
-4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；已有多资源 payroll field policy；仍缺跨资源通用 ABAC 引擎。DLP/批量导出限流与 audit redaction 已实现，自动 retention deletion 仍明确不启用。
-5. **运营度量与组织证据**：ORG-01..05 已产品化；仍缺员工/经理 cycle-time 指标、DATA-05 的字段级最小化技术证明、受保护属性 subgroup impact。
+3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
+4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation 两类资源并可管理，但尚未覆盖全部资源或通用策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
+5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，任务类型覆盖率与员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是细分角色耗时与产品目标阈值。
 6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
-> 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM 存储、供应商 DPA 证据和 subgroup 口径需要产品/法务/部署决策，不能只靠代码补齐。
+> 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
 
 ## 逐项核对
 
@@ -228,7 +228,7 @@
 
 45. **AI-03 review analytics UI**：Audit queue 面板展示平均审阅时长、平均打开证据数、盲审数与 agreement；AI-03 前端分析项补齐。
 
-46. **SEC-04 export DLP**：新增 `exportDlpEnabled` 扫描（身份证/银行卡/手机号），命中时要求 `SENSITIVE_EXPORT` 审批并消费；覆盖 payroll CSV/bank 与 evidence package；默认关闭以免阻断合法财务导出。
+46. **SEC-04 export DLP**：新增 DLP 扫描（身份证/银行卡/手机号），命中时要求 `SENSITIVE_EXPORT` 审批并消费；覆盖 payroll CSV/bank 与 evidence package；后续改为默认启用（见 68）。
 
 47. **SEC-03 payroll field policies**：tenant `payrollFieldPolicies` 支持 `PAYROLL_LINE.<field>` 角色白名单，默认 bankAccountRef 仍仅 finance/admin/本人；按行返回 `redactedFields`，console 显示 Redacted。仍是 payroll 范围，跨资源 ABAC 保留。
 

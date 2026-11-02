@@ -169,6 +169,16 @@ action is not T3/high-impact. T3 actions always require a human approval; an
 approval is single-use and bound to the payload hash. Autonomous adverse
 actions are out of scope.
 
+## Implementation status (2026-11-02)
+
+- Retention recommendations are exposed by `GET /api/v1/retention-policies/recommended`; Settings can prefill a policy. Recommendations are advisory and require tenant confirmation; legal hold wins and disposal remains reviewed.
+- AI risk tiering, risk reasons, second-review due dates and SLA breach recording are implemented in `packages/ai-gate` and proposal persistence.
+- Consented subgroup labels, withdrawal, suppression thresholds and the four-fifths report are implemented; harness error gaps exclude groups below 30.
+- Clawback installment preview enforces the 20% cap and minimum-wage floor against the active contract.
+- The field access matrix is implemented for payroll and calculation lines and can be managed through the API and Settings.
+- Export DLP is default-on; an explicit tenant opt-out is required to disable it.
+- Audit durability readiness is observable, but WORM, mirror and TSA provisioning remain deployment controls.
+
 ## Consequences
 
 - Defaults are implemented in code or in the policy layer, surfaced in the API,
