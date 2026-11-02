@@ -6903,6 +6903,11 @@ describe("vertical slice", () => {
     });
     expect(exceptedView.lines[0]?.baseAmount).toBe("1000");
     expect(exceptedView.lines[0]?.roundedAmount).toBe("0");
+    const restrictedFinance = redactCalculationRunFields(run, {
+      roles: ["finance"],
+      policies: { "CALCULATION_LINE.baseAmount": ["admin"] },
+    });
+    expect(restrictedFinance.lines[0]?.baseAmount).toBe("0");
   });
 
   it("exposes and updates the cross-resource field access matrix", async () => {

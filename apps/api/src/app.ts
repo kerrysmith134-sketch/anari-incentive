@@ -592,7 +592,6 @@ export function redactCalculationRunFields(
         if (resource !== "CALCULATION_LINE" || !field) continue;
         if (
           viewer.roles.includes("admin") ||
-          viewer.roles.includes("finance") ||
           allowed.some((role) => viewer.roles.includes(role))
         ) {
           continue;
@@ -8226,7 +8225,7 @@ export function buildApp(
       );
     }
     const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin") || roles.includes("finance")) {
+    if (roles.includes("admin")) {
       return data(runs, request);
     }
     let policies: Record<string, string[]> | undefined;
@@ -8259,7 +8258,7 @@ export function buildApp(
       return data(redactRunForPerson(run, person), request);
     }
     const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin") || roles.includes("finance")) {
+    if (roles.includes("admin")) {
       return data(run, request);
     }
     let policies: Record<string, string[]> | undefined;
