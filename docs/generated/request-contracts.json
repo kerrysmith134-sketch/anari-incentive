@@ -1,0 +1,300 @@
+{
+  "generatedFrom": "packages/contracts/src/index.ts#requestSchemaRegistry",
+  "description": "Generated request contracts derived from Zod. Run `npm run contracts:manifest`; do not edit by hand.",
+  "schemas": {
+    "AmendEmploymentContract": {
+      "required": [
+        "approvedBy",
+        "consentSignatureRef",
+        "deductionCapRate",
+        "effectiveFrom",
+        "fixedMonthlySalary",
+        "minimumMonthlyWage",
+        "socialInsuranceRate",
+        "taxRate",
+        "variableShareCapRate"
+      ],
+      "optional": [
+        "bankAccountRef",
+        "compensationTemplateCode",
+        "deductionOrder",
+        "deductionTypeCaps",
+        "smoothingThresholdRate"
+      ]
+    },
+    "ApprovePayrollRun": {
+      "required": [
+        "approvedBy"
+      ],
+      "optional": []
+    },
+    "CreateAiScoreProposal": {
+      "required": [
+        "cycleId",
+        "dimensions",
+        "evaluationRunId",
+        "evidence",
+        "personId"
+      ],
+      "optional": [
+        "modelPromptId",
+        "requestedBy",
+        "riskTier",
+        "zeroScoreRationale"
+      ]
+    },
+    "CreateAppeal": {
+      "required": [
+        "appellantPersonId",
+        "reasonCode",
+        "statement",
+        "targetId",
+        "targetType"
+      ],
+      "optional": [
+        "dueAt",
+        "evidenceRefs"
+      ]
+    },
+    "CreateApprovalRequest": {
+      "required": [
+        "actionType",
+        "idempotencyKey",
+        "requestedByType",
+        "riskTier",
+        "targetId",
+        "targetType"
+      ],
+      "optional": [
+        "expiresAt",
+        "payload",
+        "requestedById",
+        "requiredApprovals",
+        "targetVersion"
+      ]
+    },
+    "CreateClawbackCase": {
+      "required": [
+        "amount",
+        "consentSignatureRef",
+        "currency",
+        "explanation",
+        "personId",
+        "reasonCode",
+        "requestedBy"
+      ],
+      "optional": [
+        "hardshipReason",
+        "hardshipWaiver",
+        "installmentMonths"
+      ]
+    },
+    "CreateContributionClaim": {
+      "required": [
+        "claimType",
+        "claimantPersonId",
+        "claimedContribution",
+        "rationale",
+        "workPackageId"
+      ],
+      "optional": [
+        "claimMode",
+        "evidenceRefs",
+        "exceptionReason"
+      ]
+    },
+    "CreateDataQualityIssue": {
+      "required": [
+        "issueCode",
+        "objectId",
+        "objectType",
+        "severity"
+      ],
+      "optional": [
+        "assignedTo",
+        "details",
+        "dueAt"
+      ]
+    },
+    "CreateDataSource": {
+      "required": [
+        "category",
+        "code",
+        "criticality",
+        "fields",
+        "name",
+        "ownerPersonId",
+        "slaHours",
+        "storageRegion"
+      ],
+      "optional": [
+        "backupOwnerPersonId",
+        "containsPersonalData",
+        "crossBorderTransfers",
+        "lastReviewedAt",
+        "processorRefs"
+      ]
+    },
+    "CreateDsar": {
+      "required": [
+        "requestType"
+      ],
+      "optional": [
+        "dueAt",
+        "personId"
+      ]
+    },
+    "CreateEmploymentContract": {
+      "required": [
+        "consentSignatureRef",
+        "contractCode",
+        "currency",
+        "employmentType",
+        "fixedMonthlySalary",
+        "minimumMonthlyWage",
+        "personId",
+        "startDate",
+        "workLocation"
+      ],
+      "optional": [
+        "bankAccountRef",
+        "compensationTemplateCode",
+        "consentSignedAt",
+        "deductionCapRate",
+        "deductionOrder",
+        "deductionTypeCaps",
+        "endDate",
+        "smoothingThresholdRate",
+        "socialInsuranceRate",
+        "taxRate",
+        "variableShareCapRate"
+      ]
+    },
+    "CreateEvidence": {
+      "required": [
+        "evidenceType",
+        "normalizedPayload",
+        "sourceSystem",
+        "subjectId",
+        "subjectType"
+      ],
+      "optional": [
+        "observedAt",
+        "qualityStatus",
+        "sourceUri",
+        "submittedBy",
+        "supersedesId"
+      ]
+    },
+    "CreatePayrollRun": {
+      "required": [
+        "currency",
+        "cycleId",
+        "periodEnd",
+        "periodStart",
+        "preparedBy"
+      ],
+      "optional": []
+    },
+    "CreateRetentionPolicy": {
+      "required": [
+        "dataCategory",
+        "legalBasis",
+        "retentionMonths"
+      ],
+      "optional": [
+        "legalHold"
+      ]
+    },
+    "CreateSettlementBatch": {
+      "required": [
+        "cycleId"
+      ],
+      "optional": [
+        "batchNo",
+        "currency",
+        "kind"
+      ]
+    },
+    "CreateWorkPackage": {
+      "required": [
+        "acceptanceCriteria",
+        "members",
+        "objective",
+        "ownerPersonId",
+        "title"
+      ],
+      "optional": [
+        "dueAt",
+        "packageType"
+      ]
+    },
+    "PublishPolicy": {
+      "required": [
+        "applicability",
+        "approvedBy",
+        "effectiveFrom",
+        "policy"
+      ],
+      "optional": [
+        "approvalRequestId",
+        "policyVersionId",
+        "scope"
+      ]
+    },
+    "RecordConfirmation": {
+      "required": [
+        "decision",
+        "personId",
+        "targetId",
+        "targetType"
+      ],
+      "optional": [
+        "reason"
+      ]
+    },
+    "RecordLegalGate": {
+      "required": [
+        "minimumWageChecked",
+        "policyApproved",
+        "recordedBy"
+      ],
+      "optional": [
+        "approvalRequestId",
+        "dataProtectionAssessmentId",
+        "dataProtectionAssessmentRef",
+        "democraticProcedureId",
+        "democraticProcedureRef",
+        "employeeNoticeId",
+        "employeeNoticeRef"
+      ]
+    },
+    "RecordWorkforceSubgroupAttribute": {
+      "required": [
+        "consentRef",
+        "consentedAt",
+        "dimension",
+        "personId",
+        "value"
+      ],
+      "optional": [
+        "expiresAt",
+        "recordedBy"
+      ]
+    },
+    "ResolveAppeal": {
+      "required": [
+        "rationale",
+        "resolution",
+        "reviewerPersonId"
+      ],
+      "optional": []
+    },
+    "UpdateFieldAccessPolicies": {
+      "required": [
+        "policies"
+      ],
+      "optional": []
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（300 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（301 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -15,7 +15,7 @@
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation/employment-contract/evidence/settlement-line/AI-proposal 六类资源并可管理，通用 `redactResourceFields` 便于继续扩展，但尚未覆盖全部资源或条件式策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
-6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
+6. **领域契约/审计耐久性**：请求契约已收敛为 Zod 单一来源并生成 manifest、由测试校验 OpenAPI 对齐（DOM-01 的请求部分）；TS 领域类型与 SQL DDL 仍是独立来源；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
 
@@ -107,7 +107,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DOM-01 单一契约 | 🟡 | TS/Zod/OpenAPI/SQL 四份；路由覆盖、RLS/约束测试之外，OpenAPI↔Zod 对齐测试从 6 个 schema 扩到 22 个，并改为由 Zod `isOptional()` 自动推导 required、逐字段校验 properties 覆盖；本轮补上 `CreateWorkPackage.packageType` 与具名 `ResolveAppeal`；仍非单一生成源 |
+| DOM-01 单一契约 | 🟡 | 请求契约已收敛为 Zod 单一来源：`requestSchemaRegistry`（22 个 schema）→ `npm run contracts:manifest` 生成 `docs/generated/request-contracts.json`，测试校验生成物新鲜度与 OpenAPI required/properties 对齐；补上 `CreateWorkPackage.packageType` 与具名 `ResolveAppeal`。TS 领域类型与 SQL DDL 仍是独立来源，尚未从同一 schema 生成 |
 | DOM-02 状态机 | ✅ | `packages/domain/src/states.ts` 与 PRD 状态一致 |
 | DOM-03 必须对象 | ✅ | MetricDefinition、Snapshot、Notice、Recalculation、Budget、RuleChangeOrder、ModelEvaluationRun、SettlementExport、AuditChain、Integration 对象均存在 |
 | MON-01 审批一次性 | ✅ | consumed_at/by、target 校验、payload hash、consume |
@@ -290,6 +290,8 @@
 
 76. **SEC-03 资源扩展**：字段矩阵新增 `EVIDENCE.normalizedPayload/sourceUri`、`SETTLEMENT_LINE.amount/personName/personCode`、`AI_PROPOSAL.scores/rationale/gateMetrics`，默认允许 manager/finance/admin（不改变现有可见性），租户可收紧；evidence 列表、结算批次列表/详情、AI proposal 列表/详情/审计队列均接入，本人数据豁免；新增请求级策略缓存避免每条记录重复读 tenant settings，并新增 `redactSettlementBatchFields`。
 
+77. **DOM-01 请求契约单一来源**：新增 `requestSchemaRegistry` 与 `describeRequestSchema`，把 22 个请求 schema 收敛为 Zod 单一来源；新增 `npm run contracts:manifest` 生成 `docs/generated/request-contracts.json`，测试校验生成物与 Zod 完全一致，并继续校验 OpenAPI required/properties。TS 领域类型与 SQL DDL 仍为独立来源，列为后续。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
@@ -298,7 +300,7 @@
 4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
 5. **SEC residual**：把 `fieldAccessPolicies` 扩展到其余敏感资源并沉淀通用 ABAC 策略 DSL；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
-7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod；字段级漂移测试已覆盖 22 个请求 schema，仍需消除多份来源。
+7. **DOM-01**：请求契约已由 Zod 生成 manifest 并校验 OpenAPI；仍需把 TS 领域类型与 SQL DDL 也纳入同一来源或生成校验。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
 这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。

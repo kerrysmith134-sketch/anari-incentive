@@ -2125,3 +2125,58 @@ export const ingestionBatchSchema = z.object({
   events: z.array(ingestionEventSchema).min(1),
 });
 export type IngestionBatchBody = z.input<typeof ingestionBatchSchema>;
+
+type ZodContractNode = {
+  _def?: { schema?: ZodContractNode };
+  shape?: Record<string, { isOptional?: () => boolean }>;
+};
+
+export interface RequestSchemaContract {
+  /** Fields the API requires; derived from Zod rather than hand-maintained. */
+  required: string[];
+  /** Fields accepted but optional (including schema defaults). */
+  optional: string[];
+}
+
+/** Derive the request contract for one Zod object schema. */
+export function describeRequestSchema(schema: unknown): RequestSchemaContract {
+  let node = schema as ZodContractNode;
+  while (node._def?.schema) node = node._def.schema;
+  const shape = node.shape ?? {};
+  const required: string[] = [];
+  const optional: string[] = [];
+  for (const [field, fieldSchema] of Object.entries(shape)) {
+    if (fieldSchema?.isOptional?.() === false) required.push(field);
+    else optional.push(field);
+  }
+  return { required: required.sort(), optional: optional.sort() };
+}
+
+/**
+ * Single source for documented request bodies. Add a schema here and the
+ * generated contract manifest plus OpenAPI drift test pick it up.
+ */
+export const requestSchemaRegistry = {
+  AmendEmploymentContract: amendEmploymentContractSchema,
+  ApprovePayrollRun: approvePayrollRunSchema,
+  CreateAiScoreProposal: createAiScoreProposalSchema,
+  CreateAppeal: createAppealSchema,
+  CreateApprovalRequest: createApprovalRequestSchema,
+  CreateClawbackCase: createClawbackCaseSchema,
+  CreateContributionClaim: createContributionClaimSchema,
+  CreateDataQualityIssue: createDataQualityIssueSchema,
+  CreateDataSource: createDataSourceSchema,
+  CreateDsar: createDsarSchema,
+  CreateEmploymentContract: createEmploymentContractSchema,
+  CreateEvidence: createEvidenceSchema,
+  CreatePayrollRun: createPayrollRunSchema,
+  CreateRetentionPolicy: createRetentionPolicySchema,
+  CreateSettlementBatch: createSettlementBatchSchema,
+  CreateWorkPackage: createWorkPackageSchema,
+  PublishPolicy: publishPolicySchema,
+  RecordConfirmation: recordConfirmationSchema,
+  RecordLegalGate: recordLegalGateSchema,
+  RecordWorkforceSubgroupAttribute: recordWorkforceSubgroupAttributeSchema,
+  ResolveAppeal: resolveAppealSchema,
+  UpdateFieldAccessPolicies: updateFieldAccessPoliciesSchema,
+} as const;
