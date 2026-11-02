@@ -1160,6 +1160,7 @@ export interface PayrollLine {
   incentiveChangeRate: DecimalString;
   smoothingThresholdRate: DecimalString;
   smoothingPassed: boolean;
+  redactedFields?: string[];
   bankAccountRef?: string;
   createdAt: string;
 }

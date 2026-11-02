@@ -15,6 +15,7 @@ import {
   applyAuditRedactions,
   buildApp,
   redactPayrollBankAccounts,
+  redactPayrollFields,
   scanExportDlp,
 } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
@@ -6680,6 +6681,56 @@ describe("vertical slice", () => {
     expect(waived.body.data.waiverReason).toContain("hardship");
     const list = await call("GET", "/api/v1/clawback-cases");
     expect(list.body.data).toHaveLength(1);
+  });
+
+  it("applies tenant-configurable field access policies to payroll", () => {
+    const run = {
+      id: "run-policy",
+      lines: [
+        {
+          personId: OWNER,
+          fixedAmount: "8000",
+          netAmount: "7000",
+          bankAccountRef: "BANK-OWNER",
+        },
+        {
+          personId: MEMBER,
+          fixedAmount: "8000",
+          netAmount: "7000",
+          bankAccountRef: "BANK-MEMBER",
+        },
+      ],
+    } as unknown as PayrollRun;
+    const managerView = redactPayrollFields(run, {
+      personId: MEMBER,
+      roles: ["manager"],
+      policies: { "PAYROLL_LINE.netAmount": ["finance"] },
+      breakGlass: false,
+    });
+    expect(managerView.lines?.[0]?.bankAccountRef).toBeUndefined();
+    expect(managerView.lines?.[0]?.netAmount).toBe("0");
+    expect(managerView.lines?.[0]?.fixedAmount).toBe("8000");
+    expect(managerView.lines?.[0]?.redactedFields).toEqual([
+      "bankAccountRef",
+      "netAmount",
+    ]);
+    expect(managerView.lines?.[1]?.bankAccountRef).toBe("BANK-MEMBER");
+    const financeView = redactPayrollFields(run, {
+      personId: undefined,
+      roles: ["finance"],
+      policies: { "PAYROLL_LINE.netAmount": ["finance"] },
+      breakGlass: false,
+    });
+    expect(financeView.lines?.[0]?.netAmount).toBe("7000");
+    expect(financeView.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
+    const breakGlassView = redactPayrollFields(run, {
+      personId: MEMBER,
+      roles: ["manager"],
+      policies: { "PAYROLL_LINE.netAmount": ["finance"] },
+      breakGlass: true,
+    });
+    expect(breakGlassView.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
+    expect(breakGlassView.lines?.[0]?.netAmount).toBe("0");
   });
 
   it("grants time-bound break-glass access and redacts payroll bank fields", async () => {

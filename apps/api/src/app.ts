@@ -169,6 +169,7 @@ import {
   type CalculationRun,
   type CycleReadinessReport,
   type OperationsCoverageReport,
+  type PayrollLine,
   type PayrollRun,
   type PolicyReadinessReport,
   type PolicyRollbackResult,
@@ -492,6 +493,54 @@ export function applyAuditRedactions(
       redactionId: redaction.id,
     };
   });
+}
+
+const DEFAULT_PAYROLL_FIELD_POLICIES: Record<string, string[]> = {
+  "PAYROLL_LINE.bankAccountRef": ["finance", "admin"],
+};
+
+/** Apply tenant-configurable field access policies to payroll lines. */
+export function redactPayrollFields(
+  run: PayrollRun,
+  viewer: {
+    personId?: string;
+    roles: string[];
+    policies?: Record<string, string[]>;
+    breakGlass: boolean;
+  },
+): PayrollRun {
+  const policies = {
+    ...DEFAULT_PAYROLL_FIELD_POLICIES,
+    ...(viewer.policies ?? {}),
+  };
+  return {
+    ...run,
+    lines: run.lines?.map((line) => {
+      if (line.personId === viewer.personId) return line;
+      const redacted: string[] = [];
+      const next: PayrollLine = { ...line };
+      for (const [key, allowed] of Object.entries(policies)) {
+        const [resource, field] = key.split(".");
+        if (resource !== "PAYROLL_LINE" || !field) continue;
+        if (field === "bankAccountRef" && viewer.breakGlass) continue;
+        if (
+          viewer.roles.includes("admin") ||
+          allowed.some((role) => viewer.roles.includes(role))
+        ) {
+          continue;
+        }
+        redacted.push(field);
+        if (field === "bankAccountRef") {
+          next.bankAccountRef = undefined;
+        } else if (field in next) {
+          (next as unknown as Record<string, unknown>)[field] = "0";
+        }
+      }
+      return redacted.length === 0
+        ? line
+        : { ...next, redactedFields: redacted };
+    }),
+  };
 }
 
 /** Remove sensitive payroll fields for viewers without a finance/admin role. */
@@ -837,9 +886,22 @@ export function buildApp(
           ),
         )
       : false;
-    return redactPayrollBankAccounts(run, {
+    let policies: Record<string, string[]> | undefined;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (
+        tenant.settings as { payrollFieldPolicies?: unknown }
+      ).payrollFieldPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+    } catch {
+      policies = undefined;
+    }
+    return redactPayrollFields(run, {
       personId,
-      canViewAll: false,
+      roles,
+      policies,
       breakGlass,
     });
   }

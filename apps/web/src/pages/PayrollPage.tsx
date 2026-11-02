@@ -662,16 +662,28 @@ function RunsTab({
                               </span>
                             </td>
                             <td className="cell-num">
-                              {formatMoney(line.grossAmount, line.currency)}
+                              {line.redactedFields?.includes("grossAmount")
+                                ? "Redacted"
+                                : formatMoney(line.grossAmount, line.currency)}
                             </td>
                             <td className="cell-num">
-                              {formatMoney(line.taxAmount, line.currency)}
+                              {line.redactedFields?.includes("taxAmount")
+                                ? "Redacted"
+                                : formatMoney(line.taxAmount, line.currency)}
                             </td>
                             <td className="cell-num">
-                              {formatMoney(line.netAmount, line.currency)}
+                              {line.redactedFields?.includes("netAmount")
+                                ? "Redacted"
+                                : formatMoney(line.netAmount, line.currency)}
                             </td>
                             <td>
                               <div className="stack" style={{ gap: 4 }}>
+                                {line.redactedFields &&
+                                line.redactedFields.length > 0 ? (
+                                  <Badge tone="neutral">
+                                    Redacted: {line.redactedFields.join(", ")}
+                                  </Badge>
+                                ) : null}
                                 <Badge
                                   tone={line.minimumWagePassed ? "success" : "danger"}
                                 >
