@@ -312,6 +312,8 @@
 
 87. **DOM-01 实体类型生成**：`CORE_ENTITY_CONTRACTS` 升级为列级契约（`column`/`field`/`tsType`/`optional`/`exposed`/`classification`）；新增 `renderEntityTypes` 与 `scripts/generate-entity-types.ts`，从注册表生成 `packages/domain/src/entity-types.generated.ts`（9 个 `*Persisted` 接口），`types.ts` 中对应接口改为 `extends *Persisted` 只保留视图字段（`lines`/`redactedFields`/`personCode` 等）；`contracts:entities` 同时刷新 JSON manifest 与生成类型；测试校验生成物新鲜度、接口保持 thin、未暴露列不生成。
 
+88. **前端覆盖补齐**：控制台新增/扩展计算 run 创建-审批-锁定、重算请求、规则变更单、告知签收、政策咨询与员工代表、交付物提交/验收、现金门禁与财务事实、Agent 任务/审批门/工作流/建议日志、指标与薪酬模板注册表、电子签 envelope、外部身份映射、字段矩阵结构化编辑器（角色/本人/拒绝模式/6 个谓词）、同意标签与撤回、站内通知；`/admin` 与 `/admin/governance` 服务端页面继续覆盖平台与批量运维。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
