@@ -626,6 +626,48 @@ export function PolicyPage() {
                         submitted → decision
                       </div>
                     </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">
+                        Employee confirmation
+                      </div>
+                      <div className="coverage-cell__value">
+                        {(
+                          coverage.data.cycleTimes?.confirmationHours ?? 0
+                        ).toFixed(1)}
+                        h
+                      </div>
+                      <div className="coverage-cell__sub">
+                        calculated → confirmed / objected
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">
+                        Payroll approval
+                      </div>
+                      <div className="coverage-cell__value">
+                        {(
+                          coverage.data.cycleTimes?.payrollApprovalHours ?? 0
+                        ).toFixed(1)}
+                        h
+                      </div>
+                      <div className="coverage-cell__sub">
+                        created → approved
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">
+                        Appeal resolution
+                      </div>
+                      <div className="coverage-cell__value">
+                        {(
+                          coverage.data.cycleTimes?.appealResolutionHours ?? 0
+                        ).toFixed(1)}
+                        h
+                      </div>
+                      <div className="coverage-cell__sub">
+                        submitted → resolved
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="split-grid section-gap">

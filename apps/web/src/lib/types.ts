@@ -485,6 +485,9 @@ export interface OperationsCoverageReport {
   cycleTimes?: {
     workPackageAcceptanceHours: number;
     claimDecisionHours: number;
+    confirmationHours?: number;
+    payrollApprovalHours?: number;
+    appealResolutionHours?: number;
   };
   [key: string]: unknown;
 }

@@ -41,9 +41,9 @@
 | P0-02 账本 | ✅ | append-only、幂等、锁定、冲销、adjustment、哈希链 |
 | P0-02 员工端 | 🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 增加角色感知导航（员工仅见 Overview/My AI record，finance/admin 见对应模块），但仍不是专用员工界面，也缺少员工自服务的团队聚合视图 |
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
-| P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；本轮新增 work-package acceptance 与 claim-decision cycle time，员工/经理端到端耗时与细分角色耗时仍有缺口 |
+| P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；本轮新增 acceptance、claim-decision、confirmation、payroll-approval、appeal-resolution cycle time，Policy coverage 展示；细分角色耗时与目标阈值仍有缺口 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
-| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁、申诉统计、信任调查、package/claim cycle time 可测；目标阈值与员工/经理端到端耗时仍不可由当前代码证明 |
+| P0-04 成功指标 | 🟡 | 证据覆盖率、对账 0、正式门禁、申诉统计、信任调查、package/claim/confirmation/payroll-approval/appeal cycle time 可测；目标阈值与细分角色耗时仍不可由当前代码证明 |
 | P0-05 不承诺项 | ⚪ | 产品沟通，不在代码 |
 
 ### 2. 法律生效门禁
@@ -88,7 +88,7 @@
 | ATT-03 例外/补录 | ✅ | ContributionClaim 新增 `claimMode`（STANDARD/EXCEPTION/BACKFILL）与必填 `exceptionReason`；memory/PG 持久化，console 申报表单可标记并在列表展示 |
 | ATT-04 覆盖率分层 | ✅/🟡 | 本轮新增按 responsibilityCode 和订单类型分层；任务类型维度仍缺 |
 | ATT-05 证据不足不默认 0 | ✅ | 评分结果新增 `insufficientEvidence`；默认 `evidenceDefaultRule=BLOCK` 拒绝缺失维度评分的 AI proposal，只有显式设为 `ZERO` 才允许落 0；测试覆盖 block/override |
-| ATT-06 先独立判断/AI 草稿/盲审 | ❌ | 无独立判断记录、盲审样本、校准会；AI proposal 直接展示给 reviewer |
+| ATT-06 先独立判断/AI 草稿/盲审 | ✅ | decision 必填 independentScores/reviewStartedAt/evidenceOpened；override 必须有理由；AI console 默认隐藏 AI 分数直到 reveal；audit sample 由服务端按 override/随机率抽取，盲审 flag 与 audit agreement 记录；校准会已接入 annual review |
 | ATT-07 申诉由非原决定人/SLA/证据披露 | 🟡 | 非原决定人复核 + 本轮新增 dueAt/evidenceRefs/SLA skill；无正式证据披露/无报复承诺流程 |
 | ATT-08 贡献/绩效分离 | ✅ | 独立对象和 API |
 | ATT-09 子群体/一致性审计 | ✅ | 既有 reviewer consistency；本轮新增自愿、单独同意、伪名化的子群体标签（GENDER/AGE_BAND/REGION/TENURE_BAND/EMPLOYMENT_TYPE）与 `GET /reports/subgroup-impact`：<10 抑制、10–29 仅定性、≥30 输出均值/选择率/4-5 规则比；harness 只对 ≥30 的组计算误差 gap，小样本列为 qualitative；标签不进入个人决策，撤回即删除；console Annual review 展示 |
@@ -257,6 +257,8 @@
 59. **DATA-05 activity-field block**：新增 `findActivityMetricKeys`，在 evidence 创建与 data-source 登记时拒绝活动量/监控字段（keystrokes、screen time、app usage、location、webcam 等），返回 409；合法交付/订单证据不受影响。自由文本仍需 DLP。
 
 60. **ORG-02 employee team aggregate**：`GET /reports/team-aggregate` 不再要求 manager 角色；无特权员工只能读取自己 manager 的聚合，指定其他 manager 返回 403，团队 <3 人仍抑制；新增共享 platform store 测试验证。
+
+61. **P0-02/P0-04 cycle time expansion**：operations coverage 新增 calculation→confirmation、payroll created→approved、appeal created→resolved 平均小时数，Policy coverage 展示；端到端员工/经理细分角色耗时与目标阈值仍待产品定义。
 
 ## 仍建议按 P0 顺序补做
 

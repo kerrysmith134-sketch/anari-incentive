@@ -2891,6 +2891,8 @@ export function buildApp(
       appeals,
       runs,
       decisions,
+      confirmations,
+      payrollRuns,
     ] = await Promise.all([
       store.listWorkPackages(),
       store.listClaims(),
@@ -2902,6 +2904,8 @@ export function buildApp(
       store.listAppeals(),
       store.listRuns(),
       store.listDecisions(),
+      store.listConfirmations(),
+      platformStore.listPayrollRuns(tenantId),
     ]);
     const acceptedPackages = workPackages.filter(
       (workPackage) => workPackage.status === "ACCEPTED",
@@ -3031,6 +3035,44 @@ export function buildApp(
           Number.isFinite(value) &&
           value >= 0,
       );
+    const runById = new Map(runs.map((run) => [run.id, run]));
+    const confirmationHours = confirmations
+      .map((confirmation) => {
+        if (confirmation.targetType !== "CALCULATION") return undefined;
+        const run = runById.get(confirmation.targetId);
+        if (!run) return undefined;
+        const from = Date.parse(run.calculatedAt ?? run.createdAt);
+        const to = Date.parse(
+          confirmation.confirmedAt ??
+            confirmation.objectedAt ??
+            confirmation.createdAt,
+        );
+        return (to - from) / (60 * 60 * 1000);
+      })
+      .filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value >= 0,
+      );
+    const payrollApprovalHours = payrollRuns
+      .filter((run) => Boolean(run.approvedAt))
+      .map(
+        (run) =>
+          (Date.parse(run.approvedAt as string) -
+            Date.parse(run.createdAt)) /
+          (60 * 60 * 1000),
+      )
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const appealResolutionHours = appeals
+      .filter((appeal) => Boolean(appeal.resolvedAt))
+      .map(
+        (appeal) =>
+          (Date.parse(appeal.resolvedAt as string) -
+            Date.parse(appeal.createdAt)) /
+          (60 * 60 * 1000),
+      )
+      .filter((value) => Number.isFinite(value) && value >= 0);
     const average = (values: number[]): number =>
       values.length === 0
         ? 0
@@ -3125,6 +3167,9 @@ export function buildApp(
       cycleTimes: {
         workPackageAcceptanceHours: average(acceptanceHours),
         claimDecisionHours: average(claimDecisionHours),
+        confirmationHours: average(confirmationHours),
+        payrollApprovalHours: average(payrollApprovalHours),
+        appealResolutionHours: average(appealResolutionHours),
       },
     };
     return data(report, request);

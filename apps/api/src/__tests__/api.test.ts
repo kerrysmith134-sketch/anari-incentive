@@ -7549,6 +7549,15 @@ describe("vertical slice", () => {
     expect(
       after.body.data.cycleTimes.claimDecisionHours,
     ).toBeGreaterThanOrEqual(0);
+    expect(
+      after.body.data.cycleTimes.confirmationHours,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      after.body.data.cycleTimes.payrollApprovalHours,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      after.body.data.cycleTimes.appealResolutionHours,
+    ).toBeGreaterThanOrEqual(0);
   });
 
   it("reports annual policy review metrics and validates the window", async () => {
