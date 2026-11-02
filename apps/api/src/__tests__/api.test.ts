@@ -7096,6 +7096,24 @@ describe("vertical slice", () => {
     expect(redacted?.eventHash).toBe("sha256:original-event-hash");
   });
 
+  it("rate-limits export routes per tenant and actor", async () => {
+    const exportLimited = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      { exportRateLimit: { limit: 1, windowMs: 60_000 } },
+    );
+    const url =
+      "/api/v1/evidence-packages/00000000-0000-4000-8000-0000000000ff";
+    const first = await exportLimited.inject({ method: "GET", url } as never);
+    expect(first.statusCode).not.toBe(429);
+    const second = await exportLimited.inject({ method: "GET", url } as never);
+    expect(second.statusCode).toBe(429);
+    expect(second.json().error.code).toBe("EXPORT_RATE_LIMITED");
+    expect(second.headers["retry-after"]).toBeTruthy();
+  });
+
   it("returns an audit anchor manifest for external timestamping", async () => {
     const anchor = await call("GET", "/api/v1/audit-events/anchor");
     expect(anchor.status).toBe(200);

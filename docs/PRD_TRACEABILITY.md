@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（263 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（60 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（264 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（60 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -141,7 +141,7 @@
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
 | SEC-03 字段级 ABAC/break-glass | 🟡 | 新增 payroll `bankAccountRef` 字段级 redaction（非 finance/admin 且非本人时隐藏）与最长 24h、需理由、禁止自批的 break-glass grant；目前仅覆盖 payroll 银行字段，其他敏感字段和通用策略引擎仍未实现 |
-| SEC-04 导出 DLP/水印/审批/限流 | 🟡 | 角色、CSV 公式中和、rate limit、证据包已有；本轮新增 payroll CSV/bank-file 的租户/用户/时间戳水印与 SHA-256、字段 redaction，以及可配置 `PAYROLL_EXPORT`/`PAYROLL_BANK_FILE` 审批与消费校验；仍无内容级 DLP 扫描和批量导出限流 |
+| SEC-04 导出 DLP/水印/审批/限流 | 🟡 | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批已有；本轮新增 per-tenant/actor export rate limit（payroll/bank/evidence/settlement EXPORT，默认 30/min）与 429 `EXPORT_RATE_LIMITED`；内容级 DLP 扫描仍未实现 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold 有；本轮新增双人 audit reason redaction overlay（不改哈希，读 API/证据包应用替换）；自动 retention deletion 仍明确未启用 |
 
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **263 unit/API + 60 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **264 unit/API + 60 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -221,6 +221,8 @@
 41. **INC-03 incentive smoothing**：EmploymentContract 增加 `smoothingThresholdRate`，PayrollLine 记录 prior incentive、change rate 与 passed；payroll 自动取上一期 CALCULATED/APPROVED/PAID run 对比，超阈阻断；迁移 `055_incentive_smoothing.sql`。
 
 42. **AI-05 reader/actor role isolation**：AgentTool 增加 READ/WRITE access；`AgentRuntimeOptions.role`（`AGENT_ROLE`）为 READER 时 WRITE 工具返回 `READER_ROLE_CANNOT_WRITE` 并审计；新增 runtime 测试。仍是进程级模式，per-task/per-tenant 强制隔离保留为后续。
+
+43. **SEC-04 bulk export limit**：新增 per-tenant/actor export limiter（默认 30/min），覆盖 payroll CSV/bank-file、evidence package 与 settlement EXPORT，超限 429；内容 DLP 仍待规则定义。
 
 ## 仍建议按 P0 顺序补做
 

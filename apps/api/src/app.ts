@@ -323,8 +323,24 @@ export interface BuildAppOptions {
     windowMs?: number;
     now?: () => number;
   };
+  /** Per-tenant/actor limit for CSV, bank-file and evidence-package exports. */
+  exportRateLimit?: {
+    limit: number;
+    windowMs?: number;
+    now?: () => number;
+  };
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   bodyLimitBytes?: number;
+}
+
+class TooManyRequestsError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly retryAfterSeconds: number,
+  ) {
+    super(message);
+  }
 }
 
 class BadRequestError extends Error {
@@ -546,6 +562,11 @@ export function buildApp(
     });
   }
   const metrics = new ApiMetrics();
+  const exportLimiter = new FixedWindowRateLimiter(
+    options.exportRateLimit?.limit ?? 30,
+    options.exportRateLimit?.windowMs ?? 60_000,
+    options.exportRateLimit?.now,
+  );
   const limiter = options.rateLimit
     ? new FixedWindowRateLimiter(
         options.rateLimit.limit,
@@ -721,6 +742,22 @@ export function buildApp(
       tenantOf(request),
     );
     return applyAuditRedactions(events, redactions);
+  }
+
+  function assertExportAllowed(request: FastifyRequest): void {
+    const context = request.authContext;
+    const actor = context?.personId ?? context?.userId ?? request.ip;
+    const decision = exportLimiter.check(
+      `${context?.tenantId ?? "unknown"}:${actor}`,
+    );
+    if (!decision.allowed) {
+      countEvent("export_rate_limited");
+      throw new TooManyRequestsError(
+        "EXPORT_RATE_LIMITED",
+        "too many exports; retry after the current window",
+        decision.retryAfterSeconds,
+      );
+    }
   }
 
   function exportHeaders(
@@ -1130,6 +1167,13 @@ export function buildApp(
     if (error instanceof ZodError) {
       return reply.status(400).send({
         ...errorBody("VALIDATION_ERROR", "request validation failed", error.issues),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (error instanceof TooManyRequestsError) {
+      reply.header("retry-after", String(error.retryAfterSeconds));
+      return reply.status(429).send({
+        ...errorBody(error.code, error.message),
         meta: { correlation_id: request.id },
       });
     }
@@ -6462,6 +6506,7 @@ export function buildApp(
 
   app.get("/api/v1/payroll-runs/:id/export", async (request, reply) => {
     requireRoles(request, "manager", "finance");
+    assertExportAllowed(request);
     const query = request.query as { approvalRequestId?: string };
     await ensureApproval(
       request,
@@ -6496,6 +6541,7 @@ export function buildApp(
 
   app.get("/api/v1/payroll-runs/:id/bank-file", async (request, reply) => {
     requireRoles(request, "finance");
+    assertExportAllowed(request);
     const query = request.query as { approvalRequestId?: string };
     await ensureApproval(
       request,
@@ -7048,6 +7094,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/evidence-packages/:cycleId", async (request) => {
+    assertExportAllowed(request);
     requireRoles(request, "manager", "finance");
     const tenantId = tenantOf(request);
     const cycleId = paramOf(request, "cycleId");
@@ -7451,6 +7498,7 @@ export function buildApp(
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
     requireRoles(request, "finance");
     const body = parse(settlementCommandSchema, request.body);
+    if (body.command === "EXPORT") assertExportAllowed(request);
     const store = storeFor(request);
     if (body.command === "APPROVE" || body.command === "LOCK") {
       const actionType =
