@@ -633,6 +633,59 @@ export function redactPayrollBankAccounts(
   };
 }
 
+const ACTIVITY_METRIC_KEYS = new Set(
+  [
+    "keystrokes",
+    "keystrokeCount",
+    "mouseMovements",
+    "mouseClicks",
+    "screenTime",
+    "screenTimeMinutes",
+    "idleTime",
+    "activeWindow",
+    "appUsage",
+    "websiteUsage",
+    "browsingHistory",
+    "clipboard",
+    "screenshot",
+    "webcam",
+    "microphone",
+    "gps",
+    "locationHistory",
+    "activityVolume",
+    "activityCount",
+    "productivityScore",
+  ].map((key) => key.replace(/[^a-z0-9]/gi, "").toLowerCase()),
+);
+
+function normalizeMetricKey(key: string): string {
+  return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+/**
+ * Reject activity-volume or surveillance fields. The product measures work
+ * outcomes, not worker behaviour; this is a technical data-minimisation block
+ * (PRD DATA-05), not just a policy statement.
+ */
+export function findActivityMetricKeys(value: unknown): string[] {
+  const found = new Set<string>();
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [key, child] of Object.entries(node)) {
+      if (ACTIVITY_METRIC_KEYS.has(normalizeMetricKey(key))) {
+        found.add(key);
+      }
+      visit(child);
+    }
+  };
+  visit(value);
+  return [...found];
+}
+
 /** Detect common unmasked identifiers in an export payload. */
 export function scanExportDlp(text: string): string[] {
   const patterns: Array<{ code: string; pattern: RegExp }> = [
@@ -3073,6 +3126,12 @@ export function buildApp(
 
   app.post("/api/v1/evidence", async (request, reply) => {
     const body = parse(createEvidenceSchema, request.body);
+    const activityFields = findActivityMetricKeys(body.normalizedPayload);
+    if (activityFields.length > 0) {
+      throw new ConflictError(
+        `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
+      );
+    }
     const person = personFilter(request);
     if (person && body.submittedBy && body.submittedBy !== person) {
       throw new ForbiddenError("cannot submit evidence as another person");
@@ -4816,6 +4875,16 @@ export function buildApp(
   app.post("/api/v1/data-sources", async (request, reply) => {
     requireRoles(request, "manager");
     const body = parse(createDataSourceSchema, request.body);
+    const activityFields = findActivityMetricKeys(
+      Object.fromEntries(
+        body.fields.map((field) => [field.fieldName, true]),
+      ),
+    );
+    if (activityFields.length > 0) {
+      throw new ConflictError(
+        `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
+      );
+    }
     return reply.status(201).send(
       data(
         await platformStore.createDataSource({

@@ -15,6 +15,7 @@ import {
 import {
   applyAuditRedactions,
   buildApp,
+  findActivityMetricKeys,
   redactCalculationRunFields,
   redactPayrollBankAccounts,
   redactPayrollFields,
@@ -7710,6 +7711,34 @@ describe("vertical slice", () => {
     expect(created.status).toBe(201);
     expect(created.body.data.status).toBe("ACTIVE");
     expect(created.body.data.fields).toHaveLength(2);
+    expect(
+      findActivityMetricKeys({
+        records: [{ screen_time_minutes: 42, delivery_count: 2 }],
+      }),
+    ).toEqual(["screen_time_minutes"]);
+    expect(findActivityMetricKeys({ delivery_count: 2 })).toEqual([]);
+    const activitySource = await call("POST", "/api/v1/data-sources", {
+      code: "ACTIVITY",
+      name: "Activity monitoring",
+      category: "PEOPLE",
+      ownerPersonId: OWNER,
+      slaHours: 24,
+      criticality: "HIGH",
+      containsPersonalData: true,
+      storageRegion: "cn-shanghai",
+      fields: [
+        {
+          fieldName: "screen_time_minutes",
+          classification: "SENSITIVE",
+          purpose: "Activity monitoring",
+          retentionMonths: 12,
+        },
+      ],
+    });
+    expect(activitySource.status).toBe(409);
+    expect(activitySource.body.error.message).toContain(
+      "DATA_MINIMIZATION_ACTIVITY_BLOCKED",
+    );
 
     const duplicate = await call("POST", "/api/v1/data-sources", {
       code: "CRM",

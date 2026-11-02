@@ -127,7 +127,7 @@
 | DATA-02 被动+自报+同伴+经理证明 | ✅ | 被动 ingestion、员工自报已有；本轮新增 peer/manager attestation（主体须为工作包参与者、不能自证、MANAGER 须为直属经理），可带证据引用、仅 attester 可撤回，console Contribution 可录入/查看 |
 | DATA-03 证据不足不默认 0 | ✅ | NEEDS_EVIDENCE + DQ blocking；新增可配置 `evidenceDefaultRule`（默认 BLOCK，显式 ZERO 才允许 0 分），AI scoring 在 proposal 前阻断缺失证据维度 |
 | DATA-04 owner/SLA/升级 | ✅ | 新增 `data_sources` 登记：owner/backup owner、响应 SLA、criticality、90 天复核到期与逾期统计；DQ 的 assignee/dueAt/escalate 继续独立存在 |
-| DATA-05 不采集活动量/最小化 | 🟡 | 字段级 data map、用途/分类/保留期、跨境/处理者清单已有；本轮新增 minimization 报告（personal fields / with retention / missing retention），Settings 展示缺口；仍无活动量字段采集的技术阻断 |
+| DATA-05 不采集活动量/最小化 | ✅/🟡 | 字段级 data map、用途/分类/保留期、跨境/处理者清单、minimization 报告已有；本轮新增技术阻断：evidence `normalizedPayload` 与 data-source 字段中的 keystroke/mouse/screen-time/app-usage/location/webcam 等活动量/监控字段返回 409 `DATA_MINIMIZATION_ACTIVITY_BLOCKED`；自由文本中的类似表述仍依赖 DLP/人工审查 |
 
 ### 8. 组织采用与安全
 
@@ -253,6 +253,8 @@
 57. **SEC-03 cross-resource field matrix**：tenant `fieldAccessPolicies` 支持 `PAYROLL_LINE.*` 与 `CALCULATION_LINE.*`；calculation run API 对非 finance/admin 应用默认/租户覆盖策略并返回脱敏字段；新增通用 `redactCalculationRunFields` 测试。其余资源尚未接入。
 
 58. **ORG-02 role-aware console navigation**：AppShell 按 `/platform/identity` 返回角色过滤导航；员工只保留 Overview/My AI record，manager/finance/admin 分别显示可访问模块，非 admin 隐藏 Settings/Integrations/Adverse actions 入口。路由级权限仍由 API 强制。
+
+59. **DATA-05 activity-field block**：新增 `findActivityMetricKeys`，在 evidence 创建与 data-source 登记时拒绝活动量/监控字段（keystrokes、screen time、app usage、location、webcam 等），返回 409；合法交付/订单证据不受影响。自由文本仍需 DLP。
 
 ## 仍建议按 P0 顺序补做
 
