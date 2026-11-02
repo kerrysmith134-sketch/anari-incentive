@@ -22,6 +22,7 @@ const contract: EmploymentContract = {
   variableShareCapRate: "1",
   deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
   deductionTypeCaps: {},
+  smoothingThresholdRate: "1",
   bankAccountRef: "BANK-1",
   payPlanVersion: 1,
   consentSignatureRef: "ESIGN-CAP-1",
@@ -61,6 +62,37 @@ function calculate(negativeAmount: string) {
     periodEnd: "2026-10-31T23:59:59.000Z",
   });
 }
+
+describe("payroll incentive smoothing", () => {
+  it("blocks a period-over-period change above the contract threshold", () => {
+    const result = calculatePayroll({
+      contracts: [{ ...contract, smoothingThresholdRate: "0.5" }],
+      ledger: [ledger("300")],
+      priorIncentives: { [contract.id]: "100" },
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.incentiveChangeRate).toBe("2");
+    expect(result.lines[0]?.smoothingPassed).toBe(false);
+    expect(result.blockedCount).toBe(1);
+  });
+
+  it("allows a change within the smoothing threshold", () => {
+    const result = calculatePayroll({
+      contracts: [{ ...contract, smoothingThresholdRate: "0.5" }],
+      ledger: [ledger("120")],
+      priorIncentives: { [contract.id]: "100" },
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]?.smoothingPassed).toBe(true);
+    expect(result.blockedCount).toBe(0);
+  });
+});
 
 describe("payroll deduction type caps", () => {
   it("blocks a line when one deduction type exceeds its cap", () => {

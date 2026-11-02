@@ -74,6 +74,10 @@ export interface PayrollLine {
   }>;
   deductionTypeCapPassed: boolean;
   deductionTypeCapBreaches: string[];
+  priorIncentiveAmount: DecimalString;
+  incentiveChangeRate: DecimalString;
+  smoothingThresholdRate: DecimalString;
+  smoothingPassed: boolean;
   bankAccountRef?: string;
   createdAt: string;
 }
@@ -126,6 +130,7 @@ export interface EmploymentContract {
   variableShareCapRate: DecimalString;
   deductionOrder: string[];
   deductionTypeCaps: Record<string, DecimalString>;
+  smoothingThresholdRate: DecimalString;
   bankAccountRef?: string;
   payPlanVersion: number;
   consentSignatureRef: string;

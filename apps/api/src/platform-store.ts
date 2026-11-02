@@ -1100,6 +1100,7 @@ export interface PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -1122,6 +1123,7 @@ export interface PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5770,6 +5772,7 @@ export class MemoryPlatformStore implements PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -5836,6 +5839,10 @@ export class MemoryPlatformStore implements PlatformStore {
         );
       }
     }
+    const smoothingRate = parseDecimal(input.smoothingThresholdRate);
+    if (smoothingRate < 0n || smoothingRate > 10_000_000n) {
+      throw new ConflictError("CONTRACT_SMOOTHING_THRESHOLD_OUT_OF_RANGE");
+    }
     if (
       input.endDate &&
       Date.parse(input.endDate) <= Date.parse(input.startDate)
@@ -5876,6 +5883,7 @@ export class MemoryPlatformStore implements PlatformStore {
           formatDecimal(parseDecimal(rate)),
         ]),
       ),
+      smoothingThresholdRate: formatDecimal(smoothingRate),
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
       consentSignatureRef: input.consentSignatureRef,
@@ -5900,6 +5908,7 @@ export class MemoryPlatformStore implements PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5952,6 +5961,7 @@ export class MemoryPlatformStore implements PlatformStore {
       variableShareCapRate: contract.variableShareCapRate,
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
+      smoothingThresholdRate: contract.smoothingThresholdRate,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -6031,6 +6041,9 @@ export class MemoryPlatformStore implements PlatformStore {
         ]),
       );
     }
+    contract.smoothingThresholdRate = formatDecimal(
+      parseDecimal(input.smoothingThresholdRate),
+    );
     contract.bankAccountRef = input.bankAccountRef;
     const existingAmendments =
       this.contractAmendments.get(contract.id) ?? [];
@@ -6054,6 +6067,7 @@ export class MemoryPlatformStore implements PlatformStore {
       variableShareCapRate: contract.variableShareCapRate,
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
+      smoothingThresholdRate: contract.smoothingThresholdRate,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -12194,6 +12208,7 @@ export class PgPlatformStore implements PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -12243,10 +12258,10 @@ export class PgPlatformStore implements PlatformStore {
            start_date, end_date, work_location, currency,
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
-           deduction_order, deduction_type_caps, bank_account_ref,
-           pay_plan_version, consent_signature_ref, consent_signed_at,
-           status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,1,$19,$20,'ACTIVE',1)
+           deduction_order, deduction_type_caps, smoothing_threshold_rate,
+           bank_account_ref, pay_plan_version, consent_signature_ref,
+           consent_signed_at, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,$19,1,$20,$21,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -12270,6 +12285,7 @@ export class PgPlatformStore implements PlatformStore {
               : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
           ),
           JSON.stringify(input.deductionTypeCaps),
+          input.smoothingThresholdRate,
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
           input.consentSignedAt ?? new Date().toISOString(),
@@ -12300,6 +12316,7 @@ export class PgPlatformStore implements PlatformStore {
     variableShareCapRate: string;
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
+    smoothingThresholdRate: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -12425,6 +12442,9 @@ export class PgPlatformStore implements PlatformStore {
           (row.deduction_order as string[] | null) ?? [],
         deductionTypeCaps:
           (row.deduction_type_caps as Record<string, string> | null) ?? {},
+        smoothingThresholdRate: decimalText(
+          String(row.smoothing_threshold_rate),
+        ),
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
@@ -12444,9 +12464,10 @@ export class PgPlatformStore implements PlatformStore {
             SET fixed_monthly_salary=$3, minimum_monthly_wage=$4,
                 tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
                 variable_share_cap_rate=$8, deduction_order=$9::jsonb,
-                deduction_type_caps=$10::jsonb, bank_account_ref=$11,
-                pay_plan_version=$12, consent_signature_ref=$13,
-                consent_signed_at=$14, version=version+1, updated_at=now()
+                deduction_type_caps=$10::jsonb,
+                smoothing_threshold_rate=$11, bank_account_ref=$12,
+                pay_plan_version=$13, consent_signature_ref=$14,
+                consent_signed_at=$15, version=version+1, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -12469,6 +12490,7 @@ export class PgPlatformStore implements PlatformStore {
               : ((row.deduction_type_caps as Record<string, string> | null) ??
                 {}),
           ),
+          input.smoothingThresholdRate,
           input.bankAccountRef ?? null,
           payPlanVersion,
           input.consentSignatureRef,
@@ -12497,6 +12519,9 @@ export class PgPlatformStore implements PlatformStore {
         deductionTypeCaps:
           (updated[0]?.deduction_type_caps as Record<string, string> | null) ??
           {},
+        smoothingThresholdRate: decimalText(
+          String(updated[0]?.smoothing_threshold_rate),
+        ),
         bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
         payPlanVersion,
       };
@@ -13019,8 +13044,9 @@ export class PgPlatformStore implements PlatformStore {
              variable_share_cap_rate, variable_share_cap_amount,
              variable_share_passed, deduction_breakdown,
              deduction_type_cap_passed, deduction_type_cap_breaches,
-             bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26)`,
+             prior_incentive_amount, incentive_change_rate,
+             smoothing_threshold_rate, smoothing_passed, bank_account_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30)`,
           [
             randomUUID(),
             input.tenantId,
@@ -13047,6 +13073,10 @@ export class PgPlatformStore implements PlatformStore {
             JSON.stringify(line.deductionBreakdown),
             line.deductionTypeCapPassed,
             JSON.stringify(line.deductionTypeCapBreaches),
+            line.priorIncentiveAmount,
+            line.incentiveChangeRate,
+            line.smoothingThresholdRate,
+            line.smoothingPassed,
             line.bankAccountRef ?? null,
           ],
         );
@@ -14573,6 +14603,8 @@ export class PgPlatformStore implements PlatformStore {
         ],
       deductionTypeCaps:
         (row.deduction_type_caps as Record<string, string> | null) ?? {},
+      smoothingThresholdRate:
+        decimalText(String(row.smoothing_threshold_rate)) ?? "1",
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
       consentSignatureRef: row.consent_signature_ref,
@@ -14643,6 +14675,13 @@ export class PgPlatformStore implements PlatformStore {
       deductionTypeCapPassed: row.deduction_type_cap_passed,
       deductionTypeCapBreaches:
         (row.deduction_type_cap_breaches as string[] | null) ?? [],
+      priorIncentiveAmount:
+        decimalText(String(row.prior_incentive_amount)) ?? "0",
+      incentiveChangeRate:
+        decimalText(String(row.incentive_change_rate)) ?? "0",
+      smoothingThresholdRate:
+        decimalText(String(row.smoothing_threshold_rate)) ?? "1",
+      smoothingPassed: row.smoothing_passed,
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

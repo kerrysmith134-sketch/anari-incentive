@@ -29,6 +29,7 @@ export interface PayrollCalculation {
 export function calculatePayroll(input: {
   contracts: EmploymentContract[];
   ledger: AmountLedgerEntry[];
+  priorIncentives?: Record<string, string>;
   cycleId: string;
   currency: string;
   periodStart: string;
@@ -133,12 +134,32 @@ export function calculatePayroll(input: {
     }
     const deductionTypeCapPassed =
       deductionTypeCapBreaches.length === 0;
+    const priorIncentive = parseDecimal(
+      input.priorIncentives?.[contract.id] ?? "0",
+    );
+    const incentiveChangeRate =
+      priorIncentive === 0n
+        ? incentive > 0n
+          ? 1_000_000n
+          : 0n
+        : ((incentive >= priorIncentive
+            ? incentive - priorIncentive
+            : priorIncentive - incentive) *
+            1_000_000n) /
+          priorIncentive;
+    const smoothingThresholdRate = parseDecimal(
+      contract.smoothingThresholdRate || "1",
+    );
+    const smoothingPassed =
+      priorIncentive === 0n ||
+      incentiveChangeRate <= smoothingThresholdRate;
     const minimumWagePassed = net >= minimum;
     const passed =
       minimumWagePassed &&
       deductionCapPassed &&
       variableSharePassed &&
-      deductionTypeCapPassed;
+      deductionTypeCapPassed &&
+      smoothingPassed;
     if (!passed) blockedCount += 1;
     totalGross += gross;
     totalDeductions += deductions + tax + socialInsurance;
@@ -167,6 +188,10 @@ export function calculatePayroll(input: {
       variableSharePassed,
       deductionTypeCapPassed,
       deductionTypeCapBreaches,
+      priorIncentiveAmount: formatDecimal(priorIncentive),
+      incentiveChangeRate: formatDecimal(incentiveChangeRate),
+      smoothingThresholdRate: formatDecimal(smoothingThresholdRate),
+      smoothingPassed,
       deductionBreakdown: [...breakdown.entries()]
         .sort((a, b) => a[1].priority - b[1].priority)
         .map(([type, value]) => ({
@@ -197,7 +222,7 @@ function csvField(value: unknown): string {
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
-    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,deduction_breakdown,deduction_type_cap_passed,deduction_type_cap_breaches,bank_account_ref";
+    "run_id,person_id,currency,fixed_amount,incentive_amount,gross_amount,deductions,tax,social_insurance,net_amount,minimum_wage,minimum_wage_passed,deduction_cap_rate,deduction_cap_amount,deduction_cap_passed,variable_share_rate,variable_share_cap_rate,variable_share_cap_amount,variable_share_passed,deduction_breakdown,deduction_type_cap_passed,deduction_type_cap_breaches,prior_incentive,incentive_change_rate,smoothing_threshold,smoothing_passed,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [
       run.id,
@@ -224,6 +249,10 @@ export function payrollCsv(run: PayrollRun): string {
         .join("|"),
       line.deductionTypeCapPassed,
       line.deductionTypeCapBreaches.join("|"),
+      line.priorIncentiveAmount,
+      line.incentiveChangeRate,
+      line.smoothingThresholdRate,
+      line.smoothingPassed,
       line.bankAccountRef,
     ]
       .map(csvField)

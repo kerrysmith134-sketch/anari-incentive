@@ -2764,6 +2764,7 @@ describePg("PgStore vertical slice", () => {
       variableShareCapRate: "1",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
       bankAccountRef: "PG-BANK-001",
       consentSignatureRef: "PG-ESIGN-001",
     });
@@ -2802,6 +2803,8 @@ describePg("PgStore vertical slice", () => {
     expect(calculated.lines?.[0]?.variableShareCapRate).toBe("1");
     expect(calculated.lines?.[0]?.variableSharePassed).toBe(true);
     expect(calculated.lines?.[0]?.deductionBreakdown).toEqual([]);
+    expect(calculated.lines?.[0]?.smoothingPassed).toBe(true);
+    expect(calculated.lines?.[0]?.priorIncentiveAmount).toBe("0");
     const approved = await platform.approvePayrollRun({
       tenantId: DEMO_TENANT_ID,
       runId: run.id,
@@ -2841,6 +2844,7 @@ describePg("PgStore vertical slice", () => {
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
       consentSignatureRef: "PG-ESIGN-1",
     });
     expect(contract.payPlanVersion).toBe(1);
@@ -2856,6 +2860,7 @@ describePg("PgStore vertical slice", () => {
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
       effectiveFrom: "2026-01-01T00:00:00Z",
       consentSignatureRef: "PG-ESIGN-2",
       approvedBy: ADJUDICATOR,
@@ -3425,6 +3430,7 @@ describePg("PgStore vertical slice", () => {
       variableShareCapRate: "1",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
       consentSignatureRef: "PG-FUTURE-ESIGN-1",
     });
     const unchanged = await platform.amendEmploymentContract({
@@ -3438,6 +3444,7 @@ describePg("PgStore vertical slice", () => {
       variableShareCapRate: "0.5",
       deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
       deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
       effectiveFrom: "2027-01-01T00:00:00Z",
       consentSignatureRef: "PG-FUTURE-ESIGN-2",
       approvedBy: ADJUDICATOR,

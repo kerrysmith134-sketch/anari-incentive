@@ -712,6 +712,16 @@ function RunsTab({
                                     {line.deductionTypeCapBreaches.join(", ")}
                                   </Badge>
                                 )}
+                                {line.smoothingPassed ? null : (
+                                  <Badge tone="warning">
+                                    Smoothing:{" "}
+                                    {formatPercent(
+                                      toNumber(line.incentiveChangeRate),
+                                      0,
+                                    )}{" "}
+                                    change
+                                  </Badge>
+                                )}
                               </div>
                             </td>
                             <td className="cell-actions">
@@ -983,6 +993,7 @@ function ContractsTab({
     "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
   );
   const [deductionTypeCaps, setDeductionTypeCaps] = useState("");
+  const [smoothingPercent, setSmoothingPercent] = useState("100");
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -1000,6 +1011,7 @@ function ContractsTab({
     "RECOVERY, REVERSAL, ADJUSTMENT, OTHER",
   );
   const [amendDeductionTypeCaps, setAmendDeductionTypeCaps] = useState("");
+  const [amendSmoothingPercent, setAmendSmoothingPercent] = useState("100");
   const [amendEffective, setAmendEffective] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -1023,6 +1035,7 @@ function ContractsTab({
     setVariableCapPercent("100");
     setDeductionOrder("RECOVERY, REVERSAL, ADJUSTMENT, OTHER");
     setDeductionTypeCaps("");
+    setSmoothingPercent("100");
     setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
@@ -1060,6 +1073,7 @@ function ContractsTab({
               .map((part) => part.split("=").map((value) => value.trim()))
               .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
           ),
+          smoothingThresholdRate: String(toNumber(smoothingPercent) / 100),
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
         },
@@ -1089,6 +1103,9 @@ function ContractsTab({
       Object.entries(contract.deductionTypeCaps ?? {})
         .map(([type, rate]) => `${type}=${rate}`)
         .join(", "),
+    );
+    setAmendSmoothingPercent(
+      String(toNumber(contract.smoothingThresholdRate) * 100),
     );
     setAmendEffective(new Date().toISOString().slice(0, 10));
     setAmendConsent("");
@@ -1120,6 +1137,9 @@ function ContractsTab({
               .split(",")
               .map((part) => part.split("=").map((value) => value.trim()))
               .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
+          ),
+          smoothingThresholdRate: String(
+            toNumber(amendSmoothingPercent) / 100,
           ),
           effectiveFrom: toIsoDate(amendEffective),
           consentSignatureRef: amendConsent.trim(),
@@ -1435,6 +1455,21 @@ function ContractsTab({
               }
             />
           </FormField>
+          <FormField
+            label="Smoothing threshold (% change)"
+            htmlFor="contract-smoothing"
+            hint="Period-over-period incentive change above this threshold blocks the line."
+          >
+            <TextInput
+              id="contract-smoothing"
+              type="number"
+              min="0"
+              max="1000"
+              step="0.01"
+              value={smoothingPercent}
+              onChange={(event) => setSmoothingPercent(event.target.value)}
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
@@ -1578,6 +1613,19 @@ function ContractsTab({
               value={amendDeductionTypeCaps}
               onChange={(event) =>
                 setAmendDeductionTypeCaps(event.target.value)
+              }
+            />
+          </FormField>
+          <FormField label="Smoothing threshold (%)" htmlFor="amend-smoothing">
+            <TextInput
+              id="amend-smoothing"
+              type="number"
+              min="0"
+              max="1000"
+              step="0.01"
+              value={amendSmoothingPercent}
+              onChange={(event) =>
+                setAmendSmoothingPercent(event.target.value)
               }
             />
           </FormField>

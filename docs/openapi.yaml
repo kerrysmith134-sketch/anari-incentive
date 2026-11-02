@@ -9343,6 +9343,8 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Decimal"
+        smoothingThresholdRate:
+          $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string
         consentSignatureRef:
@@ -9385,6 +9387,8 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Decimal"
+        smoothingThresholdRate:
+          $ref: "#/components/schemas/Decimal"
         bankAccountRef:
           type: string
         effectiveFrom:

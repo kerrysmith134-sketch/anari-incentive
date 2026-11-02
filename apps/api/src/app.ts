@@ -6335,6 +6335,7 @@ export function buildApp(
             "OTHER",
           ],
           deductionTypeCaps: body.deductionTypeCaps ?? {},
+          smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
           bankAccountRef: body.bankAccountRef,
           consentSignatureRef: body.consentSignatureRef,
           consentSignedAt: body.consentSignedAt,
@@ -6359,6 +6360,7 @@ export function buildApp(
         variableShareCapRate: body.variableShareCapRate,
         deductionOrder: body.deductionOrder ?? [],
         deductionTypeCaps: body.deductionTypeCaps ?? {},
+        smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
         bankAccountRef: body.bankAccountRef,
         effectiveFrom: body.effectiveFrom,
         consentSignatureRef: body.consentSignatureRef,
@@ -6553,10 +6555,27 @@ export function buildApp(
     const contracts = await platformStore.listEmploymentContracts(
       tenantId,
     );
+    const allRuns = await platformStore.listPayrollRuns(tenantId);
+    const priorRun = allRuns
+      .filter(
+        (candidate) =>
+          candidate.id !== run.id &&
+          Date.parse(candidate.periodEnd) < Date.parse(run.periodStart) &&
+          ["CALCULATED", "APPROVED", "PAID"].includes(candidate.status),
+      )
+      .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0];
+    const priorIncentives: Record<string, string> = {};
+    if (priorRun) {
+      const detail = await platformStore.getPayrollRun(tenantId, priorRun.id);
+      for (const line of detail.lines ?? []) {
+        priorIncentives[line.contractId] = line.incentiveAmount;
+      }
+    }
     const ledger = await storeFor(request).listLedger();
     const calculation = calculatePayroll({
       contracts,
       ledger,
+      priorIncentives,
       cycleId: run.cycleId,
       currency: run.currency,
       periodStart: run.periodStart,
