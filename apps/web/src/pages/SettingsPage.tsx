@@ -41,6 +41,7 @@ import type {
   DataMapReport,
   DpiaRecord,
   FairnessCommitment,
+  FieldAccessPolicyMatrix,
   DsarRequest,
   PlatformIdentity,
   RetentionDisposalRequest,
@@ -68,6 +69,9 @@ export function SettingsPage() {
     useApiQuery<RetentionRecommendationsReport>(
       "/api/v1/retention-policies/recommended",
     );
+  const fieldPolicies = useApiQuery<FieldAccessPolicyMatrix>(
+    "/api/v1/field-access-policies",
+  );
   const disposals = useApiQuery<RetentionDisposalRequest[]>(
     "/api/v1/retention-disposal-requests",
   );
@@ -325,6 +329,12 @@ export function SettingsPage() {
   const [retentionCategory, setRetentionCategory] = useState("");
   const [retentionMonths, setRetentionMonths] = useState("");
   const [retentionBasis, setRetentionBasis] = useState("");
+  const [fieldPolicyOpen, setFieldPolicyOpen] = useState(false);
+  const [fieldPolicyJson, setFieldPolicyJson] = useState("{}");
+  const [fieldPolicyError, setFieldPolicyError] = useState<string | null>(
+    null,
+  );
+  const [fieldPolicySaving, setFieldPolicySaving] = useState(false);
 
   function resetDataSourceForm() {
     setSourceCode("");
@@ -354,6 +364,38 @@ export function SettingsPage() {
     setRetentionBasis(preset?.legalBasis ?? "");
     setRetentionError(null);
     setRetentionOpen(true);
+  }
+
+  function openFieldPolicies() {
+    setFieldPolicyJson(
+      JSON.stringify(fieldPolicies.data?.configured ?? {}, null, 2),
+    );
+    setFieldPolicyError(null);
+    setFieldPolicyOpen(true);
+  }
+
+  async function saveFieldPolicies() {
+    setFieldPolicySaving(true);
+    setFieldPolicyError(null);
+    try {
+      const parsed = JSON.parse(fieldPolicyJson) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Policies must be a JSON object.");
+      }
+      await api("/api/v1/field-access-policies", {
+        method: "PUT",
+        body: { policies: parsed },
+      });
+      toast.success("Field access matrix updated");
+      setFieldPolicyOpen(false);
+      fieldPolicies.reload();
+    } catch (caught) {
+      setFieldPolicyError(
+        caught instanceof Error ? caught.message : "The action failed.",
+      );
+    } finally {
+      setFieldPolicySaving(false);
+    }
   }
 
   async function saveRetention(event: FormEvent) {
@@ -4350,6 +4392,101 @@ export function SettingsPage() {
             />
           </FormField>
         </form>
+      </Modal>
+
+      <Panel
+        title="Field access matrix"
+        subtitle="Role-based redaction for payroll and calculation resources"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={openFieldPolicies}
+          >
+            Edit matrix
+          </Button>
+        }
+        flush
+      >
+        {fieldPolicies.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice
+              error={fieldPolicies.error}
+              onRetry={fieldPolicies.reload}
+            />
+          </div>
+        ) : fieldPolicies.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={3} />
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Resource.field</th>
+                  <th>Allowed roles</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(fieldPolicies.data?.effective ?? {}).map(
+                  ([key, roles]) => (
+                    <tr key={key}>
+                      <td className="mono">{key}</td>
+                      <td>{roles.join(", ")}</td>
+                      <td>
+                        {Object.prototype.hasOwnProperty.call(
+                          fieldPolicies.data?.configured ?? {},
+                          key,
+                        )
+                          ? "Tenant override"
+                          : "System default"}
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={fieldPolicyOpen}
+        title="Edit field access matrix"
+        description="JSON object mapping RESOURCE.field to allowed roles. Missing entries use the system default."
+        onClose={() => setFieldPolicyOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setFieldPolicyOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void saveFieldPolicies()}
+              loading={fieldPolicySaving}
+            >
+              Save matrix
+            </Button>
+          </>
+        }
+      >
+        <div className="stack">
+          {fieldPolicyError ? (
+            <InfoNotice tone="warning">{fieldPolicyError}</InfoNotice>
+          ) : null}
+          <FormField label="Configured policies (JSON)" htmlFor="field-policy-json">
+            <Textarea
+              id="field-policy-json"
+              value={fieldPolicyJson}
+              onChange={(event) => setFieldPolicyJson(event.target.value)}
+              className="mono"
+            />
+          </FormField>
+        </div>
       </Modal>
 
       <InfoNotice>

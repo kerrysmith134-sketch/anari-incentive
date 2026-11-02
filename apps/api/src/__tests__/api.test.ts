@@ -43,7 +43,7 @@ let app: FastifyInstance;
 let appStore: Store;
 
 async function call(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT",
   url: string,
   payload?: Record<string, unknown>,
 ) {
@@ -6903,6 +6903,27 @@ describe("vertical slice", () => {
     });
     expect(exceptedView.lines[0]?.baseAmount).toBe("1000");
     expect(exceptedView.lines[0]?.roundedAmount).toBe("0");
+  });
+
+  it("exposes and updates the cross-resource field access matrix", async () => {
+    const defaults = await call("GET", "/api/v1/field-access-policies");
+    expect(defaults.status).toBe(200);
+    expect(defaults.body.data.effective["CALCULATION_LINE.roundedAmount"]).toEqual(
+      ["finance", "admin"],
+    );
+    const updated = await call("PUT", "/api/v1/field-access-policies", {
+      policies: {
+        "CALCULATION_LINE.baseAmount": ["manager", "finance", "admin"],
+      },
+    });
+    expect(updated.status).toBe(200);
+    expect(
+      updated.body.data.effective["CALCULATION_LINE.baseAmount"],
+    ).toEqual(["manager", "finance", "admin"]);
+    const fetched = await call("GET", "/api/v1/field-access-policies");
+    expect(fetched.body.data.configured).toEqual({
+      "CALCULATION_LINE.baseAmount": ["manager", "finance", "admin"],
+    });
   });
 
   it("grants time-bound break-glass access and redacts payroll bank fields", async () => {

@@ -1834,6 +1834,13 @@ export const fieldAccessPoliciesSchema = z.record(
   z.array(z.string().min(1)).min(1),
 );
 
+export const updateFieldAccessPoliciesSchema = z.object({
+  policies: fieldAccessPoliciesSchema,
+});
+export type UpdateFieldAccessPoliciesBody = z.infer<
+  typeof updateFieldAccessPoliciesSchema
+>;
+
 export const updateTenantSettingsSchema = z
   .object({
     requiredApprovals: z.array(z.string().min(1)).optional(),

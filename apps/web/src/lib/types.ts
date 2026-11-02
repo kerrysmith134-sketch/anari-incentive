@@ -1011,6 +1011,12 @@ export interface DataMapReport {
   retentionPolicies: RetentionPolicy[];
 }
 
+export interface FieldAccessPolicyMatrix {
+  defaults: Record<string, string[]>;
+  configured: Record<string, string[]>;
+  effective: Record<string, string[]>;
+}
+
 export interface RetentionRecommendation {
   dataCategory: string;
   retentionMonths: number;

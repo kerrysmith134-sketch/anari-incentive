@@ -2199,6 +2199,44 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/field-access-policies:
+    get:
+      tags: [Compliance]
+      summary: Read the cross-resource field access matrix
+      responses:
+        "200":
+          description: Defaults, configured overrides and effective matrix
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [Compliance]
+      summary: Replace configured field access policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFieldAccessPolicies"
+      responses:
+        "200":
+          description: Effective matrix
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/workforce-subgroup-attributes:
     post:
       tags: [Compliance]
@@ -8979,6 +9017,20 @@ components:
     WorkforceSubgroupDimension:
       type: string
       enum: [GENDER, AGE_BAND, REGION, TENURE_BAND, EMPLOYMENT_TYPE]
+
+    UpdateFieldAccessPolicies:
+      type: object
+      required: [policies]
+      properties:
+        policies:
+          type: object
+          additionalProperties:
+            type: array
+            minItems: 1
+            items:
+              type: string
+          propertyNames:
+            pattern: '^(PAYROLL_LINE|CALCULATION_LINE)\.[A-Za-z][A-Za-z0-9_]*$' 
 
     RecordWorkforceSubgroupAttribute:
       type: object

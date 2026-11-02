@@ -54,6 +54,7 @@ import {
   createNoticeSchema,
   createPlatformPersonSchema,
   updateTenantSettingsSchema,
+  updateFieldAccessPoliciesSchema,
   createRepresentationSchema,
   createConsultationSchema,
   concludeConsultationSchema,
@@ -5241,6 +5242,43 @@ export function buildApp(
         }),
         request,
       ),
+    );
+  });
+
+  app.get("/api/v1/field-access-policies", async (request) => {
+    requireRoles(request, "admin", "manager", "finance");
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    const configured = (
+      tenant.settings as { fieldAccessPolicies?: unknown }
+    ).fieldAccessPolicies;
+    const policies =
+      configured && typeof configured === "object"
+        ? (configured as Record<string, string[]>)
+        : {};
+    return data(
+      {
+        defaults: DEFAULT_FIELD_ACCESS_POLICIES,
+        configured: policies,
+        effective: { ...DEFAULT_FIELD_ACCESS_POLICIES, ...policies },
+      },
+      request,
+    );
+  });
+
+  app.put("/api/v1/field-access-policies", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(updateFieldAccessPoliciesSchema, request.body);
+    await platformStore.updateTenantSettings({
+      tenantId: tenantOf(request),
+      settings: { fieldAccessPolicies: body.policies },
+    });
+    return data(
+      {
+        defaults: DEFAULT_FIELD_ACCESS_POLICIES,
+        configured: body.policies,
+        effective: { ...DEFAULT_FIELD_ACCESS_POLICIES, ...body.policies },
+      },
+      request,
     );
   });
 
