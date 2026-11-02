@@ -1828,7 +1828,7 @@ export const fieldAccessPoliciesSchema = z.record(
   z
     .string()
     .regex(
-      /^(PAYROLL_LINE|CALCULATION_LINE|EMPLOYMENT_CONTRACT)\.[A-Za-z][A-Za-z0-9_]*$/,
+      /^(PAYROLL_LINE|CALCULATION_LINE|EMPLOYMENT_CONTRACT|EVIDENCE|SETTLEMENT_LINE|AI_PROPOSAL)\.[A-Za-z][A-Za-z0-9_]*$/,
       "policy key must be RESOURCE.field",
     ),
   z.array(z.string().min(1)).min(1),

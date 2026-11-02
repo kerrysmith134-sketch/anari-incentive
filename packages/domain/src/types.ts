@@ -1494,6 +1494,8 @@ export interface AiScoreProposal {
   secondReviewEvidenceOpened?: number;
   secondReviewOutcome?: "AGREE" | "DISAGREE";
   secondReviewAgreementRate?: number;
+  /** Present when tenant field policies hid fields from this viewer. */
+  redactedFields?: string[];
   createdAt: string;
 }
 
@@ -1910,6 +1912,8 @@ export interface EvidenceNode {
   supersedesId?: UUID;
   /** Person who submitted the evidence, when it came from an employee. */
   submittedBy?: UUID;
+  /** Present when tenant field policies hid fields from this viewer. */
+  redactedFields?: string[];
   createdAt: string;
 }
 
@@ -2023,6 +2027,8 @@ export interface SettlementLine {
   currency: string;
   status: string;
   active: boolean;
+  /** Present when tenant field policies hid fields from this viewer. */
+  redactedFields?: string[];
   createdAt: string;
 }
 

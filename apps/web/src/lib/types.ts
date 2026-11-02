@@ -329,6 +329,7 @@ export interface AiScoreProposal {
   secondReviewEvidenceOpened?: number;
   secondReviewOutcome?: "AGREE" | "DISAGREE";
   secondReviewAgreementRate?: number;
+  redactedFields?: string[];
   createdAt: string;
 }
 
@@ -1274,6 +1275,7 @@ export interface SettlementLine {
   currency: string;
   status: string;
   active: boolean;
+  redactedFields?: string[];
   createdAt: string;
 }
 

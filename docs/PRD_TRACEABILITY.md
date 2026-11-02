@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（298 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（300 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -13,7 +13,7 @@
 1. **法律门禁的最后一公里**：LG-05 已具备未来排期与 provider callback 适配，实际电子签账号/合同由部署配置；LG-06 已有最低工资、扣款上限、deduction order/breakdown、逐类型上限、tax/social 分列与 clawback 逐期校验，ADR-008 固定扣款顺序；执行令/员工授权的最终法律映射仍待法务确认。
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
-4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation/employment-contract 三类资源并可管理，且新增通用 `redactResourceFields` 便于继续扩展，但尚未覆盖全部资源或通用策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
+4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation/employment-contract/evidence/settlement-line/AI-proposal 六类资源并可管理，通用 `redactResourceFields` 便于继续扩展，但尚未覆盖全部资源或条件式策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
 6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
@@ -140,7 +140,7 @@
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
-| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies`（`PAYROLL_LINE.*` / `CALCULATION_LINE.*` / `EMPLOYMENT_CONTRACT.*` -> 允许角色）已接入计算行、合同列表与 amendment 修订历史，本轮新增通用 `redactResourceFields`（Ref 字段移除、decimal 归零、其他标记）与合同 bankAccountRef 默认仅 finance/admin、本人可见；仍有其他资源与通用策略 DSL 未覆盖 |
+| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源（payroll_line / calculation_line / employment_contract / evidence / settlement_line / ai_proposal），接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列；新增请求级策略缓存与通用 `redactResourceFields`/`redactSettlementBatchFields`；仍是字段白名单矩阵，尚无条件式 ABAC DSL |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
@@ -287,6 +287,8 @@
 74. **SEC-03 contract field policy**：新增通用 `redactResourceFields`，按 `RESOURCE.field` 策略对任意扁平资源脱敏（`*Ref` 字段移除、decimal string 归零、其他替换为 `[REDACTED]`），支持本人例外与 tenant 覆盖；`EMPLOYMENT_CONTRACT.bankAccountRef` 默认仅 finance/admin 可见，合同列表与 amendment `beforeTerms`/`afterTerms` 对 manager 返回 `redactedFields`（修订历史不能绕过合同列表规则）；策略 key 正则与 OpenAPI 同步扩展，单元与 HTTP 测试覆盖。
 
 75. **DOM-01 drift test expansion**：OpenAPI↔Zod 请求契约测试覆盖从 6 个 schema 扩到 22 个（工作包、合同/修订、工资 run/审批、claim、申诉/解决、evidence、确认、DSAR、保留策略、法律门、DQ、data source、审批、AI 评分、结算、clawback、策略发布、子群体标签、字段矩阵），required 由 Zod `isOptional()` 自动推导并逐字段校验 OpenAPI properties 覆盖；修复发现的 `CreateWorkPackage.packageType` 缺失与申诉解决接口无具名 schema 两处漂移。
+
+76. **SEC-03 资源扩展**：字段矩阵新增 `EVIDENCE.normalizedPayload/sourceUri`、`SETTLEMENT_LINE.amount/personName/personCode`、`AI_PROPOSAL.scores/rationale/gateMetrics`，默认允许 manager/finance/admin（不改变现有可见性），租户可收紧；evidence 列表、结算批次列表/详情、AI proposal 列表/详情/审计队列均接入，本人数据豁免；新增请求级策略缓存避免每条记录重复读 tenant settings，并新增 `redactSettlementBatchFields`。
 
 ## 仍建议按 P0 顺序补做
 

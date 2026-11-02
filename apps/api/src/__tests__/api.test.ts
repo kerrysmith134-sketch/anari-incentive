@@ -6,6 +6,7 @@ import type {
   AuditRedaction,
   CalculationRun,
   PayrollRun,
+  SettlementBatch,
 } from "@anari/domain";
 import { computeWebhookSignature } from "@anari/connectors";
 import {
@@ -20,6 +21,7 @@ import {
   redactPayrollBankAccounts,
   redactPayrollFields,
   redactResourceFields,
+  redactSettlementBatchFields,
   scanExportDlp,
 } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
@@ -7077,6 +7079,163 @@ describe("vertical slice", () => {
     );
     expect(adminAmendments.json().data[0].afterTerms.bankAccountRef).toBe(
       "BANK-SECRET-2",
+    );
+  });
+
+  it("applies the field access matrix to settlement lines and AI proposals", () => {
+    const batch = {
+      id: "batch-1",
+      tenantId: "tenant-demo",
+      cycleId: CYCLE,
+      batchNo: "B-1",
+      status: "DRAFT",
+      kind: "STANDARD",
+      currency: "CNY",
+      totalAmount: "100",
+      lineCount: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lines: [
+        {
+          id: "line-1",
+          tenantId: "tenant-demo",
+          batchId: "batch-1",
+          ledgerId: "ledger-1",
+          personId: OWNER,
+          personCode: "E001",
+          personName: "Sales Lead",
+          amount: "100",
+          currency: "CNY",
+          status: "ACTIVE",
+          active: true,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    } as unknown as SettlementBatch;
+    const defaultView = redactSettlementBatchFields(batch, {
+      roles: ["manager"],
+    });
+    expect(defaultView.lines?.[0]?.amount).toBe("100");
+    const restrictedView = redactSettlementBatchFields(batch, {
+      roles: ["manager"],
+      policies: {
+        "SETTLEMENT_LINE.amount": ["finance", "admin"],
+        "SETTLEMENT_LINE.personName": ["finance", "admin"],
+        "SETTLEMENT_LINE.personCode": ["finance", "admin"],
+      },
+    });
+    expect(restrictedView.lines?.[0]?.amount).toBe("0");
+    expect(restrictedView.lines?.[0]?.personName).toBe("[REDACTED]");
+    expect(restrictedView.lines?.[0]?.personCode).toBe("[REDACTED]");
+    expect(restrictedView.lines?.[0]?.redactedFields).toEqual(
+      expect.arrayContaining(["amount", "personName", "personCode"]),
+    );
+    const selfView = redactSettlementBatchFields(batch, {
+      personId: OWNER,
+      roles: ["employee"],
+      policies: { "SETTLEMENT_LINE.amount": ["finance", "admin"] },
+    });
+    expect(selfView.lines?.[0]?.amount).toBe("100");
+
+    const proposal = {
+      id: "proposal-1",
+      personId: OWNER,
+      scores: { QUALITY: 4 },
+      rationale: "Strong evidence",
+      gateMetrics: { kappa: 0.8 },
+    };
+    const proposalView = redactResourceFields(proposal, "AI_PROPOSAL", {
+      roles: ["manager"],
+      policies: {
+        "AI_PROPOSAL.scores": ["finance", "admin"],
+        "AI_PROPOSAL.rationale": ["finance", "admin"],
+        "AI_PROPOSAL.gateMetrics": ["finance", "admin"],
+      },
+    });
+    expect(proposalView.scores).toBe("[REDACTED]");
+    expect(proposalView.rationale).toBe("[REDACTED]");
+    expect(proposalView.gateMetrics).toBe("[REDACTED]");
+    expect(proposalView.redactedFields).toEqual(
+      expect.arrayContaining(["scores", "rationale", "gateMetrics"]),
+    );
+  });
+
+  it("applies tenant evidence payload policies on the evidence list", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Evidence tenant",
+      slug: `evidence-${Date.now()}`,
+    });
+    const person = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "E-100",
+      displayName: "Evidence Owner",
+    });
+    const evidenceStore = new Store(tenant.id);
+    const adminApp = buildApp(
+      evidenceStore,
+      undefined,
+      {
+        async authenticate() {
+          return { tenantId: tenant.id, userId: "evidence-admin", roles: ["admin"] };
+        },
+      },
+      platformStore,
+    );
+    const managerApp = buildApp(
+      evidenceStore,
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: tenant.id,
+            userId: "evidence-manager",
+            roles: ["manager"],
+          };
+        },
+      },
+      platformStore,
+    );
+    const created = await adminApp.inject({
+      method: "POST",
+      url: "/api/v1/evidence",
+      payload: {
+        evidenceType: "DELIVERY_RECORD",
+        subjectType: "ORDER",
+        subjectId: CYCLE,
+        sourceSystem: "TEST",
+        normalizedPayload: { customer: "ACME", amount: "100" },
+        submittedBy: person.id,
+      },
+    } as never);
+    expect(created.statusCode).toBe(201);
+
+    const defaultList = await managerApp.inject({
+      method: "GET",
+      url: "/api/v1/evidence",
+    } as never);
+    expect(defaultList.statusCode).toBe(200);
+    expect(defaultList.json().data[0].normalizedPayload).toEqual({
+      customer: "ACME",
+      amount: "100",
+    });
+
+    const put = await adminApp.inject({
+      method: "PUT",
+      url: "/api/v1/field-access-policies",
+      payload: {
+        policies: { "EVIDENCE.normalizedPayload": ["finance", "admin"] },
+      },
+    } as never);
+    expect(put.statusCode).toBe(200);
+
+    const restrictedList = await managerApp.inject({
+      method: "GET",
+      url: "/api/v1/evidence",
+    } as never);
+    expect(restrictedList.json().data[0].normalizedPayload).toBe("[REDACTED]");
+    expect(restrictedList.json().data[0].redactedFields).toContain(
+      "normalizedPayload",
     );
   });
 

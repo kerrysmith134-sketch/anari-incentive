@@ -187,6 +187,7 @@ import {
   type PolicyReadinessReport,
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
+  type SettlementBatch,
 } from "@anari/domain";
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
@@ -566,6 +567,14 @@ export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
   "CALCULATION_LINE.multiplier": ["finance", "admin"],
   "CALCULATION_LINE.trace": ["finance", "admin"],
   "EMPLOYMENT_CONTRACT.bankAccountRef": ["finance", "admin"],
+  "EVIDENCE.normalizedPayload": ["manager", "finance", "admin"],
+  "EVIDENCE.sourceUri": ["manager", "finance", "admin"],
+  "SETTLEMENT_LINE.amount": ["manager", "finance", "admin"],
+  "SETTLEMENT_LINE.personName": ["manager", "finance", "admin"],
+  "SETTLEMENT_LINE.personCode": ["manager", "finance", "admin"],
+  "AI_PROPOSAL.scores": ["manager", "finance", "admin"],
+  "AI_PROPOSAL.rationale": ["manager", "finance", "admin"],
+  "AI_PROPOSAL.gateMetrics": ["manager", "finance", "admin"],
 };
 
 const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
@@ -662,6 +671,29 @@ export function redactContractAmendmentTerms<
     beforeTerms: before,
     afterTerms: after,
     redactedFields,
+  };
+}
+
+/** Apply settlement-line field policies while leaving batch totals intact. */
+export function redactSettlementBatchFields(
+  batch: SettlementBatch,
+  viewer: {
+    personId?: string;
+    roles: string[];
+    policies?: Record<string, string[]>;
+  },
+): SettlementBatch {
+  if (!batch.lines?.length) return batch;
+  return {
+    ...batch,
+    lines: batch.lines.map((line) =>
+      redactResourceFields(line, "SETTLEMENT_LINE", {
+        personId: viewer.personId,
+        recordPersonId: line.personId,
+        roles: viewer.roles,
+        policies: viewer.policies,
+      }),
+    ),
   };
 }
 
@@ -909,6 +941,33 @@ export function buildApp(
   const scopedStores = new Map<string, IncentiveStore>();
   const scopedRuntimes = new Map<string, AgentRuntime>();
   let readinessProbe: IncentiveStore | undefined;
+  const fieldPolicyCache = new WeakMap<
+    FastifyRequest,
+    Record<string, string[]> | null
+  >();
+
+  /** Resolve tenant field-access overrides once per request. */
+  async function fieldPoliciesFor(
+    request: FastifyRequest,
+  ): Promise<Record<string, string[]> | undefined> {
+    if (fieldPolicyCache.has(request)) {
+      return fieldPolicyCache.get(request) ?? undefined;
+    }
+    let policies: Record<string, string[]> | null = null;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (
+        tenant.settings as { fieldAccessPolicies?: unknown }
+      ).fieldAccessPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+    } catch {
+      policies = null;
+    }
+    fieldPolicyCache.set(request, policies);
+    return policies ?? undefined;
+  }
 
   async function ensureApproval(
     request: FastifyRequest,
@@ -3730,10 +3789,25 @@ export function buildApp(
       query.subjectType,
       query.subjectId,
     );
+    if (person) {
+      return data(
+        evidence.filter((node) => node.submittedBy === person),
+        request,
+      );
+    }
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(evidence, request);
+    const policies = await fieldPoliciesFor(request);
+    const viewerPersonId = ownPersonId(request);
     return data(
-      person
-        ? evidence.filter((node) => node.submittedBy === person)
-        : evidence,
+      evidence.map((node) =>
+        redactResourceFields(node, "EVIDENCE", {
+          personId: viewerPersonId,
+          recordPersonId: node.submittedBy,
+          roles,
+          policies,
+        }),
+      ),
       request,
     );
   });
@@ -7251,12 +7325,27 @@ export function buildApp(
       cycleId?: string;
       status?: "PENDING" | "ACCEPTED" | "REJECTED";
     };
-    return data(
-      await platformStore.listAiScoreProposals(tenantOf(request), {
+    const proposals = await platformStore.listAiScoreProposals(
+      tenantOf(request),
+      {
         personId: query.personId,
         cycleId: query.cycleId,
         status: query.status,
-      }),
+      },
+    );
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(proposals, request);
+    const policies = await fieldPoliciesFor(request);
+    const personId = ownPersonId(request);
+    return data(
+      proposals.map((proposal) =>
+        redactResourceFields(proposal, "AI_PROPOSAL", {
+          personId,
+          recordPersonId: proposal.personId,
+          roles,
+          policies,
+        }),
+      ),
       request,
     );
   });
@@ -7279,16 +7368,39 @@ export function buildApp(
         : query.status === "all"
           ? sampled
           : sampled.filter((proposal) => !proposal.secondReviewCompletedAt);
-    return data(filtered, request);
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(filtered, request);
+    const policies = await fieldPoliciesFor(request);
+    const personId = ownPersonId(request);
+    return data(
+      filtered.map((proposal) =>
+        redactResourceFields(proposal, "AI_PROPOSAL", {
+          personId,
+          recordPersonId: proposal.personId,
+          roles,
+          policies,
+        }),
+      ),
+      request,
+    );
   });
 
   app.get("/api/v1/ai-score-proposals/:id", async (request) => {
     requireRoles(request, "manager", "finance");
+    const proposal = await platformStore.getAiScoreProposal(
+      tenantOf(request),
+      idOf(request),
+    );
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(proposal, request);
+    const policies = await fieldPoliciesFor(request);
     return data(
-      await platformStore.getAiScoreProposal(
-        tenantOf(request),
-        idOf(request),
-      ),
+      redactResourceFields(proposal, "AI_PROPOSAL", {
+        personId: ownPersonId(request),
+        recordPersonId: proposal.personId,
+        roles,
+        policies,
+      }),
       request,
     );
   });
@@ -8196,21 +8308,14 @@ export function buildApp(
     );
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(amendments, request);
-    let policies: Record<string, string[]> | undefined;
+    const policies = await fieldPoliciesFor(request);
     let contractPersonId: string | undefined;
     try {
-      const tenant = await platformStore.getTenant(tenantId);
-      const configured = (
-        tenant.settings as { fieldAccessPolicies?: unknown }
-      ).fieldAccessPolicies;
-      if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
-      }
       contractPersonId = (
         await platformStore.getEmploymentContract(tenantId, contractId)
       ).personId;
     } catch {
-      policies = undefined;
+      contractPersonId = undefined;
     }
     const personId = ownPersonId(request);
     return data(
@@ -8235,18 +8340,7 @@ export function buildApp(
     );
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(contracts, request);
-    let policies: Record<string, string[]> | undefined;
-    try {
-      const tenant = await platformStore.getTenant(tenantOf(request));
-      const configured = (
-        tenant.settings as { fieldAccessPolicies?: unknown }
-      ).fieldAccessPolicies;
-      if (configured && typeof configured === "object") {
-        policies = configured as Record<string, string[]>;
-      }
-    } catch {
-      policies = undefined;
-    }
+    const policies = await fieldPoliciesFor(request);
     const personId = ownPersonId(request);
     return data(
       contracts.map((contract) =>
@@ -9405,12 +9499,33 @@ export function buildApp(
 
   app.get("/api/v1/settlement-batches", async (request) => {
     requireRoles(request, "manager", "finance");
-    return data(await storeFor(request).listSettlementBatches(), request);
+    const batches = await storeFor(request).listSettlementBatches();
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(batches, request);
+    const policies = await fieldPoliciesFor(request);
+    const personId = ownPersonId(request);
+    return data(
+      batches.map((batch) =>
+        redactSettlementBatchFields(batch, { personId, roles, policies }),
+      ),
+      request,
+    );
   });
 
   app.get("/api/v1/settlement-batches/:id", async (request) => {
     requireRoles(request, "manager", "finance");
-    return data(await storeFor(request).getSettlementBatch(idOf(request)), request);
+    const batch = await storeFor(request).getSettlementBatch(idOf(request));
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(batch, request);
+    const policies = await fieldPoliciesFor(request);
+    return data(
+      redactSettlementBatchFields(batch, {
+        personId: ownPersonId(request),
+        roles,
+        policies,
+      }),
+      request,
+    );
   });
 
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
