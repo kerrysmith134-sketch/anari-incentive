@@ -77,9 +77,9 @@ Rules:
   `admin` may read the field.
 - **Conditions are evaluated server-side** from canonical records, never from
   request-supplied claims. Supported predicates stay small and auditable:
-  `isSubjectManager`, `sameOrgNode`, `subjectEmploymentActive`,
-  `viewerEmploymentActive`. Unsupported predicates reject the policy at write
-  time.
+  `isSubjectManager`, `sameOrgNode`, `sameLegalEntity`,
+  `subjectEmploymentActive`, `viewerEmploymentActive`. Unsupported predicates
+  reject the policy at write time.
 - **No condition may grant access a role would not otherwise have.** Conditions
   can narrow, not widen.
 - **Denial behaviour is explicit** (`OMIT`/`ZERO`/`REDACT`) so numeric fields are
@@ -90,16 +90,18 @@ Rules:
 Implementation status: `allowRoles`, `allowSelf`, `onDeny` and `match` are
 implemented across payroll lines, calculation lines and the generic resource
 path. Supported predicates are `isSubjectManager`, `sameOrgNode`,
-`subjectEmploymentActive` and `viewerEmploymentActive`; their inputs are
-derived server-side from persons, contracts and org assignments, cached per
-request, and loaded only when a match policy exists. The object form is strict
-— unknown keys or predicates are rejected with `VALIDATION_ERROR`. Missing
-predicate context fails closed. `allowSelf: false` denies the record subject
-even though self-access is otherwise the default.
+`sameLegalEntity`, `subjectEmploymentActive` and `viewerEmploymentActive`.
+`sameLegalEntity` compares the employing legal entity recorded on each
+person's active contract. Predicate inputs are derived server-side from
+persons, contracts and org assignments, cached per request, and loaded only
+when a match policy exists. The object form is strict — unknown keys or
+predicates are rejected with `VALIDATION_ERROR`. Missing predicate context
+fails closed. Admin and self-access are unconditional; predicates only narrow
+the role path. `allowSelf: false` denies the record subject even though
+self-access is otherwise the default.
 
-Not yet supported: `sameLegalEntity` and `legalHoldActive`. They need a
-legal-entity and retention-category mapping onto each record, which is a data
-model change rather than a policy change.
+Not yet supported: `legalHoldActive`. It needs a retention-category mapping
+onto each record, which is a data model change rather than a policy change.
 
 Admin bypass remains, but reading another tenant's data is still impossible
 (RLS and tenant scoping are orthogonal to field policies).

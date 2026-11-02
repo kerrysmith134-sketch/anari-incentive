@@ -140,7 +140,7 @@
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
-| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图现同时消费矩阵与旧 `payrollFieldPolicies`；对象式策略支持 `allowRoles`/`allowSelf`/`onDeny` 与 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`subjectEmploymentActive`/`viewerEmploymentActive`），谓词上下文由服务端派生、每请求缓存、缺失时 fail-closed；条件只收窄访问；未支持的条件键写入时 400 |
+| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图现同时消费矩阵与旧 `payrollFieldPolicies`；对象式策略支持 `allowRoles`/`allowSelf`/`onDeny` 与 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`sameLegalEntity`/`subjectEmploymentActive`/`viewerEmploymentActive`），`EmploymentContract.legalEntity` 已持久化并用于法人实体比较；谓词上下文由服务端派生、每请求缓存、缺失时 fail-closed；条件只收窄，admin/本人访问不受谓词影响；未支持的条件键写入时 400 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
@@ -298,9 +298,11 @@
 
 80. **SEC-03 对象式字段策略**：策略值兼容旧的角色数组与新的对象 `{ allowRoles?, allowSelf?, onDeny? }`；实现 `normalizeFieldPolicy`/`fieldPolicyAllows`/`deniedFieldValue`，payroll、calculation、通用资源三条脱敏路径统一使用；`onDeny` 显式支持 `OMIT`/`ZERO`/`REDACT`，缺省时保持旧推断行为；`allowSelf:false` 可拒绝本人访问；未实现的条件键（如 `match`）与空对象在写入时返回 `VALIDATION_ERROR`；OpenAPI 增加 `FieldAccessPolicyObject`，新增单元与 HTTP 校验测试。
 
-81. **SEC-03 match 谓词**：对象策略新增 `match`，支持 `isSubjectManager`、`sameOrgNode`、`subjectEmploymentActive`、`viewerEmploymentActive`；谓词输入由服务端从 persons/contracts/org assignments 派生并按请求缓存，仅在存在 match 策略时加载；条件只收窄、缺少上下文时 fail-closed；contracts、evidence、settlement、AI proposal、payroll、calculation 六条读取路径均传入 subject 与上下文；payroll 视图同时合并旧 `payrollFieldPolicies` 与矩阵；未知谓词写入时 400；新增 fail-closed 单元测试与经理/组织节点 HTTP 测试。
+81. **SEC-03 match 谓词**：对象策略新增 `match`，支持 `isSubjectManager`、`sameOrgNode`、`sameLegalEntity`、`subjectEmploymentActive`、`viewerEmploymentActive`；谓词输入由服务端从 persons/contracts/org assignments 派生并按请求缓存，仅在存在 match 策略时加载；条件只收窄、缺少上下文时 fail-closed；admin 与本人访问为无条件放行，谓词只约束角色路径；contracts、evidence、settlement、AI proposal、payroll、calculation 六条读取路径均传入 subject 与上下文；payroll 视图同时合并旧 `payrollFieldPolicies` 与矩阵；未知谓词写入时 400；新增 fail-closed 单元测试与经理/组织节点/法人实体 HTTP 测试。
 
 82. **DOM-01 Phase 2 实体契约**：新增 `packages/domain/src/entity-contracts.ts`（`CORE_ENTITY_CONTRACTS`）声明 9 张核心表的完整列集合与 PII/FINANCIAL/AUDIT 分类；新增 `npm run contracts:entities` 生成 `docs/generated/entity-contracts.json`；DDL 测试改为从注册表读取并**逐列完全一致**校验，同时校验生成物新鲜度。迁移仍手写；TS 类型尚未从注册表生成。
+
+83. **SEC-03 法人实体谓词**：`EmploymentContract` 新增可选 `legalEntity`（迁移 064、memory/PostgreSQL 持久化与映射、创建 schema/OpenAPI、console 合同表单与列表显示）；`sameLegalEntity` 谓词比较 viewer 与主体的 ACTIVE 合同法人实体，任一侧缺失即 fail-closed；实体契约注册表同步新增 `legal_entity` 列。
 
 ## 仍建议按 P0 顺序补做
 
@@ -308,7 +310,7 @@
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
 3. **AI residual**：自动重训/重标流水线（gold-set 刷新流程与 due 报告已落地）。
 4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
-5. **SEC residual**：`match` 已支持 `isSubjectManager`/`sameOrgNode`/`subjectEmploymentActive`/`viewerEmploymentActive`；若要 `sameLegalEntity`/`legalHoldActive` 等语义，需先补齐实体法域/保留期到记录的映射；自动 retention deletion 仍明确不启用。
+5. **SEC residual**：`match` 已支持 manager/org/legal-entity/employment 五类谓词；`legalHoldActive` 仍需把保留期类别映射到具体记录后再开放；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
 7. **DOM-01**：请求契约由 Zod 生成并校验；实体列契约 `CORE_ENTITY_CONTRACTS` + 生成 manifest + 迁移逐列校验已落地；下一步从注册表生成/校验 TS 领域类型，迁移继续手写。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
