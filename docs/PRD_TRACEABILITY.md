@@ -11,7 +11,7 @@
 对照 PRD 的 **P0 验收要求**，剩余缺口已收敛为：
 
 1. **法律门禁的最后一公里**：LG-05 仍缺未来生效排期与外部电子签服务；LG-06 已有最低工资、扣款上限、deduction order/breakdown 与 tax/social 分列，但仍缺法定扣款类型/逐类型上限。
-2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；已有 reader/actor 进程级隔离与 red-team 门禁；仍缺 per-task/per-tenant 强制隔离和审阅分析前端增强。
+2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；已有 reader/actor 进程级隔离、red-team 门禁与审阅分析；仍缺 per-task/per-tenant 强制隔离。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；仍缺角色差异化薪酬模板（INC-02）和“未计价工作不得默认为 0”的强制规则（INC-06）。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；仍缺通用字段级 ABAC、内容级 DLP/批量导出限流；audit redaction 已实现，自动 retention deletion 仍明确不启用。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；仍缺员工/经理 cycle-time 指标、DATA-05 的字段级最小化技术证明、受保护属性 subgroup impact。
@@ -99,7 +99,7 @@
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
 | AI-02 评测要求 | 🟡 | harness、holdout、AI-human ≤ human-human 已有；gold-set 注册与强制校验、canary/vendor-change 对比（kappa/subgroup gap/injection/stability 回归阻断）已实现；季度刷新仍只记录 due date，不自动重训/重标 |
-| AI-03 人工监督 | 🟡 | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、第二复核与一致率已有；本轮新增 `riskTier=HIGH/CRITICAL` 的决策前强制第二复核（独立评分，不一致则 409），audit sampling 与 pre-decision double review 都已落地；审阅耗时前端分析面板仍可继续增强 |
+| AI-03 人工监督 | ✅ | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、audit agreement、HIGH/CRITICAL 决策前强制第二复核（不一致 409）均已落地；AI console 展示平均审阅时长/打开证据/盲审数 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | 🟡 | Evidence 作为输入、schema/权限、provider policy、red-team run 门禁已有；本轮 tools 增加 READ/WRITE access，`AGENT_ROLE=READER` 时 WRITE 工具直接 REJECTED；仍是进程级角色，不是 per-task/per-tenant 强制隔离 |
 
@@ -226,11 +226,13 @@
 
 44. **DATA-05 minimization report**：data map 增加 personal fields 保留期覆盖与 missing-retention 计数，Settings 展示；仍无活动量字段采集阻断。
 
+45. **AI-03 review analytics UI**：Audit queue 面板展示平均审阅时长、平均打开证据数、盲审数与 agreement；AI-03 前端分析项补齐。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
-3. **AI residual**：per-task/per-tenant reader/actor 强制隔离、gold-set 自动刷新、审阅分析前端增强。
+3. **AI residual**：per-task/per-tenant reader/actor 强制隔离、gold-set 自动刷新。
 4. **DATA/ORG residual**：员工/经理 cycle-time、任务类型覆盖率趋势、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）。
 5. **SEC residual**：通用字段级 ABAC 引擎、内容级 DLP/批量导出限流；自动 retention deletion 仍明确不启用。
 6. **INC residual**：INC-02 角色薪酬模板、INC-06 未计价工作强制规则。

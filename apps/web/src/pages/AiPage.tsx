@@ -896,8 +896,15 @@ export function AiPage() {
                   Sampled {reviewMetrics.data.auditSampledCount} · reviewed{" "}
                   {reviewMetrics.data.auditReviewedCount} · pending{" "}
                   {reviewMetrics.data.auditPendingCount} · agreement{" "}
-                  {formatPercent(reviewMetrics.data.auditAgreementRate)}. The
-                  second reviewer does not see the first independent scores.
+                  {formatPercent(reviewMetrics.data.auditAgreementRate)}. Avg
+                  review{" "}
+                  {Math.round(
+                    reviewMetrics.data.averageReviewDurationSeconds,
+                  )}
+                  s · evidence opened{" "}
+                  {reviewMetrics.data.averageEvidenceOpened.toFixed(1)} · blind{" "}
+                  {reviewMetrics.data.blindReviewCount}. The second reviewer does
+                  not see the first independent scores.
                 </InfoNotice>
               </div>
             ) : null}
