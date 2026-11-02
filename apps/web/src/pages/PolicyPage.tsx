@@ -721,6 +721,30 @@ export function PolicyPage() {
                       </div>
                     )}
                   </div>
+                  <div className="detail-section" style={{ marginTop: 0 }}>
+                    <div className="detail-section__title">
+                      Coverage by task type
+                    </div>
+                    {coverage.data.workPackages.coverageByPackageType.length === 0 ? (
+                      <p className="muted">No accepted package yet.</p>
+                    ) : (
+                      <div className="stack" style={{ gap: 6 }}>
+                        {coverage.data.workPackages.coverageByPackageType.map((row) => (
+                          <div
+                            key={row.packageType}
+                            className="inline"
+                            style={{ justifyContent: "space-between", width: "100%" }}
+                          >
+                            <span>{titleCase(row.packageType)}</span>
+                            <span className="muted">
+                              {formatPercent(row.coverageRate)} ·{" "}
+                              {row.withEvidence}/{row.total}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <InfoNotice>
                   Generated {formatDateTime(coverage.data.generatedAt)}. Coverage is

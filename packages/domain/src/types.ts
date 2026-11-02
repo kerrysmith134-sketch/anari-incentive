@@ -41,6 +41,8 @@ export interface WorkPackage {
   tenantId: UUID;
   title: string;
   objective: string;
+  /** Configured task/package type used for evidence-coverage stratification. */
+  packageType: string;
   ownerPersonId: UUID;
   status: WorkPackageStatus;
   acceptanceCriteria: string[];
@@ -1012,6 +1014,12 @@ export interface OperationsCoverageReport {
     }>;
     coverageByOrderType: Array<{
       orderType: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
+    coverageByPackageType: Array<{
+      packageType: string;
       total: number;
       withEvidence: number;
       coverageRate: number;

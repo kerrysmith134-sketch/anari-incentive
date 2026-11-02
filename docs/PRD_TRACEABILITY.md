@@ -86,7 +86,7 @@
 | ATT-01 申报≠认定 | ✅ | Claim/Decision 分离、人工 decision |
 | ATT-02 回避 | ✅ | 新增 `conflict_declarations` 关联登记/撤销；创建 attribution decision（含 batch）前检查双向 active 冲突并返回 `ADJUDICATOR_CONFLICT_OF_INTEREST`；console Settings 可维护 |
 | ATT-03 例外/补录 | ✅ | ContributionClaim 新增 `claimMode`（STANDARD/EXCEPTION/BACKFILL）与必填 `exceptionReason`；memory/PG 持久化，console 申报表单可标记并在列表展示 |
-| ATT-04 覆盖率分层 | ✅/🟡 | 本轮新增按 responsibilityCode 和订单类型分层；任务类型维度仍缺 |
+| ATT-04 覆盖率分层 | ✅ | 按 responsibilityCode、订单类型和 task/package type 三层统计证据覆盖率；packageType 随 work package 持久化并在 console 录入/展示 |
 | ATT-05 证据不足不默认 0 | ✅ | 评分结果新增 `insufficientEvidence`；默认 `evidenceDefaultRule=BLOCK` 拒绝缺失维度评分的 AI proposal，只有显式设为 `ZERO` 才允许落 0；测试覆盖 block/override |
 | ATT-06 先独立判断/AI 草稿/盲审 | ✅ | decision 必填 independentScores/reviewStartedAt/evidenceOpened；override 必须有理由；AI console 默认隐藏 AI 分数直到 reveal；audit sample 由服务端按 override/随机率抽取，盲审 flag 与 audit agreement 记录；校准会已接入 annual review |
 | ATT-07 申诉由非原决定人/SLA/证据披露 | 🟡 | 非原决定人复核 + 本轮新增 dueAt/evidenceRefs/SLA skill；无正式证据披露/无报复承诺流程 |
@@ -123,7 +123,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DATA-01 分层覆盖率 | ✅/🟡 | 本轮新增角色/订单类型；任务类型、周期趋势仍缺 |
+| DATA-01 分层覆盖率 | ✅/🟡 | 角色/订单类型/task package type 分层已覆盖；周期趋势仍缺 |
 | DATA-02 被动+自报+同伴+经理证明 | ✅ | 被动 ingestion、员工自报已有；本轮新增 peer/manager attestation（主体须为工作包参与者、不能自证、MANAGER 须为直属经理），可带证据引用、仅 attester 可撤回，console Contribution 可录入/查看 |
 | DATA-03 证据不足不默认 0 | ✅ | NEEDS_EVIDENCE + DQ blocking；新增可配置 `evidenceDefaultRule`（默认 BLOCK，显式 ZERO 才允许 0 分），AI scoring 在 proposal 前阻断缺失证据维度 |
 | DATA-04 owner/SLA/升级 | ✅ | 新增 `data_sources` 登记：owner/backup owner、响应 SLA、criticality、90 天复核到期与逾期统计；DQ 的 assignee/dueAt/escalate 继续独立存在 |
@@ -259,6 +259,8 @@
 60. **ORG-02 employee team aggregate**：`GET /reports/team-aggregate` 不再要求 manager 角色；无特权员工只能读取自己 manager 的聚合，指定其他 manager 返回 403，团队 <3 人仍抑制；新增共享 platform store 测试验证。
 
 61. **P0-02/P0-04 cycle time expansion**：operations coverage 新增 calculation→confirmation、payroll created→approved、appeal created→resolved 平均小时数，Policy coverage 展示；端到端员工/经理细分角色耗时与目标阈值仍待产品定义。
+
+62. **ATT-04/DATA-01 package-type coverage**：WorkPackage 新增 `packageType`（默认 ORDER_DELIVERY，复用既有 `package_type` 列），coverage report 增加按 package type 的分层，Contribution 表单/列表与 Policy coverage 展示；无迁移。
 
 ## 仍建议按 P0 顺序补做
 

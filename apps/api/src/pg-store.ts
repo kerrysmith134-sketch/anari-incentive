@@ -308,14 +308,15 @@ export class PgStore implements IncentiveStore {
       await client.query(
         `INSERT INTO work_packages
           (id, tenant_id, source_object_type, source_object_id, title, objective,
-           owner_person_id, status, acceptance_criteria, due_at)
-         VALUES ($1,$2,'ORDER',$3,$4,$5,$6,'DRAFT',$7,$8)`,
+           package_type, owner_person_id, status, acceptance_criteria, due_at)
+         VALUES ($1,$2,'ORDER',$3,$4,$5,$6,$7,'DRAFT',$8,$9)`,
         [
           id,
           this.tenantId,
           randomUUID(),
           input.title,
           input.objective,
+          input.packageType ?? "ORDER_DELIVERY",
           input.ownerPersonId,
           JSON.stringify(input.acceptanceCriteria),
           input.dueAt ?? null,
@@ -3380,6 +3381,7 @@ export class PgStore implements IncentiveStore {
       tenantId: row.tenant_id,
       title: row.title,
       objective: row.objective,
+      packageType: row.package_type ?? "ORDER_DELIVERY",
       ownerPersonId: row.owner_person_id,
       status: row.status,
       acceptanceCriteria: asJson(row.acceptance_criteria, []),

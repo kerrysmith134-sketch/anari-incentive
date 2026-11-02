@@ -362,6 +362,7 @@ export class Store implements IncentiveStore {
       tenantId: this.tenantId,
       title: input.title,
       objective: input.objective,
+      packageType: input.packageType ?? "ORDER_DELIVERY",
       ownerPersonId: input.ownerPersonId,
       status: "DRAFT",
       acceptanceCriteria: input.acceptanceCriteria,

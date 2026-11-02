@@ -2938,6 +2938,10 @@ export function buildApp(
       string,
       { total: number; withEvidence: number }
     >();
+    const packageTypeCoverage = new Map<
+      string,
+      { total: number; withEvidence: number }
+    >();
     for (const workPackage of acceptedPackages) {
       const hasEvidence = evidenceSubjects.has(workPackage.id);
       const roles = new Set(
@@ -2960,6 +2964,14 @@ export function buildApp(
       currentOrder.total += 1;
       if (hasEvidence) currentOrder.withEvidence += 1;
       orderTypeCoverage.set(orderType, currentOrder);
+      const packageType = workPackage.packageType ?? "UNSPECIFIED";
+      const currentPackage = packageTypeCoverage.get(packageType) ?? {
+        total: 0,
+        withEvidence: 0,
+      };
+      currentPackage.total += 1;
+      if (hasEvidence) currentPackage.withEvidence += 1;
+      packageTypeCoverage.set(packageType, currentPackage);
     }
     const openAppeals = appeals.filter(
       (appeal) => appeal.status !== "CLOSED",
@@ -3109,6 +3121,14 @@ export function buildApp(
             coverageRate: ratio(value.withEvidence, value.total),
           }))
           .sort((a, b) => a.orderType.localeCompare(b.orderType)),
+        coverageByPackageType: [...packageTypeCoverage.entries()]
+          .map(([packageType, value]) => ({
+            packageType,
+            total: value.total,
+            withEvidence: value.withEvidence,
+            coverageRate: ratio(value.withEvidence, value.total),
+          }))
+          .sort((a, b) => a.packageType.localeCompare(b.packageType)),
       },
       claims: {
         total: claims.length,

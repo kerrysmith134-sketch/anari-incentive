@@ -449,6 +449,12 @@ export interface OperationsCoverageReport {
       withEvidence: number;
       coverageRate: number;
     }>;
+    coverageByPackageType: Array<{
+      packageType: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
   };
   claims: {
     total: number;
@@ -1129,6 +1135,7 @@ export interface WorkPackage {
   id: Uuid;
   title: string;
   objective: string;
+  packageType: string;
   ownerPersonId: Uuid;
   status: string;
   acceptanceCriteria: string[];

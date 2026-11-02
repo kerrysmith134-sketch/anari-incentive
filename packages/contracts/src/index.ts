@@ -9,6 +9,8 @@ export const uuidSchema = z.string().uuid();
 export const createWorkPackageSchema = z.object({
   title: z.string().min(2).max(200),
   objective: z.string().min(3),
+  /** Defaults to ORDER_DELIVERY in the store when omitted. */
+  packageType: z.string().min(1).max(60).optional(),
   ownerPersonId: uuidSchema,
   members: z
     .array(

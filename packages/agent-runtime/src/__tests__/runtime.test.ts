@@ -173,6 +173,7 @@ function workPackage(overrides: Partial<WorkPackage> = {}): WorkPackage {
     tenantId: "tenant-1",
     title: "Delivery",
     objective: "Deliver",
+    packageType: "ORDER_DELIVERY",
     ownerPersonId: "person-1",
     status: "DRAFT",
     acceptanceCriteria: ["Accepted"],

@@ -72,6 +72,7 @@ export function ContributionPage() {
   ]);
   const [criteria, setCriteria] = useState("");
   const [dueAt, setDueAt] = useState("");
+  const [packageType, setPackageType] = useState("ORDER_DELIVERY");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<WorkPackage | null>(
@@ -159,6 +160,7 @@ export function ContributionPage() {
     ]);
     setCriteria("");
     setDueAt("");
+    setPackageType("ORDER_DELIVERY");
     setFormError(null);
     setCreateOpen(true);
   }
@@ -210,6 +212,7 @@ export function ContributionPage() {
             responsibilityCode: member.responsibilityCode.trim(),
             expectedOutput: member.expectedOutput.trim(),
           })),
+          packageType: packageType.trim(),
           acceptanceCriteria: criteriaList,
           dueAt: dueAt ? toIsoDate(dueAt) : undefined,
         },
@@ -659,6 +662,7 @@ export function ContributionPage() {
                         <td>
                           <span className="cell-primary">{workPackage.title}</span>
                           <span className="cell-sub">
+                            {titleCase(workPackage.packageType)} ·{" "}
                             {workPackage.acceptanceCriteria.length} criteria
                           </span>
                         </td>
@@ -1121,6 +1125,19 @@ export function ContributionPage() {
                 type="date"
                 value={dueAt}
                 onChange={(event) => setDueAt(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Task / package type"
+              htmlFor="package-type"
+              hint="Used for evidence-coverage stratification"
+            >
+              <TextInput
+                id="package-type"
+                value={packageType}
+                onChange={(event) => setPackageType(event.target.value)}
+                placeholder="ORDER_DELIVERY"
+                required
               />
             </FormField>
             <FormField

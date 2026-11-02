@@ -7537,6 +7537,10 @@ describe("vertical slice", () => {
       ),
     ).toBe(true);
     expect(after.body.data.workPackages.coverageByOrderType.length).toBe(1);
+    expect(after.body.data.workPackages.coverageByPackageType).toHaveLength(1);
+    expect(
+      after.body.data.workPackages.coverageByPackageType[0].packageType,
+    ).toBe("ORDER_DELIVERY");
     expect(after.body.data.dataQuality).toEqual({
       total: 1,
       open: 1,
