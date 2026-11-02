@@ -19,14 +19,13 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { ApiError, api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import type { WorkforceSubgroupAttributeView } from "../lib/ops-types.js";
-
-interface PolicyObject {
-  allowRoles?: string[];
-  allowSelf?: boolean;
-  onDeny?: "OMIT" | "ZERO" | "REDACT";
-  match?: Record<string, boolean>;
-}
-type PolicyValue = string[] | PolicyObject;
+import {
+  buildConfiguredPolicies,
+  isValidPolicyKey,
+  normalizePolicyValue,
+  type PolicyEditorRow,
+  type PolicyValue,
+} from "../lib/field-policy.js";
 
 interface MatrixResponse {
   defaults: Record<string, PolicyValue>;
@@ -59,37 +58,11 @@ const DENY_MODES: Array<"" | "OMIT" | "ZERO" | "REDACT"> = [
   "REDACT",
 ];
 
-interface Row {
-  key: string;
-  roles: string;
-  allowSelf: boolean;
-  onDeny: "" | "OMIT" | "ZERO" | "REDACT";
-  match: Record<string, boolean>;
-  overridden: boolean;
-}
-
-function normalize(value: PolicyValue | undefined): {
-  roles: string;
-  allowSelf: boolean;
-  onDeny: "" | "OMIT" | "ZERO" | "REDACT";
-  match: Record<string, boolean>;
-} {
-  if (Array.isArray(value)) {
-    return { roles: value.join(", "), allowSelf: true, onDeny: "", match: {} };
-  }
-  return {
-    roles: (value?.allowRoles ?? []).join(", "),
-    allowSelf: value?.allowSelf ?? true,
-    onDeny: value?.onDeny ?? "",
-    match: { ...(value?.match ?? {}) },
-  };
-}
-
 export function FieldAccessPage() {
   useDocumentTitle("Field access");
   const toast = useToast();
   const matrix = useApiQuery<MatrixResponse>("/api/v1/field-access-policies");
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<PolicyEditorRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newResource, setNewResource] = useState(RESOURCES[0] as string);
@@ -119,13 +92,13 @@ export function FieldAccessPage() {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, value]) => ({
           key,
-          ...normalize(value),
+          ...normalizePolicyValue(value),
           overridden: key in data.configured,
         })),
     );
   }, [matrix.data]);
 
-  function updateRow(key: string, patch: Partial<Row>) {
+  function updateRow(key: string, patch: Partial<PolicyEditorRow>) {
     setRows((current) =>
       current.map((row) =>
         row.key === key ? { ...row, ...patch, overridden: true } : row,
@@ -143,7 +116,7 @@ export function FieldAccessPage() {
     setRows((current) =>
       current.map((row) =>
         row.key === key
-          ? { ...row, ...normalize(base), overridden: false }
+          ? { ...row, ...normalizePolicyValue(base), overridden: false }
           : row,
       ),
     );
@@ -151,8 +124,8 @@ export function FieldAccessPage() {
 
   function addRow() {
     const key = `${newResource}.${newField.trim()}`;
-    if (!newField.trim() || rows.some((row) => row.key === key)) {
-      setError("Enter a unique field name for the resource.");
+    if (!isValidPolicyKey(key) || rows.some((row) => row.key === key)) {
+      setError("Enter a unique RESOURCE.field name for the resource.");
       return;
     }
     setRows((current) => [
@@ -174,26 +147,7 @@ export function FieldAccessPage() {
     setError(null);
     setSaving(true);
     try {
-      const policies: Record<string, PolicyValue> = {};
-      for (const row of rows) {
-        if (!row.overridden) continue;
-        const match = Object.fromEntries(
-          Object.entries(row.match).filter(([, expected]) => expected),
-        );
-        policies[row.key] = {
-          ...(row.roles.trim()
-            ? {
-                allowRoles: row.roles
-                  .split(",")
-                  .map((role) => role.trim())
-                  .filter(Boolean),
-              }
-            : {}),
-          allowSelf: row.allowSelf,
-          ...(row.onDeny ? { onDeny: row.onDeny } : {}),
-          ...(Object.keys(match).length > 0 ? { match } : {}),
-        };
-      }
+      const policies = buildConfiguredPolicies(rows);
       await api("/api/v1/field-access-policies", {
         method: "PUT",
         body: { policies },
@@ -352,7 +306,8 @@ export function FieldAccessPage() {
                         value={row.onDeny}
                         onChange={(event) =>
                           updateRow(row.key, {
-                            onDeny: event.target.value as Row["onDeny"],
+                            onDeny: event.target
+                              .value as PolicyEditorRow["onDeny"],
                           })
                         }
                       >
