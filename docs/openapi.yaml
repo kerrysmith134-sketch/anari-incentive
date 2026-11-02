@@ -3914,6 +3914,30 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/me/data-package:
+    get:
+      tags: [Compliance]
+      summary: Export my personal data package
+      description: |
+        Returns the authenticated person's profile, contracts, work-package
+        roles, claims, submitted evidence, confirmations, appeals,
+        notifications, evaluation/AI records, DSARs, consent labels and
+        acknowledgements, with a package hash. Other employees' details are
+        omitted. Rate-limited as an export.
+      responses:
+        "200":
+          description: Personal data package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /api/v1/ai-review-metrics:
     get:
       tags: [Agent]
@@ -6707,6 +6731,28 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/StateConflict"
+
+  /api/v1/dsar-requests/{id}/package:
+    get:
+      tags: [Compliance]
+      summary: Export the DSAR subject's personal data package
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Personal data package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /api/v1/appeals:
     get:

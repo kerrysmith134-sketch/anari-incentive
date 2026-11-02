@@ -5043,6 +5043,139 @@ export function buildApp(
     );
   });
 
+  async function buildPersonDataPackage(
+    request: FastifyRequest,
+    personId: string,
+  ): Promise<Record<string, unknown>> {
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const [people, contracts, workPackages, claims, evidence, confirmations, appeals, notifications, drafts, decisions, proposals, dsars, attributes, notices] =
+      await Promise.all([
+        platformStore.listPersons(tenantId),
+        platformStore.listEmploymentContracts(tenantId, personId),
+        store.listWorkPackages(),
+        store.listClaims(),
+        store.listEvidence(),
+        store.listConfirmations(personId),
+        store.listAppeals(),
+        store.listNotifications({ recipientPersonId: personId }),
+        store.listEvaluationDrafts({ personId }),
+        store.listEvaluationDecisions({ personId }),
+        platformStore.listAiScoreProposals(tenantId, { personId }),
+        platformStore.listDsars(tenantId, personId),
+        platformStore.listWorkforceSubgroupAttributes(tenantId, { personId }),
+        platformStore.listNotices(tenantId),
+      ]);
+    const person = people.find((candidate) => candidate.id === personId);
+    if (!person) throw new NotFoundError(`Person ${personId} not found`);
+    const acknowledgements = (
+      await Promise.all(
+        notices.map(async (notice) => {
+          const overview = await platformStore.listAcknowledgements(
+            tenantId,
+            notice.id,
+          );
+          return overview.acknowledgements
+            .filter((row) => row.personId === personId)
+            .map((row) => ({
+              noticeId: notice.id,
+              noticeType: notice.noticeType,
+              title: notice.title,
+              decision: row.acknowledgedAt
+                ? "ACKNOWLEDGED"
+                : row.declinedAt
+                  ? "DECLINED"
+                  : "PENDING",
+              acknowledgedAt: row.acknowledgedAt,
+              declinedAt: row.declinedAt,
+            }));
+        }),
+      )
+    ).flat();
+    const ownWorkPackages = workPackages
+      .filter(
+        (workPackage) =>
+          workPackage.ownerPersonId === personId ||
+          workPackage.members.some((member) => member.personId === personId),
+      )
+      .map((workPackage) => {
+        const membership = workPackage.members.find(
+          (member) => member.personId === personId,
+        );
+        return {
+          id: workPackage.id,
+          title: workPackage.title,
+          status: workPackage.status,
+          packageType: workPackage.packageType,
+          dueAt: workPackage.dueAt,
+          myRole: membership?.responsibilityCode ??
+            (workPackage.ownerPersonId === personId ? "OWNER" : "MEMBER"),
+          myExpectedOutput: membership?.expectedOutput,
+        };
+      });
+    const payload = {
+      packageVersion: "v1",
+      generatedAt: new Date().toISOString(),
+      personId,
+      profile: {
+        id: person.id,
+        employeeCode: person.employeeCode,
+        displayName: person.displayName,
+        employmentStatus: person.employmentStatus,
+        managerPersonId: person.managerPersonId,
+      },
+      contracts,
+      workPackages: ownWorkPackages,
+      claims: claims.filter((claim) => claim.claimantPersonId === personId),
+      evidence: evidence.filter((node) => node.submittedBy === personId),
+      confirmations,
+      appeals: appeals
+        .filter((appeal) => appeal.appellantPersonId === personId)
+        .map((appeal) => ({
+          id: appeal.id,
+          targetType: appeal.targetType,
+          targetId: appeal.targetId,
+          reasonCode: appeal.reasonCode,
+          statement: appeal.statement,
+          status: appeal.status,
+          resolution: appeal.resolution,
+          dueAt: appeal.dueAt,
+          createdAt: appeal.createdAt,
+          resolvedAt: appeal.resolvedAt,
+        })),
+      notifications,
+      evaluationDrafts: drafts,
+      evaluationDecisions: decisions,
+      aiProposals: proposals,
+      dsars,
+      subgroupAttributes: attributes,
+      acknowledgements,
+    };
+    return { ...payload, packageHash: sha256(payload) };
+  }
+
+  app.get("/api/v1/me/data-package", async (request) => {
+    assertExportAllowed(request);
+    const personId = ownPersonId(request);
+    if (!personId) {
+      throw new ForbiddenError("employee identity is required");
+    }
+    return data(await buildPersonDataPackage(request, personId), request);
+  });
+
+  app.get("/api/v1/dsar-requests/:id/package", async (request) => {
+    requireRoles(request, "admin", "finance");
+    assertExportAllowed(request);
+    const dsar = await platformStore.getDsar(
+      tenantOf(request),
+      idOf(request),
+    );
+    return data(
+      await buildPersonDataPackage(request, dsar.personId),
+      request,
+    );
+  });
+
   app.post("/api/v1/dsar-requests", async (request, reply) => {
     const body = parse(createDsarSchema, request.body);
     const own = ownPersonId(request);

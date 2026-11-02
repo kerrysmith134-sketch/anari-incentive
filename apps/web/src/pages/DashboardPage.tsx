@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   Badge,
+  Button,
   EmptyState,
   ErrorNotice,
   InfoNotice,
@@ -10,6 +11,7 @@ import {
   StatTile,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
+import { api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDate,
@@ -812,6 +814,24 @@ export function DashboardPage() {
 
 function EmployeeHome() {
   useDocumentTitle("My overview");
+  async function downloadDataPackage() {
+    try {
+      const dataPackage = await api<Record<string, unknown>>(
+        "/api/v1/me/data-package",
+      );
+      const blob = new Blob([JSON.stringify(dataPackage, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "my-data-package.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* the export limit or auth error is visible through the API */
+    }
+  }
   const workPackages = useApiQuery<WorkPackage[]>("/api/v1/work-packages");
   const appeals = useApiQuery<AppealCase[]>("/api/v1/appeals");
   const confirmations = useApiQuery<
@@ -859,6 +879,13 @@ function EmployeeHome() {
         description="Your work, confirmations, appeals and AI record. Team data is aggregate-only and suppressed below the minimum group size."
         actions={
           <>
+            <Button
+              variant="secondary"
+              icon="download"
+              onClick={() => void downloadDataPackage()}
+            >
+              My data
+            </Button>
             <Link className="btn btn--secondary" to="/contribution">
               <Icon name="layers" size={16} />
               <span>My work</span>

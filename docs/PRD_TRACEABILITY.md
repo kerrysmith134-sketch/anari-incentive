@@ -57,7 +57,7 @@
 | LG-05 合同/薪酬方案变更 | ✅ | 必填 consent signature、payPlanVersion、amendment history、未来排期/自动应用已有；本轮新增 e-sign envelope + HMAC provider callback，SIGNED 回调写回合同 consent signature；外部 provider 账号/合同仍由部署配置 |
 | LG-06 最低工资/扣款 | 🟡 | 最低工资、总额扣款上限、tax/social 分列、deductionOrder/breakdown 已有；本轮新增 contract `deductionTypeCaps` 与 payroll 逐类型 cap 校验/违约列表，超出阻断行；法定扣款类型映射与执行令/员工同意的法律优先级仍待法务确认 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
-| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold、字段级 data map 有；本轮新增 ADR-008 推荐保留期 API 与 Settings 预填创建（payroll/accounting 360m、migrant wage 36m、contracts 24m、AI evidence 36m、audit 120m），legal hold 优先；自动硬删除仍未启用 |
+| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold、字段级 data map、ADR-008 推荐保留期与 Settings 预填创建已有；本轮新增个人数据包 `GET /me/data-package` 与 `GET /dsar-requests/:id/package`（本人 profile/contracts/work role/claims/evidence/confirmations/appeals/evaluation/AI/DSAR/consent/acknowledgements + hash），删除/更正仍走人工复核；自动硬删除未启用 |
 | LG-09 AI 告知/解释 | ✅ | 新增 `GET /me/ai-explanations` 和 console `My AI record`：员工可见 AI 使用、模型、notice/ack、草稿/决策、建议分数、人工复核与可申诉目标 |
 | LG-10 证据包 | ✅ | 本轮新增 `GET /api/v1/evidence-packages/:cycleId` 和 console 下载：策略/法律门/测试/证据/claim/decision/计算/确认/申诉/结算/账本/DQ/审批/审计/哈希校验 |
 
@@ -143,7 +143,7 @@
 | SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies`（`PAYROLL_LINE.*` / `CALCULATION_LINE.*` -> 允许角色）已接入计算行，本轮新增 GET/PUT 管理与 Settings matrix 展示/编辑；仍是两个资源，未覆盖全部资源与通用策略 DSL |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
-| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction 已有；本轮新增 reviewed retention disposal（legal hold 阻断、双人审批、30 天默认 grace、到期 complete 记录）；仍未自动硬删除，处置执行保持人工/受控 |
+| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
 
 ## 本轮已补的缺口
 
@@ -277,6 +277,8 @@
 69. **P0-04 success metrics**：新增 `GET /reports/success-metrics`，按 PRD 阈值计算 evidence coverage/claim decision/dispute rate/reconciliation differences，返回 PASS/FAIL/PARTIAL 与 UNAVAILABLE（员工补证时间）；Policy coverage 展示，OpenAPI/测试覆盖。
 
 70. **P0-02 responsibility cycle times**：operations coverage `cycleTimes.byResponsibility` 按 responsibilityCode 输出 acceptance/claim-decision 平均小时与样本数，Policy coverage 展示；其他流程（confirmation/payroll/appeal）的角色细分仍缺。
+
+71. **LG-08 DSAR data package**：新增 `GET /me/data-package` 与 `GET /dsar-requests/:id/package`，聚合本人档案/合同/工作角色/claim/提交 evidence/confirmation/appeal/评价/AI proposal/DSAR/同意标签/notice acknowledgement，返回 `packageHash` 并走 export limiter；员工只能读本人，DSAR 读取需 admin/finance。Employee home 增加下载按钮。
 
 ## 仍建议按 P0 顺序补做
 

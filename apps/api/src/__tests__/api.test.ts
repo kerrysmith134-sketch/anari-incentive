@@ -1332,6 +1332,23 @@ describe("DSAR requests", () => {
     expect(created.body.data.personId).toBe(first.id);
     expect(created.body.data.status).toBe("OPEN");
     const firstDsarId = created.body.data.id as string;
+    const ownPackage = await call(
+      employeeApp,
+      "GET",
+      "/api/v1/me/data-package",
+    );
+    expect(ownPackage.status).toBe(200);
+    expect(ownPackage.body.data.personId).toBe(first.id);
+    expect(ownPackage.body.data.profile.id).toBe(first.id);
+    expect(ownPackage.body.data.packageHash).toMatch(/^sha256:/);
+    expect(Array.isArray(ownPackage.body.data.confirmations)).toBe(true);
+    const dsarPackage = await call(
+      adminApp,
+      "GET",
+      `/api/v1/dsar-requests/${firstDsarId}/package`,
+    );
+    expect(dsarPackage.status).toBe(200);
+    expect(dsarPackage.body.data.personId).toBe(first.id);
 
     const otherPerson = await call(
       employeeApp,
