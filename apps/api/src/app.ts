@@ -513,6 +513,62 @@ const DEFAULT_PAYROLL_FIELD_POLICIES: Record<string, string[]> = {
   "PAYROLL_LINE.bankAccountRef": ["finance", "admin"],
 };
 
+export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
+  ...DEFAULT_PAYROLL_FIELD_POLICIES,
+  "CALCULATION_LINE.baseAmount": ["finance", "admin"],
+  "CALCULATION_LINE.rawAmount": ["finance", "admin"],
+  "CALCULATION_LINE.roundedAmount": ["finance", "admin"],
+  "CALCULATION_LINE.multiplier": ["finance", "admin"],
+  "CALCULATION_LINE.trace": ["finance", "admin"],
+};
+
+/**
+ * Apply role-based field policies to a calculation run. This is deliberately
+ * generic so the same matrix can protect other resources as they are added.
+ */
+export function redactCalculationRunFields(
+  run: CalculationRun,
+  viewer: {
+    roles: string[];
+    policies?: Record<string, string[]>;
+  },
+): CalculationRun {
+  const policies = {
+    ...DEFAULT_FIELD_ACCESS_POLICIES,
+    ...(viewer.policies ?? {}),
+  };
+  return {
+    ...run,
+    lines: run.lines.map((line) => {
+      const redacted: string[] = [];
+      const next: Record<string, unknown> = { ...line };
+      for (const [key, allowed] of Object.entries(policies)) {
+        const [resource, field] = key.split(".");
+        if (resource !== "CALCULATION_LINE" || !field) continue;
+        if (
+          viewer.roles.includes("admin") ||
+          viewer.roles.includes("finance") ||
+          allowed.some((role) => viewer.roles.includes(role))
+        ) {
+          continue;
+        }
+        redacted.push(field);
+        if (field === "trace") {
+          next.trace = {};
+        } else if (field in next) {
+          next[field] = "0";
+        }
+      }
+      return redacted.length === 0
+        ? line
+        : ({
+            ...next,
+            redactedFields: redacted,
+          } as unknown as CalculationRun["lines"][number]);
+    }),
+  };
+}
+
 /** Apply tenant-configurable field access policies to payroll lines. */
 export function redactPayrollFields(
   run: PayrollRun,
@@ -7910,11 +7966,34 @@ export function buildApp(
   app.get("/api/v1/calculation-runs", async (request) => {
     const runs = await storeFor(request).listRuns();
     const person = personFilter(request);
-    if (!person) return data(runs, request);
+    if (person) {
+      return data(
+        runs
+          .filter((run) =>
+            run.lines.some((line) => line.personId === person),
+          )
+          .map((run) => redactRunForPerson(run, person)),
+        request,
+      );
+    }
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin") || roles.includes("finance")) {
+      return data(runs, request);
+    }
+    let policies: Record<string, string[]> | undefined;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (
+        tenant.settings as { fieldAccessPolicies?: unknown }
+      ).fieldAccessPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+    } catch {
+      policies = undefined;
+    }
     return data(
-      runs
-        .filter((run) => run.lines.some((line) => line.personId === person))
-        .map((run) => redactRunForPerson(run, person)),
+      runs.map((run) => redactCalculationRunFields(run, { roles, policies })),
       request,
     );
   });
@@ -7922,11 +8001,34 @@ export function buildApp(
   app.get("/api/v1/calculation-runs/:id", async (request) => {
     const run = await storeFor(request).getRun(idOf(request));
     const person = personFilter(request);
-    if (!person) return data(run, request);
-    if (!run.lines.some((line) => line.personId === person)) {
-      throw new ForbiddenError("calculation run is not visible to this person");
+    if (person) {
+      if (!run.lines.some((line) => line.personId === person)) {
+        throw new ForbiddenError(
+          "calculation run is not visible to this person",
+        );
+      }
+      return data(redactRunForPerson(run, person), request);
     }
-    return data(redactRunForPerson(run, person), request);
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin") || roles.includes("finance")) {
+      return data(run, request);
+    }
+    let policies: Record<string, string[]> | undefined;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (
+        tenant.settings as { fieldAccessPolicies?: unknown }
+      ).fieldAccessPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+    } catch {
+      policies = undefined;
+    }
+    return data(
+      redactCalculationRunFields(run, { roles, policies }),
+      request,
+    );
   });
 
   app.post("/api/v1/calculation-runs/:id/approve", async (request) => {

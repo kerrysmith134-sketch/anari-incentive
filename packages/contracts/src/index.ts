@@ -1812,9 +1812,21 @@ export type CreatePlatformUserBody = z.infer<
   typeof createPlatformUserSchema
 >;
 
+export const fieldAccessPoliciesSchema = z.record(
+  z
+    .string()
+    .regex(
+      /^(PAYROLL_LINE|CALCULATION_LINE)\.[A-Za-z][A-Za-z0-9_]*$/,
+      "policy key must be RESOURCE.field",
+    ),
+  z.array(z.string().min(1)).min(1),
+);
+
 export const updateTenantSettingsSchema = z
   .object({
     requiredApprovals: z.array(z.string().min(1)).optional(),
+    /** Cross-resource field access matrix: `RESOURCE.field` -> allowed roles. */
+    fieldAccessPolicies: fieldAccessPoliciesSchema.optional(),
   })
   .passthrough();
 export type UpdateTenantSettingsBody = z.infer<

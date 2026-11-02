@@ -4,6 +4,7 @@ import { AuthError, type Authenticator } from "@anari/auth";
 import type {
   AuditEvent,
   AuditRedaction,
+  CalculationRun,
   PayrollRun,
 } from "@anari/domain";
 import { computeWebhookSignature } from "@anari/connectors";
@@ -14,6 +15,7 @@ import {
 import {
   applyAuditRedactions,
   buildApp,
+  redactCalculationRunFields,
   redactPayrollBankAccounts,
   redactPayrollFields,
   scanExportDlp,
@@ -6824,6 +6826,71 @@ describe("vertical slice", () => {
     });
     expect(breakGlassView.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
     expect(breakGlassView.lines?.[0]?.netAmount).toBe("0");
+  });
+
+  it("applies the field access matrix beyond payroll to calculation lines", () => {
+    const run = {
+      id: "run-calculation-policy",
+      tenantId: "tenant-demo",
+      cycleId: CYCLE,
+      mode: "FORMAL",
+      policyVersionId: REFERENCE_POLICY_ID,
+      engineVersion: "test",
+      inputSnapshotHash: "hash",
+      inputSnapshot: {},
+      status: "CALCULATED",
+      blockers: [],
+      warnings: [],
+      createdAt: new Date().toISOString(),
+      lines: [
+        {
+          lineKey: "line-1",
+          personId: OWNER,
+          workPackageId: "wp-1",
+          incentiveType: "POOL",
+          baseAmount: "1000",
+          multiplier: "0.5",
+          rawAmount: "500",
+          roundedAmount: "500",
+          currency: "CNY",
+          trace: { poolShare: "0.5" },
+        },
+      ],
+    } as unknown as CalculationRun;
+    const managerView = redactCalculationRunFields(run, {
+      roles: ["manager"],
+    });
+    expect(managerView.lines[0]?.baseAmount).toBe("0");
+    expect(managerView.lines[0]?.roundedAmount).toBe("0");
+    expect(managerView.lines[0]?.trace).toEqual({});
+    expect(
+      (managerView.lines[0] as unknown as { redactedFields: string[] })
+        .redactedFields,
+    ).toEqual(
+      expect.arrayContaining([
+        "baseAmount",
+        "rawAmount",
+        "roundedAmount",
+        "multiplier",
+        "trace",
+      ]),
+    );
+    const financeView = redactCalculationRunFields(run, {
+      roles: ["finance"],
+    });
+    expect(financeView.lines[0]?.roundedAmount).toBe("500");
+    const exceptedView = redactCalculationRunFields(run, {
+      roles: ["manager"],
+      policies: {
+        "CALCULATION_LINE.baseAmount": ["manager", "finance", "admin"],
+        "CALCULATION_LINE.rawAmount": ["finance", "admin"],
+        "CALCULATION_LINE.roundedAmount": ["finance", "admin"],
+        "CALCULATION_LINE.multiplier": ["finance", "admin"],
+        "CALCULATION_LINE.trace": ["finance", "admin"],
+      },
+    });
+    expect(exceptedView.lines[0]?.baseAmount).toBe("1000");
+    expect(exceptedView.lines[0]?.roundedAmount).toBe("0");
   });
 
   it("grants time-bound break-glass access and redacts payroll bank fields", async () => {
