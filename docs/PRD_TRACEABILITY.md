@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（329 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（337 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
