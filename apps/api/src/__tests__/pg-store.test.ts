@@ -3604,6 +3604,45 @@ describePg("PgStore vertical slice", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("persists role compensation templates", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const code = `PG-TEMPLATE-${Date.now()}`;
+    const template = await platform.createCompensationTemplate({
+      tenantId: DEMO_TENANT_ID,
+      code,
+      name: "PG sales template",
+      roleCode: "SALES",
+      employmentType: "FULL_TIME",
+      currency: "CNY",
+      fixedSalaryMin: "8000",
+      fixedSalaryMax: "12000",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "0.6",
+      smoothingThresholdRate: "0.5",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: { RECOVERY: "0.1" },
+    });
+    expect(template.fixedSalaryMax).toBe("12000");
+    expect(
+      (
+        await platform.getActiveCompensationTemplate(
+          DEMO_TENANT_ID,
+          code,
+        )
+      )?.id,
+    ).toBe(template.id);
+    expect(
+      (await platform.listCompensationTemplates(DEMO_TENANT_ID)).map(
+        (row) => row.id,
+      ),
+    ).toContain(template.id);
+    const retired = await platform.retireCompensationTemplate({
+      tenantId: DEMO_TENANT_ID,
+      templateId: template.id,
+    });
+    expect(retired.status).toBe("RETIRED");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

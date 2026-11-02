@@ -132,6 +132,7 @@ export interface EmploymentContract {
   deductionOrder: string[];
   deductionTypeCaps: Record<string, DecimalString>;
   smoothingThresholdRate: DecimalString;
+  compensationTemplateCode?: string;
   bankAccountRef?: string;
   payPlanVersion: number;
   consentSignatureRef: string;

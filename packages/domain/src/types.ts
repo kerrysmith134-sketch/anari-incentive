@@ -494,6 +494,26 @@ export interface PilotEnrollment {
   updatedAt: string;
 }
 
+export interface CompensationTemplate {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  name: string;
+  roleCode: string;
+  employmentType: EmploymentType;
+  currency: string;
+  fixedSalaryMin: DecimalString;
+  fixedSalaryMax: DecimalString;
+  deductionCapRate: DecimalString;
+  variableShareCapRate: DecimalString;
+  smoothingThresholdRate: DecimalString;
+  deductionOrder: string[];
+  deductionTypeCaps: Record<string, DecimalString>;
+  status: "ACTIVE" | "RETIRED";
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ManagerTrainingRecord {
   id: UUID;
   tenantId: UUID;
@@ -1090,6 +1110,7 @@ export interface EmploymentContract {
   deductionOrder: string[];
   deductionTypeCaps: Record<string, DecimalString>;
   smoothingThresholdRate: DecimalString;
+  compensationTemplateCode?: string;
   bankAccountRef?: string;
   payPlanVersion: number;
   consentSignatureRef: string;

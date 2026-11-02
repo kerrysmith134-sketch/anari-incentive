@@ -1006,6 +1006,7 @@ function ContractsTab({
   );
   const [deductionTypeCaps, setDeductionTypeCaps] = useState("");
   const [smoothingPercent, setSmoothingPercent] = useState("100");
+  const [compensationTemplate, setCompensationTemplate] = useState("");
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -1024,6 +1025,8 @@ function ContractsTab({
   );
   const [amendDeductionTypeCaps, setAmendDeductionTypeCaps] = useState("");
   const [amendSmoothingPercent, setAmendSmoothingPercent] = useState("100");
+  const [amendCompensationTemplate, setAmendCompensationTemplate] =
+    useState("");
   const [amendEffective, setAmendEffective] = useState(
     new Date().toISOString().slice(0, 10),
   );
@@ -1048,6 +1051,7 @@ function ContractsTab({
     setDeductionOrder("RECOVERY, REVERSAL, ADJUSTMENT, OTHER");
     setDeductionTypeCaps("");
     setSmoothingPercent("100");
+    setCompensationTemplate("");
     setConsentSignatureRef("");
     setBankAccountRef("");
     setFormError(null);
@@ -1086,6 +1090,7 @@ function ContractsTab({
               .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
           ),
           smoothingThresholdRate: String(toNumber(smoothingPercent) / 100),
+          compensationTemplateCode: compensationTemplate.trim() || undefined,
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
         },
@@ -1119,6 +1124,7 @@ function ContractsTab({
     setAmendSmoothingPercent(
       String(toNumber(contract.smoothingThresholdRate) * 100),
     );
+    setAmendCompensationTemplate(contract.compensationTemplateCode ?? "");
     setAmendEffective(new Date().toISOString().slice(0, 10));
     setAmendConsent("");
     setAmendApprover(session.personId);
@@ -1153,6 +1159,8 @@ function ContractsTab({
           smoothingThresholdRate: String(
             toNumber(amendSmoothingPercent) / 100,
           ),
+          compensationTemplateCode:
+            amendCompensationTemplate.trim() || undefined,
           effectiveFrom: toIsoDate(amendEffective),
           consentSignatureRef: amendConsent.trim(),
           approvedBy: amendApprover,
@@ -1482,6 +1490,17 @@ function ContractsTab({
               onChange={(event) => setSmoothingPercent(event.target.value)}
             />
           </FormField>
+          <FormField
+            label="Compensation template code (optional)"
+            htmlFor="contract-template"
+            hint="When set, the active template validates employment type, currency and salary range."
+          >
+            <TextInput
+              id="contract-template"
+              value={compensationTemplate}
+              onChange={(event) => setCompensationTemplate(event.target.value)}
+            />
+          </FormField>
           <FormField label="Bank account reference" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
@@ -1638,6 +1657,18 @@ function ContractsTab({
               value={amendSmoothingPercent}
               onChange={(event) =>
                 setAmendSmoothingPercent(event.target.value)
+              }
+            />
+          </FormField>
+          <FormField
+            label="Compensation template code"
+            htmlFor="amend-template"
+          >
+            <TextInput
+              id="amend-template"
+              value={amendCompensationTemplate}
+              onChange={(event) =>
+                setAmendCompensationTemplate(event.target.value)
               }
             />
           </FormField>

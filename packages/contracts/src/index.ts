@@ -270,6 +270,36 @@ export type WithdrawPilotEnrollmentBody = z.infer<
   typeof withdrawPilotEnrollmentSchema
 >;
 
+export const createCompensationTemplateSchema = z
+  .object({
+    code: z.string().min(1),
+    name: z.string().min(1),
+    roleCode: z.string().min(1),
+    employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACTOR"]),
+    currency: z.string().length(3),
+    fixedSalaryMin: decimal,
+    fixedSalaryMax: decimal,
+    deductionCapRate: decimal.default("0.2"),
+    variableShareCapRate: decimal.default("1"),
+    smoothingThresholdRate: decimal.default("1"),
+    deductionOrder: z
+      .array(z.enum(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]))
+      .default(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]),
+    deductionTypeCaps: z.record(decimal).default({}),
+  })
+  .superRefine((value, context) => {
+    if (Number(value.fixedSalaryMin) > Number(value.fixedSalaryMax)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fixedSalaryMax"],
+        message: "fixedSalaryMax must be greater than or equal to min",
+      });
+    }
+  });
+export type CreateCompensationTemplateBody = z.infer<
+  typeof createCompensationTemplateSchema
+>;
+
 export const createManagerTrainingRecordSchema = z.object({
   personId: uuidSchema,
   trainingCode: z.string().min(1),
@@ -1169,6 +1199,7 @@ export const createEmploymentContractSchema = z.object({
     .default(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]),
   deductionTypeCaps: z.record(decimal).default({}),
   smoothingThresholdRate: decimal.default("1"),
+  compensationTemplateCode: z.string().min(1).optional(),
   bankAccountRef: z.string().min(1).optional(),
   consentSignatureRef: z.string().min(1),
   consentSignedAt: z.string().datetime().optional(),
@@ -1189,6 +1220,7 @@ export const amendEmploymentContractSchema = z.object({
     .optional(),
   deductionTypeCaps: z.record(decimal).optional(),
   smoothingThresholdRate: decimal.optional(),
+  compensationTemplateCode: z.string().min(1).optional(),
   bankAccountRef: z.string().min(1).optional(),
   effectiveFrom: z.string().datetime(),
   consentSignatureRef: z.string().min(1),

@@ -4722,6 +4722,68 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/compensation-templates:
+    get:
+      tags: [Payroll]
+      summary: List role compensation templates
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Create a role compensation template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCompensationTemplate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/compensation-templates/{id}/retire:
+    post:
+      tags: [Payroll]
+      summary: Retire a compensation template
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Retired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/employment-contracts/apply-due:
     post:
       tags: [Payroll]
@@ -9357,6 +9419,8 @@ components:
             $ref: "#/components/schemas/Decimal"
         smoothingThresholdRate:
           $ref: "#/components/schemas/Decimal"
+        compensationTemplateCode:
+          type: string
         bankAccountRef:
           type: string
         consentSignatureRef:
@@ -9364,6 +9428,44 @@ components:
         consentSignedAt:
           type: string
           format: date-time
+
+    CreateCompensationTemplate:
+      type: object
+      required:
+        [code, name, roleCode, employmentType, currency, fixedSalaryMin, fixedSalaryMax]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        roleCode:
+          type: string
+        employmentType:
+          type: string
+          enum: [FULL_TIME, PART_TIME, CONTRACTOR]
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        fixedSalaryMin:
+          $ref: "#/components/schemas/Decimal"
+        fixedSalaryMax:
+          $ref: "#/components/schemas/Decimal"
+        deductionCapRate:
+          $ref: "#/components/schemas/Decimal"
+        variableShareCapRate:
+          $ref: "#/components/schemas/Decimal"
+        smoothingThresholdRate:
+          $ref: "#/components/schemas/Decimal"
+        deductionOrder:
+          type: array
+          items:
+            type: string
+            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
+        deductionTypeCaps:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Decimal"
 
     CancelContractAmendment:
       type: object
@@ -9401,6 +9503,8 @@ components:
             $ref: "#/components/schemas/Decimal"
         smoothingThresholdRate:
           $ref: "#/components/schemas/Decimal"
+        compensationTemplateCode:
+          type: string
         bankAccountRef:
           type: string
         effectiveFrom:

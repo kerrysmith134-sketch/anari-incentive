@@ -29,6 +29,7 @@ import {
   createFairnessCommitmentSchema,
   createManagerTrainingRecordSchema,
   createCalibrationSessionSchema,
+  createCompensationTemplateSchema,
   createPilotEnrollmentSchema,
   withdrawPilotEnrollmentSchema,
   createBreakGlassGrantSchema,
@@ -6466,6 +6467,55 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/compensation-templates", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createCompensationTemplateSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createCompensationTemplate({
+          tenantId: tenantOf(request),
+          code: body.code,
+          name: body.name,
+          roleCode: body.roleCode,
+          employmentType: body.employmentType,
+          currency: body.currency,
+          fixedSalaryMin: body.fixedSalaryMin,
+          fixedSalaryMax: body.fixedSalaryMax,
+          deductionCapRate: body.deductionCapRate ?? "0.2",
+          variableShareCapRate: body.variableShareCapRate ?? "1",
+          smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
+          deductionOrder: body.deductionOrder ?? [
+            "RECOVERY",
+            "REVERSAL",
+            "ADJUSTMENT",
+            "OTHER",
+          ],
+          deductionTypeCaps: body.deductionTypeCaps ?? {},
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/compensation-templates", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listCompensationTemplates(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/compensation-templates/:id/retire", async (request) => {
+    requireRoles(request, "admin");
+    return data(
+      await platformStore.retireCompensationTemplate({
+        tenantId: tenantOf(request),
+        templateId: idOf(request),
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/employment-contracts/apply-due", async (request) => {
     requireRoles(request, "manager");
     return data(
@@ -6477,6 +6527,34 @@ export function buildApp(
   app.post("/api/v1/employment-contracts", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createEmploymentContractSchema, request.body);
+    if (body.compensationTemplateCode) {
+      const template = await platformStore.getActiveCompensationTemplate(
+        tenantOf(request),
+        body.compensationTemplateCode,
+      );
+      if (!template) {
+        throw new NotFoundError(
+          `CompensationTemplate ${body.compensationTemplateCode} not found`,
+        );
+      }
+      if (
+        template.employmentType !== body.employmentType ||
+        template.currency !== body.currency
+      ) {
+        throw new ConflictError(
+          "COMPENSATION_TEMPLATE_TYPE_OR_CURRENCY_MISMATCH",
+        );
+      }
+      const salary = parseDecimal(body.fixedMonthlySalary);
+      if (
+        salary < parseDecimal(template.fixedSalaryMin) ||
+        salary > parseDecimal(template.fixedSalaryMax)
+      ) {
+        throw new ConflictError(
+          "COMPENSATION_TEMPLATE_SALARY_OUT_OF_RANGE",
+        );
+      }
+    }
     return reply.status(201).send(
       data(
         await platformStore.createEmploymentContract({
@@ -6502,6 +6580,7 @@ export function buildApp(
           ],
           deductionTypeCaps: body.deductionTypeCaps ?? {},
           smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
+          compensationTemplateCode: body.compensationTemplateCode,
           bankAccountRef: body.bankAccountRef,
           consentSignatureRef: body.consentSignatureRef,
           consentSignedAt: body.consentSignedAt,
@@ -6527,6 +6606,7 @@ export function buildApp(
         deductionOrder: body.deductionOrder ?? [],
         deductionTypeCaps: body.deductionTypeCaps ?? {},
         smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
+        compensationTemplateCode: body.compensationTemplateCode,
         bankAccountRef: body.bankAccountRef,
         effectiveFrom: body.effectiveFrom,
         consentSignatureRef: body.consentSignatureRef,

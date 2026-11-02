@@ -7539,6 +7539,66 @@ describe("vertical slice", () => {
     });
   });
 
+  it("validates employment contracts against role compensation templates", async () => {
+    const template = await call("POST", "/api/v1/compensation-templates", {
+      code: "SALES_FT",
+      name: "Sales full-time",
+      roleCode: "SALES",
+      employmentType: "FULL_TIME",
+      currency: "CNY",
+      fixedSalaryMin: "8000",
+      fixedSalaryMax: "12000",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "0.6",
+      smoothingThresholdRate: "0.5",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: { RECOVERY: "0.1" },
+    });
+    expect(template.status).toBe(201);
+    const contract = await call("POST", "/api/v1/employment-contracts", {
+      personId: OWNER,
+      contractCode: "CT-TEMPLATE-1",
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "9000",
+      minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "0.6",
+      smoothingThresholdRate: "0.5",
+      compensationTemplateCode: "SALES_FT",
+      consentSignatureRef: "ESIGN-TEMPLATE-1",
+    });
+    expect(contract.status).toBe(201);
+    expect(contract.body.data.compensationTemplateCode).toBe("SALES_FT");
+    const outOfRange = await call("POST", "/api/v1/employment-contracts", {
+      personId: MEMBER,
+      contractCode: "CT-TEMPLATE-2",
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "15000",
+      minimumMonthlyWage: "2690",
+      compensationTemplateCode: "SALES_FT",
+      consentSignatureRef: "ESIGN-TEMPLATE-2",
+    });
+    expect(outOfRange.status).toBe(409);
+    expect(outOfRange.body.error.message).toContain(
+      "COMPENSATION_TEMPLATE_SALARY_OUT_OF_RANGE",
+    );
+    const list = await call("GET", "/api/v1/compensation-templates");
+    expect(list.body.data).toHaveLength(1);
+    const retired = await call(
+      "POST",
+      `/api/v1/compensation-templates/${template.body.data.id}/retire`,
+    );
+    expect(retired.body.data.status).toBe("RETIRED");
+  });
+
   it("records voluntary pilot enrollment and withdrawal", async () => {
     const enrollment = await call("POST", "/api/v1/pilot-enrollments", {
       personId: OWNER,

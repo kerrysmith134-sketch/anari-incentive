@@ -17,6 +17,7 @@ import type {
   BreakGlassGrant,
   CashGateInput,
   ClawbackCase,
+  CompensationTemplate,
   ConsultationOutcome,
   ConflictDeclaration,
   ConsultationType,
@@ -354,6 +355,32 @@ export interface PlatformStore {
     notes?: string;
   }): Promise<CalibrationSession>;
   listCalibrationSessions(tenantId: string): Promise<CalibrationSession[]>;
+  createCompensationTemplate(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    roleCode: string;
+    employmentType: CompensationTemplate["employmentType"];
+    currency: string;
+    fixedSalaryMin: string;
+    fixedSalaryMax: string;
+    deductionCapRate: string;
+    variableShareCapRate: string;
+    smoothingThresholdRate: string;
+    deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
+  }): Promise<CompensationTemplate>;
+  listCompensationTemplates(
+    tenantId: string,
+  ): Promise<CompensationTemplate[]>;
+  getActiveCompensationTemplate(
+    tenantId: string,
+    code: string,
+  ): Promise<CompensationTemplate | undefined>;
+  retireCompensationTemplate(input: {
+    tenantId: string;
+    templateId: string;
+  }): Promise<CompensationTemplate>;
   createPilotEnrollment(input: {
     tenantId: string;
     personId: string;
@@ -1101,6 +1128,7 @@ export interface PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -1124,6 +1152,7 @@ export interface PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -1404,6 +1433,10 @@ export class MemoryPlatformStore implements PlatformStore {
     CalibrationSession
   >();
   private readonly pilotEnrollments = new Map<string, PilotEnrollment>();
+  private readonly compensationTemplates = new Map<
+    string,
+    CompensationTemplate
+  >();
   private readonly breakGlassGrants = new Map<string, BreakGlassGrant>();
   private readonly clawbackCases = new Map<string, ClawbackCase>();
   private readonly discretionaryPoolReviews = new Map<
@@ -3448,6 +3481,105 @@ export class MemoryPlatformStore implements PlatformStore {
         run.promptVersion === promptVersion &&
         run.passed,
     );
+  }
+
+  async createCompensationTemplate(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    roleCode: string;
+    employmentType: CompensationTemplate["employmentType"];
+    currency: string;
+    fixedSalaryMin: string;
+    fixedSalaryMax: string;
+    deductionCapRate: string;
+    variableShareCapRate: string;
+    smoothingThresholdRate: string;
+    deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
+  }): Promise<CompensationTemplate> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const min = parseDecimal(input.fixedSalaryMin);
+    const max = parseDecimal(input.fixedSalaryMax);
+    if (min < 0n || max < min) {
+      throw new ConflictError("COMPENSATION_TEMPLATE_SALARY_RANGE_INVALID");
+    }
+    if (
+      [...this.compensationTemplates.values()].some(
+        (template) =>
+          template.tenantId === input.tenantId &&
+          template.code === input.code,
+      )
+    ) {
+      throw new ConflictError(
+        `compensation template ${input.code} already exists`,
+      );
+    }
+    const timestamp = now();
+    const template: CompensationTemplate = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      code: input.code,
+      name: input.name,
+      roleCode: input.roleCode,
+      employmentType: input.employmentType,
+      currency: input.currency,
+      fixedSalaryMin: formatDecimal(min),
+      fixedSalaryMax: formatDecimal(max),
+      deductionCapRate: formatDecimal(parseDecimal(input.deductionCapRate)),
+      variableShareCapRate: formatDecimal(
+        parseDecimal(input.variableShareCapRate),
+      ),
+      smoothingThresholdRate: formatDecimal(
+        parseDecimal(input.smoothingThresholdRate),
+      ),
+      deductionOrder: [...input.deductionOrder],
+      deductionTypeCaps: { ...input.deductionTypeCaps },
+      status: "ACTIVE",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.compensationTemplates.set(template.id, template);
+    return template;
+  }
+
+  async listCompensationTemplates(
+    tenantId: string,
+  ): Promise<CompensationTemplate[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.compensationTemplates.values()]
+      .filter((template) => template.tenantId === tenantId)
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  async getActiveCompensationTemplate(
+    tenantId: string,
+    code: string,
+  ): Promise<CompensationTemplate | undefined> {
+    return [...this.compensationTemplates.values()].find(
+      (template) =>
+        template.tenantId === tenantId &&
+        template.code === code &&
+        template.status === "ACTIVE",
+    );
+  }
+
+  async retireCompensationTemplate(input: {
+    tenantId: string;
+    templateId: string;
+  }): Promise<CompensationTemplate> {
+    const template = this.compensationTemplates.get(input.templateId);
+    if (!template || template.tenantId !== input.tenantId) {
+      notFound("CompensationTemplate", input.templateId);
+    }
+    if (template.status === "RETIRED") {
+      throw new ConflictError(
+        `compensation template ${template.id} is already retired`,
+      );
+    }
+    template.status = "RETIRED";
+    template.updatedAt = now();
+    return template;
   }
 
   async createApprovalRequest(input: {
@@ -5773,6 +5905,7 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -5884,6 +6017,7 @@ export class MemoryPlatformStore implements PlatformStore {
         ]),
       ),
       smoothingThresholdRate: formatDecimal(smoothingRate),
+      compensationTemplateCode: input.compensationTemplateCode,
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
       consentSignatureRef: input.consentSignatureRef,
@@ -5909,6 +6043,7 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -5962,6 +6097,7 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
       smoothingThresholdRate: contract.smoothingThresholdRate,
+      compensationTemplateCode: contract.compensationTemplateCode,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -6044,6 +6180,9 @@ export class MemoryPlatformStore implements PlatformStore {
     contract.smoothingThresholdRate = formatDecimal(
       parseDecimal(input.smoothingThresholdRate),
     );
+    if (input.compensationTemplateCode !== undefined) {
+      contract.compensationTemplateCode = input.compensationTemplateCode;
+    }
     contract.bankAccountRef = input.bankAccountRef;
     const existingAmendments =
       this.contractAmendments.get(contract.id) ?? [];
@@ -6068,6 +6207,7 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
       smoothingThresholdRate: contract.smoothingThresholdRate,
+      compensationTemplateCode: contract.compensationTemplateCode,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
     };
@@ -9314,6 +9454,119 @@ export class PgPlatformStore implements PlatformStore {
     return rows[0] ? this.mapModelRedTeamRun(rows[0]) : undefined;
   }
 
+  async createCompensationTemplate(input: {
+    tenantId: string;
+    code: string;
+    name: string;
+    roleCode: string;
+    employmentType: CompensationTemplate["employmentType"];
+    currency: string;
+    fixedSalaryMin: string;
+    fixedSalaryMax: string;
+    deductionCapRate: string;
+    variableShareCapRate: string;
+    smoothingThresholdRate: string;
+    deductionOrder: string[];
+    deductionTypeCaps: Record<string, string>;
+  }): Promise<CompensationTemplate> {
+    const min = parseDecimal(input.fixedSalaryMin);
+    const max = parseDecimal(input.fixedSalaryMax);
+    if (min < 0n || max < min) {
+      throw new ConflictError("COMPENSATION_TEMPLATE_SALARY_RANGE_INVALID");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO compensation_templates
+          (id, tenant_id, code, name, role_code, employment_type, currency,
+           fixed_salary_min, fixed_salary_max, deduction_cap_rate,
+           variable_share_cap_rate, smoothing_threshold_rate,
+           deduction_order, deduction_type_caps)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.code,
+          input.name,
+          input.roleCode,
+          input.employmentType,
+          input.currency,
+          input.fixedSalaryMin,
+          input.fixedSalaryMax,
+          input.deductionCapRate,
+          input.variableShareCapRate,
+          input.smoothingThresholdRate,
+          JSON.stringify(input.deductionOrder),
+          JSON.stringify(input.deductionTypeCaps),
+        ],
+      );
+      return this.mapCompensationTemplate(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          `compensation template ${input.code} already exists`,
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(`Tenant ${input.tenantId} not found`);
+      }
+      throw error;
+    }
+  }
+
+  async listCompensationTemplates(
+    tenantId: string,
+  ): Promise<CompensationTemplate[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM compensation_templates
+        WHERE tenant_id=$1
+        ORDER BY code`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapCompensationTemplate(row));
+  }
+
+  async getActiveCompensationTemplate(
+    tenantId: string,
+    code: string,
+  ): Promise<CompensationTemplate | undefined> {
+    const { rows } = await this.pool.query(
+      `SELECT * FROM compensation_templates
+        WHERE tenant_id=$1 AND code=$2 AND status='ACTIVE'
+        LIMIT 1`,
+      [tenantId, code],
+    );
+    return rows[0] ? this.mapCompensationTemplate(rows[0]) : undefined;
+  }
+
+  async retireCompensationTemplate(input: {
+    tenantId: string;
+    templateId: string;
+  }): Promise<CompensationTemplate> {
+    const { rows } = await this.pool.query(
+      `UPDATE compensation_templates
+          SET status='RETIRED', updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
+        RETURNING *`,
+      [input.tenantId, input.templateId],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM compensation_templates WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.templateId],
+      );
+      if (!current.rows[0]) {
+        notFound("CompensationTemplate", input.templateId);
+      }
+      throw new ConflictError(
+        `compensation template ${input.templateId} is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapCompensationTemplate(rows[0]);
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -12209,6 +12462,7 @@ export class PgPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
     consentSignedAt?: string;
@@ -12259,9 +12513,9 @@ export class PgPlatformStore implements PlatformStore {
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
            deduction_order, deduction_type_caps, smoothing_threshold_rate,
-           bank_account_ref, pay_plan_version, consent_signature_ref,
-           consent_signed_at, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,$19,1,$20,$21,'ACTIVE',1)
+           compensation_template_code, bank_account_ref, pay_plan_version,
+           consent_signature_ref, consent_signed_at, status, version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18,$19,$20,1,$21,$22,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -12286,6 +12540,7 @@ export class PgPlatformStore implements PlatformStore {
           ),
           JSON.stringify(input.deductionTypeCaps),
           input.smoothingThresholdRate,
+          input.compensationTemplateCode ?? null,
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
           input.consentSignedAt ?? new Date().toISOString(),
@@ -12317,6 +12572,7 @@ export class PgPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
     consentSignatureRef: string;
@@ -12445,6 +12701,7 @@ export class PgPlatformStore implements PlatformStore {
         smoothingThresholdRate: decimalText(
           String(row.smoothing_threshold_rate),
         ),
+        compensationTemplateCode: row.compensation_template_code ?? undefined,
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
       };
@@ -12465,9 +12722,10 @@ export class PgPlatformStore implements PlatformStore {
                 tax_rate=$5, social_insurance_rate=$6, deduction_cap_rate=$7,
                 variable_share_cap_rate=$8, deduction_order=$9::jsonb,
                 deduction_type_caps=$10::jsonb,
-                smoothing_threshold_rate=$11, bank_account_ref=$12,
-                pay_plan_version=$13, consent_signature_ref=$14,
-                consent_signed_at=$15, version=version+1, updated_at=now()
+                smoothing_threshold_rate=$11,
+                compensation_template_code=$12, bank_account_ref=$13,
+                pay_plan_version=$14, consent_signature_ref=$15,
+                consent_signed_at=$16, version=version+1, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -12491,6 +12749,8 @@ export class PgPlatformStore implements PlatformStore {
                 {}),
           ),
           input.smoothingThresholdRate,
+          input.compensationTemplateCode ??
+            (row.compensation_template_code as string | null),
           input.bankAccountRef ?? null,
           payPlanVersion,
           input.consentSignatureRef,
@@ -12522,6 +12782,8 @@ export class PgPlatformStore implements PlatformStore {
         smoothingThresholdRate: decimalText(
           String(updated[0]?.smoothing_threshold_rate),
         ),
+        compensationTemplateCode:
+          updated[0]?.compensation_template_code ?? undefined,
         bankAccountRef: updated[0]?.bank_account_ref ?? undefined,
         payPlanVersion,
       };
@@ -13775,6 +14037,37 @@ export class PgPlatformStore implements PlatformStore {
     };
   }
 
+  private mapCompensationTemplate(
+    row: QueryResultRow,
+  ): CompensationTemplate {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      code: row.code,
+      name: row.name,
+      roleCode: row.role_code,
+      employmentType: row.employment_type,
+      currency: String(row.currency).trim(),
+      fixedSalaryMin:
+        decimalText(String(row.fixed_salary_min)) ?? "0",
+      fixedSalaryMax:
+        decimalText(String(row.fixed_salary_max)) ?? "0",
+      deductionCapRate:
+        decimalText(String(row.deduction_cap_rate)) ?? "0.2",
+      variableShareCapRate:
+        decimalText(String(row.variable_share_cap_rate)) ?? "1",
+      smoothingThresholdRate:
+        decimalText(String(row.smoothing_threshold_rate)) ?? "1",
+      deductionOrder:
+        (row.deduction_order as string[] | null) ?? [],
+      deductionTypeCaps:
+        (row.deduction_type_caps as Record<string, string> | null) ?? {},
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
   private mapModelRedTeamRun(row: QueryResultRow): ModelRedTeamRun {
     return {
       id: row.id,
@@ -14605,6 +14898,7 @@ export class PgPlatformStore implements PlatformStore {
         (row.deduction_type_caps as Record<string, string> | null) ?? {},
       smoothingThresholdRate:
         decimalText(String(row.smoothing_threshold_rate)) ?? "1",
+      compensationTemplateCode: row.compensation_template_code ?? undefined,
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
       consentSignatureRef: row.consent_signature_ref,
