@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（269 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（62 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（270 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（63 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -143,7 +143,7 @@
 | SEC-03 字段级 ABAC/break-glass | 🟡 | payroll `bankAccountRef` redaction、break-glass grant 已有；本轮新增 tenant `payrollFieldPolicies`，可按 `PAYROLL_LINE.<field>` 配置允许角色，对 gross/tax/net 等任意 line 字段生效并返回 `redactedFields`；仍是 payroll 范围，不是跨资源通用 ABAC 引擎 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；本轮新增可配置 `exportDlpEnabled`，扫描身份证/银行卡/手机号命中时要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
-| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold 有；本轮新增双人 audit reason redaction overlay（不改哈希，读 API/证据包应用替换）；自动 retention deletion 仍明确未启用 |
+| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction 已有；本轮新增 reviewed retention disposal（legal hold 阻断、双人审批、30 天默认 grace、到期 complete 记录）；仍未自动硬删除，处置执行保持人工/受控 |
 
 ## 本轮已补的缺口
 
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **269 unit/API + 62 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **270 unit/API + 63 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -241,6 +241,8 @@
 51. **AI-02 gold-set refresh workflow**：新增 refresh-due 报告与版本化 refresh（旧版本 retire、新版本 active），AI console 可操作；自动训练/标注仍属外部流水线。
 
 52. **LG-05 e-sign adapter**：新增 e-sign envelope 与 HMAC provider callback，SIGNED 回调写回合同 consent signature；迁移 `059_esign_envelopes.sql`。外部 provider 账号/合同仍由部署配置。
+
+53. **SEC-06 retention disposal workflow**：新增 retention disposal request（legal hold 阻断、requestedBy≠approvedBy、默认 30 天 grace、complete 记录/取消），Settings 可操作；迁移 `060_retention_disposal.sql`。自动硬删除仍未启用。
 
 ## 仍建议按 P0 顺序补做
 

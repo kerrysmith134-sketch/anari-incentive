@@ -2175,6 +2175,149 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/retention-policies/{id}/disposal-requests:
+    post:
+      tags: [Compliance]
+      summary: Request reviewed disposal under a retention policy
+      description: |
+        Blocked by a legal hold. A different person must approve, and completion
+        cannot happen before the scheduled grace date. This records a reviewed
+        disposal; it does not automatically hard-delete data.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRetentionDisposalRequest"
+      responses:
+        "201":
+          description: Requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/retention-disposal-requests:
+    get:
+      tags: [Compliance]
+      summary: List retention disposal requests
+      responses:
+        "200":
+          description: Disposal requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/retention-disposal-requests/{id}/approve:
+    post:
+      tags: [Compliance]
+      summary: Approve a retention disposal request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approvedBy]
+              properties:
+                approvedBy:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/retention-disposal-requests/{id}/complete:
+    post:
+      tags: [Compliance]
+      summary: Mark an approved disposal complete after the grace period
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actorPersonId]
+              properties:
+                actorPersonId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/retention-disposal-requests/{id}/cancel:
+    post:
+      tags: [Compliance]
+      summary: Cancel a retention disposal request
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, actorPersonId]
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                actorPersonId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/retention-policies/{id}/legal-hold:
     post:
       tags: [Compliance]
@@ -8611,6 +8754,19 @@ components:
       properties:
         newCalculationRunId:
           $ref: "#/components/schemas/Uuid"
+
+    CreateRetentionDisposalRequest:
+      type: object
+      required: [reason, requestedBy]
+      properties:
+        reason:
+          type: string
+          minLength: 5
+        requestedBy:
+          $ref: "#/components/schemas/Uuid"
+        scheduledFor:
+          type: string
+          format: date-time
 
     CreateRetentionPolicy:
       type: object

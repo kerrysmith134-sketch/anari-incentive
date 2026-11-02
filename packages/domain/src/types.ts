@@ -340,6 +340,29 @@ export interface DsarRequest {
 }
 
 /** Tenant data-retention rule per data category. */
+export type RetentionDisposalStatus =
+  | "REQUESTED"
+  | "APPROVED"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export interface RetentionDisposalRequest {
+  id: UUID;
+  tenantId: UUID;
+  retentionPolicyId: UUID;
+  dataCategory: string;
+  requestedBy: UUID;
+  approvedBy?: UUID;
+  status: RetentionDisposalStatus;
+  reason: string;
+  requestedAt: string;
+  scheduledFor: string;
+  approvedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+}
+
 export interface RetentionPolicy {
   id: UUID;
   tenantId: UUID;

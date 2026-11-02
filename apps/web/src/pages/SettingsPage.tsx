@@ -41,6 +41,7 @@ import type {
   FairnessCommitment,
   DsarRequest,
   PlatformIdentity,
+  RetentionDisposalRequest,
   RetentionPolicy,
   TrustSurveyReport,
   TrustSurveyRun,
@@ -59,6 +60,9 @@ export function SettingsPage() {
   const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
+  const disposals = useApiQuery<RetentionDisposalRequest[]>(
+    "/api/v1/retention-disposal-requests",
+  );
   const dataMap = useApiQuery<DataMapReport>("/api/v1/data-map");
   const conflicts = useApiQuery<ConflictDeclaration[]>(
     "/api/v1/conflict-declarations",
@@ -260,6 +264,14 @@ export function SettingsPage() {
     session.personId,
   );
   const [redactionApprover, setRedactionApprover] = useState("");
+  const [disposalOpen, setDisposalOpen] = useState(false);
+  const [disposalPolicy, setDisposalPolicy] = useState("");
+  const [disposalReason, setDisposalReason] = useState("");
+  const [disposalRequester, setDisposalRequester] = useState(
+    session.personId,
+  );
+  const [disposalSaving, setDisposalSaving] = useState(false);
+  const [disposalError, setDisposalError] = useState<string | null>(null);
 
   function saveSession(event: FormEvent) {
     event.preventDefault();
@@ -515,6 +527,78 @@ export function SettingsPage() {
       );
     } finally {
       setSurveySaving(false);
+    }
+  }
+
+  function openDisposalForm() {
+    const policies = (retention.data ?? []).filter(
+      (policy) => !policy.legalHold,
+    );
+    if (policies.length === 0) {
+      toast.error(
+        "No disposable retention policy",
+        "Create a policy without a legal hold first.",
+      );
+      return;
+    }
+    setDisposalPolicy(policies[0]?.id ?? "");
+    setDisposalReason("");
+    setDisposalRequester(session.personId);
+    setDisposalError(null);
+    setDisposalOpen(true);
+  }
+
+  async function saveDisposal(event: FormEvent) {
+    event.preventDefault();
+    setDisposalSaving(true);
+    setDisposalError(null);
+    try {
+      await api(
+        `/api/v1/retention-policies/${disposalPolicy}/disposal-requests`,
+        {
+          method: "POST",
+          body: {
+            requestedBy: disposalRequester,
+            reason: disposalReason.trim(),
+          },
+        },
+      );
+      toast.success(
+        "Disposal request created",
+        "A second person must approve it; the grace period then applies.",
+      );
+      setDisposalOpen(false);
+      disposals.reload();
+    } catch (error) {
+      setDisposalError(
+        error instanceof Error
+          ? error.message
+          : "Could not create the disposal request.",
+      );
+    } finally {
+      setDisposalSaving(false);
+    }
+  }
+
+  async function approveDisposal(request: RetentionDisposalRequest) {
+    setDisposalSaving(true);
+    try {
+      await api(
+        `/api/v1/retention-disposal-requests/${request.id}/approve`,
+        {
+          method: "POST",
+          body: { approvedBy: session.personId },
+        },
+      );
+      toast.success("Retention disposal approved");
+      disposals.reload();
+    } catch (error) {
+      toast.error(
+        "Could not approve disposal",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setDisposalSaving(false);
     }
   }
 
@@ -3812,6 +3896,139 @@ export function SettingsPage() {
               id="redaction-approver"
               value={redactionApprover}
               onChange={setRedactionApprover}
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Panel
+        title="Retention disposal requests"
+        subtitle="Reviewed, two-person, grace-period workflow; no automatic hard delete"
+        className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={openDisposalForm}
+          >
+            Request disposal
+          </Button>
+        }
+        flush
+      >
+        {disposals.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={disposals.error} onRetry={disposals.reload} />
+          </div>
+        ) : disposals.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (disposals.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="clock"
+            title="No disposal request"
+            description="Disposal requires a non-held retention policy, a reason, a second approver and a future grace date."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Reason</th>
+                  <th>Status</th>
+                  <th>Scheduled</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {disposals.data?.map((request) => (
+                  <tr key={request.id}>
+                    <td className="mono">{request.dataCategory}</td>
+                    <td>{request.reason}</td>
+                    <td>
+                      <Badge status={request.status} />
+                    </td>
+                    <td className="nowrap">
+                      {formatDateTime(request.scheduledFor)}
+                    </td>
+                    <td className="cell-actions">
+                      {request.status === "REQUESTED" ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void approveDisposal(request)}
+                          loading={disposalSaving}
+                        >
+                          Approve
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={disposalOpen}
+        title="Request retention disposal"
+        description="A different person must approve; the request cannot complete before its scheduled grace date."
+        onClose={() => setDisposalOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDisposalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="disposal-form"
+              loading={disposalSaving}
+            >
+              Request
+            </Button>
+          </>
+        }
+      >
+        <form id="disposal-form" className="stack" onSubmit={saveDisposal}>
+          {disposalError ? (
+            <InfoNotice tone="warning">{disposalError}</InfoNotice>
+          ) : null}
+          <FormField label="Retention policy" htmlFor="disposal-policy">
+            <Select
+              id="disposal-policy"
+              value={disposalPolicy}
+              onChange={(event) => setDisposalPolicy(event.target.value)}
+              required
+            >
+              <option value="">Select a policy…</option>
+              {(retention.data ?? [])
+                .filter((policy) => !policy.legalHold)
+                .map((policy) => (
+                  <option key={policy.id} value={policy.id}>
+                    {policy.dataCategory} · {policy.retentionMonths} months
+                  </option>
+                ))}
+            </Select>
+          </FormField>
+          <FormField label="Requested by" htmlFor="disposal-requester">
+            <PersonSelect
+              id="disposal-requester"
+              value={disposalRequester}
+              onChange={setDisposalRequester}
+            />
+          </FormField>
+          <FormField label="Reason" htmlFor="disposal-reason">
+            <Textarea
+              id="disposal-reason"
+              value={disposalReason}
+              onChange={(event) => setDisposalReason(event.target.value)}
+              required
             />
           </FormField>
         </form>

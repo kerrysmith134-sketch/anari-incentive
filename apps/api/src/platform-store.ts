@@ -70,6 +70,7 @@ import type {
   PolicyTestCase,
   PolicyTestRun,
   RepresentationBodyType,
+  RetentionDisposalRequest,
   RetentionPolicy,
   RuleChangeOrder,
   SettlementAcknowledgement,
@@ -252,6 +253,32 @@ export interface PlatformStore {
     retentionPolicyId: string;
     legalHold: boolean;
   }): Promise<RetentionPolicy>;
+  createRetentionDisposalRequest(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    requestedBy: string;
+    reason: string;
+    scheduledFor?: string;
+  }): Promise<RetentionDisposalRequest>;
+  listRetentionDisposalRequests(
+    tenantId: string,
+  ): Promise<RetentionDisposalRequest[]>;
+  approveRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    approvedBy: string;
+  }): Promise<RetentionDisposalRequest>;
+  completeRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+  }): Promise<RetentionDisposalRequest>;
+  cancelRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+    reason: string;
+  }): Promise<RetentionDisposalRequest>;
   createDataSource(input: {
     tenantId: string;
     code: string;
@@ -1432,6 +1459,10 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly dpias = new Map<string, DpiaRecord>();
   private readonly dsars = new Map<string, DsarRequest>();
   private readonly retentionPolicies = new Map<string, RetentionPolicy>();
+  private readonly retentionDisposals = new Map<
+    string,
+    RetentionDisposalRequest
+  >();
   private readonly dataSources = new Map<string, DataSource>();
   private readonly conflictDeclarations = new Map<
     string,
@@ -2305,6 +2336,132 @@ export class MemoryPlatformStore implements PlatformStore {
     }
     policy.legalHold = input.legalHold;
     return policy;
+  }
+
+  async createRetentionDisposalRequest(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    requestedBy: string;
+    reason: string;
+    scheduledFor?: string;
+  }): Promise<RetentionDisposalRequest> {
+    const policy = this.retentionPolicies.get(input.retentionPolicyId);
+    if (!policy || policy.tenantId !== input.tenantId) {
+      notFound("RetentionPolicy", input.retentionPolicyId);
+    }
+    if (policy.legalHold) {
+      throw new ConflictError(
+        "RETENTION_LEGAL_HOLD: disposal is blocked while legal hold is active",
+      );
+    }
+    const requester = this.persons.get(input.requestedBy);
+    if (!requester || requester.tenantId !== input.tenantId) {
+      notFound("Person", input.requestedBy);
+    }
+    const scheduledFor =
+      input.scheduledFor ??
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    if (Date.parse(scheduledFor) <= Date.now()) {
+      throw new ConflictError(
+        "RETENTION_GRACE_PERIOD_REQUIRED: scheduledFor must be in the future",
+      );
+    }
+    const request: RetentionDisposalRequest = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      retentionPolicyId: policy.id,
+      dataCategory: policy.dataCategory,
+      requestedBy: input.requestedBy,
+      status: "REQUESTED",
+      reason: input.reason,
+      requestedAt: now(),
+      scheduledFor,
+    };
+    this.retentionDisposals.set(request.id, request);
+    return request;
+  }
+
+  async listRetentionDisposalRequests(
+    tenantId: string,
+  ): Promise<RetentionDisposalRequest[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.retentionDisposals.values()]
+      .filter((request) => request.tenantId === tenantId)
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+  }
+
+  async approveRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    approvedBy: string;
+  }): Promise<RetentionDisposalRequest> {
+    const request = this.retentionDisposals.get(input.requestId);
+    if (!request || request.tenantId !== input.tenantId) {
+      notFound("RetentionDisposalRequest", input.requestId);
+    }
+    if (request.status !== "REQUESTED") {
+      throw new ConflictError(`retention disposal is ${request.status}`);
+    }
+    if (request.requestedBy === input.approvedBy) {
+      throw new ConflictError("RETENTION_SECOND_PERSON_REQUIRED");
+    }
+    const approver = this.persons.get(input.approvedBy);
+    if (!approver || approver.tenantId !== input.tenantId) {
+      notFound("Person", input.approvedBy);
+    }
+    request.status = "APPROVED";
+    request.approvedBy = input.approvedBy;
+    request.approvedAt = now();
+    return request;
+  }
+
+  async completeRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+  }): Promise<RetentionDisposalRequest> {
+    const request = this.retentionDisposals.get(input.requestId);
+    if (!request || request.tenantId !== input.tenantId) {
+      notFound("RetentionDisposalRequest", input.requestId);
+    }
+    if (request.status !== "APPROVED") {
+      throw new ConflictError(`retention disposal is ${request.status}`);
+    }
+    if (Date.now() < Date.parse(request.scheduledFor)) {
+      throw new ConflictError("RETENTION_GRACE_PERIOD_ACTIVE");
+    }
+    const policy = this.retentionPolicies.get(request.retentionPolicyId);
+    if (policy?.legalHold) {
+      throw new ConflictError(
+        "RETENTION_LEGAL_HOLD: disposal is blocked while legal hold is active",
+      );
+    }
+    const actor = this.persons.get(input.actorPersonId);
+    if (!actor || actor.tenantId !== input.tenantId) {
+      notFound("Person", input.actorPersonId);
+    }
+    request.status = "COMPLETED";
+    request.completedAt = now();
+    return request;
+  }
+
+  async cancelRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+    reason: string;
+  }): Promise<RetentionDisposalRequest> {
+    const request = this.retentionDisposals.get(input.requestId);
+    if (!request || request.tenantId !== input.tenantId) {
+      notFound("RetentionDisposalRequest", input.requestId);
+    }
+    if (!["REQUESTED", "APPROVED"].includes(request.status)) {
+      throw new ConflictError(`retention disposal is ${request.status}`);
+    }
+    request.status = "CANCELLED";
+    request.cancelledAt = now();
+    request.cancelReason = input.reason;
+    return request;
   }
 
   async createDataSource(input: {
@@ -8185,6 +8342,184 @@ export class PgPlatformStore implements PlatformStore {
     );
     if (!rows[0]) notFound("RetentionPolicy", input.retentionPolicyId);
     return this.mapRetentionPolicy(rows[0]);
+  }
+
+  async createRetentionDisposalRequest(input: {
+    tenantId: string;
+    retentionPolicyId: string;
+    requestedBy: string;
+    reason: string;
+    scheduledFor?: string;
+  }): Promise<RetentionDisposalRequest> {
+    const policy = await this.pool.query(
+      `SELECT * FROM retention_policies WHERE tenant_id=$1 AND id=$2`,
+      [input.tenantId, input.retentionPolicyId],
+    );
+    if (!policy.rows[0]) {
+      notFound("RetentionPolicy", input.retentionPolicyId);
+    }
+    if (policy.rows[0].legal_hold) {
+      throw new ConflictError(
+        "RETENTION_LEGAL_HOLD: disposal is blocked while legal hold is active",
+      );
+    }
+    const scheduledFor =
+      input.scheduledFor ??
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    if (Date.parse(scheduledFor) <= Date.now()) {
+      throw new ConflictError(
+        "RETENTION_GRACE_PERIOD_REQUIRED: scheduledFor must be in the future",
+      );
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO retention_disposal_requests
+          (id, tenant_id, retention_policy_id, data_category, requested_by,
+           reason, scheduled_for)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          policy.rows[0].id,
+          policy.rows[0].data_category,
+          input.requestedBy,
+          input.reason,
+          scheduledFor,
+        ],
+      );
+      return this.mapRetentionDisposalRequest(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Requester ${input.requestedBy} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listRetentionDisposalRequests(
+    tenantId: string,
+  ): Promise<RetentionDisposalRequest[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM retention_disposal_requests
+        WHERE tenant_id=$1
+        ORDER BY requested_at DESC`,
+      [tenantId],
+    );
+    return rows.map((row) => this.mapRetentionDisposalRequest(row));
+  }
+
+  async approveRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    approvedBy: string;
+  }): Promise<RetentionDisposalRequest> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM retention_disposal_requests
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.requestId],
+      );
+      if (!rows[0]) {
+        notFound("RetentionDisposalRequest", input.requestId);
+      }
+      const request = this.mapRetentionDisposalRequest(rows[0]);
+      if (request.status !== "REQUESTED") {
+        throw new ConflictError(
+          `retention disposal is ${request.status}`,
+        );
+      }
+      if (request.requestedBy === input.approvedBy) {
+        throw new ConflictError("RETENTION_SECOND_PERSON_REQUIRED");
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE retention_disposal_requests
+            SET status='APPROVED', approved_by=$3, approved_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.requestId, input.approvedBy],
+      );
+      return this.mapRetentionDisposalRequest(updated[0]);
+    });
+  }
+
+  async completeRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+  }): Promise<RetentionDisposalRequest> {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM retention_disposal_requests
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.requestId],
+      );
+      if (!rows[0]) {
+        notFound("RetentionDisposalRequest", input.requestId);
+      }
+      const request = this.mapRetentionDisposalRequest(rows[0]);
+      if (request.status !== "APPROVED") {
+        throw new ConflictError(
+          `retention disposal is ${request.status}`,
+        );
+      }
+      if (Date.now() < Date.parse(request.scheduledFor)) {
+        throw new ConflictError("RETENTION_GRACE_PERIOD_ACTIVE");
+      }
+      const policy = await client.query(
+        `SELECT legal_hold FROM retention_policies
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, request.retentionPolicyId],
+      );
+      if (policy.rows[0]?.legal_hold) {
+        throw new ConflictError(
+          "RETENTION_LEGAL_HOLD: disposal is blocked while legal hold is active",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE retention_disposal_requests
+            SET status='COMPLETED', completed_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [input.tenantId, input.requestId],
+      );
+      return this.mapRetentionDisposalRequest(updated[0]);
+    });
+  }
+
+  async cancelRetentionDisposalRequest(input: {
+    tenantId: string;
+    requestId: string;
+    actorPersonId: string;
+    reason: string;
+  }): Promise<RetentionDisposalRequest> {
+    const { rows } = await this.pool.query(
+      `UPDATE retention_disposal_requests
+          SET status='CANCELLED', cancelled_at=now(), cancel_reason=$3
+        WHERE tenant_id=$1 AND id=$2
+          AND status IN ('REQUESTED','APPROVED')
+        RETURNING *`,
+      [input.tenantId, input.requestId, input.reason],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        `SELECT status FROM retention_disposal_requests
+          WHERE tenant_id=$1 AND id=$2`,
+        [input.tenantId, input.requestId],
+      );
+      if (!current.rows[0]) {
+        notFound("RetentionDisposalRequest", input.requestId);
+      }
+      throw new ConflictError(
+        `retention disposal is ${current.rows[0].status}`,
+      );
+    }
+    return this.mapRetentionDisposalRequest(rows[0]);
   }
 
   async createDataSource(input: {
@@ -14233,6 +14568,28 @@ export class PgPlatformStore implements PlatformStore {
       resolvedAt: iso(row.resolved_at),
       resolutionRef: row.resolution_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapRetentionDisposalRequest(
+    row: QueryResultRow,
+  ): RetentionDisposalRequest {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      retentionPolicyId: row.retention_policy_id,
+      dataCategory: row.data_category,
+      requestedBy: row.requested_by,
+      approvedBy: row.approved_by ?? undefined,
+      status: row.status,
+      reason: row.reason,
+      requestedAt: iso(row.requested_at) ?? new Date().toISOString(),
+      scheduledFor:
+        iso(row.scheduled_for) ?? new Date().toISOString(),
+      approvedAt: iso(row.approved_at),
+      completedAt: iso(row.completed_at),
+      cancelledAt: iso(row.cancelled_at),
+      cancelReason: row.cancel_reason ?? undefined,
     };
   }
 

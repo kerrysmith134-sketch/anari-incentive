@@ -7451,6 +7451,69 @@ describe("vertical slice", () => {
     expect(aggregate.body.data.claims).toEqual({ total: 0, confirmed: 0 });
   });
 
+  it("requires a two-person grace-period workflow for retention disposal", async () => {
+    const policy = await call("POST", "/api/v1/retention-policies", {
+      dataCategory: "PAYROLL_RECORDS",
+      retentionMonths: 360,
+      legalBasis: "Accounting archives and labor-law retention",
+    });
+    expect(policy.status).toBe(201);
+    const disposal = await call(
+      "POST",
+      `/api/v1/retention-policies/${policy.body.data.id}/disposal-requests`,
+      {
+        requestedBy: OWNER,
+        reason: "Retention period expired; prepare reviewed disposal",
+      },
+    );
+    expect(disposal.status).toBe(201);
+    expect(disposal.body.data.status).toBe("REQUESTED");
+    const selfApproval = await call(
+      "POST",
+      `/api/v1/retention-disposal-requests/${disposal.body.data.id}/approve`,
+      { approvedBy: OWNER },
+    );
+    expect(selfApproval.status).toBe(409);
+    const approved = await call(
+      "POST",
+      `/api/v1/retention-disposal-requests/${disposal.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.status).toBe("APPROVED");
+    const early = await call(
+      "POST",
+      `/api/v1/retention-disposal-requests/${disposal.body.data.id}/complete`,
+      { actorPersonId: ADJUDICATOR },
+    );
+    expect(early.status).toBe(409);
+    expect(early.body.error.message).toContain("RETENTION_GRACE_PERIOD_ACTIVE");
+    const cancelled = await call(
+      "POST",
+      `/api/v1/retention-disposal-requests/${disposal.body.data.id}/cancel`,
+      { actorPersonId: ADJUDICATOR, reason: "Legal hold review requested" },
+    );
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.status).toBe("CANCELLED");
+
+    const held = await call("POST", "/api/v1/retention-policies", {
+      dataCategory: "LEGAL_HOLD_RECORDS",
+      retentionMonths: 24,
+      legalBasis: "Litigation hold",
+      legalHold: true,
+    });
+    const blocked = await call(
+      "POST",
+      `/api/v1/retention-policies/${held.body.data.id}/disposal-requests`,
+      {
+        requestedBy: OWNER,
+        reason: "Should be blocked by legal hold",
+      },
+    );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain("RETENTION_LEGAL_HOLD");
+  });
+
   it("registers data sources and reports the field-level data map", async () => {
     const created = await call("POST", "/api/v1/data-sources", {
       code: "CRM",

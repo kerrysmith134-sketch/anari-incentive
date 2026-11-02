@@ -603,6 +603,37 @@ export const resolveDsarSchema = z.object({
 });
 export type ResolveDsarBody = z.infer<typeof resolveDsarSchema>;
 
+export const createRetentionDisposalRequestSchema = z.object({
+  reason: z.string().min(5),
+  requestedBy: uuidSchema,
+  scheduledFor: z.string().datetime().optional(),
+});
+export type CreateRetentionDisposalRequestBody = z.infer<
+  typeof createRetentionDisposalRequestSchema
+>;
+
+export const approveRetentionDisposalRequestSchema = z.object({
+  approvedBy: uuidSchema,
+});
+export type ApproveRetentionDisposalRequestBody = z.infer<
+  typeof approveRetentionDisposalRequestSchema
+>;
+
+export const completeRetentionDisposalRequestSchema = z.object({
+  actorPersonId: uuidSchema,
+});
+export type CompleteRetentionDisposalRequestBody = z.infer<
+  typeof completeRetentionDisposalRequestSchema
+>;
+
+export const cancelRetentionDisposalRequestSchema = z.object({
+  reason: z.string().min(3),
+  actorPersonId: uuidSchema,
+});
+export type CancelRetentionDisposalRequestBody = z.infer<
+  typeof cancelRetentionDisposalRequestSchema
+>;
+
 export const createRetentionPolicySchema = z.object({
   dataCategory: z.string().min(1),
   retentionMonths: z.number().int().positive(),

@@ -59,6 +59,10 @@ import {
   concludeConsultationSchema,
   createDpiaSchema,
   createDataSourceSchema,
+  createRetentionDisposalRequestSchema,
+  approveRetentionDisposalRequestSchema,
+  completeRetentionDisposalRequestSchema,
+  cancelRetentionDisposalRequestSchema,
   approveDpiaSchema,
   createDsarSchema,
   resolveDsarSchema,
@@ -4747,6 +4751,71 @@ export function buildApp(
         sources: mapped,
         retentionPolicies: retention,
       },
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-policies/:id/disposal-requests", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(createRetentionDisposalRequestSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createRetentionDisposalRequest({
+          tenantId: tenantOf(request),
+          retentionPolicyId: idOf(request),
+          requestedBy: body.requestedBy,
+          reason: body.reason,
+          scheduledFor: body.scheduledFor,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/retention-disposal-requests", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listRetentionDisposalRequests(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-disposal-requests/:id/approve", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(approveRetentionDisposalRequestSchema, request.body);
+    return data(
+      await platformStore.approveRetentionDisposalRequest({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        approvedBy: body.approvedBy,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-disposal-requests/:id/complete", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(completeRetentionDisposalRequestSchema, request.body);
+    return data(
+      await platformStore.completeRetentionDisposalRequest({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        actorPersonId: body.actorPersonId,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-disposal-requests/:id/cancel", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(cancelRetentionDisposalRequestSchema, request.body);
+    return data(
+      await platformStore.cancelRetentionDisposalRequest({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        actorPersonId: body.actorPersonId,
+        reason: body.reason,
+      }),
       request,
     );
   });

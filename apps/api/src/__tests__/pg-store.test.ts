@@ -3691,6 +3691,51 @@ describePg("PgStore vertical slice", () => {
     expect(updated.consentSignatureRef).toBe("PG-ESIGN-CALLBACK");
   });
 
+  it("persists reviewed retention disposal requests", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const policy = await platform.createRetentionPolicy({
+      tenantId: DEMO_TENANT_ID,
+      dataCategory: `PG_RETENTION_${Date.now()}`,
+      retentionMonths: 360,
+      legalBasis: "Accounting archives",
+      legalHold: false,
+    });
+    const disposal = await platform.createRetentionDisposalRequest({
+      tenantId: DEMO_TENANT_ID,
+      retentionPolicyId: policy.id,
+      requestedBy: OWNER,
+      reason: "Retention expired",
+    });
+    expect(disposal.status).toBe("REQUESTED");
+    await expect(
+      platform.approveRetentionDisposalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: disposal.id,
+        approvedBy: OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const approved = await platform.approveRetentionDisposalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: disposal.id,
+      approvedBy: ADJUDICATOR,
+    });
+    expect(approved.status).toBe("APPROVED");
+    await expect(
+      platform.completeRetentionDisposalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: disposal.id,
+        actorPersonId: ADJUDICATOR,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const cancelled = await platform.cancelRetentionDisposalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: disposal.id,
+      actorPersonId: ADJUDICATOR,
+      reason: "Review requested",
+    });
+    expect(cancelled.status).toBe("CANCELLED");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

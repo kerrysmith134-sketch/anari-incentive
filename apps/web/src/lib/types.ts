@@ -934,6 +934,22 @@ export interface DataMapReport {
   retentionPolicies: RetentionPolicy[];
 }
 
+export interface RetentionDisposalRequest {
+  id: Uuid;
+  retentionPolicyId: Uuid;
+  dataCategory: string;
+  requestedBy: Uuid;
+  approvedBy?: Uuid;
+  status: "REQUESTED" | "APPROVED" | "COMPLETED" | "CANCELLED";
+  reason: string;
+  requestedAt: string;
+  scheduledFor: string;
+  approvedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+}
+
 export interface RetentionPolicy {
   id: Uuid;
   dataCategory: string;
