@@ -2121,6 +2121,20 @@ export class Store implements IncentiveStore {
     let prevHash = "GENESIS";
     for (const event of this.auditLog) {
       if (event.prevHash !== prevHash) return false;
+      const recomputed = sha256({
+        sequence: event.sequence,
+        action: event.action,
+        objectType: event.objectType,
+        objectId: event.objectId,
+        actorType: event.actorType,
+        actorId: event.actorId,
+        beforeHash: event.beforeHash,
+        afterHash: event.afterHash,
+        reason: event.reason,
+        prevHash: event.prevHash,
+        occurredAt: event.occurredAt,
+      });
+      if (event.eventHash !== recomputed) return false;
       prevHash = event.eventHash;
     }
     return true;

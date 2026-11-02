@@ -2343,13 +2343,35 @@ export function buildApp(
   app.post("/api/v1/platform/tenants/:id/settings", async (request) => {
     requireRoles(request, "platform_admin");
     const body = parse(updateTenantSettingsSchema, request.body);
-    return data(
-      await platformStore.updateTenantSettings({
-        tenantId: idOf(request),
-        settings: body,
-      }),
-      request,
-    );
+    const tenantId = idOf(request);
+    const tenant = await platformStore.getTenant(tenantId);
+    const before = (
+      tenant.settings as { fieldAccessPolicies?: unknown }
+    ).fieldAccessPolicies;
+    const updated = await platformStore.updateTenantSettings({
+      tenantId,
+      settings: body,
+    });
+    if (body.fieldAccessPolicies) {
+      const auditStore =
+        tenantId === tenantOf(request)
+          ? storeFor(request)
+          : typeof storeOrResolver === "function"
+            ? storeOrResolver(tenantId)
+            : undefined;
+      await auditStore?.recordAuditEvent({
+        actorType: "USER",
+        actorId:
+          request.authContext?.userId ?? request.authContext?.personId,
+        action: "FIELD_ACCESS_POLICIES_UPDATED",
+        objectType: "TENANT_SETTINGS",
+        objectId: tenantId,
+        beforeHash: sha256(before ?? {}),
+        afterHash: sha256(body.fieldAccessPolicies),
+        reason: `overrides=${Object.keys(body.fieldAccessPolicies).length}`,
+      });
+    }
+    return data(updated, request);
   });
 
   app.post("/api/v1/platform/users", async (request, reply) => {

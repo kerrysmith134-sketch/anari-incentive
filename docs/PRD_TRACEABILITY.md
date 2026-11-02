@@ -316,7 +316,7 @@
 
 89. **DATA-05 自由文本阻断**：新增 `findActivityMonitoringText`，递归扫描字符串值中的明确监控措辞（keystroke logging、screen monitoring、webcam monitoring、键盘记录、屏幕监控等中英文短语），evidence `normalizedPayload` 与 data-source 名称/字段命中返回 409 `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED`；短语级匹配避免把正常交付描述（screenshot、recording 等）误判，隐晦改写仍由 DLP/人工兜底。
 
-90. **SEC-06 字段策略变更审计**：`IncentiveStore` 新增 `recordAuditEvent`（memory 实现哈希链、PostgreSQL 复用 appendAudit + 链触发）；`PUT /field-access-policies` 记录 `FIELD_ACCESS_POLICIES_UPDATED`，含 actor、tenant、before/after 内容哈希与 override 数量；memory 与 PG 测试均校验 `verifyAuditChain()` 仍为 true。
+90. **SEC-06 字段策略变更审计**：`IncentiveStore` 新增 `recordAuditEvent`（memory 实现哈希链、PostgreSQL 复用 appendAudit + 链触发）；`PUT /field-access-policies` 与平台设置接口（同租户或 resolver 可解析时）均记录 `FIELD_ACCESS_POLICIES_UPDATED`，含 actor、tenant、before/after 内容哈希与 override 数量；memory 验证会重算每个 event hash，memory 与 PG 测试均校验 `verifyAuditChain()` 仍为 true。
 
 ## 仍建议按 P0 顺序补做
 

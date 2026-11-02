@@ -7355,6 +7355,27 @@ describe("vertical slice", () => {
     expect(event.reason).toBe("overrides=1");
     const verify = await call("GET", "/api/v1/audit-events/verify");
     expect(verify.body.data.valid).toBe(true);
+
+    const viaPlatform = await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      {
+        fieldAccessPolicies: {
+          "EVIDENCE.sourceUri": ["finance", "admin"],
+        },
+      },
+    );
+    expect(viaPlatform.status).toBe(200);
+    const afterPlatform = await call("GET", "/api/v1/audit-events?limit=20");
+    expect(
+      afterPlatform.body.data.filter(
+        (candidate: { action: string }) =>
+          candidate.action === "FIELD_ACCESS_POLICIES_UPDATED",
+      ).length,
+    ).toBe(2);
+    expect(
+      (await call("GET", "/api/v1/audit-events/verify")).body.data.valid,
+    ).toBe(true);
   });
 
   it("validates object field policies and rejects unsupported predicates", async () => {
