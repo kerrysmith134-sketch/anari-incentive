@@ -3240,6 +3240,139 @@ export function buildApp(
     return data(report, request);
   });
 
+  app.get("/api/v1/reports/success-metrics", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const store = storeFor(request);
+    const [workPackages, claims, evidence, appeals, decisions, runs, batches] =
+      await Promise.all([
+        store.listWorkPackages(),
+        store.listClaims(),
+        store.listEvidence(),
+        store.listAppeals(),
+        store.listDecisions(),
+        store.listRuns(),
+        store.listSettlementBatches(),
+      ]);
+    const accepted = workPackages.filter(
+      (workPackage) => workPackage.status === "ACCEPTED",
+    );
+    const evidenceSubjects = new Set(
+      evidence
+        .filter((node) => node.subjectType === "WORK_PACKAGE")
+        .map((node) => node.subjectId),
+    );
+    const withEvidence = accepted.filter((workPackage) =>
+      evidenceSubjects.has(workPackage.id),
+    ).length;
+    const coverage =
+      accepted.length === 0 ? 0 : withEvidence / accepted.length;
+    const latestDecisionByClaim = new Map<
+      string,
+      (typeof decisions)[number]
+    >();
+    for (const decision of decisions) {
+      const current = latestDecisionByClaim.get(decision.claimId);
+      if (!current || decision.decisionVersion > current.decisionVersion) {
+        latestDecisionByClaim.set(decision.claimId, decision);
+      }
+    }
+    const decisionHours = claims
+      .map((claim) => {
+        const decision = latestDecisionByClaim.get(claim.id);
+        if (!decision) return undefined;
+        return (
+          (Date.parse(decision.createdAt) -
+            Date.parse(claim.submittedAt ?? claim.createdAt)) /
+          (60 * 60 * 1000)
+        );
+      })
+      .filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value >= 0,
+      );
+    const managerReviewHours =
+      decisionHours.length === 0
+        ? 0
+        : Math.round(
+            (decisionHours.reduce((sum, value) => sum + value, 0) /
+              decisionHours.length) *
+              10,
+          ) / 10;
+    const disputeRate =
+      claims.length === 0 ? 0 : appeals.length / claims.length;
+    const reconciliationDifferences =
+      batches.filter((batch) => batch.status === "ADJUSTMENT_REQUIRED")
+        .length +
+      runs.filter((run) => run.status === "RECONCILIATION_REQUIRED")
+        .length;
+    const metrics = [
+      {
+        id: "EVIDENCE_COVERAGE",
+        label: "Evidence coverage",
+        value: Math.round(coverage * 10000) / 10000,
+        unit: "RATIO",
+        target: 0.7,
+        comparator: "GTE",
+        status: coverage >= 0.7 ? "PASS" : "FAIL",
+        note: "Accepted work packages with at least one work-package evidence node.",
+      },
+      {
+        id: "MANAGER_REVIEW_HOURS",
+        label: "Claim decision time",
+        value: managerReviewHours,
+        unit: "HOURS",
+        target: 2,
+        comparator: "LTE",
+        status: managerReviewHours <= 2 ? "PASS" : "FAIL",
+        note: "Proxy: claim submission to latest attribution decision. Role-level breakdown remains a gap.",
+      },
+      {
+        id: "CONTRIBUTION_DISPUTE_RATE",
+        label: "Contribution dispute rate",
+        value: Math.round(disputeRate * 10000) / 10000,
+        unit: "RATIO",
+        target: 0.1,
+        comparator: "LT",
+        status: disputeRate < 0.1 ? "PASS" : "FAIL",
+        note: "Appeals divided by claims; target is below 10%.",
+      },
+      {
+        id: "RECONCILIATION_DIFFERENCES",
+        label: "Reconciliation differences",
+        value: reconciliationDifferences,
+        unit: "COUNT",
+        target: 0,
+        comparator: "EQ",
+        status: reconciliationDifferences === 0 ? "PASS" : "FAIL",
+        note: "Settlement batches in ADJUSTMENT_REQUIRED plus calculation runs in RECONCILIATION_REQUIRED.",
+      },
+      {
+        id: "EMPLOYEE_EVIDENCE_MINUTES",
+        label: "Employee evidence supplement time",
+        value: null,
+        unit: "MINUTES",
+        target: 30,
+        comparator: "LTE",
+        status: "UNAVAILABLE",
+        note: "No per-session timing is collected; adding it would itself require a privacy review.",
+      },
+    ];
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        overall: metrics.some((metric) => metric.status === "FAIL")
+          ? "FAIL"
+          : metrics.some((metric) => metric.status === "UNAVAILABLE")
+            ? "PARTIAL"
+            : "PASS",
+        metrics,
+      },
+      request,
+    );
+  });
+
   app.post("/api/v1/ingestion/events:batch", async (request) => {
     requireRoles(request, "integration");
     const body = parse(ingestionBatchSchema, request.body);

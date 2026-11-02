@@ -7027,6 +7027,27 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/reports/success-metrics:
+    get:
+      tags: [Reporting]
+      summary: Report PRD success metrics with thresholds
+      description: |
+        Evidence coverage (>=70%), claim decision time (<=2h proxy), dispute
+        rate (<10%) and reconciliation differences (=0). Employee evidence
+        supplement time is UNAVAILABLE because the product does not time
+        sessions; overall is PARTIAL when a metric is unavailable.
+      responses:
+        "200":
+          description: Success metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/reports/team-aggregate:
     get:
       tags: [Reporting]

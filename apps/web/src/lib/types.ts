@@ -498,6 +498,21 @@ export interface OperationsCoverageReport {
   [key: string]: unknown;
 }
 
+export interface SuccessMetricsReport {
+  generatedAt: string;
+  overall: "PASS" | "FAIL" | "PARTIAL";
+  metrics: Array<{
+    id: string;
+    label: string;
+    value: number | null;
+    unit: "RATIO" | "HOURS" | "COUNT" | "MINUTES";
+    target: number;
+    comparator: "GTE" | "LTE" | "LT" | "EQ";
+    status: "PASS" | "FAIL" | "UNAVAILABLE";
+    note: string;
+  }>;
+}
+
 export interface TeamAggregateReport {
   generatedAt: string;
   managerPersonId: Uuid;

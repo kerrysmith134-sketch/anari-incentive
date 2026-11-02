@@ -33,6 +33,7 @@ import type {
   PolicyTestCase,
   PolicyVersionSummary,
   SubgroupImpactReport,
+  SuccessMetricsReport,
 } from "../lib/types.js";
 
 export function PolicyPage() {
@@ -86,6 +87,9 @@ export function PolicyPage() {
   );
   const subgroup = useApiQuery<SubgroupImpactReport>(
     tab === "annual" ? "/api/v1/reports/subgroup-impact" : null,
+  );
+  const successMetrics = useApiQuery<SuccessMetricsReport>(
+    "/api/v1/reports/success-metrics",
   );
 
   function openGate() {
@@ -670,6 +674,48 @@ export function PolicyPage() {
                     </div>
                   </div>
                 </div>
+                {successMetrics.data ? (
+                  <div className="detail-section">
+                    <div className="detail-section__title">
+                      PRD success metrics · {successMetrics.data.overall}
+                    </div>
+                    <div className="stack" style={{ gap: 6 }}>
+                      {successMetrics.data.metrics.map((metric) => (
+                        <div
+                          key={metric.id}
+                          className="inline"
+                          style={{
+                            justifyContent: "space-between",
+                            width: "100%",
+                          }}
+                        >
+                          <span>{metric.label}</span>
+                          <span className="muted">
+                            {metric.value === null
+                              ? "unavailable"
+                              : metric.unit === "RATIO"
+                                ? formatPercent(metric.value)
+                                : metric.value}
+                            {metric.unit === "HOURS"
+                              ? "h"
+                              : metric.unit === "MINUTES"
+                                ? "m"
+                                : ""}{" "}
+                            · target {metric.comparator}{" "}
+                            {metric.unit === "RATIO"
+                              ? formatPercent(metric.target)
+                              : metric.target}{" "}
+                            · {metric.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="subtle" style={{ fontSize: 11.5 }}>
+                      Employee evidence supplement time is unavailable because
+                      the product does not time sessions.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="split-grid section-gap">
                   <div className="detail-section" style={{ marginTop: 0 }}>
                     <div className="detail-section__title">

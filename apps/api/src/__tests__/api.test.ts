@@ -7612,6 +7612,26 @@ describe("vertical slice", () => {
     expect(
       after.body.data.cycleTimes.appealResolutionHours,
     ).toBeGreaterThanOrEqual(0);
+    const success = await call("GET", "/api/v1/reports/success-metrics");
+    expect(success.status).toBe(200);
+    expect(success.body.data.metrics).toHaveLength(5);
+    const coverageMetric = success.body.data.metrics.find(
+      (metric: { id: string }) => metric.id === "EVIDENCE_COVERAGE",
+    );
+    expect(coverageMetric.value).toBe(1);
+    expect(coverageMetric.status).toBe("PASS");
+    const reconciliation = success.body.data.metrics.find(
+      (metric: { id: string }) =>
+        metric.id === "RECONCILIATION_DIFFERENCES",
+    );
+    expect(reconciliation.value).toBe(0);
+    expect(reconciliation.status).toBe("PASS");
+    const employeeTime = success.body.data.metrics.find(
+      (metric: { id: string }) =>
+        metric.id === "EMPLOYEE_EVIDENCE_MINUTES",
+    );
+    expect(employeeTime.status).toBe("UNAVAILABLE");
+    expect(success.body.data.overall).toBe("PARTIAL");
   });
 
   it("reports annual policy review metrics and validates the window", async () => {
