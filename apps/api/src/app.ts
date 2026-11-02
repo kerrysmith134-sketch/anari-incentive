@@ -9596,15 +9596,54 @@ export function buildApp(
       },
     };
     const packageHash = sha256(packageBody);
+    const viewerRoles = request.authContext?.roles ?? [];
+    const fieldPolicies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, fieldPolicies);
+    const viewerPersonId = ownPersonId(request);
+    // The hash identifies the canonical package; the response body is filtered
+    // through the field matrix so an export cannot bypass read redaction.
+    const viewerBody = {
+      ...packageBody,
+      evidence: {
+        ...packageBody.evidence,
+        nodes: packageBody.evidence.nodes.map((node) =>
+          redactResourceFields(node, "EVIDENCE", {
+            personId: viewerPersonId,
+            recordPersonId: node.submittedBy,
+            roles: viewerRoles,
+            policies: fieldPolicies,
+            matchContext,
+          }),
+        ),
+      },
+      calculations: packageBody.calculations.map((run) =>
+        redactCalculationRunFields(run, {
+          roles: viewerRoles,
+          policies: fieldPolicies,
+          matchContext,
+        }),
+      ),
+      settlements: {
+        ...packageBody.settlements,
+        batches: packageBody.settlements.batches.map((batch) =>
+          redactSettlementBatchFields(batch, {
+            personId: viewerPersonId,
+            roles: viewerRoles,
+            policies: fieldPolicies,
+            matchContext,
+          }),
+        ),
+      },
+    };
     const query = request.query as { dlpApprovalRequestId?: string };
     await assertExportDlp(
       request,
-      JSON.stringify(packageBody),
+      JSON.stringify(viewerBody),
       "EVIDENCE_PACKAGE",
       packageBody.cycle.id,
       query.dlpApprovalRequestId,
     );
-    return data({ ...packageBody, packageHash }, request);
+    return data({ ...viewerBody, packageHash }, request);
   });
 
   app.post("/api/v1/audit-events/:id/redactions", async (request, reply) => {

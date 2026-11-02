@@ -5432,6 +5432,102 @@ describe("vertical slice", () => {
     expect(Array.isArray(result.body.data.auditEvents)).toBe(true);
   });
 
+  it("applies evidence field policies to the evidence package", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    expect((await formalRun(workPackageId)).status).toBe(201);
+    const evidence = await call("POST", "/api/v1/evidence", {
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      sourceSystem: "TEST",
+      normalizedPayload: { customer: "ACME" },
+      submittedBy: OWNER,
+    });
+    expect(evidence.status).toBe(201);
+
+    const platformStore = new MemoryPlatformStore({
+      demoTenant: {
+        id: "tenant-demo",
+        name: "Demo tenant",
+        slug: "demo-tenant",
+        persons: [
+          {
+            id: OWNER,
+            employeeCode: "E001",
+            displayName: "Sales Lead",
+          },
+          {
+            id: MEMBER,
+            employeeCode: "E002",
+            displayName: "Product Manager",
+          },
+          {
+            id: ADJUDICATOR,
+            employeeCode: "E003",
+            displayName: "Finance Reviewer",
+          },
+        ],
+      },
+    });
+    const adminView = buildApp(
+      appStore,
+      undefined,
+      undefined,
+      platformStore,
+    );
+    const managerView = buildApp(
+      appStore,
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: "tenant-demo",
+            userId: "evidence-package-manager",
+            personId: MEMBER,
+            roles: ["manager"],
+          };
+        },
+      },
+      platformStore,
+    );
+    const put = await adminView.inject({
+      method: "PUT",
+      url: "/api/v1/field-access-policies",
+      payload: {
+        policies: { "EVIDENCE.normalizedPayload": ["finance", "admin"] },
+      },
+    } as never);
+    expect(put.statusCode).toBe(200);
+
+    const managerPackage = await managerView.inject({
+      method: "GET",
+      url: `/api/v1/evidence-packages/${CYCLE}`,
+    } as never);
+    expect(managerPackage.statusCode).toBe(200);
+    const managerEvidence = managerPackage
+      .json()
+      .data.evidence.nodes.find(
+        (node: { id: string }) => node.id === evidence.body.data.id,
+      );
+    expect(managerEvidence.normalizedPayload).toBe("[REDACTED]");
+    expect(managerEvidence.redactedFields).toContain("normalizedPayload");
+
+    const adminPackage = await adminView.inject({
+      method: "GET",
+      url: `/api/v1/evidence-packages/${CYCLE}`,
+    } as never);
+    const adminEvidence = adminPackage
+      .json()
+      .data.evidence.nodes.find(
+        (node: { id: string }) => node.id === evidence.body.data.id,
+      );
+    expect(adminEvidence.normalizedPayload).toEqual({ customer: "ACME" });
+    expect(adminEvidence.redactedFields).toBeUndefined();
+  });
+
   it("creates and lists evaluation cycles", async () => {
     const created = await call("POST", "/api/v1/evaluation-cycles", {
       name: "2027 Q1 cycle",
