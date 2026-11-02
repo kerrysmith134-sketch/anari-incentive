@@ -577,6 +577,39 @@ export interface PolicyReviewReport {
   subgroupImpact: { available: boolean; note: string };
 }
 
+export interface SubgroupImpactReport {
+  generatedAt: string;
+  cycleId?: Uuid;
+  available: boolean;
+  thresholds: {
+    minimumQuantitativeGroupSize: number;
+    minimumReportableGroupSize: number;
+    adverseImpactRatioThreshold: number;
+  };
+  note: string;
+  dimensions: Record<
+    string,
+    {
+      reportedGroups: number;
+      suppressedGroups: number;
+      outcomesAvailable: boolean;
+      groups: Array<{
+        value: string;
+        headcount: number;
+        quantitative: boolean;
+        qualitativeReviewRequired: boolean;
+        metrics: null | {
+          meanAiScore: number | null;
+          meanIncentiveAmount: number;
+          positivePayoutRate: number;
+          adverseImpactRatio: number | null;
+        };
+        flags: string[];
+      }>;
+    }
+  >;
+}
+
 export interface AuditRedaction {
   id: Uuid;
   auditEventId: Uuid;

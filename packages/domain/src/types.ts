@@ -346,6 +346,31 @@ export type RetentionDisposalStatus =
   | "COMPLETED"
   | "CANCELLED";
 
+export type WorkforceSubgroupDimension =
+  | "GENDER"
+  | "AGE_BAND"
+  | "REGION"
+  | "TENURE_BAND"
+  | "EMPLOYMENT_TYPE";
+
+/**
+ * Voluntary, consent-backed segment label used only for aggregate fairness
+ * monitoring. Values are bands/categories, never dates of birth or identifiers.
+ */
+export interface WorkforceSubgroupAttribute {
+  id: UUID;
+  tenantId: UUID;
+  personId: UUID;
+  dimension: WorkforceSubgroupDimension;
+  value: string;
+  consentRef: string;
+  consentedAt: string;
+  expiresAt?: string;
+  recordedBy?: UUID;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RetentionDisposalRequest {
   id: UUID;
   tenantId: UUID;

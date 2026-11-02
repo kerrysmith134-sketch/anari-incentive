@@ -3736,6 +3736,50 @@ describePg("PgStore vertical slice", () => {
     expect(cancelled.status).toBe("CANCELLED");
   });
 
+  it("persists consent-backed subgroup labels and removes them on withdrawal", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const recorded = await platform.recordWorkforceSubgroupAttribute({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      dimension: "GENDER",
+      value: "FEMALE",
+      consentRef: "pg-consent-1",
+      consentedAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2027-01-01T00:00:00Z",
+      recordedBy: ADJUDICATOR,
+    });
+    expect(recorded.dimension).toBe("GENDER");
+    expect(recorded.value).toBe("FEMALE");
+    const updated = await platform.recordWorkforceSubgroupAttribute({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      dimension: "GENDER",
+      value: "NONBINARY",
+      consentRef: "pg-consent-2",
+      consentedAt: "2026-02-01T00:00:00Z",
+      recordedBy: ADJUDICATOR,
+    });
+    expect(updated.id).toBe(recorded.id);
+    expect(updated.value).toBe("NONBINARY");
+    const listed = await platform.listWorkforceSubgroupAttributes(
+      DEMO_TENANT_ID,
+      { personId: OWNER, dimension: "GENDER" },
+    );
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.consentRef).toBe("pg-consent-2");
+    const withdrawn = await platform.withdrawWorkforceSubgroupAttribute({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      dimension: "GENDER",
+    });
+    expect(withdrawn.id).toBe(recorded.id);
+    const after = await platform.listWorkforceSubgroupAttributes(
+      DEMO_TENANT_ID,
+      { personId: OWNER },
+    );
+    expect(after).toHaveLength(0);
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

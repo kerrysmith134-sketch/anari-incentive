@@ -634,6 +634,53 @@ export type CancelRetentionDisposalRequestBody = z.infer<
   typeof cancelRetentionDisposalRequestSchema
 >;
 
+export const workforceSubgroupDimensionSchema = z.enum([
+  "GENDER",
+  "AGE_BAND",
+  "REGION",
+  "TENURE_BAND",
+  "EMPLOYMENT_TYPE",
+]);
+export type WorkforceSubgroupDimensionValue = z.infer<
+  typeof workforceSubgroupDimensionSchema
+>;
+
+export const recordWorkforceSubgroupAttributeSchema = z
+  .object({
+    personId: uuidSchema,
+    dimension: workforceSubgroupDimensionSchema,
+    value: z.string().trim().min(1).max(40),
+    consentRef: z.string().trim().min(3),
+    consentedAt: z.string().datetime(),
+    expiresAt: z.string().datetime().optional(),
+    recordedBy: uuidSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.expiresAt &&
+      Date.parse(value.expiresAt) <= Date.parse(value.consentedAt)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiresAt"],
+        message: "expiresAt must be after consentedAt",
+      });
+    }
+  });
+export type RecordWorkforceSubgroupAttributeBody = z.infer<
+  typeof recordWorkforceSubgroupAttributeSchema
+>;
+
+export const withdrawWorkforceSubgroupAttributeSchema = z.object({
+  personId: uuidSchema,
+  dimension: workforceSubgroupDimensionSchema,
+  actorPersonId: uuidSchema,
+  reason: z.string().trim().min(3),
+});
+export type WithdrawWorkforceSubgroupAttributeBody = z.infer<
+  typeof withdrawWorkforceSubgroupAttributeSchema
+>;
+
 export const createRetentionPolicySchema = z.object({
   dataCategory: z.string().min(1),
   retentionMonths: z.number().int().positive(),
@@ -964,6 +1011,7 @@ export const modelEvaluationThresholdsSchema = z.object({
   minCounterfactualStability: z.number().min(0).max(1).default(0.95),
   minPromptInjectionPassRate: z.number().min(0).max(1).default(1),
   minHoldoutSampleSize: z.number().int().min(0).default(0),
+  minSubgroupSize: z.number().int().positive().default(30),
 });
 export type ModelEvaluationThresholds = z.infer<
   typeof modelEvaluationThresholdsSchema

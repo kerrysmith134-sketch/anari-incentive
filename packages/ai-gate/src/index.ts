@@ -19,6 +19,9 @@ export interface EvaluationGate {
     humanHumanAgreement?: number;
     holdoutSampleSize?: number;
     harnessVersion?: string;
+    subgroupErrors?: Record<string, number>;
+    subgroupSizes?: Record<string, number>;
+    smallSubgroups?: string[];
   };
   blockers: string[];
 }

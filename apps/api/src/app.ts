@@ -63,6 +63,9 @@ import {
   approveRetentionDisposalRequestSchema,
   completeRetentionDisposalRequestSchema,
   cancelRetentionDisposalRequestSchema,
+  recordWorkforceSubgroupAttributeSchema,
+  withdrawWorkforceSubgroupAttributeSchema,
+  workforceSubgroupDimensionSchema,
   approveDpiaSchema,
   createDsarSchema,
   resolveDsarSchema,
@@ -2459,6 +2462,7 @@ export function buildApp(
       trustSurveys,
       trainingRecords,
       calibrationSessions,
+      subgroupAttributes,
     ] = await Promise.all([
       store.listPolicyVersions(),
       platformStore.listNotices(tenantId),
@@ -2475,6 +2479,7 @@ export function buildApp(
       platformStore.listTrustSurveys(tenantId),
       platformStore.listManagerTrainingRecords(tenantId),
       platformStore.listCalibrationSessions(tenantId),
+      platformStore.listWorkforceSubgroupAttributes(tenantId),
     ]);
     const noticeCoverage = await Promise.all(
       notices.map((notice) =>
@@ -2656,8 +2661,15 @@ export function buildApp(
           claimsWithMultipleDecisions: repeatedClaims,
           claimsWithChangedOutcome: changedOutcomeClaims,
           subgroupImpact: {
-            available: false,
-            note: "Protected-attribute subgroup impact is not collected; review by role/location is available through stratified coverage.",
+            available: subgroupAttributes.some(
+              (attribute) =>
+                !attribute.expiresAt ||
+                Date.parse(attribute.expiresAt) > Date.now(),
+            ),
+            note:
+              subgroupAttributes.length > 0
+                ? "See GET /reports/subgroup-impact for suppressed aggregate metrics; protected labels are never used for individual decisions."
+                : "No consent-backed subgroup labels are recorded; review by role/location remains available through stratified coverage.",
           },
         },
         aiReview: {
@@ -2728,8 +2740,15 @@ export function buildApp(
               note: "Employee trust/procedural-fairness survey is not captured yet.",
             },
         subgroupImpact: {
-          available: false,
-          note: "Contribution/evaluation subgroup impact is not aggregated yet.",
+          available: subgroupAttributes.some(
+            (attribute) =>
+              !attribute.expiresAt ||
+              Date.parse(attribute.expiresAt) > Date.now(),
+          ),
+          note:
+            subgroupAttributes.length > 0
+              ? "See GET /reports/subgroup-impact for suppressed aggregate metrics; protected labels are never used for individual decisions."
+              : "No consent-backed subgroup labels are recorded; review by role/location remains available through stratified coverage.",
         },
       },
       request,
@@ -4832,6 +4851,279 @@ export function buildApp(
         actorPersonId: body.actorPersonId,
         reason: body.reason,
       }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/workforce-subgroup-attributes", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(recordWorkforceSubgroupAttributeSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.recordWorkforceSubgroupAttribute({
+          tenantId: tenantOf(request),
+          personId: body.personId,
+          dimension: body.dimension,
+          value: body.value,
+          consentRef: body.consentRef,
+          consentedAt: body.consentedAt,
+          expiresAt: body.expiresAt,
+          recordedBy: body.recordedBy,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/workforce-subgroup-attributes", async (request) => {
+    requireRoles(request, "admin");
+    const query = request.query as {
+      personId?: string;
+      dimension?: string;
+    };
+    const dimension = query.dimension
+      ? workforceSubgroupDimensionSchema.safeParse(query.dimension)
+      : undefined;
+    if (dimension && !dimension.success) {
+      throw new BadRequestError(
+        "INVALID_SUBGROUP_DIMENSION",
+        `Unknown subgroup dimension ${query.dimension}`,
+      );
+    }
+    return data(
+      await platformStore.listWorkforceSubgroupAttributes(
+        tenantOf(request),
+        {
+          personId: query.personId,
+          dimension: dimension?.data,
+        },
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/workforce-subgroup-attributes/withdraw", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(withdrawWorkforceSubgroupAttributeSchema, request.body);
+    return data(
+      await platformStore.withdrawWorkforceSubgroupAttribute({
+        tenantId: tenantOf(request),
+        personId: body.personId,
+        dimension: body.dimension,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/reports/subgroup-impact", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as {
+      cycleId?: string;
+      dimension?: string;
+    };
+    const dimension = query.dimension
+      ? workforceSubgroupDimensionSchema.safeParse(query.dimension)
+      : undefined;
+    if (dimension && !dimension.success) {
+      throw new BadRequestError(
+        "INVALID_SUBGROUP_DIMENSION",
+        `Unknown subgroup dimension ${query.dimension}`,
+      );
+    }
+    const tenantId = tenantOf(request);
+    const allRuns = await storeFor(request).listRuns();
+    const selectedCycleId =
+      query.cycleId ??
+      [...allRuns].sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      )[0]?.cycleId;
+    const attributes = (
+      await platformStore.listWorkforceSubgroupAttributes(tenantId, {
+        dimension: dimension?.data,
+      })
+    ).filter(
+      (attribute) =>
+        !attribute.expiresAt || Date.parse(attribute.expiresAt) > Date.now(),
+    );
+    if (!selectedCycleId || attributes.length === 0) {
+      return data(
+        {
+          generatedAt: new Date().toISOString(),
+          cycleId: selectedCycleId,
+          available: false,
+          thresholds: {
+            minimumQuantitativeGroupSize: 30,
+            minimumReportableGroupSize: 10,
+            adverseImpactRatioThreshold: 0.8,
+          },
+          note:
+            attributes.length === 0
+              ? "No consent-backed subgroup labels are recorded; no protected-attribute analysis is produced."
+              : "A cycle with calculation or evaluation outcomes is required.",
+          dimensions: {},
+        },
+        request,
+      );
+    }
+    const cycleRuns = allRuns
+      .filter((run) => run.cycleId === selectedCycleId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const latestRun = cycleRuns[0];
+    const proposals = await platformStore.listAiScoreProposals(tenantId, {
+      cycleId: selectedCycleId,
+    });
+    const incentives = new Map<string, number>();
+    for (const line of latestRun?.lines ?? []) {
+      const amount = Number(line.roundedAmount);
+      if (Number.isFinite(amount)) {
+        incentives.set(
+          line.personId,
+          (incentives.get(line.personId) ?? 0) + amount,
+        );
+      }
+    }
+    const proposalScores = new Map<string, number[]>();
+    for (const proposal of proposals) {
+      const scores = proposalScores.get(proposal.personId) ?? [];
+      scores.push(proposal.overallScore);
+      proposalScores.set(proposal.personId, scores);
+    }
+    const attributesByDimension = new Map<
+      string,
+      Map<string, typeof attributes>
+    >();
+    for (const attribute of attributes) {
+      const groups =
+        attributesByDimension.get(attribute.dimension) ??
+        new Map<string, typeof attributes>();
+      const group = groups.get(attribute.value) ?? [];
+      group.push(attribute);
+      groups.set(attribute.value, group);
+      attributesByDimension.set(attribute.dimension, groups);
+    }
+    const dimensions: Record<string, unknown> = {};
+    for (const [dimensionKey, groups] of attributesByDimension) {
+      let suppressedGroups = 0;
+      const reported = [...groups.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([value, members]) => {
+          if (members.length < 10) {
+            suppressedGroups += 1;
+            return undefined;
+          }
+          if (members.length < 30) {
+            return {
+              value,
+              headcount: members.length,
+              quantitative: false,
+              qualitativeReviewRequired: true,
+              metrics: null,
+              flags: ["SMALL_SAMPLE_QUALITATIVE"],
+            };
+          }
+          if (!latestRun) {
+            return {
+              value,
+              headcount: members.length,
+              quantitative: true,
+              qualitativeReviewRequired: false,
+              metrics: null,
+              flags: ["OUTCOMES_UNAVAILABLE"],
+            };
+          }
+          const scores = members.flatMap(
+            (member) => proposalScores.get(member.personId) ?? [],
+          );
+          const payouts = members.map(
+            (member) => incentives.get(member.personId) ?? 0,
+          );
+          const positive = payouts.filter((amount) => amount > 0).length;
+          return {
+            value,
+            headcount: members.length,
+            quantitative: true,
+            qualitativeReviewRequired: false,
+            metrics: {
+              meanAiScore:
+                scores.length === 0
+                  ? null
+                  : Math.round(
+                      (scores.reduce((sum, score) => sum + score, 0) /
+                        scores.length) *
+                        100,
+                    ) / 100,
+              meanIncentiveAmount:
+                Math.round(
+                  (payouts.reduce((sum, amount) => sum + amount, 0) /
+                    payouts.length) *
+                    100,
+                ) / 100,
+              positivePayoutRate:
+                Math.round((positive / payouts.length) * 10000) / 10000,
+              adverseImpactRatio: null as number | null,
+            },
+            flags: [] as string[],
+          };
+        })
+        .filter(
+          (
+            group,
+          ): group is {
+            value: string;
+            headcount: number;
+            quantitative: boolean;
+            qualitativeReviewRequired: boolean;
+            metrics: {
+              meanAiScore: number | null;
+              meanIncentiveAmount: number;
+              positivePayoutRate: number;
+              adverseImpactRatio: number | null;
+            } | null;
+            flags: string[];
+          } => Boolean(group),
+        );
+      const quantitative = reported.filter(
+        (group) => group.quantitative && group.metrics,
+      );
+      const highestRate = Math.max(
+        0,
+        ...quantitative.map(
+          (group) => group.metrics?.positivePayoutRate ?? 0,
+        ),
+      );
+      for (const group of quantitative) {
+        if (!group.metrics) continue;
+        const ratio =
+          highestRate === 0
+            ? 1
+            : group.metrics.positivePayoutRate / highestRate;
+        group.metrics.adverseImpactRatio =
+          Math.round(ratio * 10000) / 10000;
+        if (ratio < 0.8) {
+          group.flags.push("ADVERSE_IMPACT_BELOW_FOUR_FIFTHS");
+        }
+      }
+      dimensions[dimensionKey] = {
+        reportedGroups: reported.length,
+        suppressedGroups,
+        outcomesAvailable: Boolean(latestRun),
+        groups: reported,
+      };
+    }
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        cycleId: selectedCycleId,
+        available: true,
+        thresholds: {
+          minimumQuantitativeGroupSize: 30,
+          minimumReportableGroupSize: 10,
+          adverseImpactRatioThreshold: 0.8,
+        },
+        note:
+          "Aggregate-only analysis. Cells below 10 are suppressed; groups of 10-29 are qualitative. Protected attributes are never used for individual decisions.",
+        dimensions,
+      },
       request,
     );
   });

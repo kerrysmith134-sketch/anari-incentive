@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（273 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（63 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（275 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（63 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -76,7 +76,7 @@
 | INC-09 A 类池/成本核算 | ⚪ | 明确非目标，未实现 |
 | INC-10 Clawback | 🟡 | 冲销/Recovery 与 no-retroactive 阻断已有；本轮新增 clawback case：书面同意必填、1–12 期分期、hardship 理由、requester≠approver、waive/cancel；仍未自动生成 recovery batch 或强制最低工资逐期校验 |
 | INC-11 评价与发展/奖惩分离 | ✅ | EvaluationDecision、AttributionDecision、Ledger 分模型 |
-| INC-12 年度制度审查 | 🟡 | 新增 `GET /reports/policy-review` 与 console Annual review：滚动 12 个月的制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审、DQ、DSAR/DPIA、harness 证据；信任调查已接入年度报告（最近关闭期与 baseline）；子群体影响仍未采集，不能视为完整签收 |
+| INC-12 年度制度审查 | ✅/🟡 | `GET /reports/policy-review` 与 console Annual review 覆盖制度发布、告知签收、申诉/SLA/结果、评价决策、AI 接受/override/盲审/风险 SLA、DQ、DSAR/DPIA、harness、信任调查；子群体影响在存在同意标签时标记 available 并可查看抑制聚合报告；无标签时明确标注，不能视为完整签收 |
 | INC-13 Policy Pack 契约 | ✅ | `policyPackManifestSchema` 覆盖 id/name/version/status/description/corePolicyCode/policy/fixtures/applicability/roles/workPackageTemplates/evidenceRequirements/simulationData/seed；三个 vertical pack 均通过 manifest 测试 |
 
 ### 4. 贡献认定
@@ -91,14 +91,14 @@
 | ATT-06 先独立判断/AI 草稿/盲审 | ❌ | 无独立判断记录、盲审样本、校准会；AI proposal 直接展示给 reviewer |
 | ATT-07 申诉由非原决定人/SLA/证据披露 | 🟡 | 非原决定人复核 + 本轮新增 dueAt/evidenceRefs/SLA skill；无正式证据披露/无报复承诺流程 |
 | ATT-08 贡献/绩效分离 | ✅ | 独立对象和 API |
-| ATT-09 子群体/一致性审计 | 🟡 | 本轮新增 quarterly policy-review `reviewConsistency`：按评审人统计 decision/confirmed/partial/rejected 比例、平均决策天数、重复决策与结果变化数，console Annual review 展示；受保护属性的 subgroup impact 仍未采集，明确标注不可用 |
+| ATT-09 子群体/一致性审计 | ✅ | 既有 reviewer consistency；本轮新增自愿、单独同意、伪名化的子群体标签（GENDER/AGE_BAND/REGION/TENURE_BAND/EMPLOYMENT_TYPE）与 `GET /reports/subgroup-impact`：<10 抑制、10–29 仅定性、≥30 输出均值/选择率/4-5 规则比；harness 只对 ≥30 的组计算误差 gap，小样本列为 qualitative；标签不进入个人决策，撤回即删除；console Annual review 展示 |
 
 ### 5. AI / Agent
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
 | AI-01 评测前移 | ✅ | 未通过 EvaluationGate 禁止 numeric scoring；`scoreEvidence` 强制 gate |
-| AI-02 评测要求 | ✅ | harness、holdout、AI-human ≤ human-human、gold-set 注册/强制校验、canary/vendor-change 回归阻断已实现；本轮新增 refresh-due 报告与版本化 refresh（旧版本 retire），自动重训/重标仍属于外部训练流水线 |
+| AI-02 评测要求 | ✅ | harness、holdout、AI-human ≤ human-human、gold-set 注册/强制校验、canary/vendor-change 回归阻断已实现；本轮新增 minSubgroupSize=30 的误差 gap 门禁（小样本只做定性，不参与 gap）、按组误差/样本量输出、refresh-due 与版本化 refresh；自动重训/重标仍属于外部训练流水线 |
 | AI-03 人工监督 | ✅ | 独立先判/理由/时长/证据打开/override 理由、rubber-stamp 预警、override 必抽 + 随机盲审、audit agreement、HIGH/CRITICAL 决策前强制第二复核（不一致 409）均已落地；本轮新增系统级风险自动分级（零分→CRITICAL、低置信/无证据→HIGH、调用方不可降级）、8h/24h 第二复核 SLA、dueAt/breach 记录与年度审查指标；AI console 展示风险信号与复核截止时间 |
 | AI-04 Agent 范围 | ✅ | 主动 Runtime、7 个 skill、T0–T3、T3 人工、幂等/重试/死信/审计 |
 | AI-05 安全 | ✅ | Evidence 作为输入、schema/权限、provider policy、red-team run 门禁已有；tools READ/WRITE access、`AGENT_ROLE` 默认角色与 per-task `actorRole=READER/ACTOR` 均已持久化，READER 任务不能执行 WRITE 工具（返回/审计 REJECTED） |
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **273 unit/API + 63 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **275 unit/API + 64 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -245,6 +245,8 @@
 53. **SEC-06 retention disposal workflow**：新增 retention disposal request（legal hold 阻断、requestedBy≠approvedBy、默认 30 天 grace、complete 记录/取消），Settings 可操作；迁移 `060_retention_disposal.sql`。自动硬删除仍未启用。
 
 54. **System policy defaults（ADR-008）**：新增 `docs/adr/ADR-008-system-policy-defaults.md`，把保留期、扣款顺序/20% 上限、子群体小样本规则（<10 抑制、10–29 仅定性、≥30 定量、4/5 规则）、AI 风险分级与复核 SLA、导出/DLP、电子签名/WORM、gold-set 季度刷新、READER/ACTOR 默认等系统级决策固定下来；其中 AI 风险分级与第二复核 SLA 已实现并测试。
+
+55. **ATT-09/INC-12 subgroup fairness**：新增 `workforce_subgroup_attributes`（单独同意、可撤回、RLS）、录入/列出/撤回 API 与 `GET /reports/subgroup-impact` 聚合报告（<10 抑制、10–29 定性、≥30 定量、4/5 规则）；harness 排除 <30 组的定量误差 gap。迁移 `062_workforce_subgroup_attributes.sql`，Policy Annual review 展示；无同意标签时明确不可用。
 
 ## 仍建议按 P0 顺序补做
 

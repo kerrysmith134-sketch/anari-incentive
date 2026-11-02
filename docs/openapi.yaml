@@ -2175,6 +2175,114 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/workforce-subgroup-attributes:
+    post:
+      tags: [Compliance]
+      summary: Record a voluntary, consent-backed subgroup label
+      description: |
+        Protected-attribute labels are sensitive personal information. A
+        specific consent reference is mandatory; values are aggregate-only and
+        never used for an individual decision.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordWorkforceSubgroupAttribute"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+    get:
+      tags: [Compliance]
+      summary: List recorded subgroup labels (admin only)
+      parameters:
+        - name: personId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: dimension
+          in: query
+          schema:
+            $ref: "#/components/schemas/WorkforceSubgroupDimension"
+      responses:
+        "200":
+          description: Recorded labels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/workforce-subgroup-attributes/withdraw:
+    post:
+      tags: [Compliance]
+      summary: Withdraw consent and remove a subgroup label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawWorkforceSubgroupAttribute"
+      responses:
+        "200":
+          description: Withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/reports/subgroup-impact:
+    get:
+      tags: [Reports]
+      summary: Aggregate subgroup fairness report
+      description: |
+        Suppresses cells below 10, limits groups of 10-29 to qualitative review,
+        and publishes metrics only for groups of 30 or more. The four-fifths
+        ratio is an investigation trigger, not proof of discrimination.
+      parameters:
+        - name: cycleId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: dimension
+          in: query
+          schema:
+            $ref: "#/components/schemas/WorkforceSubgroupDimension"
+      responses:
+        "200":
+          description: Suppressed aggregate report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/retention-policies/{id}/disposal-requests:
     post:
       tags: [Compliance]
@@ -8754,6 +8862,48 @@ components:
       properties:
         newCalculationRunId:
           $ref: "#/components/schemas/Uuid"
+
+    WorkforceSubgroupDimension:
+      type: string
+      enum: [GENDER, AGE_BAND, REGION, TENURE_BAND, EMPLOYMENT_TYPE]
+
+    RecordWorkforceSubgroupAttribute:
+      type: object
+      required: [personId, dimension, value, consentRef, consentedAt]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        dimension:
+          $ref: "#/components/schemas/WorkforceSubgroupDimension"
+        value:
+          type: string
+          minLength: 1
+          maxLength: 40
+        consentRef:
+          type: string
+          minLength: 3
+        consentedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        recordedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    WithdrawWorkforceSubgroupAttribute:
+      type: object
+      required: [personId, dimension, actorPersonId, reason]
+      properties:
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        dimension:
+          $ref: "#/components/schemas/WorkforceSubgroupDimension"
+        actorPersonId:
+          $ref: "#/components/schemas/Uuid"
+        reason:
+          type: string
+          minLength: 3
 
     CreateRetentionDisposalRequest:
       type: object

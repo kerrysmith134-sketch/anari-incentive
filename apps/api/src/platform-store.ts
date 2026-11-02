@@ -72,6 +72,8 @@ import type {
   RepresentationBodyType,
   RetentionDisposalRequest,
   RetentionPolicy,
+  WorkforceSubgroupAttribute,
+  WorkforceSubgroupDimension,
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
@@ -279,6 +281,28 @@ export interface PlatformStore {
     actorPersonId: string;
     reason: string;
   }): Promise<RetentionDisposalRequest>;
+  recordWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+    value: string;
+    consentRef: string;
+    consentedAt: string;
+    expiresAt?: string;
+    recordedBy?: string;
+  }): Promise<WorkforceSubgroupAttribute>;
+  listWorkforceSubgroupAttributes(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      dimension?: WorkforceSubgroupDimension;
+    },
+  ): Promise<WorkforceSubgroupAttribute[]>;
+  withdrawWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+  }): Promise<WorkforceSubgroupAttribute>;
   createDataSource(input: {
     tenantId: string;
     code: string;
@@ -1466,6 +1490,10 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     RetentionDisposalRequest
   >();
+  private readonly workforceSubgroupAttributes = new Map<
+    string,
+    WorkforceSubgroupAttribute
+  >();
   private readonly dataSources = new Map<string, DataSource>();
   private readonly conflictDeclarations = new Map<
     string,
@@ -2465,6 +2493,101 @@ export class MemoryPlatformStore implements PlatformStore {
     request.cancelledAt = now();
     request.cancelReason = input.reason;
     return request;
+  }
+
+  async recordWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+    value: string;
+    consentRef: string;
+    consentedAt: string;
+    expiresAt?: string;
+    recordedBy?: string;
+  }): Promise<WorkforceSubgroupAttribute> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const person = this.persons.get(input.personId);
+    if (!person || person.tenantId !== input.tenantId) {
+      notFound("Person", input.personId);
+    }
+    if (input.expiresAt && Date.parse(input.expiresAt) <= Date.now()) {
+      throw new ConflictError("SUBGROUP_CONSENT_EXPIRED");
+    }
+    const existing = [...this.workforceSubgroupAttributes.values()].find(
+      (attribute) =>
+        attribute.tenantId === input.tenantId &&
+        attribute.personId === input.personId &&
+        attribute.dimension === input.dimension,
+    );
+    const timestamp = now();
+    if (existing) {
+      existing.value = input.value.trim();
+      existing.consentRef = input.consentRef;
+      existing.consentedAt = input.consentedAt;
+      existing.expiresAt = input.expiresAt;
+      existing.recordedBy = input.recordedBy;
+      existing.updatedAt = timestamp;
+      return existing;
+    }
+    const attribute: WorkforceSubgroupAttribute = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      personId: input.personId,
+      dimension: input.dimension,
+      value: input.value.trim(),
+      consentRef: input.consentRef,
+      consentedAt: input.consentedAt,
+      expiresAt: input.expiresAt,
+      recordedBy: input.recordedBy,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.workforceSubgroupAttributes.set(attribute.id, attribute);
+    return attribute;
+  }
+
+  async listWorkforceSubgroupAttributes(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      dimension?: WorkforceSubgroupDimension;
+    },
+  ): Promise<WorkforceSubgroupAttribute[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.workforceSubgroupAttributes.values()]
+      .filter(
+        (attribute) =>
+          attribute.tenantId === tenantId &&
+          (!filter?.personId || attribute.personId === filter.personId) &&
+          (!filter?.dimension ||
+            attribute.dimension === filter.dimension),
+      )
+      .sort((a, b) =>
+        `${a.dimension}:${a.personId}`.localeCompare(
+          `${b.dimension}:${b.personId}`,
+        ),
+      );
+  }
+
+  async withdrawWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+  }): Promise<WorkforceSubgroupAttribute> {
+    const attribute = [...this.workforceSubgroupAttributes.values()].find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.personId === input.personId &&
+        candidate.dimension === input.dimension,
+    );
+    if (!attribute) {
+      notFound(
+        "WorkforceSubgroupAttribute",
+        `${input.personId}:${input.dimension}`,
+      );
+    }
+    this.workforceSubgroupAttributes.delete(attribute.id);
+    return attribute;
   }
 
   async createDataSource(input: {
@@ -8534,6 +8657,101 @@ export class PgPlatformStore implements PlatformStore {
       );
     }
     return this.mapRetentionDisposalRequest(rows[0]);
+  }
+
+  async recordWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+    value: string;
+    consentRef: string;
+    consentedAt: string;
+    expiresAt?: string;
+    recordedBy?: string;
+  }): Promise<WorkforceSubgroupAttribute> {
+    if (input.expiresAt && Date.parse(input.expiresAt) <= Date.now()) {
+      throw new ConflictError("SUBGROUP_CONSENT_EXPIRED");
+    }
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO workforce_subgroup_attributes
+          (id, tenant_id, person_id, dimension, value, consent_ref,
+           consented_at, expires_at, recorded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (tenant_id, person_id, dimension)
+         DO UPDATE SET
+           value=EXCLUDED.value,
+           consent_ref=EXCLUDED.consent_ref,
+           consented_at=EXCLUDED.consented_at,
+           expires_at=EXCLUDED.expires_at,
+           recorded_by=EXCLUDED.recorded_by,
+           updated_at=now()
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.personId,
+          input.dimension,
+          input.value.trim(),
+          input.consentRef,
+          input.consentedAt,
+          input.expiresAt ?? null,
+          input.recordedBy ?? null,
+        ],
+      );
+      return this.mapWorkforceSubgroupAttribute(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Person ${input.personId} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listWorkforceSubgroupAttributes(
+    tenantId: string,
+    filter?: {
+      personId?: string;
+      dimension?: WorkforceSubgroupDimension;
+    },
+  ): Promise<WorkforceSubgroupAttribute[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql =
+      "SELECT * FROM workforce_subgroup_attributes WHERE tenant_id=$1";
+    if (filter?.personId) {
+      params.push(filter.personId);
+      sql += ` AND person_id=$${params.length}`;
+    }
+    if (filter?.dimension) {
+      params.push(filter.dimension);
+      sql += ` AND dimension=$${params.length}`;
+    }
+    sql += " ORDER BY dimension, person_id";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapWorkforceSubgroupAttribute(row));
+  }
+
+  async withdrawWorkforceSubgroupAttribute(input: {
+    tenantId: string;
+    personId: string;
+    dimension: WorkforceSubgroupDimension;
+  }): Promise<WorkforceSubgroupAttribute> {
+    const { rows } = await this.pool.query(
+      `DELETE FROM workforce_subgroup_attributes
+        WHERE tenant_id=$1 AND person_id=$2 AND dimension=$3
+        RETURNING *`,
+      [input.tenantId, input.personId, input.dimension],
+    );
+    if (!rows[0]) {
+      notFound(
+        "WorkforceSubgroupAttribute",
+        `${input.personId}:${input.dimension}`,
+      );
+    }
+    return this.mapWorkforceSubgroupAttribute(rows[0]);
   }
 
   async createDataSource(input: {
@@ -14617,6 +14835,24 @@ export class PgPlatformStore implements PlatformStore {
       completedAt: iso(row.completed_at),
       cancelledAt: iso(row.cancelled_at),
       cancelReason: row.cancel_reason ?? undefined,
+    };
+  }
+
+  private mapWorkforceSubgroupAttribute(
+    row: QueryResultRow,
+  ): WorkforceSubgroupAttribute {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      personId: row.person_id,
+      dimension: row.dimension,
+      value: row.value,
+      consentRef: row.consent_ref,
+      consentedAt: iso(row.consented_at) ?? new Date().toISOString(),
+      expiresAt: iso(row.expires_at),
+      recordedBy: row.recorded_by ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

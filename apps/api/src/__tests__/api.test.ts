@@ -8232,3 +8232,122 @@ describe("vertical slice", () => {
     ).toBe(true);
   });
 });
+
+describe("consented subgroup fairness reporting", () => {
+  it("records voluntary labels, suppresses small cells, and reports quantitative groups", async () => {
+    const consent = {
+      dimension: "GENDER",
+      consentRef: "consent-gender-1",
+      consentedAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2027-01-01T00:00:00Z",
+    };
+    const first = await call(
+      "POST",
+      "/api/v1/workforce-subgroup-attributes",
+      { ...consent, personId: OWNER, value: "FEMALE" },
+    );
+    expect(first.status).toBe(201);
+    const updated = await call(
+      "POST",
+      "/api/v1/workforce-subgroup-attributes",
+      { ...consent, personId: OWNER, value: "FEMALE" },
+    );
+    expect(updated.status).toBe(201);
+    expect(updated.body.data.id).toBe(first.body.data.id);
+
+    const groupMembers: Array<{ id: string; value: string }> = [
+      { id: OWNER, value: "FEMALE" },
+    ];
+    const createMembers = async (prefix: string, value: string, count: number) => {
+      for (let index = 0; index < count; index += 1) {
+        const created = await call(
+          "POST",
+          "/api/v1/platform/tenants/tenant-demo/persons",
+          {
+            employeeCode: `${prefix}-${index}`,
+            displayName: `${prefix} ${index}`,
+          },
+        );
+        expect(created.status).toBe(201);
+        const personId = created.body.data.id as string;
+        const recorded = await call(
+          "POST",
+          "/api/v1/workforce-subgroup-attributes",
+          { ...consent, personId, value },
+        );
+        expect(recorded.status).toBe(201);
+        groupMembers.push({ id: personId, value });
+      }
+    };
+    await createMembers("FAIR-F", "FEMALE", 29);
+    await createMembers("FAIR-M", "MALE", 12);
+    await createMembers("FAIR-N", "NONBINARY", 3);
+
+    const report = await call(
+      "GET",
+      `/api/v1/reports/subgroup-impact?cycleId=${CYCLE}&dimension=GENDER`,
+    );
+    expect(report.status).toBe(200);
+    expect(report.body.data.available).toBe(true);
+    const gender = report.body.data.dimensions.GENDER;
+    expect(gender.suppressedGroups).toBe(1);
+    expect(gender.outcomesAvailable).toBe(false);
+    const female = gender.groups.find(
+      (group: { value: string }) => group.value === "FEMALE",
+    );
+    const male = gender.groups.find(
+      (group: { value: string }) => group.value === "MALE",
+    );
+    expect(female.headcount).toBe(30);
+    expect(female.quantitative).toBe(true);
+    expect(female.metrics).toBeNull();
+    expect(female.flags).toContain("OUTCOMES_UNAVAILABLE");
+    expect(male.headcount).toBe(12);
+    expect(male.quantitative).toBe(false);
+    expect(male.qualitativeReviewRequired).toBe(true);
+    expect(male.metrics).toBeNull();
+
+    const listed = await call(
+      "GET",
+      `/api/v1/workforce-subgroup-attributes?personId=${OWNER}`,
+    );
+    expect(listed.body.data).toHaveLength(1);
+    const withdrawn = await call(
+      "POST",
+      "/api/v1/workforce-subgroup-attributes/withdraw",
+      {
+        personId: OWNER,
+        dimension: "GENDER",
+        actorPersonId: ADJUDICATOR,
+        reason: "Consent withdrawn",
+      },
+    );
+    expect(withdrawn.status).toBe(200);
+    const after = await call(
+      "GET",
+      `/api/v1/workforce-subgroup-attributes?personId=${OWNER}`,
+    );
+    expect(after.body.data).toHaveLength(0);
+
+    const expired = await call(
+      "POST",
+      "/api/v1/workforce-subgroup-attributes",
+      {
+        personId: MEMBER,
+        dimension: "AGE_BAND",
+        value: "30-39",
+        consentRef: "old-consent",
+        consentedAt: "2020-01-01T00:00:00Z",
+        expiresAt: "2021-01-01T00:00:00Z",
+      },
+    );
+    expect(expired.status).toBe(409);
+    expect(expired.body.error.message).toContain("SUBGROUP_CONSENT_EXPIRED");
+
+    const invalid = await call(
+      "GET",
+      "/api/v1/reports/subgroup-impact?dimension=NATIONALITY",
+    );
+    expect(invalid.status).toBe(400);
+  });
+});

@@ -32,6 +32,7 @@ import type {
   PolicyReviewReport,
   PolicyTestCase,
   PolicyVersionSummary,
+  SubgroupImpactReport,
 } from "../lib/types.js";
 
 export function PolicyPage() {
@@ -82,6 +83,9 @@ export function PolicyPage() {
   );
   const review = useApiQuery<PolicyReviewReport>(
     tab === "annual" ? "/api/v1/reports/policy-review" : null,
+  );
+  const subgroup = useApiQuery<SubgroupImpactReport>(
+    tab === "annual" ? "/api/v1/reports/subgroup-impact" : null,
   );
 
   function openGate() {
@@ -922,11 +926,66 @@ export function PolicyPage() {
                     </div>
                   )}
                 </div>
-                <InfoNotice tone="warning">
-                  Contribution/evaluation subgroup impact is not aggregated yet.
-                  This report is evidence for review, not a complete INC-12
-                  sign-off.
-                </InfoNotice>
+                <div className="detail-section">
+                  <div className="detail-section__title">
+                    Subgroup fairness · aggregate-only
+                  </div>
+                  {!subgroup.data?.available ? (
+                    <InfoNotice tone="warning">
+                      {subgroup.data?.note ??
+                        "No consent-backed subgroup labels are available."}
+                    </InfoNotice>
+                  ) : (
+                    <div className="stack">
+                      <p className="muted">
+                        Groups below {subgroup.data.thresholds.minimumReportableGroupSize} are
+                        suppressed; groups below{" "}
+                        {subgroup.data.thresholds.minimumQuantitativeGroupSize} are
+                        qualitative only. Protected labels are never used for an
+                        individual decision.
+                      </p>
+                      {Object.entries(subgroup.data.dimensions).map(
+                        ([dimension, summary]) => (
+                          <div key={dimension} className="detail-section">
+                            <div className="detail-section__title">
+                              {titleCase(dimension)} · {summary.reportedGroups} groups
+                              {summary.suppressedGroups > 0
+                                ? ` · ${summary.suppressedGroups} suppressed`
+                                : ""}
+                            </div>
+                            <div className="stack" style={{ gap: 6 }}>
+                              {summary.groups.map((group) => (
+                                <div
+                                  key={group.value}
+                                  className="inline"
+                                  style={{
+                                    justifyContent: "space-between",
+                                    width: "100%",
+                                  }}
+                                >
+                                  <span>{group.value}</span>
+                                  <span className="muted">
+                                    n={group.headcount}
+                                    {!summary.outcomesAvailable
+                                      ? " · outcomes unavailable"
+                                      : group.quantitative && group.metrics
+                                        ? ` · mean ${group.metrics.meanIncentiveAmount.toFixed(2)} · selection ${formatPercent(group.metrics.positivePayoutRate)} · ratio ${group.metrics.adverseImpactRatio?.toFixed(2) ?? "—"}`
+                                        : " · qualitative review only"}
+                                    {group.flags.includes(
+                                      "ADVERSE_IMPACT_BELOW_FOUR_FIFTHS",
+                                    )
+                                      ? " · below four-fifths"
+                                      : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
                 <p className="subtle" style={{ fontSize: 11.5 }}>
                   Window {formatDate(review.data.from)} – {formatDate(review.data.to)}.
                   Generated {formatDateTime(review.data.generatedAt)}.

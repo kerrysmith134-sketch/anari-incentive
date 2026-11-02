@@ -137,6 +137,27 @@ describe("AI evaluation harness", () => {
     expect(gate.blockers).toContain("AI_HUMAN_AGREEMENT_ABOVE_HUMAN");
   });
 
+  it("excludes small subgroups from the quantitative error gap", () => {
+    const samples = Array.from({ length: 100 }, (_, index) =>
+      sample(index, {
+        subgroup: index < 95 ? "ROLE_A" : "TINY_GROUP",
+        aiScore: index < 95 ? (index % 5) + 1 : 1,
+        humanScoreA: (index % 5) + 1,
+      }),
+    );
+    const gate = evaluateGate(samples, {
+      minSampleSize: 10,
+      minKappa: 0.1,
+      maxSubgroupErrorGap: 0.05,
+      minCounterfactualStability: 0.5,
+      minPromptInjectionPassRate: 1,
+      minSubgroupSize: 30,
+    });
+    expect(gate.metrics.smallSubgroups).toContain("TINY_GROUP");
+    expect(gate.metrics.subgroupErrors).not.toHaveProperty("TINY_GROUP");
+    expect(gate.blockers).not.toContain("SUBGROUP_ERROR_GAP_TOO_LARGE");
+  });
+
   it("blocks a gate with low human agreement", () => {
     const samples = Array.from({ length: 20 }, (_, index) =>
       sample(index, {
