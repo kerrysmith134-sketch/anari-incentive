@@ -514,6 +514,21 @@ export function redactPayrollBankAccounts(
   };
 }
 
+/** Detect common unmasked identifiers in an export payload. */
+export function scanExportDlp(text: string): string[] {
+  const patterns: Array<{ code: string; pattern: RegExp }> = [
+    { code: "CHINESE_ID", pattern: /\b\d{17}[\dXx]\b/g },
+    { code: "BANK_CARD", pattern: /\b\d{16,19}\b/g },
+    { code: "PHONE", pattern: /\b1[3-9]\d{9}\b/g },
+  ];
+  const findings = new Set<string>();
+  for (const { code, pattern } of patterns) {
+    if (pattern.test(text)) findings.add(code);
+    pattern.lastIndex = 0;
+  }
+  return [...findings];
+}
+
 export function buildApp(
   storeOrResolver: IncentiveStore | StoreResolver = new Store(),
   agentRuntimeOrFactory?: AgentRuntime | AgentRuntimeFactory,
@@ -758,6 +773,38 @@ export function buildApp(
         decision.retryAfterSeconds,
       );
     }
+  }
+
+  async function assertExportDlp(
+    request: FastifyRequest,
+    text: string,
+    targetType: string,
+    targetId: string,
+    approvalRequestId?: string,
+  ): Promise<void> {
+    let enabled = false;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      enabled =
+        (tenant.settings as { exportDlpEnabled?: unknown })
+          .exportDlpEnabled === true;
+    } catch {
+      return;
+    }
+    if (!enabled) return;
+    const findings = scanExportDlp(text);
+    if (findings.length === 0) return;
+    if (!approvalRequestId) {
+      throw new ConflictError(
+        `EXPORT_DLP_REVIEW_REQUIRED:${findings.join(",")}`,
+      );
+    }
+    await consumeApprovalForAction(request, {
+      approvalRequestId,
+      actionType: "SENSITIVE_EXPORT",
+      targetType,
+      targetId,
+    });
   }
 
   function exportHeaders(
@@ -6520,7 +6567,10 @@ export function buildApp(
   app.get("/api/v1/payroll-runs/:id/export", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     assertExportAllowed(request);
-    const query = request.query as { approvalRequestId?: string };
+    const query = request.query as {
+      approvalRequestId?: string;
+      dlpApprovalRequestId?: string;
+    };
     await ensureApproval(
       request,
       "PAYROLL_EXPORT",
@@ -6542,6 +6592,13 @@ export function buildApp(
       ),
     );
     const csv = payrollCsv(run);
+    await assertExportDlp(
+      request,
+      csv,
+      "PAYROLL_RUN",
+      run.id,
+      query.dlpApprovalRequestId,
+    );
     return reply
       .type("text/csv; charset=utf-8")
       .headers(exportHeaders(request, csv, "CONFIDENTIAL"))
@@ -6555,7 +6612,10 @@ export function buildApp(
   app.get("/api/v1/payroll-runs/:id/bank-file", async (request, reply) => {
     requireRoles(request, "finance");
     assertExportAllowed(request);
-    const query = request.query as { approvalRequestId?: string };
+    const query = request.query as {
+      approvalRequestId?: string;
+      dlpApprovalRequestId?: string;
+    };
     await ensureApproval(
       request,
       "PAYROLL_BANK_FILE",
@@ -6574,6 +6634,13 @@ export function buildApp(
       idOf(request),
     );
     const csv = payrollBankFileCsv(run);
+    await assertExportDlp(
+      request,
+      csv,
+      "PAYROLL_RUN",
+      run.id,
+      query.dlpApprovalRequestId,
+    );
     return reply
       .type("text/csv; charset=utf-8")
       .headers(exportHeaders(request, csv, "RESTRICTED"))
@@ -7343,10 +7410,16 @@ export function buildApp(
         ledgerValid,
       },
     };
-    return data(
-      { ...packageBody, packageHash: sha256(packageBody) },
+    const packageHash = sha256(packageBody);
+    const query = request.query as { dlpApprovalRequestId?: string };
+    await assertExportDlp(
       request,
+      JSON.stringify(packageBody),
+      "EVIDENCE_PACKAGE",
+      packageBody.cycle.id,
+      query.dlpApprovalRequestId,
     );
+    return data({ ...packageBody, packageHash }, request);
   });
 
   app.post("/api/v1/audit-events/:id/redactions", async (request, reply) => {

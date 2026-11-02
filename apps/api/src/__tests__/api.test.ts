@@ -15,6 +15,7 @@ import {
   applyAuditRedactions,
   buildApp,
   redactPayrollBankAccounts,
+  scanExportDlp,
 } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
@@ -7094,6 +7095,15 @@ describe("vertical slice", () => {
     expect(redacted?.reason).toBe("[REDACTED]");
     expect(redacted?.redacted).toBe(true);
     expect(redacted?.eventHash).toBe("sha256:original-event-hash");
+  });
+
+  it("detects common unmasked identifiers for export DLP", () => {
+    expect(
+      scanExportDlp(
+        "id 11010519491231002X phone 13800138000 card 4111111111111111",
+      ).sort(),
+    ).toEqual(["BANK_CARD", "CHINESE_ID", "PHONE"]);
+    expect(scanExportDlp("amount,1000.00\nBANK-001")).toEqual([]);
   });
 
   it("rate-limits export routes per tenant and actor", async () => {

@@ -4935,6 +4935,12 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/Uuid"
+        - name: dlpApprovalRequestId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+          description: Required when export DLP is enabled and identifiers are detected.
       responses:
         "200":
           description: CSV payroll file
@@ -4973,6 +4979,12 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/Uuid"
+        - name: dlpApprovalRequestId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+          description: Required when export DLP is enabled and identifiers are detected.
       responses:
         "200":
           description: CSV bank file
