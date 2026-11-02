@@ -625,6 +625,47 @@ export function redactResourceFields<T extends object>(
 }
 
 /**
+ * Amendment history stores before/after term snapshots, including sensitive
+ * contract fields. Apply the contract field policies to both snapshots so the
+ * history cannot bypass the contract list rules.
+ */
+export function redactContractAmendmentTerms<
+  T extends {
+    beforeTerms: Record<string, unknown>;
+    afterTerms: Record<string, unknown>;
+  },
+>(
+  amendment: T,
+  viewer: {
+    personId?: string;
+    recordPersonId?: string;
+    roles: string[];
+    policies?: Record<string, string[]>;
+  },
+): T & { redactedFields?: string[] } {
+  const before = redactResourceFields(
+    amendment.beforeTerms,
+    "EMPLOYMENT_CONTRACT",
+    viewer,
+  );
+  const after = redactResourceFields(
+    amendment.afterTerms,
+    "EMPLOYMENT_CONTRACT",
+    viewer,
+  );
+  const redactedFields = [
+    ...new Set([...(before.redactedFields ?? []), ...(after.redactedFields ?? [])]),
+  ];
+  if (redactedFields.length === 0) return amendment;
+  return {
+    ...amendment,
+    beforeTerms: before,
+    afterTerms: after,
+    redactedFields,
+  };
+}
+
+/**
  * Apply role-based field policies to a calculation run. This is deliberately
  * generic so the same matrix can protect other resources as they are added.
  */
@@ -8147,10 +8188,39 @@ export function buildApp(
 
   app.get("/api/v1/employment-contracts/:id/amendments", async (request) => {
     requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const contractId = idOf(request);
+    const amendments = await platformStore.listEmploymentContractAmendments(
+      tenantId,
+      contractId,
+    );
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(amendments, request);
+    let policies: Record<string, string[]> | undefined;
+    let contractPersonId: string | undefined;
+    try {
+      const tenant = await platformStore.getTenant(tenantId);
+      const configured = (
+        tenant.settings as { fieldAccessPolicies?: unknown }
+      ).fieldAccessPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+      contractPersonId = (
+        await platformStore.getEmploymentContract(tenantId, contractId)
+      ).personId;
+    } catch {
+      policies = undefined;
+    }
+    const personId = ownPersonId(request);
     return data(
-      await platformStore.listEmploymentContractAmendments(
-        tenantOf(request),
-        idOf(request),
+      amendments.map((amendment) =>
+        redactContractAmendmentTerms(amendment, {
+          personId,
+          recordPersonId: contractPersonId,
+          roles,
+          policies,
+        }),
       ),
       request,
     );

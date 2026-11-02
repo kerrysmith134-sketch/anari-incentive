@@ -140,7 +140,7 @@
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
-| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies`（`PAYROLL_LINE.*` / `CALCULATION_LINE.*` / `EMPLOYMENT_CONTRACT.*` -> 允许角色）已接入计算行与合同列表，本轮新增通用 `redactResourceFields`（Ref 字段移除、decimal 归零、其他标记）与合同 bankAccountRef 默认仅 finance/admin、本人可见；仍有其他资源与通用策略 DSL 未覆盖 |
+| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies`（`PAYROLL_LINE.*` / `CALCULATION_LINE.*` / `EMPLOYMENT_CONTRACT.*` -> 允许角色）已接入计算行、合同列表与 amendment 修订历史，本轮新增通用 `redactResourceFields`（Ref 字段移除、decimal 归零、其他标记）与合同 bankAccountRef 默认仅 finance/admin、本人可见；仍有其他资源与通用策略 DSL 未覆盖 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
@@ -284,7 +284,7 @@
 
 73. **DATA-01 coverage trend**：operations coverage 新增 `workPackages.coverageTrend`（按验收月份 `YYYY-MM` 的接受工作包证据覆盖率）与 `coverageTrendByPackageType`（同一月份桶按 packageType 分层），Policy coverage 展示最近 6 个月及按任务类型的单行趋势；趋势口径与现有覆盖率一致，仍以验收时 `updatedAt` 作为周期桶。
 
-74. **SEC-03 contract field policy**：新增通用 `redactResourceFields`，按 `RESOURCE.field` 策略对任意扁平资源脱敏（`*Ref` 字段移除、decimal string 归零、其他替换为 `[REDACTED]`），支持本人例外与 tenant 覆盖；`EMPLOYMENT_CONTRACT.bankAccountRef` 默认仅 finance/admin 可见，合同列表对 manager 返回 `redactedFields`；策略 key 正则与 OpenAPI 同步扩展，单元与 HTTP 测试覆盖。
+74. **SEC-03 contract field policy**：新增通用 `redactResourceFields`，按 `RESOURCE.field` 策略对任意扁平资源脱敏（`*Ref` 字段移除、decimal string 归零、其他替换为 `[REDACTED]`），支持本人例外与 tenant 覆盖；`EMPLOYMENT_CONTRACT.bankAccountRef` 默认仅 finance/admin 可见，合同列表与 amendment `beforeTerms`/`afterTerms` 对 manager 返回 `redactedFields`（修订历史不能绕过合同列表规则）；策略 key 正则与 OpenAPI 同步扩展，单元与 HTTP 测试覆盖。
 
 ## 仍建议按 P0 顺序补做
 

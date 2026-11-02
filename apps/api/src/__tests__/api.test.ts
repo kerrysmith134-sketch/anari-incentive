@@ -7035,6 +7035,49 @@ describe("vertical slice", () => {
       url: "/api/v1/employment-contracts",
     } as never);
     expect(adminList.json().data[0].bankAccountRef).toBe("BANK-SECRET");
+
+    const contractId = created.json().data.id as string;
+    const amendment = await adminApp.inject({
+      method: "POST",
+      url: `/api/v1/employment-contracts/${contractId}/amendments`,
+      payload: {
+        fixedMonthlySalary: "9000",
+        minimumMonthlyWage: "2690",
+        taxRate: "0.1",
+        socialInsuranceRate: "0.05",
+        deductionCapRate: "0.2",
+        variableShareCapRate: "1",
+        bankAccountRef: "BANK-SECRET-2",
+        effectiveFrom: new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        consentSignatureRef: "ESIGN-2",
+        approvedBy: person.id,
+      },
+    } as never);
+    expect(amendment.statusCode).toBe(200);
+
+    const managerAmendments = await managerApp.inject({
+      method: "GET",
+      url: `/api/v1/employment-contracts/${contractId}/amendments`,
+    } as never);
+    expect(managerAmendments.statusCode).toBe(200);
+    const managerAmendment = managerAmendments.json().data[0];
+    expect(managerAmendment.beforeTerms.bankAccountRef).toBeUndefined();
+    expect(managerAmendment.afterTerms.bankAccountRef).toBeUndefined();
+    expect(managerAmendment.redactedFields).toContain("bankAccountRef");
+    expect(managerAmendment.afterTerms.fixedMonthlySalary).toBe("9000");
+
+    const adminAmendments = await adminApp.inject({
+      method: "GET",
+      url: `/api/v1/employment-contracts/${contractId}/amendments`,
+    } as never);
+    expect(adminAmendments.json().data[0].beforeTerms.bankAccountRef).toBe(
+      "BANK-SECRET",
+    );
+    expect(adminAmendments.json().data[0].afterTerms.bankAccountRef).toBe(
+      "BANK-SECRET-2",
+    );
   });
 
   it("exposes and updates the cross-resource field access matrix", async () => {

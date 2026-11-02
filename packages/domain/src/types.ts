@@ -1247,6 +1247,8 @@ export interface EmploymentContractAmendment {
   appliedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  /** Present when field policies hid sensitive term fields from this viewer. */
+  redactedFields?: string[];
   createdAt: string;
 }
 
