@@ -1687,7 +1687,10 @@ export class MemoryPlatformStore implements PlatformStore {
     settings: Record<string, unknown>;
   }): Promise<PlatformTenant> {
     const tenant = await this.getTenant(input.tenantId);
-    tenant.settings = input.settings;
+    tenant.settings = {
+      ...(tenant.settings ?? {}),
+      ...input.settings,
+    };
     return tenant;
   }
 
@@ -7656,7 +7659,9 @@ export class PgPlatformStore implements PlatformStore {
     settings: Record<string, unknown>;
   }): Promise<PlatformTenant> {
     const { rows } = await this.pool.query(
-      `UPDATE tenants SET settings=$2, updated_at=now()
+      `UPDATE tenants
+          SET settings = COALESCE(settings, '{}'::jsonb) || $2::jsonb,
+              updated_at=now()
         WHERE id=$1
         RETURNING *`,
       [input.tenantId, input.settings],

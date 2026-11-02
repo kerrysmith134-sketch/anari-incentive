@@ -7176,6 +7176,11 @@ describe("vertical slice", () => {
       "/api/v1/platform/tenants/tenant-demo/settings",
       { requireRegisteredGoldSet: true },
     );
+    await call(
+      "POST",
+      "/api/v1/platform/tenants/tenant-demo/settings",
+      { evidenceDefaultRule: "ZERO" },
+    );
     const blocked = await createHarnessEvaluation(
       "IRR",
       "claude",
