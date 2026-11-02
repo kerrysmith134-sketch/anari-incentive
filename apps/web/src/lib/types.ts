@@ -455,6 +455,21 @@ export interface OperationsCoverageReport {
       withEvidence: number;
       coverageRate: number;
     }>;
+    coverageTrend: Array<{
+      period: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
+    coverageTrendByPackageType: Array<{
+      packageType: string;
+      periods: Array<{
+        period: string;
+        total: number;
+        withEvidence: number;
+        coverageRate: number;
+      }>;
+    }>;
   };
   claims: {
     total: number;

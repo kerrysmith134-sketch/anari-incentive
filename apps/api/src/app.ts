@@ -3020,6 +3020,41 @@ export function buildApp(
       if (hasEvidence) currentPackage.withEvidence += 1;
       packageTypeCoverage.set(packageType, currentPackage);
     }
+    // Monthly trend uses acceptance time (updatedAt when ACCEPTED) as the
+    // period bucket so the series can be compared across cycles over time.
+    const coverageTrend = new Map<
+      string,
+      { total: number; withEvidence: number }
+    >();
+    const coverageTrendByPackageType = new Map<
+      string,
+      Map<string, { total: number; withEvidence: number }>
+    >();
+    for (const workPackage of acceptedPackages) {
+      const acceptedAt = new Date(workPackage.updatedAt);
+      if (Number.isNaN(acceptedAt.getTime())) continue;
+      const period = acceptedAt.toISOString().slice(0, 7);
+      const hasEvidence = evidenceSubjects.has(workPackage.id);
+      const periodTotals = coverageTrend.get(period) ?? {
+        total: 0,
+        withEvidence: 0,
+      };
+      periodTotals.total += 1;
+      if (hasEvidence) periodTotals.withEvidence += 1;
+      coverageTrend.set(period, periodTotals);
+      const packageType = workPackage.packageType ?? "UNSPECIFIED";
+      const byPeriod =
+        coverageTrendByPackageType.get(packageType) ??
+        new Map<string, { total: number; withEvidence: number }>();
+      const typeTotals = byPeriod.get(period) ?? {
+        total: 0,
+        withEvidence: 0,
+      };
+      typeTotals.total += 1;
+      if (hasEvidence) typeTotals.withEvidence += 1;
+      byPeriod.set(period, typeTotals);
+      coverageTrendByPackageType.set(packageType, byPeriod);
+    }
     const openAppeals = appeals.filter(
       (appeal) => appeal.status !== "CLOSED",
     );
@@ -3317,6 +3352,29 @@ export function buildApp(
             coverageRate: ratio(value.withEvidence, value.total),
           }))
           .sort((a, b) => a.packageType.localeCompare(b.packageType)),
+        coverageTrend: [...coverageTrend.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([period, value]) => ({
+            period,
+            total: value.total,
+            withEvidence: value.withEvidence,
+            coverageRate: ratio(value.withEvidence, value.total),
+          })),
+        coverageTrendByPackageType: [
+          ...coverageTrendByPackageType.entries(),
+        ]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([packageType, periods]) => ({
+            packageType,
+            periods: [...periods.entries()]
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([period, value]) => ({
+                period,
+                total: value.total,
+                withEvidence: value.withEvidence,
+                coverageRate: ratio(value.withEvidence, value.total),
+              })),
+          })),
       },
       claims: {
         total: claims.length,

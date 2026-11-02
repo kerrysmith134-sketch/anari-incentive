@@ -7064,6 +7064,9 @@ paths:
         breaks acceptance, claim decision, confirmation, payroll approval and
         appeal resolution elapsed hours down by responsibility code; payroll
         approval is attributed to every role with a pay line in the run.
+        `coverageTrend` and `coverageTrendByPackageType` bucket accepted
+        work-package evidence coverage by acceptance month (YYYY-MM), overall
+        and per package/task type.
       responses:
         "200":
           description: Operations coverage report

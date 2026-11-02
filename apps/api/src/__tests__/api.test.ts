@@ -7608,6 +7608,30 @@ describe("vertical slice", () => {
     expect(
       after.body.data.workPackages.coverageByPackageType[0].packageType,
     ).toBe("ORDER_DELIVERY");
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    expect(after.body.data.workPackages.coverageTrend).toEqual([
+      {
+        period: currentMonth,
+        total: 1,
+        withEvidence: 1,
+        coverageRate: 1,
+      },
+    ]);
+    expect(
+      after.body.data.workPackages.coverageTrendByPackageType,
+    ).toEqual([
+      {
+        packageType: "ORDER_DELIVERY",
+        periods: [
+          {
+            period: currentMonth,
+            total: 1,
+            withEvidence: 1,
+            coverageRate: 1,
+          },
+        ],
+      },
+    ]);
     expect(after.body.data.dataQuality).toEqual({
       total: 1,
       open: 1,

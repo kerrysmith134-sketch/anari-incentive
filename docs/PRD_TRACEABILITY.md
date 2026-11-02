@@ -14,7 +14,7 @@
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation 两类资源并可管理，但尚未覆盖全部资源或通用策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
-5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段，任务类型覆盖率与员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值与覆盖率趋势。
+5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
 6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
@@ -282,12 +282,14 @@
 
 72. **P0-02 responsibility cycle times（全阶段）**：`cycleTimes.byResponsibility` 在 acceptance/claim-decision 之外新增 confirmation（按确认人角色）、payroll approval（按 run 内工资条人员角色）、appeal resolution（按申诉人角色）三个阶段的小时数与样本数，Policy coverage 同步展示；`rolesOfPerson` 统一从工作包成员/owner 派生责任角色，无法归属时明确计为 `UNKNOWN`；新增端到端测试覆盖三个阶段。
 
+73. **DATA-01 coverage trend**：operations coverage 新增 `workPackages.coverageTrend`（按验收月份 `YYYY-MM` 的接受工作包证据覆盖率）与 `coverageTrendByPackageType`（同一月份桶按 packageType 分层），Policy coverage 展示最近 6 个月及按任务类型的单行趋势；趋势口径与现有覆盖率一致，仍以验收时 `updatedAt` 作为周期桶。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
 3. **AI residual**：自动重训/重标流水线（gold-set 刷新流程与 due 报告已落地）。
-4. **DATA/ORG residual**：任务类型覆盖率趋势（按周期/月桶）、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 的角色细分已覆盖五个阶段。
+4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
 5. **SEC residual**：跨资源通用 ABAC 引擎；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
 7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod，补齐字段级契约漂移测试。

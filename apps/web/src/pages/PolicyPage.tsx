@@ -817,6 +817,64 @@ export function PolicyPage() {
                     )}
                   </div>
                 </div>
+                <div className="detail-section">
+                  <div className="detail-section__title">
+                    Coverage trend by month
+                  </div>
+                  {coverage.data.workPackages.coverageTrend.length === 0 ? (
+                    <p className="muted">No accepted package yet.</p>
+                  ) : (
+                    <div className="stack" style={{ gap: 6 }}>
+                      {coverage.data.workPackages.coverageTrend
+                        .slice(-6)
+                        .map((row) => (
+                          <div
+                            key={row.period}
+                            className="inline"
+                            style={{
+                              justifyContent: "space-between",
+                              width: "100%",
+                            }}
+                          >
+                            <span>{row.period}</span>
+                            <span className="muted">
+                              {formatPercent(row.coverageRate)} ·{" "}
+                              {row.withEvidence}/{row.total}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  {coverage.data.workPackages.coverageTrendByPackageType.length ? (
+                    <div className="stack" style={{ gap: 4, marginTop: 10 }}>
+                      {coverage.data.workPackages.coverageTrendByPackageType.map(
+                        (series) => (
+                          <div
+                            key={series.packageType}
+                            className="inline"
+                            style={{
+                              justifyContent: "space-between",
+                              width: "100%",
+                            }}
+                          >
+                            <span>{titleCase(series.packageType)}</span>
+                            <span className="muted">
+                              {series.periods
+                                .slice(-6)
+                                .map(
+                                  (period) =>
+                                    `${period.period} ${formatPercent(
+                                      period.coverageRate,
+                                    )}`,
+                                )
+                                .join(" · ")}
+                            </span>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  ) : null}
+                </div>
                 <InfoNotice>
                   Generated {formatDateTime(coverage.data.generatedAt)}. Coverage is
                   recomputed from live tenant records on refresh.

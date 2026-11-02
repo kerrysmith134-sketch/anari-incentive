@@ -1024,6 +1024,23 @@ export interface OperationsCoverageReport {
       withEvidence: number;
       coverageRate: number;
     }>;
+    /** Evidence coverage per calendar month (YYYY-MM) of acceptance. */
+    coverageTrend: Array<{
+      period: string;
+      total: number;
+      withEvidence: number;
+      coverageRate: number;
+    }>;
+    /** Evidence coverage per calendar month split by package/task type. */
+    coverageTrendByPackageType: Array<{
+      packageType: string;
+      periods: Array<{
+        period: string;
+        total: number;
+        withEvidence: number;
+        coverageRate: number;
+      }>;
+    }>;
   };
   claims: {
     total: number;
