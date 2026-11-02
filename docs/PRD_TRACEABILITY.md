@@ -39,7 +39,7 @@
 | P0-02 确定性计算 | ✅ | decimal、舍入、封顶、最大余数分配、trace、result hash、`engine_version` |
 | P0-02 法律门禁 | 🟡 | 五类 ref + policyApproved/minimumWageChecked 阻断 FORMAL；范围/合同/扣款/AI 解释未闭环 |
 | P0-02 账本 | ✅ | append-only、幂等、锁定、冲销、adjustment、哈希链 |
-| P0-02 员工端 | 🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 不是员工专用界面，也缺少团队聚合/独立角色导航 |
+| P0-02 员工端 | 🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 增加角色感知导航（员工仅见 Overview/My AI record，finance/admin 见对应模块），但仍不是专用员工界面，也缺少员工自服务的团队聚合视图 |
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
 | P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；本轮新增 work-package acceptance 与 claim-decision cycle time，员工/经理端到端耗时与细分角色耗时仍有缺口 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
@@ -134,7 +134,7 @@
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
 | ORG-01 试点 volunteer/员工代表 | ✅ | Representation/Consultation 已有；本轮新增 pilot enrollment（volunteer、scope、consent signature、ACTIVE/WITHDRAWN、撤回原因），console Settings 可录入/撤回 |
-| ORG-02 透明/本人数据/团队聚合 | 🟡 | 本人数据过滤有；本轮新增团队聚合报告（直接下属、评价覆盖率、维度均值、claim/appeal/work-package 计数，禁止个人金额/姓名，少于 3 人抑制）并接入 Dashboard；console 仍未按角色隐藏导航 |
+| ORG-02 透明/本人数据/团队聚合 | ✅/🟡 | 本人数据过滤、团队聚合报告（直接下属、评价覆盖率、维度均值、claim/appeal/work-package 计数，禁止个人金额/姓名，少于 3 人抑制）已有；本轮新增 console 角色感知导航与 My AI record 入口，非 admin 不再看到 Settings/Integrations/Adverse actions 等入口；员工专用首页仍可继续完善 |
 | ORG-03 无报复/申诉统计公开 | ✅ | 新增 fairness commitment 版本化发布（新版本 supersede 旧版本）与 `/reports/appeal-stats` 聚合（申诉数、开放/逾期/关闭、结果分布、平均处理天数、申诉率、无个人标识）；Dashboard 对所有登录用户展示承诺与统计 |
 | ORG-04 经理培训/模板/校准会 | ✅ | 新增 manager training records（code/title/completed/expiry/evidence）与 calibration sessions（facilitator/attendees/notes/policy ref）；console Settings 可录入，年度审查报告含计数 |
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
@@ -251,6 +251,8 @@
 56. **INC-10 installment wage protection**：新增 clawback schedule 预览，按有效合同逐期校验 20% 上限与最低工资余额，返回 blockedCount/hash；无有效合同时明确不可校验。未自动生成 recovery batch，保持“先审后收”。
 
 57. **SEC-03 cross-resource field matrix**：tenant `fieldAccessPolicies` 支持 `PAYROLL_LINE.*` 与 `CALCULATION_LINE.*`；calculation run API 对非 finance/admin 应用默认/租户覆盖策略并返回脱敏字段；新增通用 `redactCalculationRunFields` 测试。其余资源尚未接入。
+
+58. **ORG-02 role-aware console navigation**：AppShell 按 `/platform/identity` 返回角色过滤导航；员工只保留 Overview/My AI record，manager/finance/admin 分别显示可访问模块，非 admin 隐藏 Settings/Integrations/Adverse actions 入口。路由级权限仍由 API 强制。
 
 ## 仍建议按 P0 顺序补做
 

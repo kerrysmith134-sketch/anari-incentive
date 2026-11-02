@@ -4,13 +4,17 @@ import { Icon, type IconName } from "./Icon.js";
 import { Avatar, IconButton } from "./ui.js";
 import { useTheme } from "../contexts/ThemeContext.js";
 import { useAuth } from "../contexts/AuthContext.js";
+import { useApiQuery } from "../lib/hooks.js";
 import { shortId } from "../lib/format.js";
+import type { PlatformIdentity } from "../lib/types.js";
 
 interface NavItem {
   to: string;
   label: string;
   icon: IconName;
   end?: boolean;
+  /** Roles allowed to see the item. Omitted means everyone. */
+  allowed?: string[];
 }
 
 interface NavGroup {
@@ -23,35 +27,106 @@ const NAV: NavGroup[] = [
     label: "Workspace",
     items: [
       { to: "/", label: "Overview", icon: "overview", end: true },
-      { to: "/approvals", label: "Approvals", icon: "approvals" },
-      { to: "/cycles", label: "Cycles", icon: "clock" },
-      { to: "/contribution", label: "Contribution", icon: "layers" },
+      { to: "/my-ai", label: "My AI record", icon: "ai" },
+      {
+        to: "/approvals",
+        label: "Approvals",
+        icon: "approvals",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/cycles",
+        label: "Cycles",
+        icon: "clock",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/contribution",
+        label: "Contribution",
+        icon: "layers",
+        allowed: ["manager", "finance", "admin"],
+      },
     ],
   },
   {
     label: "Money",
     items: [
-      { to: "/payroll", label: "Payroll", icon: "payroll" },
-      { to: "/rewards", label: "Rewards", icon: "rewards" },
-      { to: "/settlements", label: "Settlements", icon: "wallet" },
+      {
+        to: "/payroll",
+        label: "Payroll",
+        icon: "payroll",
+        allowed: ["finance", "admin"],
+      },
+      {
+        to: "/rewards",
+        label: "Rewards",
+        icon: "rewards",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/settlements",
+        label: "Settlements",
+        icon: "wallet",
+        allowed: ["finance", "admin"],
+      },
     ],
   },
   {
     label: "Governance",
     items: [
-      { to: "/ai", label: "AI assurance", icon: "ai" },
-      { to: "/policy", label: "Policy", icon: "policy" },
-      { to: "/exceptions", label: "Exceptions", icon: "alert-circle" },
-      { to: "/adverse-actions", label: "Adverse actions", icon: "user" },
-      { to: "/audit", label: "Audit", icon: "shield" },
+      {
+        to: "/ai",
+        label: "AI assurance",
+        icon: "ai",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/policy",
+        label: "Policy",
+        icon: "policy",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/exceptions",
+        label: "Exceptions",
+        icon: "alert-circle",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/adverse-actions",
+        label: "Adverse actions",
+        icon: "user",
+        allowed: ["admin"],
+      },
+      {
+        to: "/audit",
+        label: "Audit",
+        icon: "shield",
+        allowed: ["admin", "finance"],
+      },
     ],
   },
   {
     label: "System",
     items: [
-      { to: "/integrations", label: "Integrations", icon: "integrations" },
-      { to: "/people", label: "People", icon: "people" },
-      { to: "/settings", label: "Settings", icon: "settings" },
+      {
+        to: "/integrations",
+        label: "Integrations",
+        icon: "integrations",
+        allowed: ["admin"],
+      },
+      {
+        to: "/people",
+        label: "People",
+        icon: "people",
+        allowed: ["admin", "manager"],
+      },
+      {
+        to: "/settings",
+        label: "Settings",
+        icon: "settings",
+        allowed: ["admin"],
+      },
     ],
   },
 ];
@@ -80,6 +155,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { resolved, toggle } = useTheme();
   const { session } = useAuth();
+  const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
+  const roles = identity.data?.roles ?? [];
+  const visibleGroups = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) =>
+        roles.length === 0 ||
+        !item.allowed ||
+        item.allowed.some((role) => roles.includes(role)),
+    ),
+  })).filter((group) => group.items.length > 0);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -131,7 +217,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar__nav">
-          {NAV.map((group) => (
+          {visibleGroups.map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group__label">{group.label}</span>
               {group.items.map((item) => (
@@ -159,6 +245,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Development identity</span>
             </div>
           </div>
+          {roles.length === 0 || roles.includes("admin") ? (
           <NavLink to="/settings" className="user-chip">
             <Avatar name="Operator" size={30} />
             <span className="user-chip__copy">
@@ -167,6 +254,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             <Icon name="chevron-right" size={14} />
           </NavLink>
+          ) : null}
         </div>
       </aside>
 
@@ -199,13 +287,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               icon={resolved === "dark" ? "sun" : "moon"}
               onClick={toggle}
             />
-            <NavLink
-              to="/settings"
-              className="topbar__settings"
-              aria-label="Workspace settings"
-            >
-              <Icon name="settings" size={18} />
-            </NavLink>
+            {roles.length === 0 || roles.includes("admin") ? (
+              <NavLink
+                to="/settings"
+                className="topbar__settings"
+                aria-label="Workspace settings"
+              >
+                <Icon name="settings" size={18} />
+              </NavLink>
+            ) : null}
           </div>
         </header>
         <main className="main" id="main">
