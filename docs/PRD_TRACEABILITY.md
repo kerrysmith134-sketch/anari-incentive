@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（314 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（317 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -13,9 +13,9 @@
 1. **法律门禁的最后一公里**：LG-05 已具备未来排期与 provider callback 适配，实际电子签账号/合同由部署配置；LG-06 已有最低工资、扣款上限、deduction order/breakdown、逐类型上限、tax/social 分列与 clawback 逐期校验，ADR-008 固定扣款顺序；执行令/员工授权的最终法律映射仍待法务确认。
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
-4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖六类资源并可管理，通用 `redactResourceFields` 便于继续扩展；对象式条件策略已由 ADR-009 定义但尚未实现。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
+4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖六类资源并可管理，通用 `redactResourceFields` 便于继续扩展；对象式策略与 4 类 `match` 谓词已实现（服务端上下文、fail-closed）。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
-6. **领域契约/审计耐久性**：请求契约已收敛为 Zod 单一来源并生成 manifest、由测试校验 OpenAPI 对齐；DDL 已有列级契约守卫（DOM-01 请求与 SQL 部分）；TS 领域类型与 DDL 生成仍待 ADR-009 Phase 2；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
+6. **领域契约/审计耐久性**：请求契约已收敛为 Zod 单一来源并生成 manifest、由测试校验 OpenAPI 对齐；实体列契约已注册并生成 manifest，DDL 测试逐列校验（DOM-01 请求、实体与 SQL 部分）；TS 类型从注册表生成仍待完成；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
 
@@ -107,7 +107,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DOM-01 单一契约 | 🟡 | 请求契约已收敛为 Zod 单一来源：`requestSchemaRegistry`（22 个 schema）→ `npm run contracts:manifest` 生成 `docs/generated/request-contracts.json`，测试校验生成物新鲜度与 OpenAPI required/properties 对齐；新增 DDL 契约测试：解析全部迁移，校验 9 张资金路径/审计表关键列、禁止重复列定义、禁止 alter 未创建表。ADR-009 定义实体注册表三阶段计划；TS 领域类型与 SQL DDL 尚未从同一 schema 生成 |
+| DOM-01 单一契约 | 🟡 | 请求契约已收敛为 Zod 单一来源（22 个 schema → 生成 manifest → 校验 OpenAPI）；新增实体列契约 `CORE_ENTITY_CONTRACTS`（9 张资金路径/审计表，列 + PII/FINANCIAL/AUDIT 分类）→ `npm run contracts:entities` 生成 `docs/generated/entity-contracts.json`，DDL 测试解析全部迁移并与注册表**逐列完全一致**、禁止重复列、禁止 alter 未创建表；ADR-009 Phase 2 的注册表与 DDL 校验已落地，TS 类型仍手写、未从注册表生成 |
 | DOM-02 状态机 | ✅ | `packages/domain/src/states.ts` 与 PRD 状态一致 |
 | DOM-03 必须对象 | ✅ | MetricDefinition、Snapshot、Notice、Recalculation、Budget、RuleChangeOrder、ModelEvaluationRun、SettlementExport、AuditChain、Integration 对象均存在 |
 | MON-01 审批一次性 | ✅ | consumed_at/by、target 校验、payload hash、consume |
@@ -140,7 +140,7 @@
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
-| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列；新增请求级策略缓存、通用 `redactResourceFields`/`redactSettlementBatchFields`，以及对象式策略（`allowRoles`/`allowSelf`/`onDeny`）：对象只能收窄访问、`allowSelf:false` 可拒绝本人、未支持的条件键写入时 400；`match` 谓词按 ADR-009 待实现 |
+| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图现同时消费矩阵与旧 `payrollFieldPolicies`；对象式策略支持 `allowRoles`/`allowSelf`/`onDeny` 与 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`subjectEmploymentActive`/`viewerEmploymentActive`），谓词上下文由服务端派生、每请求缓存、缺失时 fail-closed；条件只收窄访问；未支持的条件键写入时 400 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
@@ -298,15 +298,19 @@
 
 80. **SEC-03 对象式字段策略**：策略值兼容旧的角色数组与新的对象 `{ allowRoles?, allowSelf?, onDeny? }`；实现 `normalizeFieldPolicy`/`fieldPolicyAllows`/`deniedFieldValue`，payroll、calculation、通用资源三条脱敏路径统一使用；`onDeny` 显式支持 `OMIT`/`ZERO`/`REDACT`，缺省时保持旧推断行为；`allowSelf:false` 可拒绝本人访问；未实现的条件键（如 `match`）与空对象在写入时返回 `VALIDATION_ERROR`；OpenAPI 增加 `FieldAccessPolicyObject`，新增单元与 HTTP 校验测试。
 
+81. **SEC-03 match 谓词**：对象策略新增 `match`，支持 `isSubjectManager`、`sameOrgNode`、`subjectEmploymentActive`、`viewerEmploymentActive`；谓词输入由服务端从 persons/contracts/org assignments 派生并按请求缓存，仅在存在 match 策略时加载；条件只收窄、缺少上下文时 fail-closed；contracts、evidence、settlement、AI proposal、payroll、calculation 六条读取路径均传入 subject 与上下文；payroll 视图同时合并旧 `payrollFieldPolicies` 与矩阵；未知谓词写入时 400；新增 fail-closed 单元测试与经理/组织节点 HTTP 测试。
+
+82. **DOM-01 Phase 2 实体契约**：新增 `packages/domain/src/entity-contracts.ts`（`CORE_ENTITY_CONTRACTS`）声明 9 张核心表的完整列集合与 PII/FINANCIAL/AUDIT 分类；新增 `npm run contracts:entities` 生成 `docs/generated/entity-contracts.json`；DDL 测试改为从注册表读取并**逐列完全一致**校验，同时校验生成物新鲜度。迁移仍手写；TS 类型尚未从注册表生成。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
 3. **AI residual**：自动重训/重标流水线（gold-set 刷新流程与 due 报告已落地）。
 4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
-5. **SEC residual**：按 ADR-009 逐步开放 `match` 谓词（`sameLegalEntity`/`sameOrgNode` 等），对象式策略的 `allowRoles`/`allowSelf`/`onDeny` 已实现；自动 retention deletion 仍明确不启用。
+5. **SEC residual**：`match` 已支持 `isSubjectManager`/`sameOrgNode`/`subjectEmploymentActive`/`viewerEmploymentActive`；若要 `sameLegalEntity`/`legalHoldActive` 等语义，需先补齐实体法域/保留期到记录的映射；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
-7. **DOM-01**：请求契约已由 Zod 生成并校验，DDL 已有列级守卫；下一步按 ADR-009 Phase 2 引入实体注册表并生成/校验 TS 与 DDL 清单，迁移继续手写。
+7. **DOM-01**：请求契约由 Zod 生成并校验；实体列契约 `CORE_ENTITY_CONTRACTS` + 生成 manifest + 迁移逐列校验已落地；下一步从注册表生成/校验 TS 领域类型，迁移继续手写。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
 这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。

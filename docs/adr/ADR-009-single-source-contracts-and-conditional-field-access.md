@@ -39,15 +39,13 @@ than a big-bang rewrite:
   guarded by `tests/ddl-contract.test.ts`, which parses the migration chain and
   asserts the money-path tables still contain their required columns, that no
   column is defined twice and that no migration alters an unknown table.
-- **Phase 2 (next):** introduce `packages/domain/src/entities.ts` as a small
-  declarative registry of core entities (field name, logical type, nullability,
-  ownership/classification). Generate, from that registry:
-  - TypeScript types used by the domain package (or verify existing interfaces
-    against it),
-  - a DDL column manifest compared with the parsed migrations,
-  - the field classification used by the access matrix.
-  The registry is the source; generated artifacts are committed and freshness
-  checked, following the request-contract pattern.
+- **Phase 2 (in progress):** `packages/domain/src/entity-contracts.ts` now
+  declares the complete column set (and PII/FINANCIAL/AUDIT classification)
+  for the nine money-path/audit tables. `npm run contracts:entities` emits
+  `docs/generated/entity-contracts.json`, and the DDL test compares every
+  column in the parsed migrations against this registry, failing on any
+  difference or stale manifest. Still to do: generate or verify the
+  TypeScript domain interfaces from the same registry.
 - **Phase 3:** migrate remaining tables in batches, keeping the migration
   parser as the independent verifier. A registry change that is not reflected
   in DDL (or vice versa) fails the suite.
@@ -67,7 +65,7 @@ today's shape valid:
   "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
     "allowRoles": ["finance", "admin"],
     "allowSelf": true,
-    "match": { "sameLegalEntity": true },                            // optional
+    "match": { "isSubjectManager": true },                           // optional
     "onDeny": "OMIT"                                                 // OMIT | ZERO | REDACT
   }
 }
@@ -79,8 +77,9 @@ Rules:
   `admin` may read the field.
 - **Conditions are evaluated server-side** from canonical records, never from
   request-supplied claims. Supported predicates stay small and auditable:
-  `sameLegalEntity`, `sameOrgNode`, `employmentActive`, `legalHoldActive`.
-  Unsupported predicates reject the policy at write time.
+  `isSubjectManager`, `sameOrgNode`, `subjectEmploymentActive`,
+  `viewerEmploymentActive`. Unsupported predicates reject the policy at write
+  time.
 - **No condition may grant access a role would not otherwise have.** Conditions
   can narrow, not widen.
 - **Denial behaviour is explicit** (`OMIT`/`ZERO`/`REDACT`) so numeric fields are
@@ -88,11 +87,19 @@ Rules:
 - Every policy write is audited with before/after; redacted responses keep
   returning `redactedFields` so callers know data was withheld.
 
-Implementation status: `allowRoles`, `allowSelf` and `onDeny` are implemented
-across payroll lines, calculation lines and the generic resource path. The
-object form is strict — unknown keys such as `match` are rejected with
-`VALIDATION_ERROR` until the predicate whitelist ships. `allowSelf: false`
-denies the record subject even though self-access is otherwise the default.
+Implementation status: `allowRoles`, `allowSelf`, `onDeny` and `match` are
+implemented across payroll lines, calculation lines and the generic resource
+path. Supported predicates are `isSubjectManager`, `sameOrgNode`,
+`subjectEmploymentActive` and `viewerEmploymentActive`; their inputs are
+derived server-side from persons, contracts and org assignments, cached per
+request, and loaded only when a match policy exists. The object form is strict
+— unknown keys or predicates are rejected with `VALIDATION_ERROR`. Missing
+predicate context fails closed. `allowSelf: false` denies the record subject
+even though self-access is otherwise the default.
+
+Not yet supported: `sameLegalEntity` and `legalHoldActive`. They need a
+legal-entity and retention-category mapping onto each record, which is a data
+model change rather than a policy change.
 
 Admin bypass remains, but reading another tenant's data is still impossible
 (RLS and tenant scoping are orthogonal to field policies).
