@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（326 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（327 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -140,7 +140,7 @@
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
-| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图现同时消费矩阵与旧 `payrollFieldPolicies`；对象式策略支持 `allowRoles`/`allowSelf`/`onDeny` 与 6 个 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`sameLegalEntity`/`legalHoldActive`/`subjectEmploymentActive`/`viewerEmploymentActive`），`EmploymentContract.legalEntity` 已持久化，`legalHoldActive` 按资源→保留期类别映射检查活动 legal hold；谓词上下文由服务端派生、每请求缓存、缺失时 fail-closed；条件只收窄，admin/本人访问不受谓词影响；未支持的条件键写入时 400 |
+| SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图同时消费矩阵与旧 `payrollFieldPolicies`；evidence package 导出同样按矩阵过滤 evidence/calculation/settlement 字段（`packageHash` 仍按完整规范包计算，避免过滤后哈希漂移）；对象式策略支持 6 个 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`sameLegalEntity`/`legalHoldActive`/`subjectEmploymentActive`/`viewerEmploymentActive`），谓词上下文服务端派生、每请求缓存、缺失 fail-closed；条件只收窄，admin/本人无条件放行；未支持的条件键写入时 400 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
@@ -307,6 +307,8 @@
 84. **SEC-03 legalHoldActive 谓词**：新增资源→保留期类别映射（`PAYROLL_LINE→PAYROLL_RECORDS`、`CALCULATION_LINE/SETTLEMENT_LINE→ACCOUNTING_RECORDS`、`EMPLOYMENT_CONTRACT→LABOR_CONTRACTS`、`EVIDENCE/AI_PROPOSAL→AI_EVALUATION_EVIDENCE`），谓词检查该类别当前是否存在 `legalHold=true` 的保留策略；上下文加载一次性读取 retention policies；HTTP 测试覆盖 hold 开启时放行、解除后拒绝，且本人访问不受影响。
 
 85. **DOM-01 领域接口漂移测试**：新增 `tests/domain-entity-interface.test.ts`，从 `packages/domain/src/types.ts` 解析 9 个核心接口字段并转 snake_case，与 `CORE_ENTITY_CONTRACTS` 双向校验；view-only 字段（`lines`/`redactedFields`/`personCode` 等）、别名（`calculatedAt→finished_at`）与 DB-only 列显式声明，测试同时防止这些例外变成陈旧声明。
+
+86. **SEC-03 evidence package 字段过滤**：`GET /evidence-packages/:cycleId` 过去直接返回原始 evidence/calculation/settlement，绕过读路径的字段矩阵；现按 viewer 角色、tenant 策略与 match 上下文过滤 evidence nodes、calculation runs 与 settlement batches，`packageHash` 仍基于完整规范包计算，DLP 扫描针对过滤后的导出内容；新增 manager/admin 对照测试（manager 被脱敏、admin 完整）。
 
 ## 仍建议按 P0 顺序补做
 

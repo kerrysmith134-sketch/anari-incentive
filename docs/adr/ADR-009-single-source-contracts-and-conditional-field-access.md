@@ -130,6 +130,10 @@ implemented by this ADR or by the entity registry.
 - Conditional policies make the access matrix more expressive, at the cost of
   a per-request evaluation that must stay deterministic and cheap. Conditions
   are restricted to fields already loaded with the record; no extra queries.
+- Bulk exports are not a bypass: the evidence package applies the same matrix
+  to evidence, calculation and settlement payloads. Its `packageHash` is
+  computed over the canonical package, so a filtered view keeps the same
+  integrity reference.
 - Tenants that use only the array form are unaffected.
 - Some PRD items remain deployment or legal evidence (external e-signature,
   WORM/TSA receipts, statutory deduction mapping) and are out of scope here.
