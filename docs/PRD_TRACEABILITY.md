@@ -141,7 +141,7 @@
 | SEC-01 威胁模型 | ✅ | 新增 `docs/security/threat-model.md`：资产、信任边界/数据流、STRIDE 表、滥用案例与测试映射、残余风险/非目标 |
 | SEC-02 RLS | ✅ | FORCE RLS、app.tenant_id、platform_admin pool、负向测试、治理表 RLS |
 | SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies`（`PAYROLL_LINE.*` / `CALCULATION_LINE.*` -> 允许角色）已接入计算行，本轮新增 GET/PUT 管理与 Settings matrix 展示/编辑；仍是两个资源，未覆盖全部资源与通用策略 DSL |
-| SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；本轮新增可配置 `exportDlpEnabled`，扫描身份证/银行卡/手机号命中时要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package |
+| SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
 | SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction 已有；本轮新增 reviewed retention disposal（legal hold 阻断、双人审批、30 天默认 grace、到期 complete 记录）；仍未自动硬删除，处置执行保持人工/受控 |
 
@@ -271,6 +271,8 @@
 66. **MON-07 durability readiness**：新增 `GET /audit-events/durability` 和 Audit console 提示，按 `AUDIT_WORM_URI`/`AUDIT_MIRROR_URI`/`AUDIT_TSA_URL`/`AUDIT_RESTORE_DRILL_AT` 报告配置就绪度；文档明确这只是配置存在性，不等于控制有效，`ready:false` 不能宣称 MON-07 完成。
 
 67. **SEC-03 field matrix management**：新增 `GET/PUT /field-access-policies`（defaults/configured/effective）与 Settings 编辑 matrix（JSON），PUT 合并写入 tenant settings 且保留其他设置；OpenAPI/测试覆盖。仍仅 payroll_line/calculation_line 两个资源。
+
+68. **SEC-04 DLP default-on**：`assertExportDlp` 默认启用，只有 tenant 显式设置 `exportDlpEnabled=false` 才关闭；继续保持命中时 `SENSITIVE_EXPORT` 审批/一次性消费；现有导出测试全绿。
 
 ## 仍建议按 P0 顺序补做
 

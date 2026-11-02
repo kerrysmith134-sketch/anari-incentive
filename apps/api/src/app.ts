@@ -999,14 +999,15 @@ export function buildApp(
     targetId: string,
     approvalRequestId?: string,
   ): Promise<void> {
-    let enabled = false;
+    let enabled = true;
     try {
       const tenant = await platformStore.getTenant(tenantOf(request));
-      enabled =
-        (tenant.settings as { exportDlpEnabled?: unknown })
-          .exportDlpEnabled === true;
+      const configured = (
+        tenant.settings as { exportDlpEnabled?: unknown }
+      ).exportDlpEnabled;
+      enabled = configured !== false;
     } catch {
-      return;
+      enabled = true;
     }
     if (!enabled) return;
     const findings = scanExportDlp(text);
