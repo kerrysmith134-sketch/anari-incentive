@@ -7,14 +7,18 @@ import {
   FormField,
   InfoNotice,
   LoadingRows,
+  Modal,
   PageHeader,
   Panel,
   Select,
+  Textarea,
   TextInput,
 } from "../components/ui.js";
 import { useToast } from "../contexts/ToastContext.js";
+import { useAuth } from "../contexts/AuthContext.js";
 import { ApiError, api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import type { WorkforceSubgroupAttributeView } from "../lib/ops-types.js";
 
 interface PolicyObject {
   allowRoles?: string[];
@@ -90,6 +94,22 @@ export function FieldAccessPage() {
   const [error, setError] = useState<string | null>(null);
   const [newResource, setNewResource] = useState(RESOURCES[0] as string);
   const [newField, setNewField] = useState("");
+  const { session } = useAuth();
+  const attributes = useApiQuery<WorkforceSubgroupAttributeView[]>(
+    "/api/v1/workforce-subgroup-attributes",
+  );
+  const [attributeOpen, setAttributeOpen] = useState(false);
+  const [attributePersonId, setAttributePersonId] = useState("");
+  const [attributeDimension, setAttributeDimension] = useState("GENDER");
+  const [attributeValue, setAttributeValue] = useState("");
+  const [attributeConsentRef, setAttributeConsentRef] = useState("");
+  const [attributeConsentedAt, setAttributeConsentedAt] = useState("");
+  const [attributeExpiresAt, setAttributeExpiresAt] = useState("");
+  const [attributeError, setAttributeError] = useState<string | null>(null);
+  const [withdrawTarget, setWithdrawTarget] =
+    useState<WorkforceSubgroupAttributeView | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   useEffect(() => {
     const data = matrix.data;
@@ -189,6 +209,67 @@ export function FieldAccessPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openAttribute() {
+    setAttributePersonId("");
+    setAttributeDimension("GENDER");
+    setAttributeValue("");
+    setAttributeConsentRef("");
+    setAttributeConsentedAt(new Date().toISOString().slice(0, 10));
+    setAttributeExpiresAt("");
+    setAttributeError(null);
+    setAttributeOpen(true);
+  }
+
+  async function recordAttribute() {
+    setAttributeError(null);
+    try {
+      await api("/api/v1/workforce-subgroup-attributes", {
+        method: "POST",
+        body: {
+          personId: attributePersonId.trim(),
+          dimension: attributeDimension,
+          value: attributeValue.trim(),
+          consentRef: attributeConsentRef.trim(),
+          consentedAt: new Date(attributeConsentedAt).toISOString(),
+          expiresAt: attributeExpiresAt
+            ? new Date(attributeExpiresAt).toISOString()
+            : undefined,
+          recordedBy: session.personId,
+        },
+      });
+      toast.success("Subgroup label recorded", attributeDimension);
+      setAttributeOpen(false);
+      attributes.reload();
+    } catch (caught) {
+      setAttributeError(
+        caught instanceof ApiError ? caught.message : "Could not record label",
+      );
+    }
+  }
+
+  async function withdrawAttribute() {
+    if (!withdrawTarget) return;
+    setWithdrawError(null);
+    try {
+      await api("/api/v1/workforce-subgroup-attributes/withdraw", {
+        method: "POST",
+        body: {
+          personId: withdrawTarget.personId,
+          dimension: withdrawTarget.dimension,
+          actorPersonId: session.personId,
+          reason: withdrawReason.trim(),
+        },
+      });
+      toast.success("Subgroup label withdrawn", withdrawTarget.dimension);
+      setWithdrawTarget(null);
+      attributes.reload();
+    } catch (caught) {
+      setWithdrawError(
+        caught instanceof ApiError ? caught.message : "Could not withdraw label",
+      );
     }
   }
 
@@ -357,6 +438,199 @@ export function FieldAccessPage() {
           </div>
         </div>
       </Panel>
+
+      <Panel
+        title="Consent-backed subgroup labels"
+        subtitle="Optional, separately consented labels used only for aggregate fairness review; never for individual decisions"
+        flush
+        action={
+          <Button
+            size="sm"
+            variant="primary"
+            icon="plus"
+            onClick={openAttribute}
+          >
+            Record label
+          </Button>
+        }
+      >
+        {attributes.error ? (
+          <div style={{ padding: 16 }}>
+            <ErrorNotice error={attributes.error} onRetry={attributes.reload} />
+          </div>
+        ) : attributes.loading ? (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        ) : (attributes.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            icon="shield"
+            title="No subgroup label"
+            description="Labels require a separate consent reference and can be withdrawn at any time."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Dimension</th>
+                  <th>Value</th>
+                  <th>Consent</th>
+                  <th>Expires</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(attributes.data ?? []).map((attribute) => (
+                  <tr key={attribute.id}>
+                    <td className="mono">{attribute.personId.slice(0, 10)}</td>
+                    <td>{attribute.dimension}</td>
+                    <td>{attribute.value}</td>
+                    <td className="mono">{attribute.consentRef}</td>
+                    <td className="nowrap">{attribute.expiresAt ?? "—"}</td>
+                    <td className="cell-actions">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setWithdrawTarget(attribute);
+                          setWithdrawReason("");
+                          setWithdrawError(null);
+                        }}
+                      >
+                        Withdraw
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Modal
+        open={attributeOpen}
+        title="Record subgroup label"
+        description="Requires separate consent; the label is pseudonymous and used only in suppressed aggregates."
+        onClose={() => setAttributeOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAttributeOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={recordAttribute}>
+              Record label
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {attributeError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{attributeError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Person id" htmlFor="attribute-person">
+            <TextInput
+              id="attribute-person"
+              value={attributePersonId}
+              onChange={(event) => setAttributePersonId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Dimension" htmlFor="attribute-dimension">
+            <Select
+              id="attribute-dimension"
+              value={attributeDimension}
+              onChange={(event) => setAttributeDimension(event.target.value)}
+            >
+              {[
+                "GENDER",
+                "AGE_BAND",
+                "REGION",
+                "TENURE_BAND",
+                "EMPLOYMENT_TYPE",
+              ].map((dimension) => (
+                <option key={dimension} value={dimension}>
+                  {dimension}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Value" htmlFor="attribute-value">
+            <TextInput
+              id="attribute-value"
+              value={attributeValue}
+              onChange={(event) => setAttributeValue(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Consent reference" htmlFor="attribute-consent">
+            <TextInput
+              id="attribute-consent"
+              value={attributeConsentRef}
+              onChange={(event) => setAttributeConsentRef(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Consented at" htmlFor="attribute-consented">
+            <TextInput
+              id="attribute-consented"
+              type="date"
+              value={attributeConsentedAt}
+              onChange={(event) => setAttributeConsentedAt(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Expires at (optional)" htmlFor="attribute-expires">
+            <TextInput
+              id="attribute-expires"
+              type="date"
+              value={attributeExpiresAt}
+              onChange={(event) => setAttributeExpiresAt(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(withdrawTarget)}
+        title="Withdraw subgroup label"
+        description="Withdrawal deletes the label; aggregates fall back to unavailable."
+        onClose={() => setWithdrawTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWithdrawTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={withdrawAttribute}>
+              Withdraw
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {withdrawError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{withdrawError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="Reason"
+            htmlFor="attribute-withdraw-reason"
+            className="field--full"
+          >
+            <Textarea
+              id="attribute-withdraw-reason"
+              value={withdrawReason}
+              onChange={(event) => setWithdrawReason(event.target.value)}
+              required
+            />
+          </FormField>
+        </div>
+      </Modal>
     </>
   );
 }

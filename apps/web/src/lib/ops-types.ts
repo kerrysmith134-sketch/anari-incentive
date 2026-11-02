@@ -258,3 +258,60 @@ export interface ExternalIdentityView {
   objectType: string;
   createdAt: string;
 }
+
+export interface PolicyConsultationView {
+  id: Uuid;
+  policyVersionId: Uuid;
+  representationId?: Uuid;
+  consultationType:
+    | "DISCUSSION"
+    | "COMMENT_PERIOD"
+    | "NEGOTIATION"
+    | "INFORMATION";
+  startedAt: string;
+  endedAt?: string;
+  minutesRef?: string;
+  feedbackSummary?: string;
+  outcome: "PENDING" | "AGREED" | "NO_AGREEMENT" | "INFORMATION_ONLY" | "CLOSED";
+  createdAt: string;
+}
+
+export interface EvidenceView {
+  id: Uuid;
+  evidenceType: string;
+  subjectType: string;
+  subjectId: Uuid;
+  sourceSystem: string;
+  sourceUri?: string;
+  observedAt: string;
+  qualityStatus: string;
+  normalizedPayload: Record<string, unknown>;
+  payloadHash: string;
+  submittedBy?: Uuid;
+  redactedFields?: string[];
+  createdAt: string;
+}
+
+export interface WorkforceSubgroupAttributeView {
+  id: Uuid;
+  personId: Uuid;
+  dimension: string;
+  value: string;
+  consentRef: string;
+  consentedAt: string;
+  expiresAt?: string;
+  recordedBy: Uuid;
+  createdAt: string;
+}
+
+export interface NotificationView {
+  id: Uuid;
+  recipientPersonId?: Uuid;
+  audience: string;
+  title: string;
+  body: string;
+  sourceType?: string;
+  sourceId?: Uuid;
+  readAt?: string;
+  createdAt: string;
+}

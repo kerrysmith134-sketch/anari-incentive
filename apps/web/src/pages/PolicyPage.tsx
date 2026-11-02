@@ -42,6 +42,7 @@ import type {
   EmployeeNoticeView,
   EmployeeRepresentationView,
   NoticeAcknowledgementView,
+  PolicyConsultationView,
   RuleChangeOrderView,
 } from "../lib/ops-types.js";
 
@@ -114,6 +115,27 @@ export function PolicyPage() {
     useState<EmployeeRepresentationView["bodyType"]>("WORKS_COUNCIL");
   const [repJurisdiction, setRepJurisdiction] = useState("");
   const [repError, setRepError] = useState<string | null>(null);
+  const consultations = useApiQuery<PolicyConsultationView[]>(
+    "/api/v1/policy-consultations",
+  );
+  const [consultOpen, setConsultOpen] = useState(false);
+  const [consultPolicyVersionId, setConsultPolicyVersionId] = useState("");
+  const [consultRepresentationId, setConsultRepresentationId] = useState("");
+  const [consultType, setConsultType] =
+    useState<PolicyConsultationView["consultationType"]>("DISCUSSION");
+  const [consultStartedAt, setConsultStartedAt] = useState("");
+  const [consultMinutesRef, setConsultMinutesRef] = useState("");
+  const [consultFeedback, setConsultFeedback] = useState("");
+  const [consultError, setConsultError] = useState<string | null>(null);
+  const [concludeTarget, setConcludeTarget] =
+    useState<PolicyConsultationView | null>(null);
+  const [concludeOutcome, setConcludeOutcome] =
+    useState<"AGREED" | "NO_AGREEMENT" | "INFORMATION_ONLY" | "CLOSED">(
+      "AGREED",
+    );
+  const [concludeMinutesRef, setConcludeMinutesRef] = useState("");
+  const [concludeFeedback, setConcludeFeedback] = useState("");
+  const [concludeError, setConcludeError] = useState<string | null>(null);
 
   const list = versions.data ?? [];
 
@@ -385,6 +407,77 @@ export function PolicyPage() {
         caught instanceof Error
           ? caught.message
           : "Could not record representation",
+      );
+    }
+  }
+
+  function openConsultation() {
+    setConsultPolicyVersionId(selectedId ?? "");
+    setConsultRepresentationId("");
+    setConsultType("DISCUSSION");
+    setConsultStartedAt(new Date().toISOString().slice(0, 16));
+    setConsultMinutesRef("");
+    setConsultFeedback("");
+    setConsultError(null);
+    setConsultOpen(true);
+  }
+
+  async function submitConsultation() {
+    setConsultError(null);
+    try {
+      await api("/api/v1/policy-consultations", {
+        method: "POST",
+        body: {
+          policyVersionId: consultPolicyVersionId,
+          representationId: consultRepresentationId.trim() || undefined,
+          consultationType: consultType,
+          startedAt: new Date(consultStartedAt).toISOString(),
+          minutesRef: consultMinutesRef.trim() || undefined,
+          feedbackSummary: consultFeedback.trim() || undefined,
+        },
+      });
+      toast.success("Consultation recorded", titleCase(consultType));
+      setConsultOpen(false);
+      consultations.reload();
+    } catch (caught) {
+      setConsultError(
+        caught instanceof Error ? caught.message : "Could not record consultation",
+      );
+    }
+  }
+
+  function openConclude(consultation: PolicyConsultationView) {
+    setConcludeTarget(consultation);
+    setConcludeOutcome("AGREED");
+    setConcludeMinutesRef(consultation.minutesRef ?? "");
+    setConcludeFeedback(consultation.feedbackSummary ?? "");
+    setConcludeError(null);
+  }
+
+  async function submitConclude() {
+    if (!concludeTarget) return;
+    setConcludeError(null);
+    try {
+      await api(
+        `/api/v1/policy-consultations/${concludeTarget.id}/conclude`,
+        {
+          method: "POST",
+          body: {
+            endedAt: new Date().toISOString(),
+            outcome: concludeOutcome,
+            minutesRef: concludeMinutesRef.trim() || undefined,
+            feedbackSummary: concludeFeedback.trim() || undefined,
+          },
+        },
+      );
+      toast.success("Consultation concluded", titleCase(concludeOutcome));
+      setConcludeTarget(null);
+      consultations.reload();
+    } catch (caught) {
+      setConcludeError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not conclude consultation",
       );
     }
   }
@@ -1670,6 +1763,82 @@ export function PolicyPage() {
             ) : null}
 
             <Panel
+              title="Policy consultations"
+              subtitle="Discussion, comment periods and negotiation with employee representatives"
+              flush
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="plus"
+                  onClick={openConsultation}
+                >
+                  Record consultation
+                </Button>
+              }
+            >
+              {consultations.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={consultations.error}
+                    onRetry={consultations.reload}
+                  />
+                </div>
+              ) : consultations.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={2} />
+                </div>
+              ) : (consultations.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="people"
+                  title="No consultation recorded"
+                  description="Record the democratic procedure evidence referenced by the legal gate."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Started</th>
+                        <th>Outcome</th>
+                        <th>Minutes</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(consultations.data ?? []).map((consultation) => (
+                        <tr key={consultation.id}>
+                          <td>{titleCase(consultation.consultationType)}</td>
+                          <td className="nowrap">
+                            {formatDateTime(consultation.startedAt)}
+                          </td>
+                          <td>
+                            <Badge status={consultation.outcome} />
+                          </td>
+                          <td className="mono">
+                            {consultation.minutesRef ?? "—"}
+                          </td>
+                          <td className="cell-actions">
+                            {consultation.outcome === "PENDING" ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => openConclude(consultation)}
+                              >
+                                Conclude
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel
               title="Employee representation"
               subtitle="Works councils, unions and elected representatives referenced by the legal gate"
               flush
@@ -2156,6 +2325,167 @@ export function PolicyPage() {
               onChange={(event) => setRepJurisdiction(event.target.value)}
               placeholder="CN"
               required
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={consultOpen}
+        title="Record policy consultation"
+        onClose={() => setConsultOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConsultOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitConsultation}>
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {consultError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{consultError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Policy version" htmlFor="consult-policy">
+            <Select
+              id="consult-policy"
+              value={consultPolicyVersionId}
+              onChange={(event) => setConsultPolicyVersionId(event.target.value)}
+              required
+            >
+              <option value="">Select a version</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Type" htmlFor="consult-type">
+            <Select
+              id="consult-type"
+              value={consultType}
+              onChange={(event) =>
+                setConsultType(
+                  event.target.value as PolicyConsultationView["consultationType"],
+                )
+              }
+            >
+              {["DISCUSSION", "COMMENT_PERIOD", "NEGOTIATION", "INFORMATION"].map(
+                (type) => (
+                  <option key={type} value={type}>
+                    {titleCase(type)}
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Representation id (optional)" htmlFor="consult-rep">
+            <TextInput
+              id="consult-rep"
+              value={consultRepresentationId}
+              onChange={(event) => setConsultRepresentationId(event.target.value)}
+              placeholder="UUID"
+            />
+          </FormField>
+          <FormField label="Started at" htmlFor="consult-start">
+            <TextInput
+              id="consult-start"
+              type="datetime-local"
+              value={consultStartedAt}
+              onChange={(event) => setConsultStartedAt(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Minutes reference" htmlFor="consult-minutes">
+            <TextInput
+              id="consult-minutes"
+              value={consultMinutesRef}
+              onChange={(event) => setConsultMinutesRef(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Feedback summary"
+            htmlFor="consult-feedback"
+            className="field--full"
+          >
+            <Textarea
+              id="consult-feedback"
+              value={consultFeedback}
+              onChange={(event) => setConsultFeedback(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(concludeTarget)}
+        title="Conclude consultation"
+        onClose={() => setConcludeTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConcludeTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitConclude}>
+              Conclude
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {concludeError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{concludeError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Outcome" htmlFor="conclude-outcome">
+            <Select
+              id="conclude-outcome"
+              value={concludeOutcome}
+              onChange={(event) =>
+                setConcludeOutcome(
+                  event.target.value as
+                    | "AGREED"
+                    | "NO_AGREEMENT"
+                    | "INFORMATION_ONLY"
+                    | "CLOSED",
+                )
+              }
+            >
+              {["AGREED", "NO_AGREEMENT", "INFORMATION_ONLY", "CLOSED"].map(
+                (outcome) => (
+                  <option key={outcome} value={outcome}>
+                    {titleCase(outcome)}
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Minutes reference" htmlFor="conclude-minutes">
+            <TextInput
+              id="conclude-minutes"
+              value={concludeMinutesRef}
+              onChange={(event) => setConcludeMinutesRef(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Feedback summary"
+            htmlFor="conclude-feedback"
+            className="field--full"
+          >
+            <Textarea
+              id="conclude-feedback"
+              value={concludeFeedback}
+              onChange={(event) => setConcludeFeedback(event.target.value)}
             />
           </FormField>
         </div>

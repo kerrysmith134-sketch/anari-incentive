@@ -36,7 +36,7 @@ import type {
   ContributionClaim,
   WorkPackage,
 } from "../lib/types.js";
-import type { DeliverableView } from "../lib/ops-types.js";
+import type { DeliverableView, EvidenceView } from "../lib/ops-types.js";
 
 type PackageAction = "commit" | "start" | "submit" | "review";
 
@@ -99,6 +99,16 @@ export function ContributionPage() {
   const [acceptComments, setAcceptComments] = useState("");
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [deliverableBusy, setDeliverableBusy] = useState<string | null>(null);
+  const evidence = useApiQuery<EvidenceView[]>("/api/v1/evidence");
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceType, setEvidenceType] = useState("DELIVERY_RECORD");
+  const [evidenceSubjectType, setEvidenceSubjectType] = useState("WORK_PACKAGE");
+  const [evidenceSubjectId, setEvidenceSubjectId] = useState("");
+  const [evidenceSourceSystem, setEvidenceSourceSystem] = useState("");
+  const [evidenceSourceUri, setEvidenceSourceUri] = useState("");
+  const [evidencePayload, setEvidencePayload] = useState("{}");
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [viewEvidence, setViewEvidence] = useState<EvidenceView | null>(null);
   const [packageAction, setPackageAction] = useState<{
     kind: PackageAction;
     workPackage: WorkPackage;
@@ -642,6 +652,46 @@ export function ContributionPage() {
     }
   }
 
+  function openEvidence() {
+    setEvidenceType("DELIVERY_RECORD");
+    setEvidenceSubjectType("WORK_PACKAGE");
+    setEvidenceSubjectId(packageList[0]?.id ?? "");
+    setEvidenceSourceSystem("");
+    setEvidenceSourceUri("");
+    setEvidencePayload("{}");
+    setEvidenceError(null);
+    setEvidenceOpen(true);
+  }
+
+  async function submitEvidence() {
+    setEvidenceError(null);
+    try {
+      const normalizedPayload = JSON.parse(evidencePayload) as Record<
+        string,
+        unknown
+      >;
+      await api("/api/v1/evidence", {
+        method: "POST",
+        body: {
+          evidenceType: evidenceType.trim(),
+          subjectType: evidenceSubjectType.trim(),
+          subjectId: evidenceSubjectId,
+          sourceSystem: evidenceSourceSystem.trim(),
+          sourceUri: evidenceSourceUri.trim() || undefined,
+          normalizedPayload,
+          submittedBy: session.personId,
+        },
+      });
+      toast.success("Evidence recorded", evidenceType);
+      setEvidenceOpen(false);
+      evidence.reload();
+    } catch (caught) {
+      setEvidenceError(
+        caught instanceof Error ? caught.message : "Could not record evidence",
+      );
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -700,6 +750,11 @@ export function ContributionPage() {
             id: "attestations",
             label: "Attestations",
             count: attestationList.length,
+          },
+          {
+            id: "evidence",
+            label: "Evidence",
+            count: evidence.data?.length ?? 0,
           },
         ]}
         active={tab}
@@ -962,7 +1017,7 @@ export function ContributionPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "attestations" ? (
           <Panel
             title="Peer and manager attestations"
             subtitle="Independent statements supporting a participant's contribution"
@@ -1061,6 +1116,96 @@ export function ContributionPage() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : (
+          <Panel
+            title="Evidence"
+            subtitle="Evidence nodes with provenance, payload and quality status"
+            flush
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={openEvidence}
+              >
+                Add evidence
+              </Button>
+            }
+          >
+            {evidence.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={evidence.error} onRetry={evidence.reload} />
+              </div>
+            ) : evidence.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : (evidence.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                icon="layers"
+                title="No evidence node"
+                description="Evidence must have provenance: source system, subject and payload hash."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Evidence</th>
+                      <th>Subject</th>
+                      <th>Source</th>
+                      <th>Quality</th>
+                      <th>Recorded</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(evidence.data ?? []).map((node) => (
+                      <tr key={node.id}>
+                        <td>
+                          <span className="cell-primary">
+                            {titleCase(node.evidenceType)}
+                          </span>
+                          <span className="cell-sub mono">
+                            {shortId(node.payloadHash, 14)}
+                          </span>
+                        </td>
+                        <td>
+                          {titleCase(node.subjectType)}
+                          <span className="cell-sub mono">
+                            {shortId(node.subjectId, 10)}
+                          </span>
+                        </td>
+                        <td>
+                          {node.sourceSystem}
+                          {node.sourceUri ? (
+                            <span className="cell-sub mono">
+                              {node.sourceUri}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>
+                          <Badge status={node.qualityStatus} />
+                        </td>
+                        <td className="nowrap">
+                          {formatDateTime(node.createdAt)}
+                        </td>
+                        <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setViewEvidence(node)}
+                          >
+                            Payload
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -2008,6 +2153,135 @@ export function ContributionPage() {
             />
           </FormField>
         </div>
+      </Modal>
+
+      <Modal
+        open={evidenceOpen}
+        title="Add evidence"
+        description="Activity monitoring fields are rejected server-side."
+        onClose={() => setEvidenceOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEvidenceOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitEvidence}>
+              Add evidence
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {evidenceError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{evidenceError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Evidence type" htmlFor="evidence-type">
+            <TextInput
+              id="evidence-type"
+              value={evidenceType}
+              onChange={(event) => setEvidenceType(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Subject type" htmlFor="evidence-subject-type">
+            <Select
+              id="evidence-subject-type"
+              value={evidenceSubjectType}
+              onChange={(event) => setEvidenceSubjectType(event.target.value)}
+            >
+              {["WORK_PACKAGE", "CLAIM", "ORDER", "PERSON"].map((type) => (
+                <option key={type} value={type}>
+                  {titleCase(type)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Subject id" htmlFor="evidence-subject-id">
+            {evidenceSubjectType === "WORK_PACKAGE" ? (
+              <Select
+                id="evidence-subject-id"
+                value={evidenceSubjectId}
+                onChange={(event) => setEvidenceSubjectId(event.target.value)}
+                required
+              >
+                <option value="">Select a package</option>
+                {packageList.map((workPackage) => (
+                  <option key={workPackage.id} value={workPackage.id}>
+                    {workPackage.title}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <TextInput
+                id="evidence-subject-id"
+                value={evidenceSubjectId}
+                onChange={(event) => setEvidenceSubjectId(event.target.value)}
+                placeholder="UUID"
+                required
+              />
+            )}
+          </FormField>
+          <FormField label="Source system" htmlFor="evidence-source">
+            <TextInput
+              id="evidence-source"
+              value={evidenceSourceSystem}
+              onChange={(event) => setEvidenceSourceSystem(event.target.value)}
+              placeholder="CRM"
+              required
+            />
+          </FormField>
+          <FormField label="Source URI (optional)" htmlFor="evidence-uri">
+            <TextInput
+              id="evidence-uri"
+              value={evidenceSourceUri}
+              onChange={(event) => setEvidenceSourceUri(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Normalized payload (JSON)"
+            htmlFor="evidence-payload"
+            className="field--full"
+          >
+            <Textarea
+              id="evidence-payload"
+              value={evidencePayload}
+              onChange={(event) => setEvidencePayload(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(viewEvidence)}
+        title="Evidence payload"
+        description={
+          viewEvidence
+            ? `${titleCase(viewEvidence.evidenceType)} · ${viewEvidence.sourceSystem}`
+            : undefined
+        }
+        onClose={() => setViewEvidence(null)}
+        wide
+        footer={
+          <Button variant="secondary" onClick={() => setViewEvidence(null)}>
+            Close
+          </Button>
+        }
+      >
+        {viewEvidence ? (
+          <pre className="code-block">
+            {JSON.stringify(
+              {
+                payload: viewEvidence.normalizedPayload,
+                payloadHash: viewEvidence.payloadHash,
+                redactedFields: viewEvidence.redactedFields,
+              },
+              null,
+              2,
+            )}
+          </pre>
+        ) : null}
       </Modal>
     </>
   );

@@ -37,6 +37,7 @@ import type {
   TeamAggregateReport,
   WorkPackage,
 } from "../lib/types.js";
+import type { NotificationView } from "../lib/ops-types.js";
 
 const CLOSED_CYCLE_STATUSES = new Set([
   "CLOSED",
@@ -808,6 +809,7 @@ export function DashboardPage() {
           </>
         )}
       </Panel>
+      <NotificationsPanel />
     </>
   );
 }
@@ -1045,6 +1047,87 @@ function EmployeeHome() {
           )}
         </Panel>
       </div>
+      <NotificationsPanel />
     </>
+  );
+}
+
+/* ------------------------------------------------------------ notifications */
+
+function NotificationsPanel() {
+  const notifications = useApiQuery<NotificationView[]>(
+    "/api/v1/notifications",
+  );
+  const list = notifications.data ?? [];
+  const unread = list.filter((item) => !item.readAt).length;
+
+  async function markRead(id: string) {
+    try {
+      await api(`/api/v1/notifications/${id}/read`, { method: "POST" });
+      notifications.reload();
+    } catch {
+      notifications.reload();
+    }
+  }
+
+  return (
+    <Panel
+      title="Notifications"
+      subtitle={unread > 0 ? `${unread} unread` : "All caught up"}
+      className="section-gap"
+      flush
+    >
+      {notifications.error ? (
+        <div style={{ padding: 16 }}>
+          <ErrorNotice
+            error={notifications.error}
+            onRetry={notifications.reload}
+          />
+        </div>
+      ) : notifications.loading ? (
+        <div style={{ padding: 16 }}>
+          <LoadingRows rows={2} />
+        </div>
+      ) : list.length === 0 ? (
+        <EmptyState
+          icon="approvals"
+          title="No notification"
+          description="Reminders, approvals and settlement events appear here."
+        />
+      ) : (
+        <div className="activity-list">
+          {list.slice(0, 12).map((item) => (
+            <div className="activity-row" key={item.id}>
+              <span
+                className="activity-row__dot"
+                aria-hidden="true"
+                style={{ opacity: item.readAt ? 0.3 : 1 }}
+              />
+              <div className="activity-row__main">
+                <div className="activity-row__title">
+                  <strong>{item.title}</strong>
+                </div>
+                <div className="activity-row__meta">
+                  {item.body} · {formatRelative(item.createdAt)}
+                </div>
+              </div>
+              <div className="cell-actions">
+                {item.readAt ? (
+                  <span className="subtle">Read</span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void markRead(item.id)}
+                  >
+                    Mark read
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
