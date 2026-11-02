@@ -14,7 +14,7 @@
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖六类资源并可管理，通用 `redactResourceFields` 便于继续扩展；对象式策略与 6 类 `match` 谓词已实现（服务端上下文、fail-closed、admin/本人无条件放行）。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
-5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
+5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段与明确监控措辞均有技术阻断（自由文本的隐晦表述仍依赖 DLP/人工审查）；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
 6. **领域契约/审计耐久性**：请求契约由 Zod 生成并校验 OpenAPI；实体契约升级为列级注册表，生成 persisted TS 类型与 manifest，手写接口只保留视图字段，DDL 测试逐列校验（DOM-01 请求、实体类型与 SQL 部分已闭环）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
@@ -127,7 +127,7 @@
 | DATA-02 被动+自报+同伴+经理证明 | ✅ | 被动 ingestion、员工自报已有；本轮新增 peer/manager attestation（主体须为工作包参与者、不能自证、MANAGER 须为直属经理），可带证据引用、仅 attester 可撤回，console Contribution 可录入/查看 |
 | DATA-03 证据不足不默认 0 | ✅ | NEEDS_EVIDENCE + DQ blocking；新增可配置 `evidenceDefaultRule`（默认 BLOCK，显式 ZERO 才允许 0 分），AI scoring 在 proposal 前阻断缺失证据维度 |
 | DATA-04 owner/SLA/升级 | ✅ | 新增 `data_sources` 登记：owner/backup owner、响应 SLA、criticality、90 天复核到期与逾期统计；DQ 的 assignee/dueAt/escalate 继续独立存在 |
-| DATA-05 不采集活动量/最小化 | ✅/🟡 | 字段级 data map、用途/分类/保留期、跨境/处理者清单、minimization 报告已有；本轮新增技术阻断：evidence `normalizedPayload` 与 data-source 字段中的 keystroke/mouse/screen-time/app-usage/location/webcam 等活动量/监控字段返回 409 `DATA_MINIMIZATION_ACTIVITY_BLOCKED`；自由文本中的类似表述仍依赖 DLP/人工审查 |
+| DATA-05 不采集活动量/最小化 | ✅/🟡 | 字段级 data map、用途/分类/保留期、跨境/处理者清单、minimization 报告已有；技术阻断覆盖结构化活动量字段（keystroke/mouse/screen-time/app-usage/location/webcam 等键）与自由文本中的明确监控措辞（`findActivityMonitoringText`，中英文短语），evidence 与 data-source 返回 409；隐晦/改写表述仍依赖 DLP/人工审查 |
 
 ### 8. 组织采用与安全
 
@@ -312,7 +312,9 @@
 
 87. **DOM-01 实体类型生成**：`CORE_ENTITY_CONTRACTS` 升级为列级契约（`column`/`field`/`tsType`/`optional`/`exposed`/`classification`）；新增 `renderEntityTypes` 与 `scripts/generate-entity-types.ts`，从注册表生成 `packages/domain/src/entity-types.generated.ts`（9 个 `*Persisted` 接口），`types.ts` 中对应接口改为 `extends *Persisted` 只保留视图字段（`lines`/`redactedFields`/`personCode` 等）；`contracts:entities` 同时刷新 JSON manifest 与生成类型；测试校验生成物新鲜度、接口保持 thin、未暴露列不生成。
 
-88. **前端覆盖补齐**：控制台新增/扩展计算 run 创建-审批-锁定、重算请求、规则变更单、告知签收、政策咨询与员工代表、交付物提交/验收、现金门禁与财务事实、Agent 任务/审批门/工作流/建议日志、指标与薪酬模板注册表、电子签 envelope、外部身份映射、字段矩阵结构化编辑器（角色/本人/拒绝模式/6 个谓词）、同意标签与撤回、站内通知；`/admin` 与 `/admin/governance` 服务端页面继续覆盖平台与批量运维。
+88. **前端覆盖补齐**：控制台新增/扩展计算 run 创建-审批-锁定、重算请求、规则变更单、告知签收、政策咨询与员工代表、交付物提交/验收、现金门禁与财务事实、Agent 任务/审批门/工作流/建议日志、指标与薪酬模板注册表、电子签 envelope、外部身份映射、字段矩阵结构化编辑器（角色/本人/拒绝模式/6 个谓词）、同意标签与撤回、站内通知；`/admin` 与 `/admin/governance` 服务端页面继续覆盖平台与批量运维。已完成 12 个页面与 7 个弹窗/表单的浏览器冒烟，无 JS 错误，字段矩阵保存成功。
+
+89. **DATA-05 自由文本阻断**：新增 `findActivityMonitoringText`，递归扫描字符串值中的明确监控措辞（keystroke logging、screen monitoring、webcam monitoring、键盘记录、屏幕监控等中英文短语），evidence `normalizedPayload` 与 data-source 名称/字段命中返回 409 `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED`；短语级匹配避免把正常交付描述（screenshot、recording 等）误判，隐晦改写仍由 DLP/人工兜底。
 
 ## 仍建议按 P0 顺序补做
 

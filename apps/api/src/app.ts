@@ -1084,6 +1084,70 @@ export function findActivityMetricKeys(value: unknown): string[] {
   return [...found];
 }
 
+/**
+ * Explicit surveillance phrases in free text. Deliberately narrow: generic
+ * words such as "monitoring" or "screenshot" alone are legitimate evidence
+ * descriptions, so only unambiguous behaviour-surveillance phrasing blocks.
+ */
+const ACTIVITY_MONITORING_PHRASES = [
+  "keystroke logging",
+  "keystroke logger",
+  "keystroke monitoring",
+  "mouse tracking",
+  "mouse movement tracking",
+  "screen recording software",
+  "screen capture monitoring",
+  "screen monitoring",
+  "webcam monitoring",
+  "camera monitoring",
+  "webcam surveillance",
+  "app usage tracking",
+  "application usage monitoring",
+  "website usage tracking",
+  "browsing history tracking",
+  "clipboard monitoring",
+  "location tracking",
+  "location history tracking",
+  "gps tracking",
+  "productivity monitoring",
+  "employee monitoring software",
+  "键盘记录",
+  "键盘监控",
+  "鼠标追踪",
+  "屏幕监控",
+  "摄像头监控",
+  "剪贴板监控",
+  "定位追踪",
+  "位置追踪",
+  "员工监控软件",
+] as const;
+
+/**
+ * Detect activity-surveillance language in free-text payload values. This
+ * complements the structured-key block for DATA-05; the match is intentionally
+ * phrase-based so normal delivery or order text is unaffected.
+ */
+export function findActivityMonitoringText(value: unknown): string[] {
+  const found = new Set<string>();
+  const visit = (node: unknown) => {
+    if (typeof node === "string") {
+      const text = node.toLowerCase();
+      for (const phrase of ACTIVITY_MONITORING_PHRASES) {
+        if (text.includes(phrase)) found.add(phrase);
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const child of Object.values(node)) visit(child);
+  };
+  visit(value);
+  return [...found];
+}
+
 /** Detect common unmasked identifiers in an export payload. */
 export function scanExportDlp(text: string): string[] {
   const patterns: Array<{ code: string; pattern: RegExp }> = [
@@ -4046,6 +4110,12 @@ export function buildApp(
         `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
       );
     }
+    const activityText = findActivityMonitoringText(body.normalizedPayload);
+    if (activityText.length > 0) {
+      throw new ConflictError(
+        `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED:${activityText.join(",")}`,
+      );
+    }
     const person = personFilter(request);
     if (person && body.submittedBy && body.submittedBy !== person) {
       throw new ForbiddenError("cannot submit evidence as another person");
@@ -5967,6 +6037,15 @@ export function buildApp(
     if (activityFields.length > 0) {
       throw new ConflictError(
         `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
+      );
+    }
+    const activityText = findActivityMonitoringText({
+      name: body.name,
+      fields: body.fields,
+    });
+    if (activityText.length > 0) {
+      throw new ConflictError(
+        `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED:${activityText.join(",")}`,
       );
     }
     return reply.status(201).send(

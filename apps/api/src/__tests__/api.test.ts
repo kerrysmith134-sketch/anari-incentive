@@ -17,6 +17,7 @@ import {
   applyAuditRedactions,
   buildApp,
   findActivityMetricKeys,
+  findActivityMonitoringText,
   redactCalculationRunFields,
   redactPayrollBankAccounts,
   redactPayrollFields,
@@ -8806,6 +8807,64 @@ describe("vertical slice", () => {
     expect(activitySource.body.error.message).toContain(
       "DATA_MINIMIZATION_ACTIVITY_BLOCKED",
     );
+    expect(
+      findActivityMonitoringText({
+        note: "We use keystroke logging and screen monitoring to rank staff.",
+      }),
+    ).toEqual(
+      expect.arrayContaining(["keystroke logging", "screen monitoring"]),
+    );
+    expect(
+      findActivityMonitoringText({
+        note: "Delivered the site acceptance package on time.",
+      }),
+    ).toEqual([]);
+    const activityTextSource = await call("POST", "/api/v1/data-sources", {
+      code: "MONITOR",
+      name: "Workforce telemetry",
+      category: "PEOPLE",
+      ownerPersonId: OWNER,
+      slaHours: 24,
+      criticality: "HIGH",
+      containsPersonalData: false,
+      storageRegion: "cn-shanghai",
+      fields: [
+        {
+          fieldName: "activity_notes",
+          classification: "INTERNAL",
+          purpose: "Keystroke logging export",
+          retentionMonths: 12,
+        },
+      ],
+    });
+    expect(activityTextSource.status).toBe(409);
+    expect(activityTextSource.body.error.message).toContain(
+      "DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED",
+    );
+
+    const blockedEvidence = await call("POST", "/api/v1/evidence", {
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "ORDER",
+      subjectId: CYCLE,
+      sourceSystem: "TEST",
+      normalizedPayload: {
+        note: "Scored using keystroke logging and webcam monitoring.",
+      },
+    });
+    expect(blockedEvidence.status).toBe(409);
+    expect(blockedEvidence.body.error.message).toContain(
+      "DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED",
+    );
+    const allowedEvidence = await call("POST", "/api/v1/evidence", {
+      evidenceType: "DELIVERY_RECORD",
+      subjectType: "ORDER",
+      subjectId: CYCLE,
+      sourceSystem: "TEST",
+      normalizedPayload: {
+        note: "Customer signed the delivery record; order margin 18%.",
+      },
+    });
+    expect(allowedEvidence.status).toBe(201);
 
     const duplicate = await call("POST", "/api/v1/data-sources", {
       code: "CRM",
