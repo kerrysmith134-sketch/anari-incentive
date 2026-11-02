@@ -87,8 +87,9 @@ Rules:
   can narrow, not widen.
 - **Denial behaviour is explicit** (`OMIT`/`ZERO`/`REDACT`) so numeric fields are
   not silently zeroed when omission is safer.
-- Every policy write is audited with before/after; redacted responses keep
-  returning `redactedFields` so callers know data was withheld.
+- Every policy write is audited with before/after content hashes
+  (`FIELD_ACCESS_POLICIES_UPDATED`); redacted responses keep returning
+  `redactedFields` so callers know data was withheld.
 
 Implementation status: `allowRoles`, `allowSelf`, `onDeny` and `match` are
 implemented across payroll lines, calculation lines and the generic resource

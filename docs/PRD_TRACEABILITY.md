@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（338 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（339 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -143,7 +143,7 @@
 | SEC-03 字段级 ABAC/break-glass | 🟡 | payroll bank/金额字段 redaction 与 break-glass 已有；跨资源 `fieldAccessPolicies` 已覆盖 6 类资源，接入计算行、合同列表与修订历史、evidence 列表、结算批次行、AI proposal 列表/详情/审计队列，payroll 视图同时消费矩阵与旧 `payrollFieldPolicies`；evidence package 导出同样按矩阵过滤 evidence/calculation/settlement 字段（`packageHash` 仍按完整规范包计算，避免过滤后哈希漂移）；对象式策略支持 6 个 `match` 谓词（`isSubjectManager`/`sameOrgNode`/`sameLegalEntity`/`legalHoldActive`/`subjectEmploymentActive`/`viewerEmploymentActive`），谓词上下文服务端派生、每请求缓存、缺失 fail-closed；条件只收窄，admin/本人无条件放行；未支持的条件键写入时 400 |
 | SEC-04 导出 DLP/水印/审批/限流 | ✅ | 角色、CSV 公式中和、水印/SHA-256、字段 redaction、导出审批、per-tenant/actor export limit 已有；DLP 扫描身份证/银行卡/手机号，命中要求 `SENSITIVE_EXPORT` 审批，覆盖 payroll CSV/bank 与 evidence package；本轮改为默认启用（仅显式 `exportDlpEnabled=false` 可关闭），避免安全控制默认失效 |
 | SEC-05 模型供应商控制 | ✅ | 新增 model provider policy：zero-retention、DPA ref、inference region、egress allowlist、审批人；当 tenant setting `requireModelProviderPolicy=true` 时，AI proposal 与 prompt activation 强制校验 active 且完整策略；实际供应商合同/审计仍由采购与法务保存 |
-| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；本轮新增 DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
+| SEC-06 保留/DSR/法务保留/审计脱敏 | 🟡 | retention/DSAR/legal hold、audit redaction、reviewed retention disposal 已有；DSAR/本人数据包导出（限流 + hash，省略其他员工明细）；字段访问策略变更写入审计链（`FIELD_ACCESS_POLICIES_UPDATED`，before/after 内容哈希，memory 与 PostgreSQL 均校验链）；自动硬删除仍未启用，删除/更正执行保持人工/受控 |
 
 ## 本轮已补的缺口
 
@@ -315,6 +315,8 @@
 88. **前端覆盖补齐**：控制台新增/扩展计算 run 创建-审批-锁定、重算请求、规则变更单、告知签收、政策咨询与员工代表、交付物提交/验收、现金门禁与财务事实、Agent 任务/审批门/工作流/建议日志、指标与薪酬模板注册表、电子签 envelope、外部身份映射、字段矩阵结构化编辑器（角色/本人/拒绝模式/6 个谓词）、同意标签与撤回、站内通知；`/admin` 与 `/admin/governance` 服务端页面继续覆盖平台与批量运维。已完成 12 个页面与 7 个弹窗/表单的浏览器冒烟，无 JS 错误，字段矩阵保存成功。
 
 89. **DATA-05 自由文本阻断**：新增 `findActivityMonitoringText`，递归扫描字符串值中的明确监控措辞（keystroke logging、screen monitoring、webcam monitoring、键盘记录、屏幕监控等中英文短语），evidence `normalizedPayload` 与 data-source 名称/字段命中返回 409 `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED`；短语级匹配避免把正常交付描述（screenshot、recording 等）误判，隐晦改写仍由 DLP/人工兜底。
+
+90. **SEC-06 字段策略变更审计**：`IncentiveStore` 新增 `recordAuditEvent`（memory 实现哈希链、PostgreSQL 复用 appendAudit + 链触发）；`PUT /field-access-policies` 记录 `FIELD_ACCESS_POLICIES_UPDATED`，含 actor、tenant、before/after 内容哈希与 override 数量；memory 与 PG 测试均校验 `verifyAuditChain()` 仍为 true。
 
 ## 仍建议按 P0 顺序补做
 
