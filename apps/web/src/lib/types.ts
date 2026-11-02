@@ -500,6 +500,12 @@ export interface OperationsCoverageReport {
       workPackageSamples: number;
       claimDecisionHours: number;
       claimSamples: number;
+      confirmationHours: number;
+      confirmationSamples: number;
+      payrollApprovalHours: number;
+      payrollSamples: number;
+      appealResolutionHours: number;
+      appealSamples: number;
     }>;
   };
   [key: string]: unknown;

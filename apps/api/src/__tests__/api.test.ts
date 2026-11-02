@@ -7656,6 +7656,108 @@ describe("vertical slice", () => {
     expect(success.body.data.overall).toBe("PARTIAL");
   });
 
+  it("breaks confirmation, payroll and appeal cycle times down by responsibility", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    const { decisionId } = await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const run = await formalRun(workPackageId);
+    expect(run.status).toBe(201);
+    const runId = run.body.data.id as string;
+    expect((await confirmCalculation(runId, MEMBER)).status).toBe(201);
+
+    const appeal = await call("POST", "/api/v1/appeals", {
+      appellantPersonId: MEMBER,
+      targetType: "ATTRIBUTION",
+      targetId: decisionId,
+      reasonCode: "EVIDENCE_NOT_CONSIDERED",
+      statement: "A key delivery was not included in the decision",
+    });
+    expect(appeal.status).toBe(201);
+    const appealId = appeal.body.data.id as string;
+    expect(
+      (
+        await call("POST", `/api/v1/appeals/${appealId}/triage`, {
+          reviewerPersonId: ADJUDICATOR,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call("POST", `/api/v1/appeals/${appealId}/review`)).status,
+    ).toBe(200);
+    expect(
+      (
+        await call("POST", `/api/v1/appeals/${appealId}/resolve`, {
+          reviewerPersonId: ADJUDICATOR,
+          resolution: "UPHOLD",
+          rationale: "Evidence supports the original decision",
+        })
+      ).status,
+    ).toBe(200);
+
+    expect(
+      (
+        await call("POST", "/api/v1/employment-contracts", {
+          personId: MEMBER,
+          contractCode: "CT-2026-CYCLE",
+          employmentType: "FULL_TIME",
+          startDate: "2025-01-01T00:00:00Z",
+          workLocation: "Shanghai",
+          currency: "CNY",
+          fixedMonthlySalary: "8000",
+          minimumMonthlyWage: "2690",
+          taxRate: "0.1",
+          socialInsuranceRate: "0.05",
+          consentSignatureRef: "ESIGN-CYCLE",
+        })
+      ).status,
+    ).toBe(201);
+    const payrollRun = await call("POST", "/api/v1/payroll-runs", {
+      cycleId: CYCLE,
+      periodStart: "2026-10-01T00:00:00Z",
+      periodEnd: "2026-10-31T23:59:59Z",
+      currency: "CNY",
+      preparedBy: ADJUDICATOR,
+    });
+    expect(payrollRun.status).toBe(201);
+    const payrollRunId = payrollRun.body.data.id as string;
+    expect(
+      (await call("POST", `/api/v1/payroll-runs/${payrollRunId}/calculate`))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await call("POST", `/api/v1/payroll-runs/${payrollRunId}/approve`, {
+          approvedBy: OWNER,
+        })
+      ).status,
+    ).toBe(200);
+
+    const coverage = await call(
+      "GET",
+      "/api/v1/reports/operations-coverage",
+    );
+    expect(coverage.status).toBe(200);
+    const contributor = coverage.body.data.cycleTimes.byResponsibility.find(
+      (row: { responsibilityCode: string }) =>
+        row.responsibilityCode === "CONTRIBUTOR",
+    );
+    expect(contributor).toBeDefined();
+    expect(contributor.confirmationSamples).toBe(1);
+    expect(contributor.confirmationHours).toBeGreaterThanOrEqual(0);
+    expect(contributor.appealSamples).toBe(1);
+    expect(contributor.appealResolutionHours).toBeGreaterThanOrEqual(0);
+    expect(contributor.payrollSamples).toBe(1);
+    expect(contributor.payrollApprovalHours).toBeGreaterThanOrEqual(0);
+    const owner = coverage.body.data.cycleTimes.byResponsibility.find(
+      (row: { responsibilityCode: string }) =>
+        row.responsibilityCode === "OWNER",
+    );
+    expect(owner.confirmationSamples).toBe(0);
+    expect(owner.appealSamples).toBe(0);
+    expect(owner.payrollSamples).toBe(0);
+  });
+
   it("reports annual policy review metrics and validates the window", async () => {
     const report = await call("GET", "/api/v1/reports/policy-review");
     expect(report.status).toBe(200);

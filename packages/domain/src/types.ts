@@ -1077,6 +1077,15 @@ export interface OperationsCoverageReport {
       workPackageSamples: number;
       claimDecisionHours: number;
       claimSamples: number;
+      /** Confirmation elapsed time for confirmations by people in this role. */
+      confirmationHours: number;
+      confirmationSamples: number;
+      /** Approval elapsed time for payroll runs containing this role. */
+      payrollApprovalHours: number;
+      payrollSamples: number;
+      /** Resolution elapsed time for appeals raised by people in this role. */
+      appealResolutionHours: number;
+      appealSamples: number;
     }>;
   };
 }

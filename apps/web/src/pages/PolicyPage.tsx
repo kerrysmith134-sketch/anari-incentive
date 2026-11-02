@@ -686,10 +686,13 @@ export function PolicyPage() {
                         >
                           <span>{titleCase(row.responsibilityCode)}</span>
                           <span className="muted">
-                            acceptance {row.workPackageAcceptanceHours.toFixed(1)}h
-                            ({row.workPackageSamples}) · decision{" "}
-                            {row.claimDecisionHours.toFixed(1)}h (
-                            {row.claimSamples})
+                            {[
+                              `acceptance ${row.workPackageAcceptanceHours.toFixed(1)}h (${row.workPackageSamples})`,
+                              `decision ${row.claimDecisionHours.toFixed(1)}h (${row.claimSamples})`,
+                              `confirm ${row.confirmationHours.toFixed(1)}h (${row.confirmationSamples})`,
+                              `payroll ${row.payrollApprovalHours.toFixed(1)}h (${row.payrollSamples})`,
+                              `appeal ${row.appealResolutionHours.toFixed(1)}h (${row.appealSamples})`,
+                            ].join(" · ")}
                           </span>
                         </div>
                       ))}

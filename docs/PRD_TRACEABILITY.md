@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（279 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（280 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -14,7 +14,7 @@
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖 payroll/calculation 两类资源并可管理，但尚未覆盖全部资源或通用策略 DSL。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
-5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，任务类型覆盖率与员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是细分角色耗时与产品目标阈值。
+5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段，任务类型覆盖率与员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值与覆盖率趋势。
 6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
@@ -276,16 +276,18 @@
 
 69. **P0-04 success metrics**：新增 `GET /reports/success-metrics`，按 PRD 阈值计算 evidence coverage/claim decision/dispute rate/reconciliation differences，返回 PASS/FAIL/PARTIAL 与 UNAVAILABLE（员工补证时间）；Policy coverage 展示，OpenAPI/测试覆盖。
 
-70. **P0-02 responsibility cycle times**：operations coverage `cycleTimes.byResponsibility` 按 responsibilityCode 输出 acceptance/claim-decision 平均小时与样本数，Policy coverage 展示；其他流程（confirmation/payroll/appeal）的角色细分仍缺。
+70. **P0-02 responsibility cycle times**：operations coverage `cycleTimes.byResponsibility` 按 responsibilityCode 输出 acceptance/claim-decision 平均小时与样本数，Policy coverage 展示；本项先覆盖这两个阶段，其余阶段见第 72 项。
 
 71. **LG-08 DSAR data package**：新增 `GET /me/data-package` 与 `GET /dsar-requests/:id/package`，聚合本人档案/合同/工作角色/claim/提交 evidence/confirmation/appeal/评价/AI proposal/DSAR/同意标签/notice acknowledgement，返回 `packageHash` 并走 export limiter；员工只能读本人，DSAR 读取需 admin/finance。Employee home 增加下载按钮。
+
+72. **P0-02 responsibility cycle times（全阶段）**：`cycleTimes.byResponsibility` 在 acceptance/claim-decision 之外新增 confirmation（按确认人角色）、payroll approval（按 run 内工资条人员角色）、appeal resolution（按申诉人角色）三个阶段的小时数与样本数，Policy coverage 同步展示；`rolesOfPerson` 统一从工作包成员/owner 派生责任角色，无法归属时明确计为 `UNKNOWN`；新增端到端测试覆盖三个阶段。
 
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
 2. **LG-06 statutory deduction types**：执行令/员工同意/法定优先顺序、逐类型上限与税务/社保分类的完整映射。
 3. **AI residual**：自动重训/重标流水线（gold-set 刷新流程与 due 报告已落地）。
-4. **DATA/ORG residual**：员工/经理 cycle-time、任务类型覆盖率趋势、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）。
+4. **DATA/ORG residual**：任务类型覆盖率趋势（按周期/月桶）、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 的角色细分已覆盖五个阶段。
 5. **SEC residual**：跨资源通用 ABAC 引擎；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
 7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod，补齐字段级契约漂移测试。

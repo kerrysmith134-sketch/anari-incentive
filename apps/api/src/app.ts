@@ -3083,6 +3083,22 @@ export function buildApp(
     const workPackageById = new Map(
       workPackages.map((workPackage) => [workPackage.id, workPackage]),
     );
+    const rolesByPerson = new Map<string, Set<string>>();
+    const addPersonRole = (personId: string, role: string): void => {
+      const roles = rolesByPerson.get(personId) ?? new Set<string>();
+      roles.add(role);
+      rolesByPerson.set(personId, roles);
+    };
+    for (const workPackage of workPackages) {
+      for (const member of workPackage.members) {
+        addPersonRole(member.personId, member.responsibilityCode);
+      }
+      addPersonRole(workPackage.ownerPersonId, "OWNER");
+    }
+    const rolesOfPerson = (personId: string): string[] => {
+      const roles = rolesByPerson.get(personId);
+      return roles && roles.size > 0 ? [...roles] : ["UNKNOWN"];
+    };
     const acceptanceHoursByRole = new Map<string, number[]>();
     for (const workPackage of acceptedPackages) {
       const hours =
@@ -3173,6 +3189,57 @@ export function buildApp(
           (60 * 60 * 1000),
       )
       .filter((value) => Number.isFinite(value) && value >= 0);
+    const pushByRole = (
+      target: Map<string, number[]>,
+      roles: Iterable<string>,
+      hours: number,
+    ): void => {
+      if (!Number.isFinite(hours) || hours < 0) return;
+      for (const role of new Set(roles)) {
+        const values = target.get(role) ?? [];
+        values.push(hours);
+        target.set(role, values);
+      }
+    };
+    const confirmationHoursByRole = new Map<string, number[]>();
+    for (const confirmation of confirmations) {
+      if (confirmation.targetType !== "CALCULATION") continue;
+      const run = runById.get(confirmation.targetId);
+      if (!run) continue;
+      pushByRole(
+        confirmationHoursByRole,
+        rolesOfPerson(confirmation.personId),
+        (Date.parse(
+          confirmation.confirmedAt ??
+            confirmation.objectedAt ??
+            confirmation.createdAt,
+        ) -
+          Date.parse(run.calculatedAt ?? run.createdAt)) /
+          (60 * 60 * 1000),
+      );
+    }
+    const payrollApprovalHoursByRole = new Map<string, number[]>();
+    for (const run of payrollRuns) {
+      if (!run.approvedAt) continue;
+      const hours =
+        (Date.parse(run.approvedAt) - Date.parse(run.createdAt)) /
+        (60 * 60 * 1000);
+      const roles = new Set<string>();
+      for (const line of run.lines ?? []) {
+        rolesOfPerson(line.personId).forEach((role) => roles.add(role));
+      }
+      pushByRole(payrollApprovalHoursByRole, roles, hours);
+    }
+    const appealResolutionHoursByRole = new Map<string, number[]>();
+    for (const appeal of appeals) {
+      if (!appeal.resolvedAt) continue;
+      pushByRole(
+        appealResolutionHoursByRole,
+        rolesOfPerson(appeal.appellantPersonId),
+        (Date.parse(appeal.resolvedAt) - Date.parse(appeal.createdAt)) /
+          (60 * 60 * 1000),
+      );
+    }
     const average = (values: number[]): number =>
       values.length === 0
         ? 0
@@ -3184,6 +3251,9 @@ export function buildApp(
     const responsibilityCycleRoles = new Set([
       ...acceptanceHoursByRole.keys(),
       ...claimDecisionHoursByRole.keys(),
+      ...confirmationHoursByRole.keys(),
+      ...payrollApprovalHoursByRole.keys(),
+      ...appealResolutionHoursByRole.keys(),
     ]);
     const cycleTimesByResponsibility = [...responsibilityCycleRoles]
       .sort()
@@ -3191,12 +3261,24 @@ export function buildApp(
         const acceptance = acceptanceHoursByRole.get(responsibilityCode) ?? [];
         const claimHours =
           claimDecisionHoursByRole.get(responsibilityCode) ?? [];
+        const confirmationHoursForRole =
+          confirmationHoursByRole.get(responsibilityCode) ?? [];
+        const payrollHoursForRole =
+          payrollApprovalHoursByRole.get(responsibilityCode) ?? [];
+        const appealHoursForRole =
+          appealResolutionHoursByRole.get(responsibilityCode) ?? [];
         return {
           responsibilityCode,
           workPackageAcceptanceHours: average(acceptance),
           workPackageSamples: acceptance.length,
           claimDecisionHours: average(claimHours),
           claimSamples: claimHours.length,
+          confirmationHours: average(confirmationHoursForRole),
+          confirmationSamples: confirmationHoursForRole.length,
+          payrollApprovalHours: average(payrollHoursForRole),
+          payrollSamples: payrollHoursForRole.length,
+          appealResolutionHours: average(appealHoursForRole),
+          appealSamples: appealHoursForRole.length,
         };
       });
     const report: OperationsCoverageReport = {

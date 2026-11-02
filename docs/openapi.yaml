@@ -7060,7 +7060,10 @@ paths:
         Tenant-wide counts for accepted work packages with work-package
         evidence, claim confirmation, deliverables awaiting acceptance,
         approval requests, data-quality open/overdue/escalated issues and
-        DSARs. Ratios are between 0 and 1.
+        DSARs. Ratios are between 0 and 1. `cycleTimes.byResponsibility`
+        breaks acceptance, claim decision, confirmation, payroll approval and
+        appeal resolution elapsed hours down by responsibility code; payroll
+        approval is attributed to every role with a pay line in the run.
       responses:
         "200":
           description: Operations coverage report
