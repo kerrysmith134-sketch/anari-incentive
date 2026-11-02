@@ -8952,6 +8952,10 @@ components:
           type: string
           enum: [LOW, MEDIUM, HIGH, CRITICAL]
           default: MEDIUM
+        zeroScoreRationale:
+          type: string
+          minLength: 3
+          description: Required when any dimension scores zero; protects unpriced work.
         requestedBy:
           $ref: "#/components/schemas/Uuid"
 

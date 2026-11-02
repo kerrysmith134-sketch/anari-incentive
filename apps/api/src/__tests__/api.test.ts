@@ -6865,9 +6865,25 @@ describe("vertical slice", () => {
       "/api/v1/platform/tenants/tenant-demo/settings",
       { evidenceDefaultRule: "ZERO" },
     );
-    const allowed = await call("POST", "/api/v1/ai-score-proposals", body);
+    const noZeroRationale = await call(
+      "POST",
+      "/api/v1/ai-score-proposals",
+      body,
+    );
+    expect(noZeroRationale.status).toBe(409);
+    expect(noZeroRationale.body.error.message).toContain(
+      "AI_ZERO_SCORE_RATIONALE_REQUIRED",
+    );
+    const allowed = await call("POST", "/api/v1/ai-score-proposals", {
+      ...body,
+      zeroScoreRationale:
+        "Collaboration was not observed this cycle; keep it open for human review.",
+    });
     expect(allowed.status).toBe(201);
     expect(allowed.body.data.scores.COLLABORATION).toBe(0);
+    expect(allowed.body.data.zeroScoreRationale).toContain(
+      "not observed",
+    );
   });
 
   it("requires a passed red-team run before prompt activation when enabled", async () => {

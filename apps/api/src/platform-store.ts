@@ -893,6 +893,7 @@ export interface PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal>;
   listAiScoreProposals(
@@ -4986,6 +4987,7 @@ export class MemoryPlatformStore implements PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
     if (!this.tenants.has(input.tenantId)) {
@@ -5016,6 +5018,7 @@ export class MemoryPlatformStore implements PlatformStore {
       riskTier: input.riskTier ?? "MEDIUM",
       secondReviewRequired:
         input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
+      zeroScoreRationale: input.zeroScoreRationale,
       status: "PENDING",
       requestedBy: input.requestedBy,
       auditSample: false,
@@ -11324,6 +11327,7 @@ export class PgPlatformStore implements PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
     await this.assertTenant(input.tenantId);
@@ -11334,9 +11338,9 @@ export class PgPlatformStore implements PlatformStore {
            model_prompt_id, model_provider, model_name, prompt_version,
            dimensions, scores, overall_score, confidence, rationale,
            evidence_refs, evidence_snapshot_hash, gate_metrics, risk_tier,
-           second_review_required, status, requested_by)
+           second_review_required, zero_score_rationale, status, requested_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-                 $18,$19,'PENDING',$20)
+                 $18,$19,$20,'PENDING',$21)
          RETURNING *`,
         [
           randomUUID(),
@@ -11358,6 +11362,7 @@ export class PgPlatformStore implements PlatformStore {
           JSON.stringify(input.gateMetrics),
           input.riskTier ?? "MEDIUM",
           input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
+          input.zeroScoreRationale ?? null,
           input.requestedBy ?? null,
         ],
       );
@@ -14659,6 +14664,7 @@ export class PgPlatformStore implements PlatformStore {
       gateMetrics: row.gate_metrics ?? {},
       riskTier: row.risk_tier ?? "MEDIUM",
       secondReviewRequired: Boolean(row.second_review_required),
+      zeroScoreRationale: row.zero_score_rationale ?? undefined,
       status: row.status,
       requestedBy: row.requested_by ?? undefined,
       decidedBy: row.decided_by ?? undefined,

@@ -12,7 +12,7 @@
 
 1. **法律门禁的最后一公里**：LG-05 仍缺未来生效排期与外部电子签服务；LG-06 已有最低工资、扣款上限、deduction order/breakdown 与 tax/social 分列，但仍缺法定扣款类型/逐类型上限。
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；已有 reader/actor 进程级隔离、red-team 门禁与审阅分析；仍缺 per-task/per-tenant 强制隔离。
-3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；仍缺“未计价工作不得默认为 0”的强制规则（INC-06）。
+3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；已有多资源 payroll field policy；仍缺跨资源通用 ABAC 引擎。DLP/批量导出限流与 audit redaction 已实现，自动 retention deletion 仍明确不启用。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；仍缺员工/经理 cycle-time 指标、DATA-05 的字段级最小化技术证明、受保护属性 subgroup impact。
 6. **领域契约/审计耐久性**：TS/Zod/OpenAPI/SQL 仍是多份来源（DOM-01）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
@@ -70,7 +70,7 @@
 | INC-03 平滑阈值/不追溯 | ✅ | 已有 ACKNOWLEDGED 结算周期禁止 ledger adjustment/reversal；“本轮新增 contract `smoothingThresholdRate`，payroll 对比上一期 incentive，变化超阈阻断行并记录 prior/change rate；跨周期分摊策略仍可由合同阈值表达，但 signed-cycle 全面锁定仍靠结算 guard |
 | INC-04 浮动上限/最低工资 | ✅ | Pool cap、最低工资、合同级 ledger 扣款上限；本轮新增 `variableShareCapRate`，按 gross 计算个体浮动占比上限，超出则 payroll 行与 run 阻断 |
 | INC-05 团队池 | ✅ | Policy DSL 支持池分配/多人权重 |
-| INC-06 保护未计价工作 | 🟡 | Rubric dimensions 可配置，但无“未计价工作不得默认为 0”的强制规则 |
+| INC-06 保护未计价工作 | ✅ | AI scoring 对任何 0 分维度要求 `zeroScoreRationale`，否则 409；0 分理由持久化并在 proposal 中可见，避免未计价/未观察工作被静默默认为 0 |
 | INC-07 不排名/不展示同事金额 | ✅ | 员工数据范围过滤；计算行/订单经济性脱敏 |
 | INC-08 机动/战略池治理 | ✅ | BudgetPool/Allocation 审批已有；本轮新增 discretionary pool review：≥2 人委员会、独立员工观察员、公开 selection criteria 与 decision notes、reviewer 记录，console 可录入 |
 | INC-09 A 类池/成本核算 | ⚪ | 明确非目标，未实现 |
@@ -234,6 +234,8 @@
 
 48. **INC-02 compensation templates**：新增 role compensation template registry 与合同引用校验（类型/币种/薪资区间），迁移 `056_compensation_templates.sql`，console 合同表单可填 template code。
 
+49. **INC-06 zero-score protection**：0 分维度必须提供 `zeroScoreRationale`，否则 409；理由持久化到 proposal。迁移 `057_zero_score_rationale.sql`。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
@@ -241,7 +243,7 @@
 3. **AI residual**：per-task/per-tenant reader/actor 强制隔离、gold-set 自动刷新。
 4. **DATA/ORG residual**：员工/经理 cycle-time、任务类型覆盖率趋势、DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）。
 5. **SEC residual**：跨资源通用 ABAC 引擎；自动 retention deletion 仍明确不启用。
-6. **INC residual**：INC-06 未计价工作强制规则。
+6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
 7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod，补齐字段级契约漂移测试。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 

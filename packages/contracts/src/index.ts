@@ -940,6 +940,7 @@ export const createAiScoreProposalSchema = z.object({
   dimensions: z.array(z.string().min(1)).min(1),
   evidence: z.array(scoringEvidenceSchema).min(1),
   riskTier: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
+  zeroScoreRationale: z.string().min(3).optional(),
   requestedBy: uuidSchema.optional(),
 });
 export type CreateAiScoreProposalBody = z.infer<

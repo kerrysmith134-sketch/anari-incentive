@@ -5533,6 +5533,14 @@ export function buildApp(
         `AI_EVIDENCE_INSUFFICIENT:${scored.insufficientEvidence.join(",")}; add evidence or set evidenceDefaultRule=ZERO`,
       );
     }
+    const zeroDimensions = Object.entries(scored.scores)
+      .filter(([, value]) => value === 0)
+      .map(([dimension]) => dimension);
+    if (zeroDimensions.length > 0 && !body.zeroScoreRationale?.trim()) {
+      throw new ConflictError(
+        `AI_ZERO_SCORE_RATIONALE_REQUIRED:${zeroDimensions.join(",")}; unpriced or unobserved work must not be silently defaulted to zero`,
+      );
+    }
     const proposal = await platformStore.createAiScoreProposal({
       tenantId,
       cycleId: body.cycleId,
@@ -5551,6 +5559,7 @@ export function buildApp(
       evidenceSnapshotHash: sha256(body.evidence),
       gateMetrics: evaluation.metrics,
       riskTier: body.riskTier ?? "MEDIUM",
+      zeroScoreRationale: body.zeroScoreRationale,
       requestedBy: body.requestedBy,
     });
     countEvent("ai_score_proposal_created");

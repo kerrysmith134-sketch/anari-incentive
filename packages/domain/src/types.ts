@@ -1351,6 +1351,7 @@ export interface AiScoreProposal {
   gateMetrics: Record<string, unknown>;
   riskTier: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   secondReviewRequired: boolean;
+  zeroScoreRationale?: string;
   status: AiScoreProposalStatus;
   requestedBy?: UUID;
   decidedBy?: UUID;
