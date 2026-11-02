@@ -34,6 +34,8 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  ClawbackCase,
+  ClawbackSchedule,
   ConflictDeclaration,
   DataClassification,
   DataMapReport,
@@ -232,6 +234,12 @@ export function SettingsPage() {
     session.personId,
   );
   const [waiveTarget, setWaiveTarget] = useState<ClawbackCase | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<ClawbackCase | null>(
+    null,
+  );
+  const [schedule, setSchedule] = useState<ClawbackSchedule | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
   const [poolReviewOpen, setPoolReviewOpen] = useState(false);
   const [poolReviewSaving, setPoolReviewSaving] = useState(false);
@@ -815,6 +823,26 @@ export function SettingsPage() {
       );
     } finally {
       setClawbackSaving(false);
+    }
+  }
+
+  async function openSchedule(clawback: ClawbackCase) {
+    setScheduleTarget(clawback);
+    setSchedule(null);
+    setScheduleError(null);
+    setScheduleLoading(true);
+    try {
+      setSchedule(
+        await api<ClawbackSchedule>(
+          `/api/v1/clawback-cases/${clawback.id}/schedule`,
+        ),
+      );
+    } catch (error) {
+      setScheduleError(
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setScheduleLoading(false);
     }
   }
 
@@ -3232,6 +3260,15 @@ export function SettingsPage() {
                             Approve
                           </Button>
                         ) : null}
+                        {clawback.status === "APPROVED" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void openSchedule(clawback)}
+                          >
+                            Schedule
+                          </Button>
+                        ) : null}
                         {clawback.status === "DRAFT" ||
                         clawback.status === "APPROVED" ? (
                           <Button
@@ -3408,6 +3445,118 @@ export function SettingsPage() {
             />
           </FormField>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(scheduleTarget)}
+        title="Clawback installment schedule"
+        description="Checks each installment against the active contract's deduction cap and minimum-wage floor."
+        onClose={() => {
+          setScheduleTarget(null);
+          setSchedule(null);
+          setScheduleError(null);
+        }}
+        wide
+        footer={
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setScheduleTarget(null);
+              setSchedule(null);
+              setScheduleError(null);
+            }}
+          >
+            Close
+          </Button>
+        }
+      >
+        {scheduleLoading ? (
+          <LoadingRows rows={3} />
+        ) : scheduleError ? (
+          <ErrorNotice
+            error={new Error(scheduleError)}
+            onRetry={
+              scheduleTarget
+                ? () => void openSchedule(scheduleTarget)
+                : undefined
+            }
+          />
+        ) : !schedule ? null : !schedule.available ? (
+          <InfoNotice tone="warning">
+            No active contract in {scheduleTarget?.currency} is available for
+            this person, so the minimum-wage and deduction-cap checks cannot be
+            completed. Do not collect before an authorised review.
+          </InfoNotice>
+        ) : (
+          <div className="stack">
+            <InfoNotice
+              tone={
+                schedule.blockedCount && schedule.blockedCount > 0
+                  ? "warning"
+                  : "success"
+              }
+            >
+              {schedule.blockedCount} blocked installment(s) · cap{" "}
+              {formatMoney(
+                schedule.deductionCapAmount ?? "0",
+                schedule.currency ?? "CNY",
+              )}{" "}
+              · minimum wage{" "}
+              {formatMoney(
+                schedule.minimumMonthlyWage ?? "0",
+                schedule.currency ?? "CNY",
+              )}
+            </InfoNotice>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="cell-num">#</th>
+                    <th>Due</th>
+                    <th className="cell-num">Amount</th>
+                    <th className="cell-num">Remaining wage</th>
+                    <th>Checks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schedule.installments.map((installment) => (
+                    <tr key={installment.sequence}>
+                      <td className="cell-num">{installment.sequence}</td>
+                      <td>{formatDate(installment.dueDate)}</td>
+                      <td className="cell-num">
+                        {formatMoney(
+                          installment.amount,
+                          schedule.currency ?? "CNY",
+                        )}
+                      </td>
+                      <td className="cell-num">
+                        {formatMoney(
+                          installment.remainingWage,
+                          schedule.currency ?? "CNY",
+                        )}
+                      </td>
+                      <td>
+                        <Badge
+                          status={
+                            installment.minimumWagePassed &&
+                            installment.deductionCapPassed
+                              ? "PASSED"
+                              : "BLOCKED"
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {schedule.scheduleHash ? (
+              <p className="subtle" style={{ fontSize: 11.5 }}>
+                Schedule hash {schedule.scheduleHash.slice(0, 24)}…
+              </p>
+            ) : null}
+          </div>
+        )}
       </Modal>
 
       <Panel

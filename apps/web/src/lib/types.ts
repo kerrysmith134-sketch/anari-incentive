@@ -763,6 +763,34 @@ export interface ClawbackCase {
   updatedAt: string;
 }
 
+export interface ClawbackSchedule {
+  caseId: Uuid;
+  caseStatus: string;
+  available: boolean;
+  reason?: string;
+  contractId?: Uuid;
+  currency?: string;
+  totalAmount?: DecimalString;
+  installmentMonths?: number;
+  fixedMonthlySalary?: DecimalString;
+  minimumMonthlyWage?: DecimalString;
+  deductionCapRate?: DecimalString;
+  deductionCapAmount?: DecimalString;
+  minimumWagePassed?: boolean;
+  deductionCapPassed?: boolean;
+  blockedCount?: number;
+  scheduleHash?: string;
+  installments: Array<{
+    sequence: number;
+    dueDate: string;
+    amount: DecimalString;
+    remainingWage: DecimalString;
+    deductionCapAmount: DecimalString;
+    minimumWagePassed: boolean;
+    deductionCapPassed: boolean;
+  }>;
+}
+
 export interface BreakGlassGrant {
   id: Uuid;
   scope: "PAYROLL_BANK_ACCOUNT";

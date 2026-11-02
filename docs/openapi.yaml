@@ -699,6 +699,30 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/clawback-cases/{id}/schedule:
+    get:
+      tags: [Payroll]
+      summary: Preview clawback installments against wage-protection limits
+      description: |
+        Uses the active employment contract to check each installment against
+        the 20% deduction cap and the minimum-wage floor. A blocked installment
+        must not be collected without a lawful adjustment.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Installment schedule and checks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/break-glass-grants:
     get:
       tags: [Compliance]

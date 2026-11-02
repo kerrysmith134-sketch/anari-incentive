@@ -6683,6 +6683,99 @@ describe("vertical slice", () => {
     expect(list.body.data).toHaveLength(1);
   });
 
+  it("checks each clawback installment against deduction and minimum-wage limits", async () => {
+    const contract = await call("POST", "/api/v1/employment-contracts", {
+      personId: MEMBER,
+      contractCode: "CLAWBACK-CONTRACT-1",
+      employmentType: "FULL_TIME",
+      startDate: "2026-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "10000",
+      minimumMonthlyWage: "2000",
+      deductionCapRate: "0.2",
+      consentSignatureRef: "CLAWBACK-CONTRACT-ESIGN",
+    });
+    expect(contract.status).toBe(201);
+    const compliant = await call("POST", "/api/v1/clawback-cases", {
+      personId: MEMBER,
+      amount: "3000",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Three equal installments under the cap",
+      consentSignatureRef: "CLAWBACK-SCHEDULE-1",
+      installmentMonths: 3,
+      requestedBy: OWNER,
+    });
+    expect(compliant.status).toBe(201);
+    expect(
+      (
+        await call(
+          "POST",
+          `/api/v1/clawback-cases/${compliant.body.data.id}/approve`,
+          { approvedBy: ADJUDICATOR },
+        )
+      ).status,
+    ).toBe(200);
+    const schedule = await call(
+      "GET",
+      `/api/v1/clawback-cases/${compliant.body.data.id}/schedule`,
+    );
+    expect(schedule.status).toBe(200);
+    expect(schedule.body.data.available).toBe(true);
+    expect(schedule.body.data.deductionCapAmount).toBe("2000");
+    expect(schedule.body.data.blockedCount).toBe(0);
+    expect(schedule.body.data.minimumWagePassed).toBe(true);
+    expect(schedule.body.data.installments).toHaveLength(3);
+    expect(schedule.body.data.installments[0].amount).toBe("1000");
+    expect(schedule.body.data.scheduleHash).toBeTruthy();
+
+    const excessive = await call("POST", "/api/v1/clawback-cases", {
+      personId: MEMBER,
+      amount: "9000",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Installments exceed the monthly deduction cap",
+      consentSignatureRef: "CLAWBACK-SCHEDULE-2",
+      installmentMonths: 3,
+      requestedBy: OWNER,
+    });
+    await call(
+      "POST",
+      `/api/v1/clawback-cases/${excessive.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    const blocked = await call(
+      "GET",
+      `/api/v1/clawback-cases/${excessive.body.data.id}/schedule`,
+    );
+    expect(blocked.body.data.deductionCapPassed).toBe(false);
+    expect(blocked.body.data.blockedCount).toBe(3);
+    expect(blocked.body.data.installments[0].deductionCapPassed).toBe(false);
+
+    const noContract = await call("POST", "/api/v1/clawback-cases", {
+      personId: OWNER,
+      amount: "100",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "No active contract exists",
+      consentSignatureRef: "CLAWBACK-SCHEDULE-3",
+      installmentMonths: 1,
+      requestedBy: MEMBER,
+    });
+    await call(
+      "POST",
+      `/api/v1/clawback-cases/${noContract.body.data.id}/approve`,
+      { approvedBy: ADJUDICATOR },
+    );
+    const unavailable = await call(
+      "GET",
+      `/api/v1/clawback-cases/${noContract.body.data.id}/schedule`,
+    );
+    expect(unavailable.body.data.available).toBe(false);
+    expect(unavailable.body.data.reason).toBe("NO_ACTIVE_CONTRACT_FOR_CURRENCY");
+  });
+
   it("applies tenant-configurable field access policies to payroll", () => {
     const run = {
       id: "run-policy",

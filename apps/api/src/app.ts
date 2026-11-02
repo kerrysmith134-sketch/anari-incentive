@@ -3689,6 +3689,109 @@ export function buildApp(
     );
   });
 
+  app.get("/api/v1/clawback-cases/:id/schedule", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tenantId = tenantOf(request);
+    const cases = await platformStore.listClawbackCases(tenantId);
+    const clawback = cases.find((candidate) => candidate.id === idOf(request));
+    if (!clawback) {
+      throw new NotFoundError(`ClawbackCase ${idOf(request)} not found`);
+    }
+    const contracts = await platformStore.listEmploymentContracts(
+      tenantId,
+      clawback.personId,
+    );
+    const contract = contracts.find(
+      (candidate) =>
+        candidate.status === "ACTIVE" &&
+        candidate.currency === clawback.currency &&
+        Date.parse(candidate.startDate) <= Date.now() &&
+        (!candidate.endDate ||
+          Date.parse(candidate.endDate) >= Date.now()),
+    );
+    if (!contract) {
+      return data(
+        {
+          caseId: clawback.id,
+          caseStatus: clawback.status,
+          available: false,
+          reason: "NO_ACTIVE_CONTRACT_FOR_CURRENCY",
+          installments: [],
+        },
+        request,
+      );
+    }
+    const fixed = parseDecimal(contract.fixedMonthlySalary);
+    const minimum = parseDecimal(contract.minimumMonthlyWage);
+    const capRate = parseDecimal(contract.deductionCapRate || "0.2");
+    const capByRate = (fixed * capRate) / 1_000_000n;
+    const capByMinimum = fixed - minimum;
+    const capCandidate = capByRate < capByMinimum ? capByRate : capByMinimum;
+    const capAmount = capCandidate > 0n ? capCandidate : 0n;
+    const total = parseDecimal(clawback.amount);
+    const months = BigInt(clawback.installmentMonths);
+    const base = total / months;
+    const anchor = new Date(clawback.approvedAt ?? clawback.createdAt);
+    let allocated = 0n;
+    let blockedCount = 0;
+    const installments = Array.from(
+      { length: clawback.installmentMonths },
+      (_, index) => {
+        const amount =
+          index === clawback.installmentMonths - 1
+            ? total - allocated
+            : base;
+        allocated += amount;
+        const remainingWage = fixed - amount;
+        const minimumWagePassed = remainingWage >= minimum;
+        const deductionCapPassed = amount <= capAmount;
+        if (!minimumWagePassed || !deductionCapPassed) blockedCount += 1;
+        const dueDate = new Date(anchor);
+        dueDate.setUTCMonth(dueDate.getUTCMonth() + index);
+        return {
+          sequence: index + 1,
+          dueDate: dueDate.toISOString().slice(0, 10),
+          amount: formatDecimal(amount),
+          remainingWage: formatDecimal(remainingWage),
+          deductionCapAmount: formatDecimal(capAmount),
+          minimumWagePassed,
+          deductionCapPassed,
+        };
+      },
+    );
+    return data(
+      {
+        caseId: clawback.id,
+        caseStatus: clawback.status,
+        available: true,
+        contractId: contract.id,
+        currency: clawback.currency,
+        totalAmount: formatDecimal(total),
+        installmentMonths: clawback.installmentMonths,
+        fixedMonthlySalary: contract.fixedMonthlySalary,
+        minimumMonthlyWage: contract.minimumMonthlyWage,
+        deductionCapRate: formatDecimal(capRate),
+        deductionCapAmount: formatDecimal(capAmount),
+        minimumWagePassed: installments.every(
+          (installment) => installment.minimumWagePassed,
+        ),
+        deductionCapPassed: installments.every(
+          (installment) => installment.deductionCapPassed,
+        ),
+        blockedCount,
+        scheduleHash: sha256({
+          caseId: clawback.id,
+          contractId: contract.id,
+          total: formatDecimal(total),
+          months: clawback.installmentMonths,
+          installments,
+        }),
+        installments,
+      },
+      request,
+    );
+  });
+
   app.post("/api/v1/budget-pools/:id/discretionary-reviews", async (request, reply) => {
       requireRoles(request, "manager", "finance");
       const body = parse(
