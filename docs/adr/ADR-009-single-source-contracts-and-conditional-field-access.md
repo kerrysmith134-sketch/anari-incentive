@@ -39,20 +39,19 @@ than a big-bang rewrite:
   guarded by `tests/ddl-contract.test.ts`, which parses the migration chain and
   asserts the money-path tables still contain their required columns, that no
   column is defined twice and that no migration alters an unknown table.
-- **Phase 2 (in progress):** `packages/domain/src/entity-contracts.ts` now
-  declares the complete column set (and PII/FINANCIAL/AUDIT classification)
-  for the nine money-path/audit tables. `npm run contracts:entities` emits
-  `docs/generated/entity-contracts.json`, and the DDL test compares every
-  column in the parsed migrations against this registry, failing on any
-  difference or stale manifest. In addition,
-  `tests/domain-entity-interface.test.ts` parses the TypeScript interfaces,
-  converts fields to snake_case, and verifies both directions against the
-  registry, with explicit view-only, alias and DB-only exceptions that must
-  stay current. Still to do: generate the interfaces from the registry rather
-  than only verifying them.
-- **Phase 3:** migrate remaining tables in batches, keeping the migration
-  parser as the independent verifier. A registry change that is not reflected
-  in DDL (or vice versa) fails the suite.
+- **Phase 2 (done):** `packages/domain/src/entity-contracts.ts` declares the
+  column contract for the nine money-path/audit tables: PostgreSQL column,
+  TypeScript field, type text, nullability, whether the column is exposed on
+  the domain type, and PII/FINANCIAL/AUDIT classification.
+  `npm run contracts:entities` emits both
+  `docs/generated/entity-contracts.json` and
+  `packages/domain/src/entity-types.generated.ts`. The hand-written interfaces
+  in `types.ts` now only `extends *Persisted` and add read-only view fields
+  (`lines`, `redactedFields`, `personCode`, …). Tests fail on a stale generated
+  file, on an interface that re-declares persisted fields, or when the parsed
+  migrations differ from the registry by a single column.
+- **Phase 3:** extend the registry to remaining tables in batches. A registry
+  change that is not reflected in DDL (or vice versa) fails the suite.
 
 We deliberately do **not** generate migrations from the registry. DDL carries
 constraints, triggers, grants and data migrations that are not expressible as
@@ -125,8 +124,10 @@ implemented by this ADR or by the entity registry.
 
 - The DDL guard already catches accidental column loss and duplicate column
   definitions without requiring a database in unit tests.
-- Phase 2 introduces generated artifacts; contributors must run the generator
-  after changing a core entity, exactly as they run `contracts:manifest`.
+- Phase 2 introduces generated artifacts (`entity-contracts.json`,
+  `entity-types.generated.ts`); contributors must run `contracts:entities`
+  after changing a core entity, just as they run `contracts:manifest` after a
+  request schema change.
 - Conditional policies make the access matrix more expressive, at the cost of
   a per-request evaluation that must stay deterministic and cheap. Conditions
   are restricted to fields already loaded with the record; no extra queries.

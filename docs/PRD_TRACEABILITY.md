@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（327 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（329 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -15,7 +15,7 @@
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款与逐期工资保护、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批/默认 DLP、provider policy、audit anchor 与 durability readiness；`fieldAccessPolicies` 已覆盖六类资源并可管理，通用 `redactResourceFields` 便于继续扩展；对象式策略与 6 类 `match` 谓词已实现（服务端上下文、fail-closed、admin/本人无条件放行）。自动 retention deletion 仍明确不启用，保留 reviewed disposal。
 5. **运营度量与组织证据**：ORG-01..05 已产品化；cycle-time 已覆盖 acceptance/claim/confirmation/payroll/appeal，并按 responsibilityCode 细分全部五个阶段；证据覆盖率已有按月与按任务类型的趋势；员工专用首页已补齐；DATA-05 对结构化活动量字段有技术阻断，自由文本仍依赖 DLP；subgroup impact 在单独同意标签下可聚合（小样本抑制/4-5 规则），无标签时明确不可用；剩余是产品目标阈值。
-6. **领域契约/审计耐久性**：请求契约已收敛为 Zod 单一来源并生成 manifest、由测试校验 OpenAPI 对齐；实体列契约已注册并生成 manifest，DDL 测试逐列校验，领域接口漂移测试校验 TS 字段（DOM-01 请求、实体、接口与 SQL 部分）；TS 类型从注册表生成仍待完成；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
+6. **领域契约/审计耐久性**：请求契约由 Zod 生成并校验 OpenAPI；实体契约升级为列级注册表，生成 persisted TS 类型与 manifest，手写接口只保留视图字段，DDL 测试逐列校验（DOM-01 请求、实体类型与 SQL 部分已闭环）；WORM/双副本/外部 TSA 已有 anchor + runbook，但实际部署证据不在仓库内（MON-07）。
 
 > 结论口径：**核心 P0 可运行且大部分合规控制已落地；不能把剩余法律/安全/度量项称为“全部完成”**。这些剩余项中，LG-05 外部电子签、WORM/TSA 存储、供应商 DPA 证据、执行令法律映射和细分角色目标需要产品/法务/部署决策或外部证据，不能只靠仓库代码证明。
 
@@ -107,7 +107,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DOM-01 单一契约 | 🟡 | 请求契约已收敛为 Zod 单一来源（22 个 schema → 生成 manifest → 校验 OpenAPI）；实体列契约 `CORE_ENTITY_CONTRACTS`（9 张资金路径/审计表，列 + PII/FINANCIAL/AUDIT 分类）→ 生成 `docs/generated/entity-contracts.json`，DDL 测试逐列完全一致；新增领域接口↔实体注册表漂移测试：解析 9 个 TS interface，校验字段（camel→snake）与注册表互相对应，view-only/别名/DB-only 例外显式声明并防过期。TS 类型仍手写，尚未从注册表生成 |
+| DOM-01 单一契约 | ✅ | 请求契约：22 个 Zod schema → 生成 manifest → 校验 OpenAPI。实体契约：`CORE_ENTITY_CONTRACTS` 声明 9 张核心表的列、TS 字段名/类型、可空性、是否暴露与 PII/FINANCIAL/AUDIT 分类；`npm run contracts:entities` 同时生成 `docs/generated/entity-contracts.json` 与 `packages/domain/src/entity-types.generated.ts`；`types.ts` 中 9 个接口只 `extends *Persisted` 并保留视图字段，生成物新鲜度测试保证不漂移；DDL 测试解析全部迁移并与注册表逐列一致。迁移按 ADR-009 保持手写并由测试校验，不生成 |
 | DOM-02 状态机 | ✅ | `packages/domain/src/states.ts` 与 PRD 状态一致 |
 | DOM-03 必须对象 | ✅ | MetricDefinition、Snapshot、Notice、Recalculation、Budget、RuleChangeOrder、ModelEvaluationRun、SettlementExport、AuditChain、Integration 对象均存在 |
 | MON-01 审批一次性 | ✅ | consumed_at/by、target 校验、payload hash、consume |
@@ -310,6 +310,8 @@
 
 86. **SEC-03 evidence package 字段过滤**：`GET /evidence-packages/:cycleId` 过去直接返回原始 evidence/calculation/settlement，绕过读路径的字段矩阵；现按 viewer 角色、tenant 策略与 match 上下文过滤 evidence nodes、calculation runs 与 settlement batches，`packageHash` 仍基于完整规范包计算，DLP 扫描针对过滤后的导出内容；新增 manager/admin 对照测试（manager 被脱敏、admin 完整）。
 
+87. **DOM-01 实体类型生成**：`CORE_ENTITY_CONTRACTS` 升级为列级契约（`column`/`field`/`tsType`/`optional`/`exposed`/`classification`）；新增 `renderEntityTypes` 与 `scripts/generate-entity-types.ts`，从注册表生成 `packages/domain/src/entity-types.generated.ts`（9 个 `*Persisted` 接口），`types.ts` 中对应接口改为 `extends *Persisted` 只保留视图字段（`lines`/`redactedFields`/`personCode` 等）；`contracts:entities` 同时刷新 JSON manifest 与生成类型；测试校验生成物新鲜度、接口保持 thin、未暴露列不生成。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
@@ -318,7 +320,7 @@
 4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
 5. **SEC residual**：ADR-009 设计的 6 个 `match` 谓词已全部实现；后续新增受策略保护的资源时需同时登记资源→保留期类别映射，自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
-7. **DOM-01**：请求契约由 Zod 生成并校验；实体列契约 + 生成 manifest + 迁移逐列校验 + 领域接口漂移测试已落地；下一步从注册表生成 TS 类型（当前为独立校验而非生成），迁移继续手写。
+7. **DOM-01 residual**：无代码缺口；请求与实体类型均由注册表/ manifest 生成或校验，迁移按 ADR-009 手写并由测试校验。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
 这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。
