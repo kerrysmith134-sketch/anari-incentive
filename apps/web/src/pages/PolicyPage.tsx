@@ -12,6 +12,8 @@ import {
   Panel,
   Tabs,
   TextInput,
+  Select,
+  Textarea,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -20,6 +22,7 @@ import { api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import {
+  displayName,
   formatDate,
   formatDateTime,
   formatPercent,
@@ -35,6 +38,12 @@ import type {
   SubgroupImpactReport,
   SuccessMetricsReport,
 } from "../lib/types.js";
+import type {
+  EmployeeNoticeView,
+  EmployeeRepresentationView,
+  NoticeAcknowledgementView,
+  RuleChangeOrderView,
+} from "../lib/ops-types.js";
 
 export function PolicyPage() {
   useDocumentTitle("Policy");
@@ -58,6 +67,53 @@ export function PolicyPage() {
   const [gateApprovalId, setGateApprovalId] = useState("");
   const [gateError, setGateError] = useState<string | null>(null);
   const [gateSubmitting, setGateSubmitting] = useState(false);
+  const ruleChanges = useApiQuery<RuleChangeOrderView[]>(
+    "/api/v1/rule-change-orders",
+  );
+  const notices = useApiQuery<EmployeeNoticeView[]>("/api/v1/notices");
+  const representations = useApiQuery<EmployeeRepresentationView[]>(
+    "/api/v1/employee-representations",
+  );
+  const [ruleOpen, setRuleOpen] = useState(false);
+  const [rulePolicyCode, setRulePolicyCode] = useState("");
+  const [ruleFromVersionId, setRuleFromVersionId] = useState("");
+  const [ruleToVersionId, setRuleToVersionId] = useState("");
+  const [ruleChangeType, setRuleChangeType] = useState("");
+  const [ruleReason, setRuleReason] = useState("");
+  const [ruleEffectiveFrom, setRuleEffectiveFrom] = useState("");
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [ruleBusy, setRuleBusy] = useState<string | null>(null);
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeType, setNoticeType] = useState<EmployeeNoticeView["noticeType"]>(
+    "POLICY",
+  );
+  const [noticeTitle, setNoticeTitle] = useState("");
+  const [noticeBodyRef, setNoticeBodyRef] = useState("");
+  const [noticePolicyVersionId, setNoticePolicyVersionId] = useState("");
+  const [noticeEffectiveFrom, setNoticeEffectiveFrom] = useState("");
+  const [noticeAckRequired, setNoticeAckRequired] = useState(true);
+  const [noticeError, setNoticeError] = useState<string | null>(null);
+  const [ackOpen, setAckOpen] = useState<EmployeeNoticeView | null>(null);
+  const [ackPerson, setAckPerson] = useState(session.personId);
+  const [ackDecision, setAckDecision] = useState<"ACKNOWLEDGE" | "DECLINE">(
+    "ACKNOWLEDGE",
+  );
+  const [ackSignatureRef, setAckSignatureRef] = useState("");
+  const [ackDeclineReason, setAckDeclineReason] = useState("");
+  const [ackError, setAckError] = useState<string | null>(null);
+  const [ackNoticeId, setAckNoticeId] = useState<string | null>(null);
+  const acknowledgements = useApiQuery<NoticeAcknowledgementView[]>(
+    ackNoticeId
+      ? `/api/v1/notices/${encodeURIComponent(ackNoticeId)}/acknowledgements`
+      : null,
+    ackNoticeId,
+  );
+  const [repOpen, setRepOpen] = useState(false);
+  const [repName, setRepName] = useState("");
+  const [repType, setRepType] =
+    useState<EmployeeRepresentationView["bodyType"]>("WORKS_COUNCIL");
+  const [repJurisdiction, setRepJurisdiction] = useState("");
+  const [repError, setRepError] = useState<string | null>(null);
 
   const list = versions.data ?? [];
 
@@ -160,6 +216,176 @@ export function PolicyPage() {
       );
     } finally {
       setRunning(false);
+    }
+  }
+
+  function openRuleChange() {
+    setRulePolicyCode(selected?.code ?? "");
+    setRuleFromVersionId(selectedId ?? "");
+    setRuleToVersionId(selectedId ?? "");
+    setRuleChangeType("");
+    setRuleReason("");
+    setRuleEffectiveFrom(
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    );
+    setRuleError(null);
+    setRuleOpen(true);
+  }
+
+  async function submitRuleChange() {
+    setRuleError(null);
+    try {
+      await api("/api/v1/rule-change-orders", {
+        method: "POST",
+        body: {
+          policyCode: rulePolicyCode.trim(),
+          fromPolicyVersionId: ruleFromVersionId.trim() || undefined,
+          toPolicyVersionId: ruleToVersionId.trim(),
+          changeType: ruleChangeType.trim(),
+          reason: ruleReason.trim(),
+          effectiveFrom: new Date(ruleEffectiveFrom).toISOString(),
+          requestedBy: session.personId,
+        },
+      });
+      toast.success("Rule change order created", rulePolicyCode);
+      setRuleOpen(false);
+      ruleChanges.reload();
+    } catch (caught) {
+      setRuleError(
+        caught instanceof Error ? caught.message : "Could not create order",
+      );
+    }
+  }
+
+  async function ruleAction(
+    order: RuleChangeOrderView,
+    action: "approve" | "reject" | "publicize",
+  ) {
+    setRuleBusy(`${action}:${order.id}`);
+    try {
+      await api(`/api/v1/rule-change-orders/${order.id}/${action}`, {
+        method: "POST",
+        body:
+          action === "publicize"
+            ? {}
+            : { approvedBy: session.personId },
+      });
+      toast.success(`Rule change ${action}d`, shortId(order.id));
+      ruleChanges.reload();
+    } catch (caught) {
+      toast.error(
+        `Could not ${action} the rule change`,
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setRuleBusy(null);
+    }
+  }
+
+  function openNotice() {
+    setNoticeType("POLICY");
+    setNoticeTitle("");
+    setNoticeBodyRef("");
+    setNoticePolicyVersionId(selectedId ?? "");
+    setNoticeEffectiveFrom(
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    );
+    setNoticeAckRequired(true);
+    setNoticeError(null);
+    setNoticeOpen(true);
+  }
+
+  async function submitNotice() {
+    setNoticeError(null);
+    try {
+      await api("/api/v1/notices", {
+        method: "POST",
+        body: {
+          noticeType,
+          title: noticeTitle.trim(),
+          bodyRef: noticeBodyRef.trim(),
+          policyVersionId: noticePolicyVersionId.trim() || undefined,
+          effectiveFrom: new Date(noticeEffectiveFrom).toISOString(),
+          acknowledgementRequired: noticeAckRequired,
+        },
+      });
+      toast.success("Notice published", noticeTitle);
+      setNoticeOpen(false);
+      notices.reload();
+    } catch (caught) {
+      setNoticeError(
+        caught instanceof Error ? caught.message : "Could not publish notice",
+      );
+    }
+  }
+
+  function openAck(notice: EmployeeNoticeView) {
+    setAckOpen(notice);
+    setAckPerson(session.personId);
+    setAckDecision("ACKNOWLEDGE");
+    setAckSignatureRef("");
+    setAckDeclineReason("");
+    setAckError(null);
+  }
+
+  async function submitAck() {
+    if (!ackOpen) return;
+    setAckError(null);
+    try {
+      await api(`/api/v1/notices/${ackOpen.id}/acknowledgements`, {
+        method: "POST",
+        body: {
+          personId: ackPerson,
+          decision: ackDecision,
+          signatureRef: ackSignatureRef.trim() || undefined,
+          declineReason:
+            ackDecision === "DECLINE"
+              ? ackDeclineReason.trim()
+              : undefined,
+        },
+      });
+      toast.success(
+        ackDecision === "ACKNOWLEDGE" ? "Acknowledgement recorded" : "Decline recorded",
+        ackOpen.title,
+      );
+      setAckOpen(null);
+      setAckNoticeId(ackOpen.id);
+      acknowledgements.reload();
+    } catch (caught) {
+      setAckError(
+        caught instanceof Error ? caught.message : "Could not record the response",
+      );
+    }
+  }
+
+  function openRepresentation() {
+    setRepName("");
+    setRepType("WORKS_COUNCIL");
+    setRepJurisdiction("");
+    setRepError(null);
+    setRepOpen(true);
+  }
+
+  async function submitRepresentation() {
+    setRepError(null);
+    try {
+      await api("/api/v1/employee-representations", {
+        method: "POST",
+        body: {
+          bodyName: repName.trim(),
+          bodyType: repType,
+          jurisdiction: repJurisdiction.trim(),
+        },
+      });
+      toast.success("Employee representation recorded", repName);
+      setRepOpen(false);
+      representations.reload();
+    } catch (caught) {
+      setRepError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not record representation",
+      );
     }
   }
 
@@ -410,6 +636,7 @@ export function PolicyPage() {
           },
           { id: "coverage", label: "Operations coverage" },
           { id: "annual", label: "Annual review" },
+          { id: "governance", label: "Governance" },
         ]}
         active={tab}
         onChange={setTab}
@@ -882,7 +1109,7 @@ export function PolicyPage() {
               </>
             )}
           </Panel>
-        ) : (
+        ) : tab === "annual" ? (
           <Panel
             title="Annual policy review"
             subtitle="Rolling 12-month view of policy, appeal, AI-review and privacy evidence"
@@ -1188,6 +1415,324 @@ export function PolicyPage() {
               </>
             )}
           </Panel>
+        ) : (
+          <>
+            <Panel
+              title="Rule change orders"
+              subtitle="Draft → approved or rejected → publicized, with policy-test gating"
+              flush
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="plus"
+                  onClick={openRuleChange}
+                >
+                  New order
+                </Button>
+              }
+            >
+              {ruleChanges.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={ruleChanges.error}
+                    onRetry={ruleChanges.reload}
+                  />
+                </div>
+              ) : ruleChanges.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={3} />
+                </div>
+              ) : (ruleChanges.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="No rule change order"
+                  description="A rule change records the from/to policy versions, reason and impact simulation before publication."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Order</th>
+                        <th>Change</th>
+                        <th>Status</th>
+                        <th>Effective</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(ruleChanges.data ?? []).map((order) => (
+                        <tr key={order.id}>
+                          <td>
+                            <span className="cell-primary">
+                              {order.policyCode}
+                            </span>
+                            <span className="cell-sub mono">
+                              {shortId(order.id, 10)}
+                            </span>
+                          </td>
+                          <td>
+                            {order.changeType}
+                            <span className="cell-sub">
+                              {shortId(order.toPolicyVersionId, 10)}
+                            </span>
+                          </td>
+                          <td>
+                            <Badge status={order.status} />
+                          </td>
+                          <td className="nowrap">
+                            {formatDate(order.effectiveFrom)}
+                          </td>
+                          <td className="cell-actions">
+                            {order.status === "DRAFT" ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  loading={ruleBusy === `approve:${order.id}`}
+                                  onClick={() =>
+                                    ruleAction(order, "approve")
+                                  }
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  loading={ruleBusy === `reject:${order.id}`}
+                                  onClick={() => ruleAction(order, "reject")}
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            ) : null}
+                            {order.status === "APPROVED" ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={ruleBusy === `publicize:${order.id}`}
+                                onClick={() =>
+                                  ruleAction(order, "publicize")
+                                }
+                              >
+                                Publicize
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel
+              title="Employee notices"
+              subtitle="Published notices and per-person acknowledgement coverage"
+              flush
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="plus"
+                  onClick={openNotice}
+                >
+                  Publish notice
+                </Button>
+              }
+            >
+              {notices.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice error={notices.error} onRetry={notices.reload} />
+                </div>
+              ) : notices.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={3} />
+                </div>
+              ) : (notices.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="No employee notice"
+                  description="Notices document what employees were told, when it took effect and who acknowledged it."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Notice</th>
+                        <th>Type</th>
+                        <th>Effective</th>
+                        <th>Acknowledgement</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(notices.data ?? []).map((notice) => (
+                        <tr key={notice.id}>
+                          <td>
+                            <span className="cell-primary">{notice.title}</span>
+                            <span className="cell-sub mono">
+                              {shortId(notice.id, 10)} · {notice.bodyRef}
+                            </span>
+                          </td>
+                          <td>{titleCase(notice.noticeType)}</td>
+                          <td className="nowrap">
+                            {formatDate(notice.effectiveFrom)}
+                          </td>
+                          <td>
+                            {notice.acknowledgementRequired
+                              ? "Required"
+                              : "Not required"}
+                          </td>
+                          <td className="cell-actions">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => openAck(notice)}
+                            >
+                              Record
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setAckNoticeId(
+                                  ackNoticeId === notice.id ? null : notice.id,
+                                )
+                              }
+                            >
+                              {ackNoticeId === notice.id ? "Hide" : "Acks"}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            {ackNoticeId ? (
+              <Panel title="Notice acknowledgements" flush>
+                {acknowledgements.error ? (
+                  <div style={{ padding: 16 }}>
+                    <ErrorNotice
+                      error={acknowledgements.error}
+                      onRetry={acknowledgements.reload}
+                    />
+                  </div>
+                ) : acknowledgements.loading ? (
+                  <div style={{ padding: 16 }}>
+                    <LoadingRows rows={2} />
+                  </div>
+                ) : (acknowledgements.data?.length ?? 0) === 0 ? (
+                  <p className="muted" style={{ padding: 16 }}>
+                    No acknowledgement recorded for this notice.
+                  </p>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Person</th>
+                          <th>Result</th>
+                          <th>Recorded</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(acknowledgements.data ?? []).map((ack) => (
+                          <tr key={ack.id}>
+                            <td>{displayName(ack.personId, people)}</td>
+                            <td>
+                              {ack.acknowledgedAt
+                                ? "Acknowledged"
+                                : ack.declinedAt
+                                  ? `Declined · ${ack.declineReason ?? ""}`
+                                  : "Pending"}
+                            </td>
+                            <td className="nowrap">
+                              {formatDateTime(
+                                ack.acknowledgedAt ??
+                                  ack.declinedAt ??
+                                  ack.createdAt,
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            ) : null}
+
+            <Panel
+              title="Employee representation"
+              subtitle="Works councils, unions and elected representatives referenced by the legal gate"
+              flush
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="plus"
+                  onClick={openRepresentation}
+                >
+                  Add representation
+                </Button>
+              }
+            >
+              {representations.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={representations.error}
+                    onRetry={representations.reload}
+                  />
+                </div>
+              ) : representations.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={2} />
+                </div>
+              ) : (representations.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="people"
+                  title="No representation recorded"
+                  description="Record the employee body consulted for policy changes."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Body</th>
+                        <th>Type</th>
+                        <th>Jurisdiction</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(representations.data ?? []).map((body) => (
+                        <tr key={body.id}>
+                          <td>{body.bodyName}</td>
+                          <td>{titleCase(body.bodyType)}</td>
+                          <td>{body.jurisdiction}</td>
+                          <td>
+                            <Badge
+                              tone={body.active ? "success" : "neutral"}
+                            >
+                              {body.active ? "Active" : "Inactive"}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          </>
         )}
       </div>
 
@@ -1297,6 +1842,322 @@ export function PolicyPage() {
               />
             </FormField>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={ruleOpen}
+        title="New rule change order"
+        description="A rule change is not effective until approved, tested and publicized."
+        onClose={() => setRuleOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRuleOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitRuleChange}>
+              Create order
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {ruleError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{ruleError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Policy code" htmlFor="rule-policy-code">
+            <TextInput
+              id="rule-policy-code"
+              value={rulePolicyCode}
+              onChange={(event) => setRulePolicyCode(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Change type" htmlFor="rule-change-type">
+            <TextInput
+              id="rule-change-type"
+              value={ruleChangeType}
+              onChange={(event) => setRuleChangeType(event.target.value)}
+              placeholder="RATE_OR_CAP"
+              required
+            />
+          </FormField>
+          <FormField label="From version (optional)" htmlFor="rule-from">
+            <Select
+              id="rule-from"
+              value={ruleFromVersionId}
+              onChange={(event) => setRuleFromVersionId(event.target.value)}
+            >
+              <option value="">None</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="To version" htmlFor="rule-to">
+            <Select
+              id="rule-to"
+              value={ruleToVersionId}
+              onChange={(event) => setRuleToVersionId(event.target.value)}
+              required
+            >
+              <option value="">Select a version</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Effective from" htmlFor="rule-effective">
+            <TextInput
+              id="rule-effective"
+              type="datetime-local"
+              value={ruleEffectiveFrom}
+              onChange={(event) => setRuleEffectiveFrom(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Reason"
+            htmlFor="rule-reason"
+            className="field--full"
+          >
+            <Textarea
+              id="rule-reason"
+              value={ruleReason}
+              onChange={(event) => setRuleReason(event.target.value)}
+              required
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={noticeOpen}
+        title="Publish employee notice"
+        description="Record what employees were told and when it takes effect."
+        onClose={() => setNoticeOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setNoticeOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitNotice}>
+              Publish
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {noticeError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{noticeError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Type" htmlFor="notice-type">
+            <Select
+              id="notice-type"
+              value={noticeType}
+              onChange={(event) =>
+                setNoticeType(event.target.value as EmployeeNoticeView["noticeType"])
+              }
+            >
+              {["POLICY", "PAY_PLAN", "AI_USE", "DATA_PROCESSING", "OTHER"].map(
+                (type) => (
+                  <option key={type} value={type}>
+                    {titleCase(type)}
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Title" htmlFor="notice-title">
+            <TextInput
+              id="notice-title"
+              value={noticeTitle}
+              onChange={(event) => setNoticeTitle(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Body reference" htmlFor="notice-body">
+            <TextInput
+              id="notice-body"
+              value={noticeBodyRef}
+              onChange={(event) => setNoticeBodyRef(event.target.value)}
+              placeholder="Internal document reference"
+              required
+            />
+          </FormField>
+          <FormField label="Policy version (optional)" htmlFor="notice-policy">
+            <Select
+              id="notice-policy"
+              value={noticePolicyVersionId}
+              onChange={(event) => setNoticePolicyVersionId(event.target.value)}
+            >
+              <option value="">None</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Effective from" htmlFor="notice-effective">
+            <TextInput
+              id="notice-effective"
+              type="datetime-local"
+              value={noticeEffectiveFrom}
+              onChange={(event) => setNoticeEffectiveFrom(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox field--full">
+            <input
+              type="checkbox"
+              checked={noticeAckRequired}
+              onChange={(event) => setNoticeAckRequired(event.target.checked)}
+            />
+            <span>Employees must acknowledge this notice.</span>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(ackOpen)}
+        title="Record notice response"
+        description={ackOpen?.title}
+        onClose={() => setAckOpen(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAckOpen(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitAck}>
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {ackError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{ackError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Person" htmlFor="ack-person">
+            <PersonSelect id="ack-person" value={ackPerson} onChange={setAckPerson} />
+          </FormField>
+          <FormField label="Decision" htmlFor="ack-decision">
+            <Select
+              id="ack-decision"
+              value={ackDecision}
+              onChange={(event) =>
+                setAckDecision(
+                  event.target.value as "ACKNOWLEDGE" | "DECLINE",
+                )
+              }
+            >
+              <option value="ACKNOWLEDGE">Acknowledge</option>
+              <option value="DECLINE">Decline</option>
+            </Select>
+          </FormField>
+          <FormField label="Signature reference (optional)" htmlFor="ack-signature">
+            <TextInput
+              id="ack-signature"
+              value={ackSignatureRef}
+              onChange={(event) => setAckSignatureRef(event.target.value)}
+            />
+          </FormField>
+          {ackDecision === "DECLINE" ? (
+            <FormField
+              label="Decline reason"
+              htmlFor="ack-decline-reason"
+              className="field--full"
+            >
+              <Textarea
+                id="ack-decline-reason"
+                value={ackDeclineReason}
+                onChange={(event) => setAckDeclineReason(event.target.value)}
+                required
+              />
+            </FormField>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={repOpen}
+        title="Add employee representation"
+        description="The body consulted for policy changes."
+        onClose={() => setRepOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRepOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitRepresentation}>
+              Add
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {repError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{repError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Body name" htmlFor="rep-name">
+            <TextInput
+              id="rep-name"
+              value={repName}
+              onChange={(event) => setRepName(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Body type" htmlFor="rep-type">
+            <Select
+              id="rep-type"
+              value={repType}
+              onChange={(event) =>
+                setRepType(
+                  event.target.value as EmployeeRepresentationView["bodyType"],
+                )
+              }
+            >
+              {["WORKS_COUNCIL", "UNION", "EMPLOYEE_REP", "ALL_EMPLOYEES"].map(
+                (type) => (
+                  <option key={type} value={type}>
+                    {titleCase(type)}
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Jurisdiction" htmlFor="rep-jurisdiction">
+            <TextInput
+              id="rep-jurisdiction"
+              value={repJurisdiction}
+              onChange={(event) => setRepJurisdiction(event.target.value)}
+              placeholder="CN"
+              required
+            />
+          </FormField>
         </div>
       </Modal>
 

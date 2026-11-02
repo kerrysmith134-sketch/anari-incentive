@@ -14,6 +14,7 @@ import {
   Select,
   Tabs,
   Textarea,
+  TextInput,
 } from "../components/ui.js";
 import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
@@ -29,6 +30,7 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type { AppealCase, DataQualityIssue } from "../lib/types.js";
+import type { RecalculationRequestView } from "../lib/ops-types.js";
 
 type DqCommand =
   | "ASSIGN"
@@ -63,6 +65,9 @@ export function ExceptionsPage() {
   const { people } = usePeople();
   const issues = useApiQuery<DataQualityIssue[]>("/api/v1/data-quality-issues");
   const appeals = useApiQuery<AppealCase[]>("/api/v1/appeals");
+  const recalculations = useApiQuery<RecalculationRequestView[]>(
+    "/api/v1/recalculation-requests",
+  );
   const [tab, setTab] = useState("quality");
   const [dqTarget, setDqTarget] = useState<DataQualityIssue | null>(null);
   const [dqCommand, setDqCommand] = useState<DqCommand>("ASSIGN");
@@ -79,6 +84,18 @@ export function ExceptionsPage() {
   const [appealError, setAppealError] = useState<string | null>(null);
   const [disclosing, setDisclosing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [recalcOpen, setRecalcOpen] = useState(false);
+  const [recalcTargetType, setRecalcTargetType] =
+    useState<RecalculationRequestView["targetType"]>("ATTRIBUTION");
+  const [recalcTargetId, setRecalcTargetId] = useState("");
+  const [recalcReasonCode, setRecalcReasonCode] = useState("");
+  const [recalcExplanation, setRecalcExplanation] = useState("");
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+  const [recalcBusy, setRecalcBusy] = useState<string | null>(null);
+  const [completeTarget, setCompleteTarget] =
+    useState<RecalculationRequestView | null>(null);
+  const [completeRunId, setCompleteRunId] = useState("");
+  const [completeError, setCompleteError] = useState<string | null>(null);
 
   const issueList = issues.data ?? [];
   const appealList = appeals.data ?? [];
@@ -87,6 +104,89 @@ export function ExceptionsPage() {
   );
   const blocking = openIssues.filter((issue) => issue.severity === "BLOCKING");
   const openAppeals = appealList.filter((appeal) => appeal.status !== "CLOSED");
+  const recalcList = recalculations.data ?? [];
+  const openRecalculations = recalcList.filter(
+    (request) => request.status === "OPEN" || request.status === "APPROVED",
+  );
+
+  function openRecalc() {
+    setRecalcTargetType("ATTRIBUTION");
+    setRecalcTargetId("");
+    setRecalcReasonCode("");
+    setRecalcExplanation("");
+    setRecalcError(null);
+    setRecalcOpen(true);
+  }
+
+  async function submitRecalc() {
+    setRecalcError(null);
+    try {
+      await api("/api/v1/recalculation-requests", {
+        method: "POST",
+        body: {
+          targetType: recalcTargetType,
+          targetId: recalcTargetId.trim(),
+          reasonCode: recalcReasonCode.trim(),
+          explanation: recalcExplanation.trim(),
+          requestedBy: session.personId,
+        },
+      });
+      toast.success("Recalculation requested", recalcTargetType);
+      setRecalcOpen(false);
+      recalculations.reload();
+    } catch (caught) {
+      setRecalcError(
+        caught instanceof ApiError ? caught.message : "Could not create request",
+      );
+    }
+  }
+
+  async function recalcCommand(
+    request: RecalculationRequestView,
+    command: "approve" | "reject",
+  ) {
+    setRecalcBusy(`${command}:${request.id}`);
+    try {
+      await api(`/api/v1/recalculation-requests/${request.id}/${command}`, {
+        method: "POST",
+        body: { approvedBy: session.personId },
+      });
+      toast.success(
+        command === "approve" ? "Recalculation approved" : "Recalculation rejected",
+        shortId(request.id),
+      );
+      recalculations.reload();
+    } catch (caught) {
+      toast.error(
+        command === "approve" ? "Approval failed" : "Rejection failed",
+        caught instanceof ApiError ? caught.message : "Request failed",
+      );
+    } finally {
+      setRecalcBusy(null);
+    }
+  }
+
+  async function completeRecalc() {
+    if (!completeTarget) return;
+    setCompleteError(null);
+    try {
+      await api(
+        `/api/v1/recalculation-requests/${completeTarget.id}/complete`,
+        {
+          method: "POST",
+          body: { newCalculationRunId: completeRunId.trim() },
+        },
+      );
+      toast.success("Recalculation completed", shortId(completeTarget.id));
+      setCompleteTarget(null);
+      setCompleteRunId("");
+      recalculations.reload();
+    } catch (caught) {
+      setCompleteError(
+        caught instanceof ApiError ? caught.message : "Could not complete request",
+      );
+    }
+  }
 
   function openDq(issue: DataQualityIssue) {
     setDqTarget(issue);
@@ -279,6 +379,11 @@ export function ExceptionsPage() {
         items={[
           { id: "quality", label: "Data quality", count: issueList.length },
           { id: "appeals", label: "Appeals", count: appealList.length },
+          {
+            id: "recalculation",
+            label: "Recalculation",
+            count: recalcList.length,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -386,7 +491,7 @@ export function ExceptionsPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "appeals" ? (
           <Panel
             title="Appeals"
             subtitle="Open → triaged → under review → decided"
@@ -480,6 +585,130 @@ export function ExceptionsPage() {
                               {appeal.resolution ?? "—"}
                             </span>
                           )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        ) : (
+          <Panel
+            title="Recalculation requests"
+            subtitle="Corrections for evidence, attribution, evaluation or ledger outcomes"
+            flush
+            action={
+              <Button
+                size="sm"
+                variant="primary"
+                icon="plus"
+                onClick={openRecalc}
+              >
+                New request
+              </Button>
+            }
+          >
+            {recalculations.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice
+                  error={recalculations.error}
+                  onRetry={recalculations.reload}
+                />
+              </div>
+            ) : recalculations.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : recalcList.length === 0 ? (
+              <EmptyState
+                icon="refresh"
+                title="No recalculation request"
+                description="Raise a request when evidence or an attribution decision was wrong; completion records the new calculation run."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Request</th>
+                      <th>Target</th>
+                      <th>Reason</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recalcList.map((request) => (
+                      <tr key={request.id}>
+                        <td>
+                          <span className="cell-primary mono">
+                            {shortId(request.id, 10)}
+                          </span>
+                          <span className="cell-sub">
+                            by {displayName(request.requestedBy, people)}
+                          </span>
+                        </td>
+                        <td>
+                          {titleCase(request.targetType)}
+                          <span className="cell-sub mono">
+                            {shortId(request.targetId, 10)}
+                          </span>
+                        </td>
+                        <td>
+                          {request.reasonCode}
+                          <span className="cell-sub">{request.explanation}</span>
+                        </td>
+                        <td>
+                          <Badge status={request.status} />
+                        </td>
+                        <td className="nowrap">
+                          {formatDateTime(request.createdAt)}
+                        </td>
+                        <td className="cell-actions">
+                          {request.status === "OPEN" ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={recalcBusy === `approve:${request.id}`}
+                                onClick={() =>
+                                  recalcCommand(request, "approve")
+                                }
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                loading={recalcBusy === `reject:${request.id}`}
+                                onClick={() => recalcCommand(request, "reject")}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : null}
+                          {request.status === "APPROVED" ? (
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => {
+                                setCompleteTarget(request);
+                                setCompleteRunId("");
+                                setCompleteError(null);
+                              }}
+                            >
+                              Complete
+                            </Button>
+                          ) : null}
+                          {request.status === "COMPLETED" ? (
+                            <span className="subtle mono">
+                              {request.newCalculationRunId
+                                ? shortId(request.newCalculationRunId, 10)
+                                : "—"}
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -721,6 +950,118 @@ export function ExceptionsPage() {
             ) : null}
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={recalcOpen}
+        title="New recalculation request"
+        description="Point at the evidence, attribution decision, evaluation or ledger entry that needs correction."
+        onClose={() => setRecalcOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRecalcOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitRecalc}>
+              Request recalculation
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {recalcError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{recalcError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Target type" htmlFor="recalc-target-type">
+            <Select
+              id="recalc-target-type"
+              value={recalcTargetType}
+              onChange={(event) =>
+                setRecalcTargetType(
+                  event.target.value as RecalculationRequestView["targetType"],
+                )
+              }
+            >
+              {["EVIDENCE", "ATTRIBUTION", "EVALUATION", "LEDGER"].map(
+                (type) => (
+                  <option key={type} value={type}>
+                    {titleCase(type)}
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Target id" htmlFor="recalc-target-id">
+            <TextInput
+              id="recalc-target-id"
+              value={recalcTargetId}
+              onChange={(event) => setRecalcTargetId(event.target.value)}
+              placeholder="UUID"
+              required
+            />
+          </FormField>
+          <FormField label="Reason code" htmlFor="recalc-reason">
+            <TextInput
+              id="recalc-reason"
+              value={recalcReasonCode}
+              onChange={(event) => setRecalcReasonCode(event.target.value)}
+              placeholder="EVIDENCE_WRONG"
+              required
+            />
+          </FormField>
+          <FormField
+            label="Explanation"
+            htmlFor="recalc-explanation"
+            className="field--full"
+          >
+            <Textarea
+              id="recalc-explanation"
+              value={recalcExplanation}
+              onChange={(event) => setRecalcExplanation(event.target.value)}
+              required
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(completeTarget)}
+        title="Complete recalculation"
+        description="Record the calculation run produced by the correction."
+        onClose={() => setCompleteTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCompleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={completeRecalc}>
+              Complete
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {completeError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{completeError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="New calculation run id"
+            htmlFor="recalc-run-id"
+            className="field--full"
+          >
+            <TextInput
+              id="recalc-run-id"
+              value={completeRunId}
+              onChange={(event) => setCompleteRunId(event.target.value)}
+              placeholder="UUID"
+              required
+            />
+          </FormField>
+        </div>
       </Modal>
     </>
   );

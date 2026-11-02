@@ -36,7 +36,9 @@ import type {
   EvaluationDraft,
   PolicyVersionSummary,
   Rubric,
+  WorkPackage,
 } from "../lib/types.js";
+import type { CalculationRunView } from "../lib/ops-types.js";
 
 const CYCLE_TYPES = ["MONTHLY", "QUARTERLY", "ANNUAL", "CUSTOM"];
 const TIMEZONES = [
@@ -81,6 +83,25 @@ export function CyclesPage() {
   const [scoresText, setScoresText] = useState("{}");
   const [rationale, setRationale] = useState("");
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const runs = useApiQuery<CalculationRunView[]>("/api/v1/calculation-runs");
+  const workPackages = useApiQuery<WorkPackage[]>("/api/v1/work-packages");
+  const [runOpen, setRunOpen] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runSubmitting, setRunSubmitting] = useState(false);
+  const [runMode, setRunMode] = useState<"SHADOW" | "FORMAL">("FORMAL");
+  const [runPolicyVersionId, setRunPolicyVersionId] = useState("");
+  const [orderId, setOrderId] = useState("order-1");
+  const [orderGrossProfit, setOrderGrossProfit] = useState("100000");
+  const [orderCurrency, setOrderCurrency] = useState("CNY");
+  const [runParticipants, setRunParticipants] = useState<
+    Array<{
+      personId: string;
+      workPackageId: string;
+      attributionWeight: string;
+      role: string;
+    }>
+  >([]);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   const cycleList = cycles.data ?? [];
   const selected = cycleList.find((cycle) => cycle.id === selectedId);
@@ -88,6 +109,107 @@ export function CyclesPage() {
     drafts.data?.filter((draft) => draft.cycleId === selectedId) ?? [];
   const cycleDecisions =
     decisions.data?.filter((item) => item.cycleId === selectedId) ?? [];
+  const cycleRuns =
+    runs.data?.filter((run) => run.cycleId === selectedId) ?? [];
+
+  function openRunModal() {
+    setRunError(null);
+    setRunMode("FORMAL");
+    setRunPolicyVersionId(
+      selected?.policyVersionId ??
+        policies.data?.[0]?.policyVersionId ??
+        "",
+    );
+    setOrderId("order-1");
+    setOrderGrossProfit("100000");
+    setOrderCurrency("CNY");
+    const firstPackage = workPackages.data?.[0]?.id ?? "";
+    setRunParticipants([
+      {
+        personId: session.personId,
+        workPackageId: firstPackage,
+        attributionWeight: "1",
+        role: "OWNER",
+      },
+    ]);
+    setRunOpen(true);
+  }
+
+  async function submitRun(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedId) return;
+    setRunError(null);
+    setRunSubmitting(true);
+    try {
+      const participants = runParticipants.filter(
+        (participant) =>
+          participant.personId.trim() &&
+          participant.workPackageId.trim() &&
+          Number(participant.attributionWeight) >= 0,
+      );
+      await api("/api/v1/calculation-runs", {
+        method: "POST",
+        body: {
+          cycleId: selectedId,
+          policyVersionId: runPolicyVersionId,
+          mode: runMode,
+          order: {
+            id: orderId.trim(),
+            grossProfit: orderGrossProfit,
+            currency: orderCurrency.toUpperCase(),
+          },
+          participants: participants.map((participant) => ({
+            personId: participant.personId.trim(),
+            workPackageId: participant.workPackageId.trim(),
+            attributionWeight: participant.attributionWeight,
+            role: participant.role.trim() || "CONTRIBUTOR",
+          })),
+        },
+      });
+      toast.success("Calculation run created", runMode);
+      setRunOpen(false);
+      runs.reload();
+      readiness.reload();
+    } catch (caught) {
+      setRunError(
+        caught instanceof ApiError ? caught.message : "Could not create the run",
+      );
+    } finally {
+      setRunSubmitting(false);
+    }
+  }
+
+  async function runCommand(
+    runId: string,
+    command: "approve" | "lock",
+  ) {
+    setBusy(`${command}:${runId}`);
+    try {
+      await api(
+        `/api/v1/calculation-runs/${runId}/${command}`,
+        {
+          method: "POST",
+          body:
+            command === "lock"
+              ? { confirmation: "LOCK_CALCULATION" }
+              : {},
+        },
+      );
+      toast.success(
+        command === "approve" ? "Run approved" : "Run locked",
+        shortId(runId),
+      );
+      runs.reload();
+      readiness.reload();
+    } catch (caught) {
+      toast.error(
+        command === "approve" ? "Approval failed" : "Lock failed",
+        caught instanceof ApiError ? caught.message : "Request failed",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
 
   useEffect(() => {
     if (!selectedId && cycleList[0]?.id) setSelectedId(cycleList[0].id);
@@ -643,6 +765,192 @@ export function CyclesPage() {
               )}
             </Panel>
           </div>
+
+          <Panel
+            title="Calculation runs"
+            subtitle={selected ? `Formal and shadow runs for ${selected.name}` : undefined}
+            flush
+            action={
+              <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
+                New run
+              </Button>
+            }
+          >
+            {runs.error ? (
+              <div style={{ padding: 16 }}>
+                <ErrorNotice error={runs.error} onRetry={runs.reload} />
+              </div>
+            ) : runs.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={3} />
+              </div>
+            ) : cycleRuns.length === 0 ? (
+              <EmptyState
+                icon="clock"
+                title="No calculation run for this cycle"
+                description="Create a shadow or formal run once claims are decided and the legal gate is recorded."
+                action={
+                  <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
+                    Create run
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Run</th>
+                      <th>Mode</th>
+                      <th>Status</th>
+                      <th>Lines</th>
+                      <th>Blockers</th>
+                      <th>Created</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cycleRuns.map((run) => (
+                      <>
+                        <tr key={run.id}>
+                          <td>
+                            <span className="cell-primary mono">
+                              {shortId(run.id, 10)}
+                            </span>
+                            <span className="cell-sub">
+                              engine {run.engineVersion}
+                            </span>
+                          </td>
+                          <td>{titleCase(run.mode)}</td>
+                          <td>
+                            <Badge status={run.status} />
+                          </td>
+                          <td>{run.lines.length}</td>
+                          <td>
+                            {run.blockers.length > 0 ? (
+                              <Badge tone="danger">{run.blockers.length}</Badge>
+                            ) : (
+                              <span className="muted">0</span>
+                            )}
+                          </td>
+                          <td className="nowrap">{formatDateTime(run.createdAt)}</td>
+                          <td className="cell-actions">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setExpandedRunId(
+                                  expandedRunId === run.id ? null : run.id,
+                                )
+                              }
+                            >
+                              {expandedRunId === run.id ? "Hide" : "Details"}
+                            </Button>
+                            {run.status === "CALCULATED" ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={busy === `approve:${run.id}`}
+                                onClick={() => runCommand(run.id, "approve")}
+                              >
+                                Approve
+                              </Button>
+                            ) : null}
+                            {run.status === "APPROVED" ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                loading={busy === `lock:${run.id}`}
+                                onClick={() => runCommand(run.id, "lock")}
+                              >
+                                Lock
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                        {expandedRunId === run.id ? (
+                          <tr key={`${run.id}-detail`}>
+                            <td colSpan={7}>
+                              <div className="detail-section" style={{ margin: 0 }}>
+                                <DefinitionList
+                                  items={[
+                                    {
+                                      label: "Result hash",
+                                      value: run.resultHash ?? "—",
+                                    },
+                                    {
+                                      label: "Calculated",
+                                      value: run.calculatedAt
+                                        ? formatDateTime(run.calculatedAt)
+                                        : "—",
+                                    },
+                                    {
+                                      label: "Locked",
+                                      value: run.lockedAt
+                                        ? formatDateTime(run.lockedAt)
+                                        : "—",
+                                    },
+                                    {
+                                      label: "Warnings",
+                                      value:
+                                        run.warnings.length > 0
+                                          ? run.warnings.join(", ")
+                                          : "—",
+                                    },
+                                  ]}
+                                />
+                                {run.blockers.length > 0 ? (
+                                  <div className="chip-row section-gap">
+                                    {run.blockers.map((blocker) => (
+                                      <span className="chip" key={blocker}>
+                                        {blocker}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                {run.lines.length > 0 ? (
+                                  <div className="table-wrap section-gap">
+                                    <table className="data-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Person</th>
+                                          <th>Line</th>
+                                          <th>Raw</th>
+                                          <th>Rounded</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {run.lines.map((line) => (
+                                          <tr key={line.lineKey}>
+                                            <td>
+                                              {displayName(line.personId, people)}
+                                            </td>
+                                            <td className="mono">
+                                              {line.lineKey}
+                                            </td>
+                                            <td>
+                                              {line.rawAmount} {line.currency}
+                                            </td>
+                                            <td>
+                                              {line.roundedAmount} {line.currency}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
         </>
       )}
 
@@ -755,6 +1063,205 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={runOpen}
+        title="New calculation run"
+        description="A legal gate must be recorded before a formal run. Participants must have decided claims."
+        onClose={() => setRunOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRunOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="create-run-form"
+              loading={runSubmitting}
+            >
+              Create run
+            </Button>
+          </>
+        }
+      >
+        <form id="create-run-form" onSubmit={submitRun} className="form-grid">
+          {runError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{runError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Mode" htmlFor="run-mode">
+            <Select
+              id="run-mode"
+              value={runMode}
+              onChange={(event) =>
+                setRunMode(event.target.value as "SHADOW" | "FORMAL")
+              }
+            >
+              <option value="FORMAL">Formal</option>
+              <option value="SHADOW">Shadow</option>
+            </Select>
+          </FormField>
+          <FormField label="Policy version" htmlFor="run-policy">
+            <Select
+              id="run-policy"
+              value={runPolicyVersionId}
+              onChange={(event) => setRunPolicyVersionId(event.target.value)}
+              required
+            >
+              <option value="">Select a policy version</option>
+              {(policies.data ?? []).map((policy) => (
+                <option key={policy.policyVersionId} value={policy.policyVersionId}>
+                  {policy.code} v{policy.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Order id" htmlFor="run-order-id">
+            <TextInput
+              id="run-order-id"
+              value={orderId}
+              onChange={(event) => setOrderId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Order gross profit" htmlFor="run-order-profit">
+            <TextInput
+              id="run-order-profit"
+              value={orderGrossProfit}
+              onChange={(event) => setOrderGrossProfit(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Currency" htmlFor="run-order-currency">
+            <TextInput
+              id="run-order-currency"
+              value={orderCurrency}
+              maxLength={3}
+              onChange={(event) =>
+                setOrderCurrency(event.target.value.toUpperCase())
+              }
+              required
+            />
+          </FormField>
+          <div className="field--full">
+            <div className="inline" style={{ justifyContent: "space-between" }}>
+              <strong>Participants</strong>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon="plus"
+                onClick={() =>
+                  setRunParticipants((current) => [
+                    ...current,
+                    {
+                      personId: "",
+                      workPackageId: workPackages.data?.[0]?.id ?? "",
+                      attributionWeight: "0",
+                      role: "CONTRIBUTOR",
+                    },
+                  ])
+                }
+              >
+                Add participant
+              </Button>
+            </div>
+          </div>
+          {runParticipants.map((participant, index) => (
+            <div className="field--full" key={index}>
+              <div className="form-grid">
+                <FormField label={`Person ${index + 1}`}>
+                  <PersonSelect
+                    value={participant.personId}
+                    onChange={(value) =>
+                      setRunParticipants((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, personId: value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Work package">
+                  <Select
+                    value={participant.workPackageId}
+                    onChange={(event) =>
+                      setRunParticipants((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, workPackageId: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    required
+                  >
+                    <option value="">Select a package</option>
+                    {(workPackages.data ?? []).map((workPackage) => (
+                      <option key={workPackage.id} value={workPackage.id}>
+                        {workPackage.title}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Weight">
+                  <TextInput
+                    value={participant.attributionWeight}
+                    onChange={(event) =>
+                      setRunParticipants((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? {
+                                ...item,
+                                attributionWeight: event.target.value,
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                    required
+                  />
+                </FormField>
+                <FormField label="Role">
+                  <TextInput
+                    value={participant.role}
+                    onChange={(event) =>
+                      setRunParticipants((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, role: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    required
+                  />
+                </FormField>
+                <div className="inline" style={{ alignItems: "end" }}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={runParticipants.length === 1}
+                    onClick={() =>
+                      setRunParticipants((current) =>
+                        current.filter((_, itemIndex) => itemIndex !== index),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
         </form>
       </Modal>
 
