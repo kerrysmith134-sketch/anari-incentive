@@ -32,6 +32,7 @@ import type {
   EmployeeNotice,
   EmployeeRepresentation,
   EmploymentContract,
+  ESignEnvelope,
   EmploymentContractAmendment,
   EquityExercise,
   EquityGrant,
@@ -381,6 +382,26 @@ export interface PlatformStore {
     tenantId: string;
     templateId: string;
   }): Promise<CompensationTemplate>;
+  createESignEnvelope(input: {
+    tenantId: string;
+    contractId: string;
+    provider: string;
+    envelopeRef: string;
+    documentHash: string;
+    signerPersonId: string;
+  }): Promise<ESignEnvelope>;
+  listESignEnvelopes(
+    tenantId: string,
+    contractId?: string,
+  ): Promise<ESignEnvelope[]>;
+  completeESignEnvelope(input: {
+    tenantId: string;
+    provider: string;
+    envelopeRef: string;
+    status: "SIGNED" | "DECLINED" | "VOID";
+    signatureRef?: string;
+    reason?: string;
+  }): Promise<ESignEnvelope>;
   createPilotEnrollment(input: {
     tenantId: string;
     personId: string;
@@ -1438,6 +1459,7 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     CompensationTemplate
   >();
+  private readonly esignEnvelopes = new Map<string, ESignEnvelope>();
   private readonly breakGlassGrants = new Map<string, BreakGlassGrant>();
   private readonly clawbackCases = new Map<string, ClawbackCase>();
   private readonly discretionaryPoolReviews = new Map<
@@ -3581,6 +3603,104 @@ export class MemoryPlatformStore implements PlatformStore {
     template.status = "RETIRED";
     template.updatedAt = now();
     return template;
+  }
+
+  async createESignEnvelope(input: {
+    tenantId: string;
+    contractId: string;
+    provider: string;
+    envelopeRef: string;
+    documentHash: string;
+    signerPersonId: string;
+  }): Promise<ESignEnvelope> {
+    const contract = this.employmentContracts.get(input.contractId);
+    if (!contract || contract.tenantId !== input.tenantId) {
+      notFound("EmploymentContract", input.contractId);
+    }
+    const signer = this.persons.get(input.signerPersonId);
+    if (!signer || signer.tenantId !== input.tenantId) {
+      notFound("Person", input.signerPersonId);
+    }
+    if (
+      [...this.esignEnvelopes.values()].some(
+        (envelope) =>
+          envelope.tenantId === input.tenantId &&
+          envelope.provider === input.provider &&
+          envelope.envelopeRef === input.envelopeRef,
+      )
+    ) {
+      throw new ConflictError(
+        "ESIGN_ENVELOPE_EXISTS: provider envelope reference already recorded",
+      );
+    }
+    const timestamp = now();
+    const envelope: ESignEnvelope = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      provider: input.provider,
+      envelopeRef: input.envelopeRef,
+      documentHash: input.documentHash,
+      signerPersonId: input.signerPersonId,
+      status: "SENT",
+      sentAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.esignEnvelopes.set(envelope.id, envelope);
+    return envelope;
+  }
+
+  async listESignEnvelopes(
+    tenantId: string,
+    contractId?: string,
+  ): Promise<ESignEnvelope[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.esignEnvelopes.values()]
+      .filter(
+        (envelope) =>
+          envelope.tenantId === tenantId &&
+          (!contractId || envelope.contractId === contractId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async completeESignEnvelope(input: {
+    tenantId: string;
+    provider: string;
+    envelopeRef: string;
+    status: "SIGNED" | "DECLINED" | "VOID";
+    signatureRef?: string;
+    reason?: string;
+  }): Promise<ESignEnvelope> {
+    const envelope = [...this.esignEnvelopes.values()].find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.provider === input.provider &&
+        candidate.envelopeRef === input.envelopeRef,
+    );
+    if (!envelope) notFound("ESignEnvelope", input.envelopeRef);
+    if (envelope.status !== "SENT") {
+      throw new ConflictError(`e-sign envelope is ${envelope.status}`);
+    }
+    if (input.status === "SIGNED" && !input.signatureRef?.trim()) {
+      throw new ConflictError("ESIGN_SIGNATURE_REF_REQUIRED");
+    }
+    envelope.status = input.status;
+    envelope.completedAt = now();
+    envelope.updatedAt = envelope.completedAt;
+    envelope.declineReason =
+      input.status === "SIGNED" ? undefined : input.reason;
+    if (input.status === "SIGNED") {
+      const contract = this.employmentContracts.get(envelope.contractId);
+      if (contract && contract.tenantId === input.tenantId) {
+        contract.consentSignatureRef = input.signatureRef!;
+        contract.consentSignedAt = envelope.completedAt;
+        contract.version += 1;
+        contract.updatedAt = envelope.completedAt;
+      }
+    }
+    return envelope;
   }
 
   async createApprovalRequest(input: {
@@ -9570,6 +9690,116 @@ export class PgPlatformStore implements PlatformStore {
     return this.mapCompensationTemplate(rows[0]);
   }
 
+  async createESignEnvelope(input: {
+    tenantId: string;
+    contractId: string;
+    provider: string;
+    envelopeRef: string;
+    documentHash: string;
+    signerPersonId: string;
+  }): Promise<ESignEnvelope> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO esign_envelopes
+          (id, tenant_id, contract_id, provider, envelope_ref, document_hash,
+           signer_person_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.contractId,
+          input.provider,
+          input.envelopeRef,
+          input.documentHash,
+          input.signerPersonId,
+        ],
+      );
+      return this.mapESignEnvelope(rows[0]);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        throw new ConflictError(
+          "ESIGN_ENVELOPE_EXISTS: provider envelope reference already recorded",
+        );
+      }
+      if (code === "23503") {
+        throw new NotFoundError(
+          `Tenant, contract or signer not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listESignEnvelopes(
+    tenantId: string,
+    contractId?: string,
+  ): Promise<ESignEnvelope[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM esign_envelopes WHERE tenant_id=$1";
+    if (contractId) {
+      params.push(contractId);
+      sql += " AND contract_id=$2";
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapESignEnvelope(row));
+  }
+
+  async completeESignEnvelope(input: {
+    tenantId: string;
+    provider: string;
+    envelopeRef: string;
+    status: "SIGNED" | "DECLINED" | "VOID";
+    signatureRef?: string;
+    reason?: string;
+  }): Promise<ESignEnvelope> {
+    if (input.status === "SIGNED" && !input.signatureRef?.trim()) {
+      throw new ConflictError("ESIGN_SIGNATURE_REF_REQUIRED");
+    }
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM esign_envelopes
+          WHERE tenant_id=$1 AND provider=$2 AND envelope_ref=$3
+          FOR UPDATE`,
+        [input.tenantId, input.provider, input.envelopeRef],
+      );
+      if (!rows[0]) notFound("ESignEnvelope", input.envelopeRef);
+      const current = this.mapESignEnvelope(rows[0]);
+      if (current.status !== "SENT") {
+        throw new ConflictError(
+          `e-sign envelope is ${current.status}`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE esign_envelopes
+            SET status=$4, completed_at=now(), decline_reason=$5,
+                updated_at=now()
+          WHERE tenant_id=$1 AND provider=$2 AND envelope_ref=$3
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.provider,
+          input.envelopeRef,
+          input.status,
+          input.status === "SIGNED" ? null : input.reason ?? null,
+        ],
+      );
+      if (input.status === "SIGNED") {
+        await client.query(
+          `UPDATE employment_contracts
+              SET consent_signature_ref=$3, consent_signed_at=now(),
+                  version=version+1, updated_at=now()
+            WHERE tenant_id=$1 AND id=$2`,
+          [input.tenantId, current.contractId, input.signatureRef],
+        );
+      }
+      return this.mapESignEnvelope(updated[0]);
+    });
+  }
+
   async createApprovalRequest(input: {
     tenantId: string;
     actionType: string;
@@ -14039,6 +14269,24 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
       version: Number(row.version),
+    };
+  }
+
+  private mapESignEnvelope(row: QueryResultRow): ESignEnvelope {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      contractId: row.contract_id,
+      provider: row.provider,
+      envelopeRef: row.envelope_ref,
+      documentHash: row.document_hash,
+      signerPersonId: row.signer_person_id,
+      status: row.status,
+      sentAt: iso(row.sent_at) ?? new Date().toISOString(),
+      completedAt: iso(row.completed_at),
+      declineReason: row.decline_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
 

@@ -4775,6 +4775,87 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/esign-envelopes:
+    get:
+      tags: [Payroll]
+      summary: List e-sign envelopes
+      parameters:
+        - name: contractId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Envelopes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Payroll]
+      summary: Record an e-sign envelope sent to a provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateESignEnvelope"
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/esign/webhooks/{provider}:
+    post:
+      tags: [Payroll, Integration]
+      summary: Receive an e-sign provider callback
+      description: |
+        HMAC-verified with the provider secret. SIGNED callbacks require a
+        signature reference and update the contract consent evidence.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ESignCallback"
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/compensation-templates:
     get:
       tags: [Payroll]
@@ -9510,6 +9591,37 @@ components:
         consentSignedAt:
           type: string
           format: date-time
+
+    CreateESignEnvelope:
+      type: object
+      required:
+        [contractId, provider, envelopeRef, documentHash, signerPersonId]
+      properties:
+        contractId:
+          $ref: "#/components/schemas/Uuid"
+        provider:
+          type: string
+        envelopeRef:
+          type: string
+        documentHash:
+          type: string
+        signerPersonId:
+          $ref: "#/components/schemas/Uuid"
+
+    ESignCallback:
+      type: object
+      required: [envelopeRef, status]
+      properties:
+        envelopeRef:
+          type: string
+        status:
+          type: string
+          enum: [SIGNED, DECLINED, VOID]
+        signatureRef:
+          type: string
+        reason:
+          type: string
+          minLength: 3
 
     CreateCompensationTemplate:
       type: object

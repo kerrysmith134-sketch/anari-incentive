@@ -30,6 +30,8 @@ import {
   createManagerTrainingRecordSchema,
   createCalibrationSessionSchema,
   createCompensationTemplateSchema,
+  createESignEnvelopeSchema,
+  esignCallbackSchema,
   createPilotEnrollmentSchema,
   withdrawPilotEnrollmentSchema,
   createBreakGlassGrantSchema,
@@ -316,6 +318,8 @@ export interface BuildAppOptions {
   webhookSecrets?: Record<string, string>;
   /** Signature scheme per webhook source. Defaults to generic HMAC. */
   webhookSchemes?: Record<string, "hmac" | "hubspot" | "feishu">;
+  /** HMAC secrets for provider e-signature callbacks, by provider. */
+  esignWebhookSecrets?: Record<string, string>;
   /** Require and reserve an approved budget pool for FORMAL calculations. */
   enforceBudgetPools?: boolean;
   /** Optional trace recorder; the server wires an OTLP exporter. */
@@ -1132,7 +1136,12 @@ export function buildApp(
   });
 
   app.addHook("preParsing", async (request, _reply, payload) => {
-    if (!request.url.startsWith("/api/v1/webhooks/")) return payload;
+    if (
+      !request.url.startsWith("/api/v1/webhooks/") &&
+      !request.url.startsWith("/api/v1/esign/webhooks/")
+    ) {
+      return payload;
+    }
     const chunks: Buffer[] = [];
     for await (const chunk of payload) {
       chunks.push(Buffer.from(chunk));
@@ -3967,6 +3976,78 @@ export function buildApp(
       await platformStore.listModelRedTeamRuns(tenantOf(request)),
       request,
     );
+  });
+
+  app.post("/api/v1/esign-envelopes", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createESignEnvelopeSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createESignEnvelope({
+          tenantId: tenantOf(request),
+          contractId: body.contractId,
+          provider: body.provider,
+          envelopeRef: body.envelopeRef,
+          documentHash: body.documentHash,
+          signerPersonId: body.signerPersonId,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/esign-envelopes", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { contractId?: string };
+    return data(
+      await platformStore.listESignEnvelopes(
+        tenantOf(request),
+        query.contractId,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/esign/webhooks/:provider", async (request) => {
+    requireRoles(request, "integration");
+    const provider = paramOf(request, "provider");
+    const secret = options.esignWebhookSecrets?.[provider];
+    if (!secret) {
+      throw new NotFoundError(
+        `E-sign provider ${provider} is not configured`,
+      );
+    }
+    const raw =
+      (request as FastifyRequest & { rawBody?: Buffer }).rawBody ??
+      Buffer.alloc(0);
+    const timestamp = request.headers["x-timestamp"] as string | undefined;
+    const valid = verifyWebhookSignature({
+      secret,
+      payload: raw,
+      signature: request.headers["x-signature-256"] as
+        | string
+        | undefined,
+      timestamp,
+      toleranceSeconds: timestamp ? 300 : undefined,
+    });
+    if (!valid) {
+      throw new ConflictError("ESIGN_WEBHOOK_SIGNATURE_INVALID");
+    }
+    const body = parse(esignCallbackSchema, request.body);
+    const envelope = await platformStore.completeESignEnvelope({
+      tenantId: tenantOf(request),
+      provider,
+      envelopeRef: body.envelopeRef,
+      status: body.status,
+      signatureRef: body.signatureRef,
+      reason: body.reason,
+    });
+    countEvent(
+      body.status === "SIGNED"
+        ? "esign_envelope_signed"
+        : "esign_envelope_closed",
+    );
+    return data(envelope, request);
   });
 
   app.post("/api/v1/trust-surveys", async (request, reply) => {

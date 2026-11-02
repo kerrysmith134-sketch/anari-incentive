@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-10-30 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（268 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（61 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（269 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（62 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -10,7 +10,7 @@
 
 对照 PRD 的 **P0 验收要求**，剩余缺口已收敛为：
 
-1. **法律门禁的最后一公里**：LG-05 仍缺未来生效排期与外部电子签服务；LG-06 已有最低工资、扣款上限、deduction order/breakdown 与 tax/social 分列，但仍缺法定扣款类型/逐类型上限。
+1. **法律门禁的最后一公里**：LG-05 已具备未来排期与 provider callback 适配，实际电子签账号/合同由部署配置；LG-06 已有最低工资、扣款上限、deduction order/breakdown、逐类型上限与 tax/social 分列，法定扣款类型的最终法律映射仍待法务。
 2. **AI 监督的边界**：已有独立先判、盲审、override 理由、audit sampling、高风险决策前第二复核、gold-set 注册与 canary/供应商变更回归；reader/actor per-task 隔离、red-team 门禁与审阅分析均已落地。
 3. **激励护栏的剩余项**：已有 variable-share cap、clawback 条款、机动池委员会/观察员、年度审查；INC-06 已通过 zero-score rationale 强制。。
 4. **安全/隐私的剩余项**：已有威胁模型、RLS、payroll 字段 redaction + break-glass、导出水印/审批、provider policy、audit anchor；已有多资源 payroll field policy；仍缺跨资源通用 ABAC 引擎。DLP/批量导出限流与 audit redaction 已实现，自动 retention deletion 仍明确不启用。
@@ -54,7 +54,7 @@
 | LG-02 法人/法域/员工类型 | ✅ | 发布 schema 必填 legalEntity/jurisdictions/workLocations/employeeCategories/workTimeTypes；memory/PG 持久化并在 store 层拒绝缺失；rollback 继承源版本适用性；console 显示 |
 | LG-03 民主程序/员工代表 | ✅ | Representation、Consultation、legal gate ref、readiness 检查 |
 | LG-04 告知/签收 | ✅ | EmployeeNotice、Acknowledgement/Decline、覆盖率门禁；沉默不视为同意 |
-| LG-05 合同/薪酬方案变更 | 🟡 | 必填 consent signature、payPlanVersion、amendment history 已有；本轮新增未来生效排期（≤180 天）、SCHEDULED/APPLIED/CANCELLED 状态、取消和 payroll 到期自动应用；仍未接入外部电子签服务 |
+| LG-05 合同/薪酬方案变更 | ✅ | 必填 consent signature、payPlanVersion、amendment history、未来排期/自动应用已有；本轮新增 e-sign envelope + HMAC provider callback，SIGNED 回调写回合同 consent signature；外部 provider 账号/合同仍由部署配置 |
 | LG-06 最低工资/扣款 | 🟡 | 最低工资、总额扣款上限、tax/social 分列、deductionOrder/breakdown 已有；本轮新增 contract `deductionTypeCaps` 与 payroll 逐类型 cap 校验/违约列表，超出阻断行；法定扣款类型映射与执行令/员工同意的法律优先级仍待法务确认 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
 | LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；本轮新增数据源登记（owner/SLA/存储区域/跨境/处理者）与字段级 data map；自动删除仍未启用 |
@@ -156,7 +156,7 @@
 7. **LG-07 adverse actions**：新增 human-only PIP/调岗/降薪/解除工作流，法律复核与批准必须由不同人完成，无自动触发路径。
 8. **LG-09 / AI-03**：新增员工 AI 透明记录页；AI 评分必须先独立打分/写理由再揭示，记录时长、证据打开数、盲审标记、override 理由，并提供 rubber-stamp 监控。
 9. **AI-02 门禁强化**：新增 `POST /api/v1/model-evaluation-runs:evaluate`，由服务端 harness 计算 passed/blockers/metrics；增加 holdout 阈值、AI-human 一致率不得高于 human-human 的 blocker；prompt activation 和 score proposal 拒绝非 harness 生成的记录；AI 页面新增 Evaluation runs 列表。
-10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **268 unit/API + 61 PG** 全绿。
+10. 测试覆盖持续扩展（证据包、AI agreement、未验证评测拒绝、申诉 SLA 持久化、扣款上限、适用性校验、合同修订、adverse action、年度审查报告、数据源登记/data map、variable-share cap、PG 合同同意/修订、PG adverse action、PG 数据源），当前 **269 unit/API + 62 PG** 全绿。
 
 11. **DATA-04 / DATA-05 data source registry**：新增 `data_sources`（owner/backup owner、SLA、criticality、存储区域、跨境、处理者、字段分类/用途/保留期）与 `GET /data-map`，console 的 Settings 可登记并查看 90 天复核逾期；迁移 `033_data_sources.sql`。
 
@@ -239,6 +239,8 @@
 50. **AI-05 per-task actor roles**：AgentTask 增加 `actorRole=READER/ACTOR`，持久化到 agent_tasks；READER 任务不能执行 WRITE 工具，`AGENT_ROLE` 作为默认角色；runtime/PG 测试覆盖。迁移 `058_agent_actor_role.sql`。
 
 51. **AI-02 gold-set refresh workflow**：新增 refresh-due 报告与版本化 refresh（旧版本 retire、新版本 active），AI console 可操作；自动训练/标注仍属外部流水线。
+
+52. **LG-05 e-sign adapter**：新增 e-sign envelope 与 HMAC provider callback，SIGNED 回调写回合同 consent signature；迁移 `059_esign_envelopes.sql`。外部 provider 账号/合同仍由部署配置。
 
 ## 仍建议按 P0 顺序补做
 

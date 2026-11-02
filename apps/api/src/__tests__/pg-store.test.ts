@@ -3646,6 +3646,51 @@ describePg("PgStore vertical slice", () => {
     expect(retired.status).toBe("RETIRED");
   });
 
+  it("persists e-sign envelopes and applies signed consent", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const contract = await platform.createEmploymentContract({
+      tenantId: DEMO_TENANT_ID,
+      personId: OWNER,
+      contractCode: `PG-ESIGN-${Date.now()}`,
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "8000",
+      minimumMonthlyWage: "2690",
+      taxRate: "0.1",
+      socialInsuranceRate: "0.05",
+      deductionCapRate: "0.2",
+      variableShareCapRate: "1",
+      deductionOrder: ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"],
+      deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
+      consentSignatureRef: "PG-PENDING-ESIGN",
+    });
+    const envelope = await platform.createESignEnvelope({
+      tenantId: DEMO_TENANT_ID,
+      contractId: contract.id,
+      provider: "docusign",
+      envelopeRef: `ENV-${Date.now()}`,
+      documentHash: "sha256:pg-contract",
+      signerPersonId: OWNER,
+    });
+    expect(envelope.status).toBe("SENT");
+    const completed = await platform.completeESignEnvelope({
+      tenantId: DEMO_TENANT_ID,
+      provider: "docusign",
+      envelopeRef: envelope.envelopeRef,
+      status: "SIGNED",
+      signatureRef: "PG-ESIGN-CALLBACK",
+    });
+    expect(completed.status).toBe("SIGNED");
+    const updated = await platform.getEmploymentContract(
+      DEMO_TENANT_ID,
+      contract.id,
+    );
+    expect(updated.consentSignatureRef).toBe("PG-ESIGN-CALLBACK");
+  });
+
   it("applies RLS when the app role is not a superuser", async () => {
     const role = await pool.query(
       "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",

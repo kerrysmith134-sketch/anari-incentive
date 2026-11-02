@@ -494,6 +494,24 @@ export interface PilotEnrollment {
   updatedAt: string;
 }
 
+export type ESignEnvelopeStatus = "SENT" | "SIGNED" | "DECLINED" | "VOID";
+
+export interface ESignEnvelope {
+  id: UUID;
+  tenantId: UUID;
+  contractId: UUID;
+  provider: string;
+  envelopeRef: string;
+  documentHash: string;
+  signerPersonId: UUID;
+  status: ESignEnvelopeStatus;
+  sentAt: string;
+  completedAt?: string;
+  declineReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CompensationTemplate {
   id: UUID;
   tenantId: UUID;

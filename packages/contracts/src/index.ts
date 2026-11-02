@@ -284,6 +284,25 @@ export type WithdrawPilotEnrollmentBody = z.infer<
   typeof withdrawPilotEnrollmentSchema
 >;
 
+export const createESignEnvelopeSchema = z.object({
+  contractId: uuidSchema,
+  provider: z.string().min(1),
+  envelopeRef: z.string().min(1),
+  documentHash: z.string().min(1),
+  signerPersonId: uuidSchema,
+});
+export type CreateESignEnvelopeBody = z.infer<
+  typeof createESignEnvelopeSchema
+>;
+
+export const esignCallbackSchema = z.object({
+  envelopeRef: z.string().min(1),
+  status: z.enum(["SIGNED", "DECLINED", "VOID"]),
+  signatureRef: z.string().min(1).optional(),
+  reason: z.string().min(3).optional(),
+});
+export type ESignCallbackBody = z.infer<typeof esignCallbackSchema>;
+
 export const createCompensationTemplateSchema = z
   .object({
     code: z.string().min(1),

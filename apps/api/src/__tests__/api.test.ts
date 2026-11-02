@@ -7159,6 +7159,77 @@ describe("vertical slice", () => {
     expect(retired.body.data.status).toBe("RETIRED");
   });
 
+  it("records e-sign envelopes and applies a signed provider callback", async () => {
+    const signedApp = buildApp(
+      new Store(),
+      undefined,
+      undefined,
+      undefined,
+      { esignWebhookSecrets: { docusign: "esign-secret" } },
+    );
+    const contract = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/employment-contracts",
+      payload: {
+        personId: OWNER,
+        contractCode: "CT-ESIGN-1",
+        employmentType: "FULL_TIME",
+        startDate: "2025-01-01T00:00:00Z",
+        workLocation: "Shanghai",
+        currency: "CNY",
+        fixedMonthlySalary: "9000",
+        minimumMonthlyWage: "2690",
+        consentSignatureRef: "PENDING-ESIGN",
+      },
+    } as never);
+    expect(contract.statusCode).toBe(201);
+    const contractId = contract.json().data.id as string;
+    const envelope = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/esign-envelopes",
+      payload: {
+        contractId,
+        provider: "docusign",
+        envelopeRef: "ENV-1",
+        documentHash: "sha256:contract-doc",
+        signerPersonId: OWNER,
+      },
+    } as never);
+    expect(envelope.statusCode).toBe(201);
+    expect(envelope.json().data.status).toBe("SENT");
+    const callback = {
+      envelopeRef: "ENV-1",
+      status: "SIGNED",
+      signatureRef: "ESIGN-CALLBACK-1",
+    };
+    const callbackBody = JSON.stringify(callback);
+    const signature = computeWebhookSignature({
+      secret: "esign-secret",
+      payload: callbackBody,
+    });
+    const completed = await signedApp.inject({
+      method: "POST",
+      url: "/api/v1/esign/webhooks/docusign",
+      headers: {
+        "content-type": "application/json",
+        "x-signature-256": signature,
+      },
+      payload: callbackBody,
+    } as never);
+    expect(completed.statusCode).toBe(200);
+    expect(completed.json().data.status).toBe("SIGNED");
+    const contracts = await signedApp.inject({
+      method: "GET",
+      url: `/api/v1/employment-contracts?personId=${OWNER}`,
+    } as never);
+    expect(
+      contracts
+        .json()
+        .data.find((row: { id: string }) => row.id === contractId)
+        .consentSignatureRef,
+    ).toBe("ESIGN-CALLBACK-1");
+  });
+
   it("records two-person audit redactions and applies the overlay", async () => {
     const eventId = "00000000-0000-4000-8000-0000000000ee";
     const selfRedaction = await call(
