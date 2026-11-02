@@ -15,6 +15,17 @@ The application writes an append-only, hash-chained audit trail. The repository 
 5. **Restore drills** — quarterly restore of a snapshot into an isolated environment, then run `GET /api/v1/audit-events/verify` and compare the anchor root with the restored range.
 6. **Access separation** — database backup, object-lock retention and TSA credentials are held by different roles from the application runtime. Break-glass access is logged and reviewed.
 
+## Configuration readiness
+
+The API exposes `GET /api/v1/audit-events/durability`, which reports whether the deployment has set:
+
+- `AUDIT_WORM_URI` — immutable/WORM archive location;
+- `AUDIT_MIRROR_URI` — second immutable copy;
+- `AUDIT_TSA_URL` — timestamp authority endpoint;
+- `AUDIT_RESTORE_DRILL_AT` — ISO timestamp of the latest restore drill (must be within 90 days).
+
+The endpoint reports configuration presence only; it does not prove the bucket policy, mirror or TSA receipt exists. A `ready: false` result is a release blocker for a claim of MON-07 completion.
+
 ## Verification evidence to keep
 
 - Anchor response JSON (or its hash) and TSA receipt per day.

@@ -4,6 +4,7 @@ import {
   Button,
   EmptyState,
   ErrorNotice,
+  InfoNotice,
   LoadingRows,
   Modal,
   PageHeader,
@@ -24,6 +25,11 @@ export function AuditPage() {
   useDocumentTitle("Audit");
   const events = useApiQuery<AuditEvent[]>("/api/v1/audit-events?limit=250");
   const verify = useApiQuery<{ valid: boolean }>("/api/v1/audit-events/verify");
+  const durability = useApiQuery<{
+    ready: boolean;
+    checks: Record<string, boolean | string | null>;
+    note: string;
+  }>("/api/v1/audit-events/durability");
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("ALL");
   const [selected, setSelected] = useState<AuditEvent | null>(null);
@@ -75,6 +81,15 @@ export function AuditPage() {
           </Button>
         }
       />
+
+      {durability.data ? (
+        <InfoNotice tone={durability.data.ready ? "success" : "warning"}>
+          {durability.data.ready
+            ? "External durability configuration is complete."
+            : "External durability is incomplete."}{" "}
+          {durability.data.note}
+        </InfoNotice>
+      ) : null}
 
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">

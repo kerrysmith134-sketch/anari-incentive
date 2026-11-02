@@ -8599,6 +8599,42 @@ export function buildApp(
     );
   });
 
+  app.get("/api/v1/audit-events/durability", async (request) => {
+    requireRoles(request, "admin", "finance");
+    const wormConfigured = Boolean(process.env.AUDIT_WORM_URI);
+    const mirrorConfigured = Boolean(process.env.AUDIT_MIRROR_URI);
+    const tsaConfigured = Boolean(process.env.AUDIT_TSA_URL);
+    const drillAt = process.env.AUDIT_RESTORE_DRILL_AT;
+    const drillTime = drillAt ? Date.parse(drillAt) : Number.NaN;
+    const restoreDrillRecent =
+      Number.isFinite(drillTime) &&
+      Date.now() - drillTime <= 90 * 24 * 60 * 60 * 1000;
+    const ready =
+      wormConfigured &&
+      mirrorConfigured &&
+      tsaConfigured &&
+      restoreDrillRecent;
+    return data(
+      {
+        generatedAt: new Date().toISOString(),
+        ready,
+        checks: {
+          wormConfigured,
+          mirrorConfigured,
+          tsaConfigured,
+          restoreDrillRecent,
+          restoreDrillAt: Number.isFinite(drillTime)
+            ? new Date(drillTime).toISOString()
+            : null,
+        },
+        note: ready
+          ? "Deployment reports WORM, dual-copy, TSA and a recent restore drill. Keep bucket policies and TSA receipts in the evidence pack."
+          : "Durability is not fully configured. This reports configuration presence only; it does not prove the controls work. Complete the MON-07 runbook and attach evidence.",
+      },
+      request,
+    );
+  });
+
   app.get("/api/v1/audit-events/anchor", async (request) => {
     requireRoles(request, "admin");
     const query = request.query as {

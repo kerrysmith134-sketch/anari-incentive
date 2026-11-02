@@ -116,7 +116,7 @@
 | MON-04 计算行唯一 | ✅ | `calculation_lines` unique constraint |
 | MON-05 账本不重复入账 | ✅ | `calculation_line_id + entry_type` unique |
 | MON-06 锁定账本不可变 | ✅ | trigger 禁止 UPDATE/DELETE |
-| MON-07 审计可验证 | 🟡 | prev/entry hash、sequence、trigger、RLS、verify；新增 `/audit-events/anchor` root hash 清单与 `docs/operations/audit-durability.md`（WORM/双副本/TSA/恢复演练）；实际 WORM/TSA 仍由部署提供，代码不能证明已启用 |
+| MON-07 审计可验证 | 🟡 | prev/entry hash、sequence、trigger、RLS、verify、`/audit-events/anchor` root hash 清单已有；本轮新增 `/audit-events/durability`：检查 `AUDIT_WORM_URI`/`AUDIT_MIRROR_URI`/`AUDIT_TSA_URL`/90 天内恢复演练配置并在 Audit console 提示；实际 WORM/TSA 仍由部署提供，代码不能证明已启用 |
 | MON-08 输入可重放 | ✅ | `engine_version`、input_snapshot、input_snapshot_hash、policy content hash |
 
 ### 7. 数据质量与证据覆盖
@@ -267,6 +267,8 @@
 64. **ADR-008 retention defaults**：新增 `GET /retention-policies/recommended`（系统推荐类别/月数/法律依据/configured 标记）与 Settings 预填创建 modal；推荐值不自动落库，需租户确认法律依据后创建；legal hold 始终优先。
 
 65. **P0-02 employee home**：Dashboard 按 identity 角色分流；非 privileged 用户只调用本人 work-package/confirmation/appeal/AI/team-aggregate 接口并展示 My overview，管理员/经理/财务继续使用运营总览；避免员工首屏加载租户级 payroll/approval/audit 数据。
+
+66. **MON-07 durability readiness**：新增 `GET /audit-events/durability` 和 Audit console 提示，按 `AUDIT_WORM_URI`/`AUDIT_MIRROR_URI`/`AUDIT_TSA_URL`/`AUDIT_RESTORE_DRILL_AT` 报告配置就绪度；文档明确这只是配置存在性，不等于控制有效，`ready:false` 不能宣称 MON-07 完成。
 
 ## 仍建议按 P0 顺序补做
 

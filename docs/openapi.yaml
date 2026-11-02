@@ -6383,6 +6383,26 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/audit-events/durability:
+    get:
+      tags: [Audit]
+      summary: Report audit durability configuration readiness
+      description: |
+        Configuration presence only: WORM URI, mirror URI, TSA URL and a
+        restore drill within 90 days. It does not prove the external controls
+        work; attach bucket policies and TSA receipts to the evidence pack.
+      responses:
+        "200":
+          description: Durability readiness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/audit-events/anchor:
     get:
       tags: [Audit]

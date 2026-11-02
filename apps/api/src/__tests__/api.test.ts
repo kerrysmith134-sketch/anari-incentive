@@ -7494,6 +7494,14 @@ describe("vertical slice", () => {
     expect(anchor.body.data.firstEventHash).toBeNull();
     expect(anchor.body.data.lastEventHash).toBeNull();
     expect(anchor.body.data.note).toContain("TSA");
+    const durability = await call(
+      "GET",
+      "/api/v1/audit-events/durability",
+    );
+    expect(durability.status).toBe(200);
+    expect(typeof durability.body.data.ready).toBe("boolean");
+    expect(durability.body.data.checks).toHaveProperty("wormConfigured");
+    expect(durability.body.data.note).toContain("configuration");
   });
 
   it("reports operations coverage for work packages and claims", async () => {
