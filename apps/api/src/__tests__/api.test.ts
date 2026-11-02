@@ -6790,6 +6790,46 @@ describe("vertical slice", () => {
     expect(revealed.lines?.[0]?.bankAccountRef).toBe("BANK-OWNER");
   });
 
+  it("lists and refreshes due gold sets", async () => {
+    const dataset = await call("POST", "/api/v1/model-evaluation-datasets", {
+      code: "TRUST_GOLD",
+      version: 1,
+      name: "Trust gold set",
+      sampleSize: 100,
+      holdoutSize: 20,
+      labelSource: "DOUBLE_ANNOTATION",
+      ownerPersonId: OWNER,
+      nextRefreshDueAt: "2020-01-01T00:00:00Z",
+    });
+    expect(dataset.status).toBe(201);
+    const due = await call(
+      "GET",
+      "/api/v1/model-evaluation-datasets/refresh-due?withinDays=30",
+    );
+    expect(due.body.data.map((row: { id: string }) => row.id)).toContain(
+      dataset.body.data.id,
+    );
+    const refreshed = await call(
+      "POST",
+      `/api/v1/model-evaluation-datasets/${dataset.body.data.id}/refresh`,
+      {
+        version: 2,
+        sampleSize: 120,
+        holdoutSize: 24,
+        nextRefreshDueAt: "2027-01-01T00:00:00Z",
+      },
+    );
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.data.version).toBe(2);
+    expect(refreshed.body.data.sampleSize).toBe(120);
+    const list = await call("GET", "/api/v1/model-evaluation-datasets");
+    expect(
+      list.body.data.find(
+        (row: { version: number }) => row.version === 1,
+      ).status,
+    ).toBe("RETIRED");
+  });
+
   it("runs a canary comparison and blocks a regressed candidate", async () => {
     const baseline = await createHarnessEvaluation(
       "IRR",
@@ -7357,6 +7397,7 @@ describe("vertical slice", () => {
           fieldName: "customer_contact",
           classification: "PERSONAL",
           purpose: "Order delivery contact",
+          retentionMonths: 24,
         },
         {
           fieldName: "order_value",
@@ -7426,8 +7467,8 @@ describe("vertical slice", () => {
     expect(map.body.data.summary.minimization).toEqual({
       fieldsWithPurpose: 2,
       personalFields: 1,
-      personalFieldsWithRetention: 0,
-      personalFieldsWithoutRetention: 1,
+      personalFieldsWithRetention: 1,
+      personalFieldsWithoutRetention: 0,
     });
 
     const retired = await call(

@@ -137,6 +137,20 @@ export type CreateModelRedTeamRunBody = z.infer<
   typeof createModelRedTeamRunSchema
 >;
 
+export const refreshModelEvaluationDatasetSchema = z.object({
+  version: z.number().int().positive().optional(),
+  name: z.string().min(1).optional(),
+  sampleSize: z.number().int().positive().optional(),
+  holdoutSize: z.number().int().positive().optional(),
+  refreshedAt: z.string().datetime().optional(),
+  nextRefreshDueAt: z.string().datetime().optional(),
+  contentHash: z.string().min(1).optional(),
+  ownerPersonId: uuidSchema.optional(),
+});
+export type RefreshModelEvaluationDatasetBody = z.infer<
+  typeof refreshModelEvaluationDatasetSchema
+>;
+
 export const createModelCanaryRunSchema = z.object({
   baselineEvaluationRunId: uuidSchema,
   candidateEvaluationRunId: uuidSchema,
@@ -632,6 +646,19 @@ export const createDataSourceSchema = z
         message:
           "containsPersonalData requires at least one PERSONAL or SENSITIVE field",
       });
+    }
+    for (const field of value.fields) {
+      if (
+        (field.classification === "PERSONAL" ||
+          field.classification === "SENSITIVE") &&
+        !field.retentionMonths
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fields"],
+          message: `personal field ${field.fieldName} requires retentionMonths`,
+        });
+      }
     }
   });
 export type CreateDataSourceBody = z.infer<typeof createDataSourceSchema>;

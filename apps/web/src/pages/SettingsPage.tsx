@@ -112,12 +112,14 @@ export function SettingsPage() {
       fieldName: string;
       classification: DataClassification;
       purpose: string;
+      retentionMonths: string;
     }>
   >([
     {
       fieldName: "",
       classification: "INTERNAL",
       purpose: "",
+      retentionMonths: "",
     },
   ]);
   const [conflictOpen, setConflictOpen] = useState(false);
@@ -304,7 +306,12 @@ export function SettingsPage() {
     setSourceCrossBorder(false);
     setSourceProcessors("");
     setSourceFields([
-      { fieldName: "", classification: "INTERNAL", purpose: "" },
+      {
+        fieldName: "",
+        classification: "INTERNAL",
+        purpose: "",
+        retentionMonths: "",
+      },
     ]);
     setSourceError(null);
   }
@@ -336,6 +343,9 @@ export function SettingsPage() {
               fieldName: field.fieldName.trim(),
               classification: field.classification,
               purpose: field.purpose.trim(),
+              retentionMonths: field.retentionMonths
+                ? Number(field.retentionMonths)
+                : undefined,
             })),
         },
       });
@@ -1723,6 +1733,30 @@ export function SettingsPage() {
                       required
                     />
                   </FormField>
+                  <FormField
+                    label="Retention months"
+                    htmlFor={`source-retention-${index}`}
+                    hint="Required for PERSONAL/SENSITIVE fields."
+                  >
+                    <TextInput
+                      id={`source-retention-${index}`}
+                      type="number"
+                      min={1}
+                      value={field.retentionMonths}
+                      onChange={(event) =>
+                        setSourceFields((current) =>
+                          current.map((candidate, fieldIndex) =>
+                            fieldIndex === index
+                              ? {
+                                  ...candidate,
+                                  retentionMonths: event.target.value,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    />
+                  </FormField>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1751,6 +1785,7 @@ export function SettingsPage() {
                     fieldName: "",
                     classification: "INTERNAL",
                     purpose: "",
+                    retentionMonths: "",
                   },
                 ])
               }

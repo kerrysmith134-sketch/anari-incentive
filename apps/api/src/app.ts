@@ -39,6 +39,7 @@ import {
   createDiscretionaryPoolReviewSchema,
   createModelProviderPolicySchema,
   createModelEvaluationDatasetSchema,
+  refreshModelEvaluationDatasetSchema,
   createModelCanaryRunSchema,
   createAuditRedactionSchema,
   createModelRedTeamRunSchema,
@@ -3740,6 +3741,82 @@ export function buildApp(
         request,
       ),
     );
+  });
+
+  app.get("/api/v1/model-evaluation-datasets/refresh-due", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const query = request.query as { withinDays?: string };
+    const withinDays = Number(query.withinDays ?? 30);
+    const cutoff =
+      Date.now() +
+      (Number.isFinite(withinDays) ? withinDays : 30) *
+        24 *
+        60 *
+        60 *
+        1000;
+    const datasets = await platformStore.listModelEvaluationDatasets(
+      tenantOf(request),
+    );
+    return data(
+      datasets.filter(
+        (dataset) =>
+          dataset.status === "ACTIVE" &&
+          Boolean(dataset.nextRefreshDueAt) &&
+          Date.parse(dataset.nextRefreshDueAt as string) <= cutoff,
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-evaluation-datasets/:id/refresh", async (request) => {
+    requireRoles(request, "manager");
+    const body = parse(refreshModelEvaluationDatasetSchema, request.body);
+    const tenantId = tenantOf(request);
+    const datasets = await platformStore.listModelEvaluationDatasets(tenantId);
+    const current = datasets.find(
+      (dataset) => dataset.id === idOf(request),
+    );
+    if (!current) {
+      throw new NotFoundError(
+        `ModelEvaluationDataset ${idOf(request)} not found`,
+      );
+    }
+    if (current.status !== "ACTIVE") {
+      throw new ConflictError(
+        `model evaluation dataset is ${current.status}`,
+      );
+    }
+    const sameCode = datasets.filter(
+      (dataset) => dataset.code === current.code,
+    );
+    const version =
+      body.version ??
+      Math.max(...sameCode.map((dataset) => dataset.version)) + 1;
+    const sampleSize = body.sampleSize ?? current.sampleSize;
+    const holdoutSize = body.holdoutSize ?? current.holdoutSize;
+    if (holdoutSize >= sampleSize) {
+      throw new ConflictError(
+        "GOLD_SET_HOLDOUT_TOO_LARGE: holdout must be smaller than sample",
+      );
+    }
+    const refreshed = await platformStore.createModelEvaluationDataset({
+      tenantId,
+      code: current.code,
+      version,
+      name: body.name ?? current.name,
+      sampleSize,
+      holdoutSize,
+      labelSource: current.labelSource,
+      ownerPersonId: body.ownerPersonId ?? current.ownerPersonId,
+      refreshedAt: body.refreshedAt,
+      nextRefreshDueAt: body.nextRefreshDueAt,
+      contentHash: body.contentHash,
+    });
+    await platformStore.retireModelEvaluationDataset({
+      tenantId,
+      datasetId: current.id,
+    });
+    return data(refreshed, request);
   });
 
   app.get("/api/v1/model-evaluation-datasets", async (request) => {

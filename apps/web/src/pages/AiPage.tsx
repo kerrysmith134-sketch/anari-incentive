@@ -132,6 +132,14 @@ export function AiPage() {
   const [redTeamFindings, setRedTeamFindings] = useState("");
   const [redTeamArtifact, setRedTeamArtifact] = useState("");
   const [redTeamCreator, setRedTeamCreator] = useState(session.personId);
+  const [refreshTarget, setRefreshTarget] =
+    useState<ModelEvaluationDataset | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState("2");
+  const [refreshSample, setRefreshSample] = useState("");
+  const [refreshHoldout, setRefreshHoldout] = useState("");
+  const [refreshDue, setRefreshDue] = useState("");
+  const [refreshSaving, setRefreshSaving] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
@@ -151,6 +159,49 @@ export function AiPage() {
       ? pending.reduce((total, proposal) => total + proposal.confidence, 0) /
         pending.length
       : 0;
+
+  function openRefresh(dataset: ModelEvaluationDataset) {
+    setRefreshTarget(dataset);
+    setRefreshVersion(String(dataset.version + 1));
+    setRefreshSample(String(dataset.sampleSize));
+    setRefreshHoldout(String(dataset.holdoutSize));
+    setRefreshDue("");
+    setRefreshError(null);
+  }
+
+  async function saveRefresh(event: FormEvent) {
+    event.preventDefault();
+    if (!refreshTarget) return;
+    setRefreshSaving(true);
+    setRefreshError(null);
+    try {
+      await api(
+        `/api/v1/model-evaluation-datasets/${refreshTarget.id}/refresh`,
+        {
+          method: "POST",
+          body: {
+            version: Number(refreshVersion),
+            sampleSize: Number(refreshSample),
+            holdoutSize: Number(refreshHoldout),
+            nextRefreshDueAt: refreshDue
+              ? new Date(`${refreshDue}T00:00:00Z`).toISOString()
+              : undefined,
+          },
+        },
+      );
+      toast.success("Gold set refreshed");
+      setRefreshTarget(null);
+      datasets.reload();
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error
+          ? error.message
+          : "Could not refresh the gold set.",
+      );
+    } finally {
+      setRefreshSaving(false);
+    }
+  }
 
   function openRedTeamForm() {
     setRedTeamProvider("anthropic");
@@ -1050,19 +1101,35 @@ export function AiPage() {
                           {dataset.nextRefreshDueAt
                             ? formatDateTime(dataset.nextRefreshDueAt)
                             : "—"}
+                          {dataset.nextRefreshDueAt &&
+                          new Date(dataset.nextRefreshDueAt).getTime() <
+                            Date.now() ? (
+                            <span className="cell-sub">
+                              <Badge tone="warning">Refresh due</Badge>
+                            </span>
+                          ) : null}
                         </td>
                         <td>
                           <Badge status={dataset.status} />
                         </td>
                         <td className="cell-actions">
                           {dataset.status === "ACTIVE" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => void retireDataset(dataset)}
-                            >
-                              Retire
-                            </Button>
+                            <div className="row-actions">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => openRefresh(dataset)}
+                              >
+                                Refresh
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => void retireDataset(dataset)}
+                              >
+                                Retire
+                              </Button>
+                            </div>
                           ) : null}
                         </td>
                       </tr>
@@ -1423,6 +1490,78 @@ export function AiPage() {
                 type="date"
                 value={datasetRefreshDue}
                 onChange={(event) => setDatasetRefreshDue(event.target.value)}
+              />
+            </FormField>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(refreshTarget)}
+        title="Refresh gold set"
+        description="Creates a new active version and retires the current one."
+        onClose={() => setRefreshTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRefreshTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="refresh-dataset-form"
+              loading={refreshSaving}
+            >
+              Refresh
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="refresh-dataset-form"
+          className="stack"
+          onSubmit={saveRefresh}
+        >
+          {refreshError ? (
+            <InfoNotice tone="warning">{refreshError}</InfoNotice>
+          ) : null}
+          <div className="form-grid">
+            <FormField label="Version" htmlFor="refresh-version">
+              <TextInput
+                id="refresh-version"
+                type="number"
+                min={1}
+                value={refreshVersion}
+                onChange={(event) => setRefreshVersion(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Sample size" htmlFor="refresh-sample">
+              <TextInput
+                id="refresh-sample"
+                type="number"
+                min={2}
+                value={refreshSample}
+                onChange={(event) => setRefreshSample(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Holdout size" htmlFor="refresh-holdout">
+              <TextInput
+                id="refresh-holdout"
+                type="number"
+                min={1}
+                value={refreshHoldout}
+                onChange={(event) => setRefreshHoldout(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Next refresh due" htmlFor="refresh-due">
+              <TextInput
+                id="refresh-due"
+                type="date"
+                value={refreshDue}
+                onChange={(event) => setRefreshDue(event.target.value)}
               />
             </FormField>
           </div>

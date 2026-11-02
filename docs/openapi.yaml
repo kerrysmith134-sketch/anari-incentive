@@ -1124,6 +1124,59 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/model-evaluation-datasets/refresh-due:
+    get:
+      tags: [Agent]
+      summary: List gold sets due for refresh
+      parameters:
+        - name: withinDays
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Due gold sets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/model-evaluation-datasets/{id}/refresh:
+    post:
+      tags: [Agent]
+      summary: Refresh a gold set into a new active version
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshModelEvaluationDataset"
+      responses:
+        "200":
+          description: Refreshed dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/model-evaluation-datasets/{id}/retire:
     post:
       tags: [Agent]
@@ -8031,6 +8084,31 @@ components:
         requestedBy:
           $ref: "#/components/schemas/Uuid"
         approvedBy:
+          $ref: "#/components/schemas/Uuid"
+
+    RefreshModelEvaluationDataset:
+      type: object
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        sampleSize:
+          type: integer
+          minimum: 2
+        holdoutSize:
+          type: integer
+          minimum: 1
+        refreshedAt:
+          type: string
+          format: date-time
+        nextRefreshDueAt:
+          type: string
+          format: date-time
+        contentHash:
+          type: string
+        ownerPersonId:
           $ref: "#/components/schemas/Uuid"
 
     CreateModelCanaryRun:

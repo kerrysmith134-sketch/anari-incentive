@@ -2963,6 +2963,7 @@ describePg("PgStore vertical slice", () => {
           fieldName: "contact",
           classification: "PERSONAL",
           purpose: "Order contact",
+          retentionMonths: 24,
         },
       ],
     });
