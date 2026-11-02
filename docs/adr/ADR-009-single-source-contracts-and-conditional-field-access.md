@@ -44,8 +44,12 @@ than a big-bang rewrite:
   for the nine money-path/audit tables. `npm run contracts:entities` emits
   `docs/generated/entity-contracts.json`, and the DDL test compares every
   column in the parsed migrations against this registry, failing on any
-  difference or stale manifest. Still to do: generate or verify the
-  TypeScript domain interfaces from the same registry.
+  difference or stale manifest. In addition,
+  `tests/domain-entity-interface.test.ts` parses the TypeScript interfaces,
+  converts fields to snake_case, and verifies both directions against the
+  registry, with explicit view-only, alias and DB-only exceptions that must
+  stay current. Still to do: generate the interfaces from the registry rather
+  than only verifying them.
 - **Phase 3:** migrate remaining tables in batches, keeping the migration
   parser as the independent verifier. A registry change that is not reflected
   in DDL (or vice versa) fails the suite.
@@ -77,7 +81,7 @@ Rules:
   `admin` may read the field.
 - **Conditions are evaluated server-side** from canonical records, never from
   request-supplied claims. Supported predicates stay small and auditable:
-  `isSubjectManager`, `sameOrgNode`, `sameLegalEntity`,
+  `isSubjectManager`, `sameOrgNode`, `sameLegalEntity`, `legalHoldActive`,
   `subjectEmploymentActive`, `viewerEmploymentActive`. Unsupported predicates
   reject the policy at write time.
 - **No condition may grant access a role would not otherwise have.** Conditions
@@ -90,18 +94,22 @@ Rules:
 Implementation status: `allowRoles`, `allowSelf`, `onDeny` and `match` are
 implemented across payroll lines, calculation lines and the generic resource
 path. Supported predicates are `isSubjectManager`, `sameOrgNode`,
-`sameLegalEntity`, `subjectEmploymentActive` and `viewerEmploymentActive`.
-`sameLegalEntity` compares the employing legal entity recorded on each
-person's active contract. Predicate inputs are derived server-side from
-persons, contracts and org assignments, cached per request, and loaded only
-when a match policy exists. The object form is strict — unknown keys or
-predicates are rejected with `VALIDATION_ERROR`. Missing predicate context
-fails closed. Admin and self-access are unconditional; predicates only narrow
-the role path. `allowSelf: false` denies the record subject even though
-self-access is otherwise the default.
+`sameLegalEntity`, `legalHoldActive`, `subjectEmploymentActive` and
+`viewerEmploymentActive`. `sameLegalEntity` compares the employing legal
+entity recorded on each person's active contract; `legalHoldActive` checks
+whether the resource's retention category currently has an active legal hold,
+using an explicit resource→category map. Predicate inputs are derived
+server-side from persons, contracts, org assignments and retention policies,
+cached per request, and loaded only when a match policy exists. The object
+form is strict — unknown keys or predicates are rejected with
+`VALIDATION_ERROR`. Missing predicate context fails closed. Admin and
+self-access are unconditional; predicates only narrow the role path.
+`allowSelf: false` denies the record subject even though self-access is
+otherwise the default.
 
-Not yet supported: `legalHoldActive`. It needs a retention-category mapping
-onto each record, which is a data model change rather than a policy change.
+Adding a newly protected resource means registering its retention category in
+`RETENTION_CATEGORIES_BY_RESOURCE`; otherwise `legalHoldActive` evaluates
+false and fails closed.
 
 Admin bypass remains, but reading another tenant's data is still impossible
 (RLS and tenant scoping are orthogonal to field policies).
