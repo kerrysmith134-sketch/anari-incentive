@@ -1,0 +1,280 @@
+{
+  "generatedFrom": "packages/domain/src/entity-contracts.ts#CORE_ENTITY_CONTRACTS",
+  "description": "Generated entity column contracts. Run `npm run contracts:entities`; do not edit by hand.",
+  "tables": {
+    "amount_ledger": {
+      "columns": [
+        "amount",
+        "calculation_line_id",
+        "calculation_run_id",
+        "created_at",
+        "currency",
+        "cycle_id",
+        "entry_hash",
+        "entry_type",
+        "id",
+        "idempotency_key",
+        "ledger_seq",
+        "locked_at",
+        "person_id",
+        "prev_hash",
+        "source_entry_id",
+        "status",
+        "tenant_id"
+      ],
+      "classifications": {
+        "amount": "FINANCIAL",
+        "entry_hash": "AUDIT",
+        "prev_hash": "AUDIT"
+      }
+    },
+    "audit_events": {
+      "columns": [
+        "action",
+        "actor_id",
+        "actor_type",
+        "after_hash",
+        "before_hash",
+        "correlation_id",
+        "event_hash",
+        "id",
+        "object_id",
+        "object_type",
+        "occurred_at",
+        "prev_hash",
+        "reason",
+        "sequence",
+        "source_ip",
+        "tenant_id"
+      ],
+      "classifications": {
+        "actor_id": "PII",
+        "after_hash": "AUDIT",
+        "before_hash": "AUDIT",
+        "event_hash": "AUDIT",
+        "prev_hash": "AUDIT",
+        "source_ip": "PII"
+      }
+    },
+    "calculation_lines": {
+      "columns": [
+        "base_amount",
+        "calculation_run_id",
+        "created_at",
+        "currency",
+        "id",
+        "incentive_type",
+        "line_key",
+        "multiplier",
+        "person_id",
+        "raw_amount",
+        "result_hash",
+        "rounded_amount",
+        "tenant_id",
+        "trace",
+        "work_package_id"
+      ],
+      "classifications": {
+        "base_amount": "FINANCIAL",
+        "multiplier": "FINANCIAL",
+        "raw_amount": "FINANCIAL",
+        "rounded_amount": "FINANCIAL",
+        "trace": "FINANCIAL"
+      }
+    },
+    "calculation_runs": {
+      "columns": [
+        "blockers",
+        "created_at",
+        "cycle_id",
+        "engine_version",
+        "finished_at",
+        "id",
+        "input_snapshot",
+        "input_snapshot_hash",
+        "locked_at",
+        "mode",
+        "policy_version_id",
+        "requested_by",
+        "result_hash",
+        "started_at",
+        "status",
+        "tenant_id",
+        "updated_at",
+        "version",
+        "warnings"
+      ],
+      "classifications": {
+        "input_snapshot": "FINANCIAL"
+      }
+    },
+    "employment_contracts": {
+      "columns": [
+        "bank_account_ref",
+        "compensation_template_code",
+        "consent_signature_ref",
+        "consent_signed_at",
+        "contract_code",
+        "created_at",
+        "currency",
+        "deduction_cap_rate",
+        "deduction_order",
+        "deduction_type_caps",
+        "employment_type",
+        "end_date",
+        "fixed_monthly_salary",
+        "id",
+        "minimum_monthly_wage",
+        "pay_plan_version",
+        "person_id",
+        "smoothing_threshold_rate",
+        "social_insurance_rate",
+        "start_date",
+        "status",
+        "tax_rate",
+        "tenant_id",
+        "updated_at",
+        "variable_share_cap_rate",
+        "version",
+        "work_location"
+      ],
+      "classifications": {
+        "bank_account_ref": "PII",
+        "consent_signature_ref": "PII",
+        "deduction_cap_rate": "FINANCIAL",
+        "deduction_type_caps": "FINANCIAL",
+        "fixed_monthly_salary": "FINANCIAL",
+        "minimum_monthly_wage": "FINANCIAL",
+        "social_insurance_rate": "FINANCIAL",
+        "tax_rate": "FINANCIAL",
+        "variable_share_cap_rate": "FINANCIAL"
+      }
+    },
+    "payroll_lines": {
+      "columns": [
+        "bank_account_ref",
+        "contract_id",
+        "created_at",
+        "currency",
+        "deduction_amount",
+        "deduction_breakdown",
+        "deduction_cap_amount",
+        "deduction_cap_passed",
+        "deduction_cap_rate",
+        "deduction_type_cap_breaches",
+        "deduction_type_cap_passed",
+        "fixed_amount",
+        "gross_amount",
+        "id",
+        "incentive_amount",
+        "incentive_change_rate",
+        "minimum_monthly_wage",
+        "minimum_wage_passed",
+        "net_amount",
+        "person_id",
+        "prior_incentive_amount",
+        "run_id",
+        "smoothing_passed",
+        "smoothing_threshold_rate",
+        "social_insurance_amount",
+        "tax_amount",
+        "tenant_id",
+        "variable_share_cap_amount",
+        "variable_share_cap_rate",
+        "variable_share_passed",
+        "variable_share_rate"
+      ],
+      "classifications": {
+        "bank_account_ref": "PII",
+        "deduction_amount": "FINANCIAL",
+        "deduction_breakdown": "FINANCIAL",
+        "deduction_cap_amount": "FINANCIAL",
+        "fixed_amount": "FINANCIAL",
+        "gross_amount": "FINANCIAL",
+        "incentive_amount": "FINANCIAL",
+        "net_amount": "FINANCIAL",
+        "prior_incentive_amount": "FINANCIAL",
+        "social_insurance_amount": "FINANCIAL",
+        "tax_amount": "FINANCIAL",
+        "variable_share_cap_amount": "FINANCIAL"
+      }
+    },
+    "payroll_runs": {
+      "columns": [
+        "approved_at",
+        "approved_by",
+        "blocked_count",
+        "created_at",
+        "currency",
+        "cycle_id",
+        "id",
+        "line_count",
+        "paid_at",
+        "period_end",
+        "period_start",
+        "prepared_by",
+        "reversal_reason",
+        "reversed_at",
+        "reversed_by",
+        "status",
+        "tenant_id",
+        "total_deductions",
+        "total_gross",
+        "total_net",
+        "total_social_insurance",
+        "total_tax",
+        "updated_at",
+        "version"
+      ],
+      "classifications": {
+        "total_deductions": "FINANCIAL",
+        "total_gross": "FINANCIAL",
+        "total_net": "FINANCIAL",
+        "total_social_insurance": "FINANCIAL",
+        "total_tax": "FINANCIAL"
+      }
+    },
+    "settlement_batches": {
+      "columns": [
+        "acknowledged_at",
+        "approved_at",
+        "approved_by",
+        "batch_no",
+        "created_at",
+        "currency",
+        "cycle_id",
+        "exported_at",
+        "external_reference",
+        "id",
+        "kind",
+        "line_count",
+        "locked_at",
+        "status",
+        "tenant_id",
+        "total_amount",
+        "updated_at"
+      ],
+      "classifications": {
+        "total_amount": "FINANCIAL"
+      }
+    },
+    "settlement_lines": {
+      "columns": [
+        "active",
+        "amount",
+        "batch_id",
+        "created_at",
+        "currency",
+        "external_reference",
+        "id",
+        "ledger_id",
+        "person_id",
+        "status",
+        "tenant_id"
+      ],
+      "classifications": {
+        "amount": "FINANCIAL"
+      }
+    }
+  }
+}
