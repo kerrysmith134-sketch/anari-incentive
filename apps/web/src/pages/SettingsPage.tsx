@@ -28,21 +28,31 @@ import { useToast } from "../contexts/ToastContext.js";
 import { api, DEFAULT_SESSION } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
+  displayName,
   formatDate,
+  formatDateTime,
   formatMoney,
   shortId,
   titleCase,
 } from "../lib/format.js";
 import type {
+  AuditRedaction,
+  BreakGlassGrant,
+  BudgetPool,
+  CalibrationSession,
   ClawbackCase,
   ClawbackSchedule,
   ConflictDeclaration,
   DataClassification,
   DataMapReport,
+  DiscretionaryPoolReview,
   DpiaRecord,
   FairnessCommitment,
   FieldAccessPolicyMatrix,
   DsarRequest,
+  ManagerTrainingRecord,
+  ModelProviderPolicy,
+  PilotEnrollment,
   PlatformIdentity,
   RetentionDisposalRequest,
   RetentionPolicy,
@@ -1749,7 +1759,7 @@ export function SettingsPage() {
           </div>
         ) : dataMap.data.sources.length === 0 ? (
           <EmptyState
-            icon="database"
+            icon="server"
             title="No data source registered"
             description="Register each system that supplies evidence, its accountable owner and the fields it contributes."
           />
@@ -3427,7 +3437,7 @@ export function SettingsPage() {
           </div>
         ) : (clawbacks.data?.length ?? 0) === 0 ? (
           <EmptyState
-            icon="money"
+            icon="wallet"
             title="No clawback case"
             description="Record written consent, installment or hardship terms before recovering an incentive."
           />
@@ -3799,7 +3809,7 @@ export function SettingsPage() {
           </div>
         ) : (poolReviews.data?.length ?? 0) === 0 ? (
           <EmptyState
-            icon="budget"
+            icon="wallet"
             title="No discretionary review"
             description="Record the committee, employee observer and selection criteria used for a discretionary pool."
           />

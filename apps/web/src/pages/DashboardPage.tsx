@@ -3,6 +3,7 @@ import {
   Badge,
   EmptyState,
   ErrorNotice,
+  InfoNotice,
   LoadingRows,
   PageHeader,
   Panel,
@@ -1009,7 +1010,9 @@ function EmployeeHome() {
               </div>
               <div className="inline" style={{ justifyContent: "space-between" }}>
                 <span>Evaluated</span>
-                <span className="muted">{team.data?.evaluations.evaluated}</span>
+                <span className="muted">
+                  {team.data?.evaluations?.evaluated ?? 0}
+                </span>
               </div>
             </div>
           )}

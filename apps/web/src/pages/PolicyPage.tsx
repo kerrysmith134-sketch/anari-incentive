@@ -913,7 +913,7 @@ export function PolicyPage() {
                         review.data.trustSurvey.dimensions,
                       ).map(([dimension, score]) => {
                         const baseline =
-                          review.data.trustSurvey.available
+                          review.data?.trustSurvey.available
                             ? review.data.trustSurvey.baseline?.dimensions[
                                 dimension
                               ]
