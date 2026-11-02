@@ -294,17 +294,27 @@ describe("agent runtime role isolation", () => {
     };
     const agent = new AgentRuntime(context, [writeTool], { TEST_WRITE: skill }, {
       actor: "reader",
-      role: "READER",
+      role: "BOTH",
     });
-    const task = await agent.enqueue({
+    const readerTask = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "TEST_WRITE",
       triggerType: "MANUAL",
       idempotencyKey: "reader-role-1",
+      actorRole: "READER",
     });
-    const ran = await agent.run(task.id);
-    expect(ran.results[0]?.status).toBe("REJECTED");
-    expect(ran.results[0]?.error).toBe("READER_ROLE_CANNOT_WRITE");
+    const readerRun = await agent.run(readerTask.id);
+    expect(readerRun.results[0]?.status).toBe("REJECTED");
+    expect(readerRun.results[0]?.error).toBe("READER_ROLE_CANNOT_WRITE");
+    const actorTask = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "TEST_WRITE",
+      triggerType: "MANUAL",
+      idempotencyKey: "actor-role-1",
+      actorRole: "ACTOR",
+    });
+    const actorRun = await agent.run(actorTask.id);
+    expect(actorRun.results[0]?.status).toBe("EXECUTED");
   });
 });
 

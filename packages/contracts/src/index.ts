@@ -1535,6 +1535,7 @@ export const enqueueAgentTaskSchema = z.object({
   input: z.record(z.unknown()).default({}),
   idempotencyKey: z.string().min(1),
   riskTier: z.enum(["T0", "T1", "T2", "T3"]).optional(),
+  actorRole: z.enum(["READER", "ACTOR"]).optional(),
 });
 export type EnqueueAgentTaskBody = z.input<typeof enqueueAgentTaskSchema>;
 

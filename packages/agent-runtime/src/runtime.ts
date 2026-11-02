@@ -48,6 +48,7 @@ export interface EnqueueAgentTaskInput {
   idempotencyKey: string;
   correlationId?: string;
   riskTier?: RiskTier;
+  actorRole?: "READER" | "ACTOR";
 }
 
 export interface AgentRuntimeOptions {
@@ -144,6 +145,7 @@ export class AgentRuntime {
       triggerRef: input.triggerRef,
       status: "QUEUED",
       riskTier: input.riskTier ?? "T1",
+      actorRole: input.actorRole,
       input: input.input ?? {},
       findings: [],
       actions: [],
@@ -380,7 +382,10 @@ export class AgentRuntime {
         error: `unknown tool: ${action.tool}`,
       };
     }
-    if (this.options.role === "READER" && tool.access === "WRITE") {
+    const readerRole =
+      task.actorRole === "READER" ||
+      (!task.actorRole && this.options.role === "READER");
+    if (readerRole && tool.access === "WRITE") {
       this.audit.push({
         taskId: task.id,
         actionId: action.id,

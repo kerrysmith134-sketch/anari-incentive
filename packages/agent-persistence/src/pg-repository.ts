@@ -74,15 +74,16 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
       await client.query(
         `INSERT INTO agent_tasks
           (id, tenant_id, agent_type, trigger_type, trigger_ref, status,
-           risk_tier, requested_by_type, input_ref, output_ref, attempt_count,
-           idempotency_key, correlation_id, findings, actions, results,
-           approved_by, approved_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'AGENT',$8,$9,$10,$11,$12,
-                 $13,$14,$15,$16,$17,$18,$19)
+           risk_tier, actor_role, requested_by_type, input_ref, output_ref,
+           attempt_count, idempotency_key, correlation_id, findings, actions,
+           results, approved_by, approved_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AGENT',$9,$10,$11,$12,
+                 $13,$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (id) DO UPDATE
            SET status = EXCLUDED.status,
                trigger_ref = EXCLUDED.trigger_ref,
                risk_tier = EXCLUDED.risk_tier,
+               actor_role = EXCLUDED.actor_role,
                output_ref = EXCLUDED.output_ref,
                attempt_count = EXCLUDED.attempt_count,
                findings = EXCLUDED.findings,
@@ -100,6 +101,7 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
           task.triggerRef ?? null,
           task.status,
           task.riskTier,
+          task.actorRole ?? null,
           JSON.stringify(task.input),
           task.output ? JSON.stringify(task.output) : null,
           task.attempts,
@@ -146,6 +148,7 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
       triggerRef: row.trigger_ref ?? undefined,
       status: row.status,
       riskTier: row.risk_tier,
+      actorRole: row.actor_role ?? undefined,
       input: asJson<Record<string, unknown>>(row.input_ref, {}),
       output:
         row.output_ref === null || row.output_ref === undefined

@@ -1915,6 +1915,7 @@ export function buildApp(
           input: body.input,
           idempotencyKey: body.idempotencyKey,
           riskTier: body.riskTier,
+          actorRole: body.actorRole,
         }),
         request,
       ),

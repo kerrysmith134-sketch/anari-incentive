@@ -66,6 +66,7 @@ export interface AgentTask {
   triggerRef?: string;
   status: AgentTaskStatus;
   riskTier: RiskTier;
+  actorRole?: "READER" | "ACTOR";
   input: Record<string, unknown>;
   output?: Record<string, unknown>;
   findings: AgentFinding[];

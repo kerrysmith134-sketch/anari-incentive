@@ -10385,3 +10385,7 @@ components:
         riskTier:
           type: string
           enum: [T0, T1, T2, T3]
+        actorRole:
+          type: string
+          enum: [READER, ACTOR]
+          description: READER tasks cannot execute WRITE tools.

@@ -1184,6 +1184,7 @@ describePg("PgStore vertical slice", () => {
       agentType: "EVIDENCE_GAP",
       triggerType: "MANUAL",
       idempotencyKey: "pg-agent-durable-1",
+      actorRole: "ACTOR",
     });
     const ran = await runtime.run(task.id);
     expect(ran.status).not.toBe("QUEUED");
@@ -1200,6 +1201,7 @@ describePg("PgStore vertical slice", () => {
     const loaded = await reloaded.get(task.id);
     expect(loaded.id).toBe(task.id);
     expect(loaded.status).toBe(ran.status);
+    expect(loaded.actorRole).toBe("ACTOR");
     expect(loaded.findings.length).toBe(ran.findings.length);
     expect((await reloaded.auditLog()).length).toBeGreaterThan(0);
 
