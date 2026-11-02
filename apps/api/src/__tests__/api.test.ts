@@ -6924,6 +6924,13 @@ describe("vertical slice", () => {
     expect(allowed.body.data.zeroScoreRationale).toContain(
       "not observed",
     );
+    expect(allowed.body.data.riskTier).toBe("CRITICAL");
+    expect(allowed.body.data.secondReviewRequired).toBe(true);
+    expect(allowed.body.data.riskReasons).toContain(
+      "ZERO_SCORE_ADVERSE_IMPACT",
+    );
+    expect(allowed.body.data.riskAssessedAt).toBeTruthy();
+    expect(allowed.body.data.secondReviewDueAt).toBeTruthy();
   });
 
   it("requires a passed red-team run before prompt activation when enabled", async () => {

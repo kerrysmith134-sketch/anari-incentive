@@ -941,6 +941,9 @@ export interface PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    riskReasons?: string[];
+    riskAssessedAt?: string;
+    secondReviewDueAt?: string;
     zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal>;
@@ -5264,6 +5267,9 @@ export class MemoryPlatformStore implements PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    riskReasons?: string[];
+    riskAssessedAt?: string;
+    secondReviewDueAt?: string;
     zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
@@ -5293,8 +5299,12 @@ export class MemoryPlatformStore implements PlatformStore {
       evidenceSnapshotHash: input.evidenceSnapshotHash,
       gateMetrics: structuredClone(input.gateMetrics),
       riskTier: input.riskTier ?? "MEDIUM",
+      riskReasons: input.riskReasons ? [...input.riskReasons] : undefined,
+      riskAssessedAt: input.riskAssessedAt,
       secondReviewRequired:
         input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
+      secondReviewDueAt: input.secondReviewDueAt,
+      secondReviewSlaBreached: false,
       zeroScoreRationale: input.zeroScoreRationale,
       status: "PENDING",
       requestedBy: input.requestedBy,
@@ -5397,6 +5407,10 @@ export class MemoryPlatformStore implements PlatformStore {
       proposal.secondReviewOutcome = input.secondReviewOutcome;
       proposal.secondReviewAgreementRate =
         input.secondReviewAgreementRate;
+      proposal.secondReviewSlaBreached = Boolean(
+        proposal.secondReviewDueAt &&
+          Date.parse(proposal.secondReviewDueAt) < Date.now(),
+      );
     }
     proposal.auditSample = input.auditSample;
     proposal.auditSampledAt = input.auditSample ? now() : undefined;
@@ -11892,6 +11906,9 @@ export class PgPlatformStore implements PlatformStore {
     evidenceSnapshotHash: string;
     gateMetrics: Record<string, unknown>;
     riskTier?: AiScoreProposal["riskTier"];
+    riskReasons?: string[];
+    riskAssessedAt?: string;
+    secondReviewDueAt?: string;
     zeroScoreRationale?: string;
     requestedBy?: string;
   }): Promise<AiScoreProposal> {
@@ -11903,9 +11920,11 @@ export class PgPlatformStore implements PlatformStore {
            model_prompt_id, model_provider, model_name, prompt_version,
            dimensions, scores, overall_score, confidence, rationale,
            evidence_refs, evidence_snapshot_hash, gate_metrics, risk_tier,
-           second_review_required, zero_score_rationale, status, requested_by)
+           risk_reasons, risk_assessed_at, second_review_required,
+           second_review_due_at, second_review_sla_breached,
+           zero_score_rationale, status, requested_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-                 $18,$19,$20,'PENDING',$21)
+                 $18,$19::jsonb,$20,$21,$22,false,$23,'PENDING',$24)
          RETURNING *`,
         [
           randomUUID(),
@@ -11926,7 +11945,10 @@ export class PgPlatformStore implements PlatformStore {
           input.evidenceSnapshotHash,
           JSON.stringify(input.gateMetrics),
           input.riskTier ?? "MEDIUM",
+          JSON.stringify(input.riskReasons ?? []),
+          input.riskAssessedAt ?? null,
           input.riskTier === "HIGH" || input.riskTier === "CRITICAL",
+          input.secondReviewDueAt ?? null,
           input.zeroScoreRationale ?? null,
           input.requestedBy ?? null,
         ],
@@ -12041,7 +12063,12 @@ export class PgPlatformStore implements PlatformStore {
                 second_review_outcome=$20,
                 second_review_agreement_rate=$21,
                 second_review_completed_at=CASE WHEN $15::uuid IS NOT NULL
-                  THEN now() ELSE second_review_completed_at END
+                  THEN now() ELSE second_review_completed_at END,
+                second_review_sla_breached=CASE
+                  WHEN $15::uuid IS NOT NULL
+                   AND second_review_due_at IS NOT NULL
+                   AND now() > second_review_due_at
+                  THEN true ELSE second_review_sla_breached END
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
         [
@@ -15268,7 +15295,11 @@ export class PgPlatformStore implements PlatformStore {
       evidenceSnapshotHash: row.evidence_snapshot_hash,
       gateMetrics: row.gate_metrics ?? {},
       riskTier: row.risk_tier ?? "MEDIUM",
+      riskReasons: (row.risk_reasons ?? []) as string[],
+      riskAssessedAt: iso(row.risk_assessed_at),
       secondReviewRequired: Boolean(row.second_review_required),
+      secondReviewDueAt: iso(row.second_review_due_at),
+      secondReviewSlaBreached: Boolean(row.second_review_sla_breached),
       zeroScoreRationale: row.zero_score_rationale ?? undefined,
       status: row.status,
       requestedBy: row.requested_by ?? undefined,

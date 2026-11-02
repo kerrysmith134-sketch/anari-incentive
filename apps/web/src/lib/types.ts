@@ -299,7 +299,11 @@ export interface AiScoreProposal {
   evidenceSnapshotHash: string;
   gateMetrics: Record<string, unknown>;
   riskTier: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  riskReasons?: string[];
+  riskAssessedAt?: string;
   secondReviewRequired: boolean;
+  secondReviewDueAt?: string;
+  secondReviewSlaBreached?: boolean;
   status: "PENDING" | "ACCEPTED" | "REJECTED";
   requestedBy?: Uuid;
   decidedBy?: Uuid;
@@ -539,6 +543,9 @@ export interface PolicyReviewReport {
     overrides: number;
     blindReviews: number;
     harnessEvaluations: number;
+    highRiskProposals: number;
+    secondReviewSlaBreaches: number;
+    secondReviewOverdue: number;
   };
   dataQuality: {
     total: number;
@@ -1257,6 +1264,10 @@ export interface AiReviewMetrics {
   auditReviewedCount: number;
   auditPendingCount: number;
   auditAgreementRate: number;
+  highRiskCount: number;
+  highRiskPending: number;
+  secondReviewOverdue: number;
+  secondReviewSlaBreaches: number;
 }
 
 export type AdverseActionType =

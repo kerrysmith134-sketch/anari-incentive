@@ -1826,7 +1826,15 @@ export function AiPage() {
                       This proposal is marked {titleCase(selected.riskTier)} risk.
                       A second reviewer must independently score every dimension
                       and agree with the decision before it can be recorded.
+                      {selected.secondReviewDueAt
+                        ? ` Second review due ${new Date(selected.secondReviewDueAt).toLocaleString()}.`
+                        : ""}
                     </InfoNotice>
+                    {selected.riskReasons?.length ? (
+                      <p className="muted">
+                        Risk signals: {selected.riskReasons.map(titleCase).join(" · ")}
+                      </p>
+                    ) : null}
                     <FormField
                       label="Second reviewer"
                       htmlFor="ai-second-reviewer"

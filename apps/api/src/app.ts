@@ -186,6 +186,7 @@ import {
 import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
 import {
   DEFAULT_THRESHOLDS,
+  assessAiRisk,
   evaluateGate,
   scoreEvidence,
   type EvaluationGate,
@@ -2675,6 +2676,21 @@ export function buildApp(
           ).length,
           harnessEvaluations: modelRuns.filter(
             (run) => run.metrics.harnessVersion === "ai-gate-v1",
+          ).length,
+          highRiskProposals: proposals.filter(
+            (proposal) =>
+              proposal.riskTier === "HIGH" ||
+              proposal.riskTier === "CRITICAL",
+          ).length,
+          secondReviewSlaBreaches: proposals.filter(
+            (proposal) => proposal.secondReviewSlaBreached,
+          ).length,
+          secondReviewOverdue: proposals.filter(
+            (proposal) =>
+              proposal.status === "PENDING" &&
+              proposal.secondReviewRequired &&
+              Boolean(proposal.secondReviewDueAt) &&
+              Date.parse(proposal.secondReviewDueAt as string) < Date.now(),
           ).length,
         },
         dataQuality: {
@@ -5769,6 +5785,20 @@ export function buildApp(
         `AI_ZERO_SCORE_RATIONALE_REQUIRED:${zeroDimensions.join(",")}; unpriced or unobserved work must not be silently defaulted to zero`,
       );
     }
+    const risk = assessAiRisk({
+      overallScore: scored.overallScore,
+      confidence: scored.confidence,
+      evidenceCount: scored.evidenceCount,
+      hasZeroScore: zeroDimensions.length > 0,
+      requestedTier: body.riskTier,
+    });
+    const riskAssessedAt = new Date();
+    const secondReviewDueAt = risk.secondReviewSlaHours
+      ? new Date(
+          riskAssessedAt.getTime() +
+            risk.secondReviewSlaHours * 60 * 60 * 1000,
+        ).toISOString()
+      : undefined;
     const proposal = await platformStore.createAiScoreProposal({
       tenantId,
       cycleId: body.cycleId,
@@ -5786,7 +5816,10 @@ export function buildApp(
       evidenceRefs: scored.citations,
       evidenceSnapshotHash: sha256(body.evidence),
       gateMetrics: evaluation.metrics,
-      riskTier: body.riskTier ?? "MEDIUM",
+      riskTier: risk.riskTier,
+      riskReasons: risk.riskReasons,
+      riskAssessedAt: riskAssessedAt.toISOString(),
+      secondReviewDueAt,
       zeroScoreRationale: body.zeroScoreRationale,
       requestedBy: body.requestedBy,
     });
@@ -5920,6 +5953,27 @@ export function buildApp(
           auditCompleted.length === 0
             ? 0
             : auditAgreed / auditCompleted.length,
+        highRiskCount: proposals.filter(
+          (proposal) =>
+            proposal.riskTier === "HIGH" ||
+            proposal.riskTier === "CRITICAL",
+        ).length,
+        highRiskPending: proposals.filter(
+          (proposal) =>
+            proposal.status === "PENDING" &&
+            (proposal.riskTier === "HIGH" ||
+              proposal.riskTier === "CRITICAL"),
+        ).length,
+        secondReviewOverdue: proposals.filter(
+          (proposal) =>
+            proposal.status === "PENDING" &&
+            proposal.secondReviewRequired &&
+            Boolean(proposal.secondReviewDueAt) &&
+            Date.parse(proposal.secondReviewDueAt as string) < Date.now(),
+        ).length,
+        secondReviewSlaBreaches: proposals.filter(
+          (proposal) => proposal.secondReviewSlaBreached,
+        ).length,
       },
       request,
     );

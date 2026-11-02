@@ -810,6 +810,19 @@ export function PolicyPage() {
                         </span>
                       </div>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
+                        <span>High-risk proposals</span>
+                        <span className="muted">
+                          {review.data.aiReview.highRiskProposals}
+                        </span>
+                      </div>
+                      <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
+                        <span>Second-review SLA</span>
+                        <span className="muted">
+                          {review.data.aiReview.secondReviewOverdue} overdue ·{" "}
+                          {review.data.aiReview.secondReviewSlaBreaches} breached
+                        </span>
+                      </div>
+                      <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
                         <span>Contribution claims decided</span>
                         <span className="muted">
                           {review.data.claims.decided}/{review.data.claims.total}
