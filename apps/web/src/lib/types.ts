@@ -1011,6 +1011,18 @@ export interface DataMapReport {
   retentionPolicies: RetentionPolicy[];
 }
 
+export interface RetentionRecommendation {
+  dataCategory: string;
+  retentionMonths: number;
+  legalBasis: string;
+  configured: boolean;
+}
+
+export interface RetentionRecommendationsReport {
+  note: string;
+  recommendations: RetentionRecommendation[];
+}
+
 export interface RetentionDisposalRequest {
   id: Uuid;
   retentionPolicyId: Uuid;

@@ -1539,6 +1539,17 @@ describe("retention policies", () => {
     const policies = await call("GET", "/api/v1/retention-policies");
     expect(policies.body.data).toHaveLength(1);
     expect(policies.body.data[0].retentionMonths).toBe(24);
+    const recommended = await call(
+      "GET",
+      "/api/v1/retention-policies/recommended",
+    );
+    expect(recommended.status).toBe(200);
+    const payroll = recommended.body.data.recommendations.find(
+      (row: { dataCategory: string }) =>
+        row.dataCategory === "PAYROLL_RECORDS",
+    );
+    expect(payroll.retentionMonths).toBe(360);
+    expect(payroll.configured).toBe(false);
 
     const report = await call(
       "GET",

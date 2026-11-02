@@ -5850,6 +5850,25 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/retention-policies/recommended:
+    get:
+      tags: [Compliance]
+      summary: List conservative retention recommendations
+      description: |
+        System defaults from ADR-008 with a configured flag per category.
+        Legal hold always wins and local legal confirmation is required.
+      responses:
+        "200":
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/retention-policies/report:
     get:
       tags: [Compliance]

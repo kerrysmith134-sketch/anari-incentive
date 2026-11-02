@@ -57,7 +57,7 @@
 | LG-05 合同/薪酬方案变更 | ✅ | 必填 consent signature、payPlanVersion、amendment history、未来排期/自动应用已有；本轮新增 e-sign envelope + HMAC provider callback，SIGNED 回调写回合同 consent signature；外部 provider 账号/合同仍由部署配置 |
 | LG-06 最低工资/扣款 | 🟡 | 最低工资、总额扣款上限、tax/social 分列、deductionOrder/breakdown 已有；本轮新增 contract `deductionTypeCaps` 与 payroll 逐类型 cap 校验/违约列表，超出阻断行；法定扣款类型映射与执行令/员工同意的法律优先级仍待法务确认 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
-| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold 有；本轮新增数据源登记（owner/SLA/存储区域/跨境/处理者）与字段级 data map；自动删除仍未启用 |
+| LG-08 个人信息保护 | 🟡 | DPIA、DSAR、retention、legal hold、字段级 data map 有；本轮新增 ADR-008 推荐保留期 API 与 Settings 预填创建（payroll/accounting 360m、migrant wage 36m、contracts 24m、AI evidence 36m、audit 120m），legal hold 优先；自动硬删除仍未启用 |
 | LG-09 AI 告知/解释 | ✅ | 新增 `GET /me/ai-explanations` 和 console `My AI record`：员工可见 AI 使用、模型、notice/ack、草稿/决策、建议分数、人工复核与可申诉目标 |
 | LG-10 证据包 | ✅ | 本轮新增 `GET /api/v1/evidence-packages/:cycleId` 和 console 下载：策略/法律门/测试/证据/claim/decision/计算/确认/申诉/结算/账本/DQ/审批/审计/哈希校验 |
 
@@ -263,6 +263,8 @@
 62. **ATT-04/DATA-01 package-type coverage**：WorkPackage 新增 `packageType`（默认 ORDER_DELIVERY，复用既有 `package_type` 列），coverage report 增加按 package type 的分层，Contribution 表单/列表与 Policy coverage 展示；无迁移。
 
 63. **ATT-07 appeal evidence disclosure**：新增 `appeal_evidence_disclosures`（RLS）、POST/GET `/appeals/:id/evidence-disclosures`、披露人≠申诉人、证据子集校验；有 evidenceRefs 的申诉未披露时 resolve 返回 409。Exceptions UI 增加披露按钮，迁移 `063_appeal_evidence_disclosures.sql`。
+
+64. **ADR-008 retention defaults**：新增 `GET /retention-policies/recommended`（系统推荐类别/月数/法律依据/configured 标记）与 Settings 预填创建 modal；推荐值不自动落库，需租户确认法律依据后创建；legal hold 始终优先。
 
 ## 仍建议按 P0 顺序补做
 

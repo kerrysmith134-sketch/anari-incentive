@@ -514,6 +514,49 @@ const DEFAULT_PAYROLL_FIELD_POLICIES: Record<string, string[]> = {
   "PAYROLL_LINE.bankAccountRef": ["finance", "admin"],
 };
 
+export const RETENTION_RECOMMENDATIONS = [
+  {
+    dataCategory: "PAYROLL_RECORDS",
+    retentionMonths: 360,
+    legalBasis:
+      "PRC accounting-archive rules and payroll-ledger retention; ADR-008 system default",
+  },
+  {
+    dataCategory: "ACCOUNTING_RECORDS",
+    retentionMonths: 360,
+    legalBasis: "PRC accounting-archive retention; ADR-008 system default",
+  },
+  {
+    dataCategory: "MIGRANT_WORKER_WAGE_RECORDS",
+    retentionMonths: 36,
+    legalBasis:
+      "PRC migrant-worker wage-payment record minimum; ADR-008 system default",
+  },
+  {
+    dataCategory: "LABOR_CONTRACTS",
+    retentionMonths: 24,
+    legalBasis:
+      "Labour Contract Law Art. 50 minimum after termination; ADR-008 system default",
+  },
+  {
+    dataCategory: "RECRUITMENT_RECORDS",
+    retentionMonths: 24,
+    legalBasis: "Data-minimisation default; ADR-008 system default",
+  },
+  {
+    dataCategory: "AI_EVALUATION_EVIDENCE",
+    retentionMonths: 36,
+    legalBasis:
+      "Explanation, appeal and annual-review evidence window; ADR-008 system default",
+  },
+  {
+    dataCategory: "AUDIT_EVENTS",
+    retentionMonths: 120,
+    legalBasis:
+      "Investigation and audit-verification window; ADR-008 system default",
+  },
+] as const;
+
 export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
   ...DEFAULT_PAYROLL_FIELD_POLICIES,
   "CALCULATION_LINE.baseAmount": ["finance", "admin"],
@@ -4910,6 +4953,26 @@ export function buildApp(
     requireRoles(request, "manager", "finance");
     return data(
       await platformStore.listRetentionPolicies(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/retention-policies/recommended", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const configured = await platformStore.listRetentionPolicies(
+      tenantOf(request),
+    );
+    const configuredCategories = new Set(
+      configured.map((policy) => policy.dataCategory),
+    );
+    return data(
+      {
+        note: "Conservative system defaults from ADR-008. Legal hold always wins; a tenant must confirm local law before adopting a value.",
+        recommendations: RETENTION_RECOMMENDATIONS.map((recommendation) => ({
+          ...recommendation,
+          configured: configuredCategories.has(recommendation.dataCategory),
+        })),
+      },
       request,
     );
   });

@@ -45,6 +45,8 @@ import type {
   PlatformIdentity,
   RetentionDisposalRequest,
   RetentionPolicy,
+  RetentionRecommendation,
+  RetentionRecommendationsReport,
   TrustSurveyReport,
   TrustSurveyRun,
 } from "../lib/types.js";
@@ -62,6 +64,10 @@ export function SettingsPage() {
   const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
+  const retentionRecommendations =
+    useApiQuery<RetentionRecommendationsReport>(
+      "/api/v1/retention-policies/recommended",
+    );
   const disposals = useApiQuery<RetentionDisposalRequest[]>(
     "/api/v1/retention-disposal-requests",
   );
@@ -313,6 +319,12 @@ export function SettingsPage() {
   );
   const heldPolicies =
     retention.data?.filter((policy) => policy.legalHold) ?? [];
+  const [retentionOpen, setRetentionOpen] = useState(false);
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
+  const [retentionCategory, setRetentionCategory] = useState("");
+  const [retentionMonths, setRetentionMonths] = useState("");
+  const [retentionBasis, setRetentionBasis] = useState("");
 
   function resetDataSourceForm() {
     setSourceCode("");
@@ -334,6 +346,41 @@ export function SettingsPage() {
       },
     ]);
     setSourceError(null);
+  }
+
+  function openRetentionForm(preset?: RetentionRecommendation) {
+    setRetentionCategory(preset?.dataCategory ?? "");
+    setRetentionMonths(preset ? String(preset.retentionMonths) : "");
+    setRetentionBasis(preset?.legalBasis ?? "");
+    setRetentionError(null);
+    setRetentionOpen(true);
+  }
+
+  async function saveRetention(event: FormEvent) {
+    event.preventDefault();
+    setRetentionSaving(true);
+    setRetentionError(null);
+    try {
+      await api("/api/v1/retention-policies", {
+        method: "POST",
+        body: {
+          dataCategory: retentionCategory.trim(),
+          retentionMonths: Number(retentionMonths),
+          legalBasis: retentionBasis.trim(),
+          legalHold: false,
+        },
+      });
+      toast.success("Retention policy created");
+      setRetentionOpen(false);
+      retention.reload();
+      retentionRecommendations.reload();
+    } catch (caught) {
+      setRetentionError(
+        caught instanceof Error ? caught.message : "The action failed.",
+      );
+    } finally {
+      setRetentionSaving(false);
+    }
   }
 
   async function saveDataSource(event: FormEvent) {
@@ -1458,6 +1505,16 @@ export function SettingsPage() {
         title="Retention policies"
         subtitle={`${heldPolicies.length} under legal hold`}
         className="section-gap"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            onClick={() => openRetentionForm()}
+          >
+            Add policy
+          </Button>
+        }
         flush
       >
         {retention.error ? (
@@ -1507,7 +1564,119 @@ export function SettingsPage() {
             </table>
           </div>
         )}
+        {retentionRecommendations.data ? (
+          <div style={{ padding: "14px 16px 18px" }}>
+            <div className="detail-section__title">System recommendations</div>
+            <p className="muted" style={{ marginTop: 4 }}>
+              {retentionRecommendations.data.note}
+            </p>
+            <div className="chip-row">
+              {retentionRecommendations.data.recommendations.map(
+                (recommendation) => (
+                  <button
+                    key={recommendation.dataCategory}
+                    type="button"
+                    className="chip"
+                    onClick={() => openRetentionForm(recommendation)}
+                    title={recommendation.legalBasis}
+                  >
+                    {recommendation.dataCategory} ·{" "}
+                    {recommendation.retentionMonths}m
+                    {recommendation.configured ? " · configured" : ""}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        ) : null}
       </Panel>
+
+      <Modal
+        open={retentionOpen}
+        title="Add retention policy"
+        description="Conservative system default. Confirm the legal basis for your jurisdiction; legal hold always wins."
+        onClose={() => setRetentionOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRetentionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="retention-form"
+              loading={retentionSaving}
+            >
+              Create policy
+            </Button>
+          </>
+        }
+      >
+        <form id="retention-form" className="stack" onSubmit={saveRetention}>
+          {retentionError ? (
+            <InfoNotice tone="warning">{retentionError}</InfoNotice>
+          ) : null}
+          <FormField label="Recommended category" htmlFor="retention-preset">
+            <Select
+              id="retention-preset"
+              value={retentionCategory}
+              onChange={(event) => {
+                const selected =
+                  retentionRecommendations.data?.recommendations.find(
+                    (row) => row.dataCategory === event.target.value,
+                  );
+                if (selected) {
+                  setRetentionCategory(selected.dataCategory);
+                  setRetentionMonths(String(selected.retentionMonths));
+                  setRetentionBasis(selected.legalBasis);
+                } else {
+                  setRetentionCategory(event.target.value);
+                }
+              }}
+            >
+              <option value="">Custom category</option>
+              {retentionRecommendations.data?.recommendations.map(
+                (recommendation) => (
+                  <option
+                    key={recommendation.dataCategory}
+                    value={recommendation.dataCategory}
+                  >
+                    {recommendation.dataCategory} ·{" "}
+                    {recommendation.retentionMonths} months
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormField>
+          <FormField label="Data category" htmlFor="retention-category">
+            <TextInput
+              id="retention-category"
+              value={retentionCategory}
+              onChange={(event) => setRetentionCategory(event.target.value)}
+              placeholder="PAYROLL_RECORDS"
+              required
+            />
+          </FormField>
+          <FormField label="Retention months" htmlFor="retention-months">
+            <TextInput
+              id="retention-months"
+              type="number"
+              min="1"
+              value={retentionMonths}
+              onChange={(event) => setRetentionMonths(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Legal basis" htmlFor="retention-basis">
+            <Textarea
+              id="retention-basis"
+              value={retentionBasis}
+              onChange={(event) => setRetentionBasis(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
 
       <Panel
         title="Data-source registry"
