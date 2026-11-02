@@ -588,6 +588,7 @@ export function redactCalculationRunFields(
       const redacted: string[] = [];
       const next: Record<string, unknown> = { ...line };
       for (const [key, allowed] of Object.entries(policies)) {
+        if (!Array.isArray(allowed)) continue;
         const [resource, field] = key.split(".");
         if (resource !== "CALCULATION_LINE" || !field) continue;
         if (
@@ -634,6 +635,7 @@ export function redactPayrollFields(
       const redacted: string[] = [];
       const next: PayrollLine = { ...line };
       for (const [key, allowed] of Object.entries(policies)) {
+        if (!Array.isArray(allowed)) continue;
         const [resource, field] = key.split(".");
         if (resource !== "PAYROLL_LINE" || !field) continue;
         if (field === "bankAccountRef" && viewer.breakGlass) continue;
