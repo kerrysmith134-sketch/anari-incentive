@@ -2,12 +2,28 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
 import {
+  amendEmploymentContractSchema,
+  approvePayrollRunSchema,
   createAiScoreProposalSchema,
+  createAppealSchema,
+  createApprovalRequestSchema,
   createClawbackCaseSchema,
   createContributionClaimSchema,
+  createDataQualityIssueSchema,
   createDataSourceSchema,
+  createDsarSchema,
   createEmploymentContractSchema,
+  createEvidenceSchema,
+  createPayrollRunSchema,
+  createRetentionPolicySchema,
   createSettlementBatchSchema,
+  createWorkPackageSchema,
+  publishPolicySchema,
+  recordConfirmationSchema,
+  recordLegalGateSchema,
+  recordWorkforceSubgroupAttributeSchema,
+  resolveAppealSchema,
+  updateFieldAccessPoliciesSchema,
 } from "@anari/contracts";
 
 const spec = YAML.parse(
@@ -21,76 +37,44 @@ const spec = YAML.parse(
   };
 };
 
+type ZodShape = Record<string, { isOptional?: () => boolean }>;
+type ZodNode = {
+  _def?: { schema?: ZodNode };
+  shape?: ZodShape;
+};
+
+function zodShape(schema: unknown): ZodShape {
+  let node = schema as ZodNode;
+  while (node._def?.schema) node = node._def.schema;
+  return node.shape ?? {};
+}
+
 const CASES = [
+  { schema: "CreateWorkPackage", zod: createWorkPackageSchema },
+  { schema: "CreateEmploymentContract", zod: createEmploymentContractSchema },
+  { schema: "AmendEmploymentContract", zod: amendEmploymentContractSchema },
+  { schema: "CreatePayrollRun", zod: createPayrollRunSchema },
+  { schema: "ApprovePayrollRun", zod: approvePayrollRunSchema },
+  { schema: "CreateContributionClaim", zod: createContributionClaimSchema },
+  { schema: "CreateAppeal", zod: createAppealSchema },
+  { schema: "ResolveAppeal", zod: resolveAppealSchema },
+  { schema: "CreateEvidence", zod: createEvidenceSchema },
+  { schema: "RecordConfirmation", zod: recordConfirmationSchema },
+  { schema: "CreateDsar", zod: createDsarSchema },
+  { schema: "CreateRetentionPolicy", zod: createRetentionPolicySchema },
+  { schema: "RecordLegalGate", zod: recordLegalGateSchema },
+  { schema: "CreateDataQualityIssue", zod: createDataQualityIssueSchema },
+  { schema: "CreateDataSource", zod: createDataSourceSchema },
+  { schema: "CreateApprovalRequest", zod: createApprovalRequestSchema },
+  { schema: "CreateAiScoreProposal", zod: createAiScoreProposalSchema },
+  { schema: "CreateSettlementBatch", zod: createSettlementBatchSchema },
+  { schema: "CreateClawbackCase", zod: createClawbackCaseSchema },
+  { schema: "PublishPolicy", zod: publishPolicySchema },
   {
-    schema: "CreateEmploymentContract",
-    zod: createEmploymentContractSchema,
-    required: [
-      "personId",
-      "contractCode",
-      "employmentType",
-      "startDate",
-      "workLocation",
-      "currency",
-      "fixedMonthlySalary",
-      "minimumMonthlyWage",
-      "consentSignatureRef",
-    ],
+    schema: "RecordWorkforceSubgroupAttribute",
+    zod: recordWorkforceSubgroupAttributeSchema,
   },
-  {
-    schema: "CreateContributionClaim",
-    zod: createContributionClaimSchema,
-    required: [
-      "workPackageId",
-      "claimantPersonId",
-      "claimType",
-      "claimedContribution",
-      "rationale",
-    ],
-  },
-  {
-    schema: "CreateDataSource",
-    zod: createDataSourceSchema,
-    required: [
-      "code",
-      "name",
-      "category",
-      "ownerPersonId",
-      "slaHours",
-      "criticality",
-      "storageRegion",
-      "fields",
-    ],
-  },
-  {
-    schema: "CreateAiScoreProposal",
-    zod: createAiScoreProposalSchema,
-    required: [
-      "cycleId",
-      "personId",
-      "evaluationRunId",
-      "dimensions",
-      "evidence",
-    ],
-  },
-  {
-    schema: "CreateSettlementBatch",
-    zod: createSettlementBatchSchema,
-    required: ["cycleId"],
-  },
-  {
-    schema: "CreateClawbackCase",
-    zod: createClawbackCaseSchema,
-    required: [
-      "personId",
-      "amount",
-      "currency",
-      "reasonCode",
-      "explanation",
-      "consentSignatureRef",
-      "requestedBy",
-    ],
-  },
+  { schema: "UpdateFieldAccessPolicies", zod: updateFieldAccessPoliciesSchema },
 ] as const;
 
 describe("OpenAPI request-field contracts", () => {
@@ -98,23 +82,17 @@ describe("OpenAPI request-field contracts", () => {
     it(`keeps ${testCase.schema} required fields aligned with Zod`, () => {
       const openapi = spec.components.schemas[testCase.schema];
       expect(openapi, testCase.schema).toBeTruthy();
-      const specRequired = new Set(openapi?.required ?? []);
-      expect([...specRequired].sort()).toEqual([...testCase.required].sort());
-      let schemaNode = testCase.zod as unknown as {
-        _def?: { schema?: unknown };
-        shape?: Record<string, unknown>;
-      };
-      while (schemaNode._def?.schema) {
-        schemaNode = schemaNode._def.schema as typeof schemaNode;
-      }
-      const shape = schemaNode.shape;
-      expect(shape).toBeTruthy();
-      for (const field of testCase.required) {
-        expect(shape?.[field], `${testCase.schema}.${field}`).toBeTruthy();
-        expect(
-          Object.keys(openapi?.properties ?? {}),
-          `${testCase.schema}.${field}`,
-        ).toContain(field);
+      const shape = zodShape(testCase.zod);
+      expect(Object.keys(shape).length, testCase.schema).toBeGreaterThan(0);
+      const zodRequired = Object.entries(shape)
+        .filter(([, field]) => field?.isOptional?.() === false)
+        .map(([name]) => name)
+        .sort();
+      const specRequired = [...(openapi?.required ?? [])].sort();
+      expect(specRequired).toEqual(zodRequired);
+      const specProperties = Object.keys(openapi?.properties ?? {});
+      for (const field of Object.keys(shape)) {
+        expect(specProperties, `${testCase.schema}.${field}`).toContain(field);
       }
     });
   }

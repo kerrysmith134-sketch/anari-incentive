@@ -6861,17 +6861,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [reviewerPersonId, resolution, rationale]
-              properties:
-                reviewerPersonId:
-                  $ref: "#/components/schemas/Uuid"
-                resolution:
-                  type: string
-                  enum: [UPHOLD, CHANGE, REJECT]
-                rationale:
-                  type: string
-                  minLength: 3
+              $ref: "#/components/schemas/ResolveAppeal"
       responses:
         "200":
           description: Resolved
@@ -8433,6 +8423,11 @@ components:
         objective:
           type: string
           minLength: 3
+        packageType:
+          type: string
+          minLength: 1
+          maxLength: 60
+          default: ORDER_DELIVERY
         ownerPersonId:
           $ref: "#/components/schemas/Uuid"
         members:
@@ -10532,6 +10527,19 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    ResolveAppeal:
+      type: object
+      required: [reviewerPersonId, resolution, rationale]
+      properties:
+        reviewerPersonId:
+          $ref: "#/components/schemas/Uuid"
+        resolution:
+          type: string
+          enum: [UPHOLD, CHANGE, REJECT]
+        rationale:
+          type: string
+          minLength: 3
 
     CreateEvidence:
       type: object

@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（282 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（298 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -107,7 +107,7 @@
 
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
-| DOM-01 单一契约 | 🟡 | TS/Zod/OpenAPI/SQL 四份；路由覆盖、RLS/约束测试之外，新增关键请求 schema 的 required 字段级 OpenAPI↔Zod 对齐测试；仍非单一生成源 |
+| DOM-01 单一契约 | 🟡 | TS/Zod/OpenAPI/SQL 四份；路由覆盖、RLS/约束测试之外，OpenAPI↔Zod 对齐测试从 6 个 schema 扩到 22 个，并改为由 Zod `isOptional()` 自动推导 required、逐字段校验 properties 覆盖；本轮补上 `CreateWorkPackage.packageType` 与具名 `ResolveAppeal`；仍非单一生成源 |
 | DOM-02 状态机 | ✅ | `packages/domain/src/states.ts` 与 PRD 状态一致 |
 | DOM-03 必须对象 | ✅ | MetricDefinition、Snapshot、Notice、Recalculation、Budget、RuleChangeOrder、ModelEvaluationRun、SettlementExport、AuditChain、Integration 对象均存在 |
 | MON-01 审批一次性 | ✅ | consumed_at/by、target 校验、payload hash、consume |
@@ -286,6 +286,8 @@
 
 74. **SEC-03 contract field policy**：新增通用 `redactResourceFields`，按 `RESOURCE.field` 策略对任意扁平资源脱敏（`*Ref` 字段移除、decimal string 归零、其他替换为 `[REDACTED]`），支持本人例外与 tenant 覆盖；`EMPLOYMENT_CONTRACT.bankAccountRef` 默认仅 finance/admin 可见，合同列表与 amendment `beforeTerms`/`afterTerms` 对 manager 返回 `redactedFields`（修订历史不能绕过合同列表规则）；策略 key 正则与 OpenAPI 同步扩展，单元与 HTTP 测试覆盖。
 
+75. **DOM-01 drift test expansion**：OpenAPI↔Zod 请求契约测试覆盖从 6 个 schema 扩到 22 个（工作包、合同/修订、工资 run/审批、claim、申诉/解决、evidence、确认、DSAR、保留策略、法律门、DQ、data source、审批、AI 评分、结算、clawback、策略发布、子群体标签、字段矩阵），required 由 Zod `isOptional()` 自动推导并逐字段校验 OpenAPI properties 覆盖；修复发现的 `CreateWorkPackage.packageType` 缺失与申诉解决接口无具名 schema 两处漂移。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
@@ -294,7 +296,7 @@
 4. **DATA/ORG residual**：DATA-05 字段级最小化技术证明、受保护属性 subgroup impact（需法务口径）；cycle-time 角色细分与覆盖率趋势已落地。
 5. **SEC residual**：把 `fieldAccessPolicies` 扩展到其余敏感资源并沉淀通用 ABAC 策略 DSL；自动 retention deletion 仍明确不启用。
 6. **INC residual**：无（INC-02/03/04/06/08/10 已落地；A 类池仍为明确非目标）。
-7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod，补齐字段级契约漂移测试。
+7. **DOM-01**：从单一 schema 生成/校验 OpenAPI、DDL 与 Zod；字段级漂移测试已覆盖 22 个请求 schema，仍需消除多份来源。
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
 这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。
