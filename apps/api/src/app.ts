@@ -2404,31 +2404,43 @@ export function buildApp(
   });
 
   app.get("/api/v1/reports/team-aggregate", async (request) => {
-    requireRoles(request, "manager", "finance");
     const query = request.query as { managerPersonId?: string };
+    const tenantId = tenantOf(request);
+    const people = await platformStore.listPersons(tenantId);
     const own = ownPersonId(request);
-    const managerPersonId = query.managerPersonId ?? own;
+    let managerPersonId = query.managerPersonId ?? own;
+    if (!isPrivileged(request)) {
+      const self = own
+        ? people.find((person) => person.id === own)
+        : undefined;
+      if (!self?.managerPersonId) {
+        throw new ForbiddenError(
+          "MANAGER_REQUIRED_FOR_TEAM_AGGREGATE: no manager is linked to this person",
+        );
+      }
+      if (
+        query.managerPersonId &&
+        query.managerPersonId !== self.managerPersonId
+      ) {
+        throw new ForbiddenError(
+          "an employee can only view their own team aggregate",
+        );
+      }
+      managerPersonId = self.managerPersonId;
+    }
     if (!managerPersonId) {
       throw new BadRequestError(
         "MANAGER_REQUIRED",
         "managerPersonId is required when no person is linked to the caller",
       );
     }
-    if (!isPrivileged(request) && managerPersonId !== own) {
-      throw new ForbiddenError(
-        "a manager can only view their own team aggregate",
-      );
-    }
-    const tenantId = tenantOf(request);
     const [
-      people,
       decisions,
       attributionDecisions,
       claims,
       appeals,
       workPackages,
     ] = await Promise.all([
-      platformStore.listPersons(tenantId),
       storeFor(request).listEvaluationDecisions(),
       storeFor(request).listDecisions(),
       storeFor(request).listClaims(),

@@ -7619,6 +7619,73 @@ describe("vertical slice", () => {
     expect(aggregate.body.data.claims).toEqual({ total: 0, confirmed: 0 });
   });
 
+  it("lets an employee read only their own manager's suppressed team aggregate", async () => {
+    const platform = new MemoryPlatformStore({
+      demoTenant: {
+        id: "tenant-demo",
+        name: "Demo tenant",
+        slug: "demo-tenant",
+        persons: [
+          { id: OWNER, employeeCode: "E-OWNER", displayName: "Manager" },
+          { id: MEMBER, employeeCode: "E-MEMBER", displayName: "Employee" },
+          {
+            id: ADJUDICATOR,
+            employeeCode: "E-OTHER",
+            displayName: "Other manager",
+          },
+        ],
+      },
+    });
+    const adminApp = buildApp(
+      new Store(),
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: "tenant-demo",
+            userId: "admin-user",
+            roles: ["admin"],
+            personId: OWNER,
+          };
+        },
+      },
+      platform,
+    );
+    const assigned = await adminApp.inject({
+      method: "POST",
+      url: `/api/v1/platform/tenants/tenant-demo/persons/${MEMBER}/manager`,
+      payload: { managerPersonId: OWNER },
+    } as never);
+    expect(assigned.statusCode).toBe(200);
+    const employeeApp = buildApp(
+      new Store(),
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: "tenant-demo",
+            userId: "employee-user",
+            roles: [],
+            personId: MEMBER,
+          };
+        },
+      },
+      platform,
+    );
+    const ownTeam = await employeeApp.inject({
+      method: "GET",
+      url: "/api/v1/reports/team-aggregate",
+    });
+    expect(ownTeam.statusCode).toBe(200);
+    expect(ownTeam.json().data.suppressed).toBe(true);
+    expect(ownTeam.json().data.managerPersonId).toBe(OWNER);
+    const otherTeam = await employeeApp.inject({
+      method: "GET",
+      url: `/api/v1/reports/team-aggregate?managerPersonId=${ADJUDICATOR}`,
+    });
+    expect(otherTeam.statusCode).toBe(403);
+  });
+
   it("requires a two-person grace-period workflow for retention disposal", async () => {
     const policy = await call("POST", "/api/v1/retention-policies", {
       dataCategory: "PAYROLL_RECORDS",
