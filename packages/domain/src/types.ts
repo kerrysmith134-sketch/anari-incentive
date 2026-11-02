@@ -9,6 +9,17 @@ import type {
   SettlementBatchStatus,
   WorkPackageStatus,
 } from "./states.js";
+import type {
+  AmountLedgerEntryPersisted,
+  AuditEventPersisted,
+  CalculationLinePersisted,
+  CalculationRunPersisted,
+  EmploymentContractPersisted,
+  PayrollLinePersisted,
+  PayrollRunPersisted,
+  SettlementBatchPersisted,
+  SettlementLinePersisted,
+} from "./entity-types.generated.js";
 
 export type UUID = string;
 export type DecimalString = string;
@@ -1201,38 +1212,9 @@ export interface Bounty {
 export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACTOR";
 export type EmploymentContractStatus = "ACTIVE" | "ENDED";
 
-export interface EmploymentContract {
-  id: UUID;
-  tenantId: UUID;
-  personId: UUID;
-  contractCode: string;
-  employmentType: EmploymentType;
-  startDate: string;
-  endDate?: string;
-  workLocation: string;
-  /** Employing legal entity, when the tenant records it. */
-  legalEntity?: string;
-  currency: string;
-  fixedMonthlySalary: DecimalString;
-  minimumMonthlyWage: DecimalString;
-  taxRate: DecimalString;
-  socialInsuranceRate: DecimalString;
-  deductionCapRate: DecimalString;
-  variableShareCapRate: DecimalString;
-  deductionOrder: string[];
-  deductionTypeCaps: Record<string, DecimalString>;
-  smoothingThresholdRate: DecimalString;
-  compensationTemplateCode?: string;
-  bankAccountRef?: string;
-  payPlanVersion: number;
-  consentSignatureRef: string;
-  consentSignedAt: string;
-  status: EmploymentContractStatus;
+export interface EmploymentContract extends EmploymentContractPersisted {
   /** Present when tenant field-access policies hid fields from this viewer. */
   redactedFields?: string[];
-  createdAt: string;
-  updatedAt: string;
-  version: number;
 }
 
 export interface EmploymentContractAmendment {
@@ -1263,70 +1245,12 @@ export type PayrollRunStatus =
   | "REVERSED"
   | "CANCELLED";
 
-export interface PayrollLine {
-  id: UUID;
-  tenantId: UUID;
-  runId: UUID;
-  personId: UUID;
-  contractId: UUID;
-  currency: string;
-  fixedAmount: DecimalString;
-  incentiveAmount: DecimalString;
-  grossAmount: DecimalString;
-  deductionAmount: DecimalString;
-  taxAmount: DecimalString;
-  socialInsuranceAmount: DecimalString;
-  netAmount: DecimalString;
-  minimumMonthlyWage: DecimalString;
-  minimumWagePassed: boolean;
-  deductionCapRate: DecimalString;
-  deductionCapAmount: DecimalString;
-  deductionCapPassed: boolean;
-  variableShareRate: DecimalString;
-  variableShareCapRate: DecimalString;
-  variableShareCapAmount: DecimalString;
-  variableSharePassed: boolean;
-  deductionBreakdown: Array<{
-    type: string;
-    amount: DecimalString;
-    priority: number;
-  }>;
-  deductionTypeCapPassed: boolean;
-  deductionTypeCapBreaches: string[];
-  priorIncentiveAmount: DecimalString;
-  incentiveChangeRate: DecimalString;
-  smoothingThresholdRate: DecimalString;
-  smoothingPassed: boolean;
+export interface PayrollLine extends PayrollLinePersisted {
+  /** Present when tenant field-access policies hid fields from this viewer. */
   redactedFields?: string[];
-  bankAccountRef?: string;
-  createdAt: string;
 }
 
-export interface PayrollRun {
-  id: UUID;
-  tenantId: UUID;
-  cycleId: UUID;
-  periodStart: string;
-  periodEnd: string;
-  currency: string;
-  status: PayrollRunStatus;
-  preparedBy: UUID;
-  approvedBy?: UUID;
-  approvedAt?: string;
-  paidAt?: string;
-  reversedAt?: string;
-  reversedBy?: UUID;
-  reversalReason?: string;
-  totalGross: DecimalString;
-  totalDeductions: DecimalString;
-  totalTax: DecimalString;
-  totalSocialInsurance: DecimalString;
-  totalNet: DecimalString;
-  lineCount: number;
-  blockedCount: number;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
+export interface PayrollRun extends PayrollRunPersisted {
   lines?: PayrollLine[];
 }
 
@@ -1620,37 +1544,10 @@ export interface InboxMessage {
   errorCode?: string;
 }
 
-export interface CalculationLine {
-  /** Deterministic key: person + work package + incentive type. */
-  lineKey: string;
-  personId: UUID;
-  workPackageId: UUID;
-  incentiveType: string;
-  baseAmount: DecimalString;
-  multiplier: DecimalString;
-  rawAmount: DecimalString;
-  roundedAmount: DecimalString;
-  currency: string;
-  trace: Record<string, unknown>;
-}
+export interface CalculationLine extends CalculationLinePersisted {}
 
-export interface CalculationRun {
-  id: UUID;
-  tenantId: UUID;
-  cycleId: UUID;
-  mode: CalculationMode;
-  policyVersionId: UUID;
-  engineVersion: string;
-  inputSnapshotHash: string;
-  inputSnapshot: CalculationInput;
-  status: CalculationRunStatus;
+export interface CalculationRun extends CalculationRunPersisted {
   lines: CalculationLine[];
-  resultHash?: string;
-  blockers: string[];
-  warnings: string[];
-  createdAt: string;
-  calculatedAt?: string;
-  lockedAt?: string;
 }
 
 export type LedgerEntryType =
@@ -1661,24 +1558,7 @@ export type LedgerEntryType =
 
 export type LedgerStatus = "PROVISIONAL" | "APPROVED" | "LOCKED" | "REVERSED";
 
-export interface AmountLedgerEntry {
-  id: UUID;
-  tenantId: UUID;
-  personId: UUID;
-  cycleId: UUID;
-  calculationRunId: UUID;
-  calculationLineId?: UUID;
-  entryType: LedgerEntryType;
-  amount: DecimalString;
-  currency: string;
-  status: LedgerStatus;
-  sourceEntryId?: UUID;
-  idempotencyKey: string;
-  entryHash: string;
-  prevHash: string;
-  createdAt: string;
-  lockedAt?: string;
-}
+export interface AmountLedgerEntry extends AmountLedgerEntryPersisted {}
 
 export interface PolicyDefinition {
   code: string;
@@ -2017,41 +1897,14 @@ export interface RecalculationRequest {
   createdAt: string;
 }
 
-export interface SettlementLine {
-  id: UUID;
-  tenantId: UUID;
-  batchId: UUID;
-  ledgerId: UUID;
-  personId: UUID;
+export interface SettlementLine extends SettlementLinePersisted {
   personCode?: string;
   personName?: string;
-  amount: DecimalString;
-  currency: string;
-  status: string;
-  active: boolean;
-  /** Present when tenant field policies hid fields from this viewer. */
+  /** Present when tenant field access policies hid fields from this viewer. */
   redactedFields?: string[];
-  createdAt: string;
 }
 
-export interface SettlementBatch {
-  id: UUID;
-  tenantId: UUID;
-  cycleId: UUID;
-  batchNo: string;
-  status: SettlementBatchStatus;
-  kind: "STANDARD" | "RECOVERY";
-  currency: string;
-  totalAmount: DecimalString;
-  lineCount: number;
-  approvedBy?: UUID;
-  approvedAt?: string;
-  lockedAt?: string;
-  exportedAt?: string;
-  acknowledgedAt?: string;
-  externalReference?: string;
-  createdAt: string;
-  updatedAt: string;
+export interface SettlementBatch extends SettlementBatchPersisted {
   lines?: SettlementLine[];
 }
 
@@ -2191,22 +2044,7 @@ export interface InAppNotification {
   readAt?: string;
 }
 
-export interface AuditEvent {
-  id: UUID;
-  tenantId: UUID;
-  sequence: number;
-  actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
-  actorId?: UUID;
-  action: string;
-  objectType: string;
-  objectId?: UUID;
-  beforeHash?: string;
-  afterHash?: string;
-  reason?: string;
-  correlationId: UUID;
-  occurredAt: string;
-  prevHash: string;
-  eventHash: string;
+export interface AuditEvent extends AuditEventPersisted {
   redacted?: boolean;
   redactionId?: UUID;
 }

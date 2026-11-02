@@ -93,8 +93,21 @@ describe("database DDL contract", () => {
         .map((entity) => [
           entity.table,
           {
-            columns: [...entity.columns].sort(),
-            classifications: { ...(entity.classifications ?? {}) },
+            typeName: entity.typeName,
+            columns: [...entity.columns]
+              .sort((left, right) =>
+                left.column.localeCompare(right.column),
+              )
+              .map((column) => ({
+                column: column.column,
+                field: column.field,
+                tsType: column.tsType,
+                optional: column.optional === true,
+                exposed: column.exposed !== false,
+                ...(column.classification
+                  ? { classification: column.classification }
+                  : {}),
+              })),
           },
         ]),
     );
@@ -122,7 +135,7 @@ describe("database DDL contract", () => {
       const parsed = tables.get(entity.table);
       expect(parsed, entity.table).toBeTruthy();
       expect([...(parsed ?? [])].sort()).toEqual(
-        [...entity.columns].sort(),
+        entity.columns.map((column) => column.column).sort(),
       );
     });
   }

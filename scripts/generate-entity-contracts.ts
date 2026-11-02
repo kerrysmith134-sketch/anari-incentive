@@ -11,8 +11,19 @@ const tables = Object.fromEntries(
     .map((entity) => [
       entity.table,
       {
-        columns: [...entity.columns].sort(),
-        classifications: { ...(entity.classifications ?? {}) },
+        typeName: entity.typeName,
+        columns: [...entity.columns]
+          .sort((left, right) => left.column.localeCompare(right.column))
+          .map((column) => ({
+            column: column.column,
+            field: column.field,
+            tsType: column.tsType,
+            optional: column.optional === true,
+            exposed: column.exposed !== false,
+            ...(column.classification
+              ? { classification: column.classification }
+              : {}),
+          })),
       },
     ]),
 );

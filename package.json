@@ -2,7 +2,7 @@
   "name": "anari-incentive",
   "version": "0.1.0",
   "private": true,
-  "description": "N-Perform — multi-party contribution attribution and incentive settlement assurance layer",
+  "description": "N-Perform \u2014 multi-party contribution attribution and incentive settlement assurance layer",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -23,7 +23,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "test:pg": "./scripts/test-pg.sh",
     "contracts:manifest": "tsx scripts/generate-request-contracts.ts",
-    "contracts:entities": "tsx scripts/generate-entity-contracts.ts",
+    "contracts:entities": "tsx scripts/generate-entity-contracts.ts && tsx scripts/generate-entity-types.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "agent:scan": "tsx scripts/agent-scan.ts",
     "sync:runner": "tsx scripts/sync-runner.ts",
