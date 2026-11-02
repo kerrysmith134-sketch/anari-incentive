@@ -3078,6 +3078,47 @@ export function buildApp(
         latestDecisionByClaim.set(decision.claimId, decision);
       }
     }
+    const workPackageById = new Map(
+      workPackages.map((workPackage) => [workPackage.id, workPackage]),
+    );
+    const acceptanceHoursByRole = new Map<string, number[]>();
+    for (const workPackage of acceptedPackages) {
+      const hours =
+        (Date.parse(workPackage.updatedAt) -
+          Date.parse(workPackage.createdAt)) /
+        (60 * 60 * 1000);
+      if (!Number.isFinite(hours) || hours < 0) continue;
+      const roles = new Set(
+        workPackage.members.map((member) => member.responsibilityCode),
+      );
+      if (roles.size === 0) roles.add("OWNER");
+      for (const role of roles) {
+        const values = acceptanceHoursByRole.get(role) ?? [];
+        values.push(hours);
+        acceptanceHoursByRole.set(role, values);
+      }
+    }
+    const claimDecisionHoursByRole = new Map<string, number[]>();
+    for (const claim of claims) {
+      const decision = latestDecisionByClaim.get(claim.id);
+      if (!decision) continue;
+      const hours =
+        (Date.parse(decision.createdAt) -
+          Date.parse(claim.submittedAt ?? claim.createdAt)) /
+        (60 * 60 * 1000);
+      if (!Number.isFinite(hours) || hours < 0) continue;
+      const workPackage = workPackageById.get(claim.workPackageId);
+      const role =
+        workPackage?.members.find(
+          (member) => member.personId === claim.claimantPersonId,
+        )?.responsibilityCode ??
+        (workPackage?.ownerPersonId === claim.claimantPersonId
+          ? "OWNER"
+          : "UNKNOWN");
+      const values = claimDecisionHoursByRole.get(role) ?? [];
+      values.push(hours);
+      claimDecisionHoursByRole.set(role, values);
+    }
     const claimDecisionHours = claims
       .map((claim) => {
         const decision = latestDecisionByClaim.get(claim.id);
@@ -3138,6 +3179,24 @@ export function buildApp(
               values.length) *
               10,
           ) / 10;
+    const responsibilityCycleRoles = new Set([
+      ...acceptanceHoursByRole.keys(),
+      ...claimDecisionHoursByRole.keys(),
+    ]);
+    const cycleTimesByResponsibility = [...responsibilityCycleRoles]
+      .sort()
+      .map((responsibilityCode) => {
+        const acceptance = acceptanceHoursByRole.get(responsibilityCode) ?? [];
+        const claimHours =
+          claimDecisionHoursByRole.get(responsibilityCode) ?? [];
+        return {
+          responsibilityCode,
+          workPackageAcceptanceHours: average(acceptance),
+          workPackageSamples: acceptance.length,
+          claimDecisionHours: average(claimHours),
+          claimSamples: claimHours.length,
+        };
+      });
     const report: OperationsCoverageReport = {
       generatedAt: new Date().toISOString(),
       workPackages: {
@@ -3235,6 +3294,7 @@ export function buildApp(
         confirmationHours: average(confirmationHours),
         payrollApprovalHours: average(payrollApprovalHours),
         appealResolutionHours: average(appealResolutionHours),
+        byResponsibility: cycleTimesByResponsibility,
       },
     };
     return data(report, request);

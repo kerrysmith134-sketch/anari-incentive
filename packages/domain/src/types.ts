@@ -1071,6 +1071,13 @@ export interface OperationsCoverageReport {
     confirmationHours?: number;
     payrollApprovalHours?: number;
     appealResolutionHours?: number;
+    byResponsibility?: Array<{
+      responsibilityCode: string;
+      workPackageAcceptanceHours: number;
+      workPackageSamples: number;
+      claimDecisionHours: number;
+      claimSamples: number;
+    }>;
   };
 }
 

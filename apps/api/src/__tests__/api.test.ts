@@ -7604,6 +7604,11 @@ describe("vertical slice", () => {
       after.body.data.cycleTimes.claimDecisionHours,
     ).toBeGreaterThanOrEqual(0);
     expect(
+      after.body.data.cycleTimes.byResponsibility.map(
+        (row: { responsibilityCode: string }) => row.responsibilityCode,
+      ),
+    ).toEqual(expect.arrayContaining(["OWNER", "CONTRIBUTOR"]));
+    expect(
       after.body.data.cycleTimes.confirmationHours,
     ).toBeGreaterThanOrEqual(0);
     expect(

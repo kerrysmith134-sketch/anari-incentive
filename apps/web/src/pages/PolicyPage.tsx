@@ -673,6 +673,28 @@ export function PolicyPage() {
                       </div>
                     </div>
                   </div>
+                  {coverage.data.cycleTimes?.byResponsibility?.length ? (
+                    <div className="stack" style={{ gap: 6, marginTop: 10 }}>
+                      {coverage.data.cycleTimes.byResponsibility.map((row) => (
+                        <div
+                          key={row.responsibilityCode}
+                          className="inline"
+                          style={{
+                            justifyContent: "space-between",
+                            width: "100%",
+                          }}
+                        >
+                          <span>{titleCase(row.responsibilityCode)}</span>
+                          <span className="muted">
+                            acceptance {row.workPackageAcceptanceHours.toFixed(1)}h
+                            ({row.workPackageSamples}) · decision{" "}
+                            {row.claimDecisionHours.toFixed(1)}h (
+                            {row.claimSamples})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 {successMetrics.data ? (
                   <div className="detail-section">

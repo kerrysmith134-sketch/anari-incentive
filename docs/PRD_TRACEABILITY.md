@@ -41,9 +41,9 @@
 | P0-02 账本 | ✅ | append-only、幂等、锁定、冲销、adjustment、哈希链 |
 | P0-02 员工端 | ✅/🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 增加角色感知导航，非 privileged 用户进入专用 My overview（本人工作包、确认记录、申诉、AI proposal、团队聚合抑制视图），不再加载租户级 payroll/approval/audit 数据；员工端深度操作仍可继续完善 |
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
-| P0-02 指标 | ✅/🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；新增 acceptance/claim/confirmation/payroll-approval/appeal cycle time 与 success-metrics 阈值报告，Policy coverage 展示；细分角色耗时仍有缺口 |
+| P0-02 指标 | ✅/🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；新增 acceptance/claim/confirmation/payroll-approval/appeal cycle time、按责任角色的 acceptance/claim 耗时与 success-metrics 阈值报告，Policy coverage 展示；confirmation/payroll/appeal 的角色细分仍缺 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
-| P0-04 成功指标 | ✅/🟡 | 新增 `GET /reports/success-metrics`：evidence coverage ≥70%、claim decision ≤2h（proxy）、dispute rate <10%、reconciliation differences=0，带 PASS/FAIL；employee evidence supplement time 明确 UNAVAILABLE（不采集 session timing）；细分角色耗时仍缺 |
+| P0-04 成功指标 | ✅/🟡 | 新增 `GET /reports/success-metrics`：evidence coverage ≥70%、claim decision ≤2h（proxy）、dispute rate <10%、reconciliation differences=0，带 PASS/FAIL；acceptance/claim 已有责任角色细分；employee evidence supplement time 明确 UNAVAILABLE（不采集 session timing），其余流程角色细分仍缺 |
 | P0-05 不承诺项 | ⚪ | 产品沟通，不在代码 |
 
 ### 2. 法律生效门禁
@@ -275,6 +275,8 @@
 68. **SEC-04 DLP default-on**：`assertExportDlp` 默认启用，只有 tenant 显式设置 `exportDlpEnabled=false` 才关闭；继续保持命中时 `SENSITIVE_EXPORT` 审批/一次性消费；现有导出测试全绿。
 
 69. **P0-04 success metrics**：新增 `GET /reports/success-metrics`，按 PRD 阈值计算 evidence coverage/claim decision/dispute rate/reconciliation differences，返回 PASS/FAIL/PARTIAL 与 UNAVAILABLE（员工补证时间）；Policy coverage 展示，OpenAPI/测试覆盖。
+
+70. **P0-02 responsibility cycle times**：operations coverage `cycleTimes.byResponsibility` 按 responsibilityCode 输出 acceptance/claim-decision 平均小时与样本数，Policy coverage 展示；其他流程（confirmation/payroll/appeal）的角色细分仍缺。
 
 ## 仍建议按 P0 顺序补做
 
