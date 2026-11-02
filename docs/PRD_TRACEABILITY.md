@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（337 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（338 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（64 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -298,7 +298,7 @@
 
 80. **SEC-03 对象式字段策略**：策略值兼容旧的角色数组与新的对象 `{ allowRoles?, allowSelf?, onDeny? }`；实现 `normalizeFieldPolicy`/`fieldPolicyAllows`/`deniedFieldValue`，payroll、calculation、通用资源三条脱敏路径统一使用；`onDeny` 显式支持 `OMIT`/`ZERO`/`REDACT`，缺省时保持旧推断行为；`allowSelf:false` 可拒绝本人访问；未实现的条件键（如 `match`）与空对象在写入时返回 `VALIDATION_ERROR`；OpenAPI 增加 `FieldAccessPolicyObject`，新增单元与 HTTP 校验测试。
 
-81. **SEC-03 match 谓词**：对象策略新增 `match`，支持 `isSubjectManager`、`sameOrgNode`、`sameLegalEntity`、`subjectEmploymentActive`、`viewerEmploymentActive`；谓词输入由服务端从 persons/contracts/org assignments 派生并按请求缓存，仅在存在 match 策略时加载；条件只收窄、缺少上下文时 fail-closed；admin 与本人访问为无条件放行，谓词只约束角色路径；contracts、evidence、settlement、AI proposal、payroll、calculation 六条读取路径均传入 subject 与上下文；payroll 视图同时合并旧 `payrollFieldPolicies` 与矩阵；未知谓词写入时 400；新增 fail-closed 单元测试与经理/组织节点/法人实体 HTTP 测试。
+81. **SEC-03 match 谓词**：对象策略新增 `match`，支持 `isSubjectManager`、`sameOrgNode`、`sameLegalEntity`、`subjectEmploymentActive`、`viewerEmploymentActive`；谓词输入由服务端派生并按请求缓存，且仅按实际使用的谓词按需加载（isSubjectManager→persons、sameOrgNode→org assignments、sameLegalEntity/employment→contracts、legalHoldActive→retention policies）；条件只收窄、缺少上下文时 fail-closed；admin 与本人访问为无条件放行，谓词只约束角色路径；contracts、evidence、settlement、AI proposal、payroll、calculation 六条读取路径均传入 subject 与上下文；payroll 视图同时合并旧 `payrollFieldPolicies` 与矩阵；未知谓词写入时 400；新增 fail-closed 单元测试与经理/组织节点/法人实体 HTTP 测试。
 
 82. **DOM-01 Phase 2 实体契约**：新增 `packages/domain/src/entity-contracts.ts`（`CORE_ENTITY_CONTRACTS`）声明 9 张核心表的完整列集合与 PII/FINANCIAL/AUDIT 分类；新增 `npm run contracts:entities` 生成 `docs/generated/entity-contracts.json`；DDL 测试改为从注册表读取并**逐列完全一致**校验，同时校验生成物新鲜度。迁移仍手写；TS 类型尚未从注册表生成。
 

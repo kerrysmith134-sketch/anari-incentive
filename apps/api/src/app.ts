@@ -742,6 +742,24 @@ function evaluateFieldPredicate(
 }
 
 /**
+ * Which server-derived predicates the effective matrix actually uses. The
+ * context loader fetches only these sources instead of every tenant snapshot.
+ */
+export function requiredMatchPredicates(
+  policies: Record<string, FieldAccessPolicy>,
+): string[] {
+  const predicates = new Set<string>();
+  for (const value of Object.values(policies)) {
+    const policy = normalizeFieldPolicy(value);
+    if (!policy?.match) continue;
+    for (const predicate of Object.keys(policy.match)) {
+      predicates.add(predicate);
+    }
+  }
+  return [...predicates].sort();
+}
+
+/**
  * Predicates only narrow access: a policy that matches roles still redacts
  * when a configured predicate is false. Without the server-derived context we
  * fail closed rather than returning the field.
@@ -1275,20 +1293,30 @@ export function buildApp(
       ...DEFAULT_FIELD_ACCESS_POLICIES,
       ...(policies ?? {}),
     };
-    const needsMatch = Object.values(effective).some(
-      (policy) => normalizeFieldPolicy(policy)?.match,
-    );
-    if (!needsMatch) {
+    const predicates = new Set(requiredMatchPredicates(effective));
+    if (predicates.size === 0) {
       fieldMatchCache.set(request, null);
       return undefined;
     }
+    const needsContracts =
+      predicates.has("sameLegalEntity") ||
+      predicates.has("subjectEmploymentActive") ||
+      predicates.has("viewerEmploymentActive");
     const tenantId = tenantOf(request);
     const [persons, contracts, assignments, retentionPolicies] =
       await Promise.all([
-        platformStore.listPersons(tenantId),
-        platformStore.listEmploymentContracts(tenantId),
-        platformStore.listOrgAssignments(tenantId),
-        platformStore.listRetentionPolicies(tenantId),
+        predicates.has("isSubjectManager")
+          ? platformStore.listPersons(tenantId)
+          : Promise.resolve([]),
+        needsContracts
+          ? platformStore.listEmploymentContracts(tenantId)
+          : Promise.resolve([]),
+        predicates.has("sameOrgNode")
+          ? platformStore.listOrgAssignments(tenantId)
+          : Promise.resolve([]),
+        predicates.has("legalHoldActive")
+          ? platformStore.listRetentionPolicies(tenantId)
+          : Promise.resolve([]),
       ]);
     const orgNodesByPerson = new Map<string, Set<string>>();
     for (const assignment of assignments) {

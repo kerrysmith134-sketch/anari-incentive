@@ -23,6 +23,7 @@ import {
   redactPayrollFields,
   redactResourceFields,
   redactSettlementBatchFields,
+  requiredMatchPredicates,
   scanExportDlp,
 } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
@@ -7312,6 +7313,27 @@ describe("vertical slice", () => {
     });
     expect(selfDenied.fixedMonthlySalary).toBe("0");
     expect(selfDenied.redactedFields).toContain("fixedMonthlySalary");
+  });
+
+  it("loads only the predicates the effective matrix uses", () => {
+    expect(requiredMatchPredicates({})).toEqual([]);
+    expect(
+      requiredMatchPredicates({
+        "EMPLOYMENT_CONTRACT.bankAccountRef": ["finance", "admin"],
+      }),
+    ).toEqual([]);
+    expect(
+      requiredMatchPredicates({
+        "EMPLOYMENT_CONTRACT.bankAccountRef": {
+          allowRoles: ["manager"],
+          match: { isSubjectManager: true, sameOrgNode: false },
+        },
+        "EVIDENCE.sourceUri": {
+          allowRoles: ["finance"],
+          match: { legalHoldActive: true },
+        },
+      }),
+    ).toEqual(["isSubjectManager", "legalHoldActive", "sameOrgNode"]);
   });
 
   it("validates object field policies and rejects unsupported predicates", async () => {
