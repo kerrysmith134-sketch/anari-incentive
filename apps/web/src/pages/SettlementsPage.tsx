@@ -39,6 +39,10 @@ import type {
   SettlementBatch,
   SettlementCommandResult,
 } from "../lib/types.js";
+import type {
+  CashGateInputView,
+  FinancialFactView,
+} from "../lib/ops-types.js";
 
 type Command =
   | "RECONCILE"
@@ -172,6 +176,28 @@ export function SettlementsPage() {
   const [approvedBy, setApprovedBy] = useState(session.personId);
   const [approveTarget, setApproveTarget] = useState<BudgetPool | null>(null);
   const [allocationBusy, setAllocationBusy] = useState<string | null>(null);
+  const cashGates = useApiQuery<CashGateInputView[]>("/api/v1/cash-gate-inputs");
+  const financialFacts = useApiQuery<FinancialFactView[]>(
+    "/api/v1/financial-facts",
+  );
+  const [cashOpen, setCashOpen] = useState(false);
+  const [cashCycleId, setCashCycleId] = useState("");
+  const [cashAsOfDate, setCashAsOfDate] = useState("");
+  const [cashReserveMonths, setCashReserveMonths] = useState("3");
+  const [cashForecastRef, setCashForecastRef] = useState("");
+  const [cashPassesGate, setCashPassesGate] = useState(true);
+  const [cashApprovedBy, setCashApprovedBy] = useState(session.personId);
+  const [cashError, setCashError] = useState<string | null>(null);
+  const [factOpen, setFactOpen] = useState(false);
+  const [factSourceSystem, setFactSourceSystem] = useState("");
+  const [factSourceRecordId, setFactSourceRecordId] = useState("");
+  const [factType, setFactType] = useState("");
+  const [factAmount, setFactAmount] = useState("");
+  const [factCurrency, setFactCurrency] = useState("CNY");
+  const [factPeriodStart, setFactPeriodStart] = useState("");
+  const [factPeriodEnd, setFactPeriodEnd] = useState("");
+  const [factQuality, setFactQuality] = useState("UNVERIFIED");
+  const [factError, setFactError] = useState<string | null>(null);
 
   const poolList = pools.data ?? [];
   const selectedPool = poolList.find((pool) => pool.id === selectedPoolId);
@@ -389,6 +415,80 @@ export function SettlementsPage() {
     }
   }
 
+  function openCashGate() {
+    setCashCycleId(cycles.data?.[0]?.id ?? "");
+    setCashAsOfDate(new Date().toISOString().slice(0, 10));
+    setCashReserveMonths("3");
+    setCashForecastRef("");
+    setCashPassesGate(true);
+    setCashApprovedBy(session.personId);
+    setCashError(null);
+    setCashOpen(true);
+  }
+
+  async function submitCashGate() {
+    setCashError(null);
+    try {
+      await api("/api/v1/cash-gate-inputs", {
+        method: "POST",
+        body: {
+          cycleId: cashCycleId,
+          asOfDate: cashAsOfDate,
+          safetyReserveMonths: cashReserveMonths,
+          thirteenWeekForecastRef: cashForecastRef.trim(),
+          passesGate: cashPassesGate,
+          approvedBy: cashApprovedBy,
+        },
+      });
+      toast.success("Cash-gate input recorded", cashCycleId);
+      setCashOpen(false);
+      cashGates.reload();
+    } catch (caught) {
+      setCashError(
+        caught instanceof ApiError ? caught.message : "Could not record input",
+      );
+    }
+  }
+
+  function openFinancialFact() {
+    setFactSourceSystem("");
+    setFactSourceRecordId("");
+    setFactType("");
+    setFactAmount("");
+    setFactCurrency("CNY");
+    setFactPeriodStart("");
+    setFactPeriodEnd("");
+    setFactQuality("UNVERIFIED");
+    setFactError(null);
+    setFactOpen(true);
+  }
+
+  async function submitFinancialFact() {
+    setFactError(null);
+    try {
+      await api("/api/v1/financial-facts", {
+        method: "POST",
+        body: {
+          sourceSystem: factSourceSystem.trim(),
+          sourceRecordId: factSourceRecordId.trim(),
+          factType: factType.trim(),
+          periodStart: factPeriodStart || undefined,
+          periodEnd: factPeriodEnd || undefined,
+          amount: factAmount,
+          currency: factCurrency.toUpperCase(),
+          qualityStatus: factQuality,
+        },
+      });
+      toast.success("Financial fact recorded", factSourceRecordId);
+      setFactOpen(false);
+      financialFacts.reload();
+    } catch (caught) {
+      setFactError(
+        caught instanceof ApiError ? caught.message : "Could not record fact",
+      );
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -461,6 +561,11 @@ export function SettlementsPage() {
           { id: "batches", label: "Batches", count: batchList.length },
           { id: "ledger", label: "Ledger", count: ledgerEntries.length },
           { id: "budgets", label: "Budgets", count: poolList.length },
+          {
+            id: "cash",
+            label: "Cash & facts",
+            count: cashGates.data?.length ?? 0,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -929,7 +1034,146 @@ export function SettlementsPage() {
               )}
             </Panel>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div className="split-grid">
+              <Panel
+                title="Cash-gate inputs"
+                subtitle="Safety reserve and 13-week forecast evidence per cycle date"
+                flush
+                action={
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon="plus"
+                    onClick={openCashGate}
+                  >
+                    Record input
+                  </Button>
+                }
+              >
+                {cashGates.error ? (
+                  <div style={{ padding: 16 }}>
+                    <ErrorNotice
+                      error={cashGates.error}
+                      onRetry={cashGates.reload}
+                    />
+                  </div>
+                ) : cashGates.loading ? (
+                  <div style={{ padding: 16 }}>
+                    <LoadingRows rows={3} />
+                  </div>
+                ) : (cashGates.data?.length ?? 0) === 0 ? (
+                  <EmptyState
+                    icon="chart"
+                    title="No cash-gate input"
+                    description="Record whether the cycle passed the cash gate and the forecast it relied on."
+                  />
+                ) : (
+                  <div className="table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>As of</th>
+                          <th>Reserve</th>
+                          <th>Forecast</th>
+                          <th>Gate</th>
+                          <th>Approved by</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(cashGates.data ?? []).map((input) => (
+                          <tr key={input.id}>
+                            <td>{input.asOfDate}</td>
+                            <td>{input.safetyReserveMonths} months</td>
+                            <td className="mono">{input.thirteenWeekForecastRef}</td>
+                            <td>
+                              <Badge
+                                tone={input.passesGate ? "success" : "danger"}
+                              >
+                                {input.passesGate ? "Pass" : "Fail"}
+                              </Badge>
+                            </td>
+                            <td>{displayName(input.approvedBy, people)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+
+              <Panel
+                title="Financial facts"
+                subtitle="Ingested facts with quality status and period"
+                flush
+                action={
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon="plus"
+                    onClick={openFinancialFact}
+                  >
+                    Add fact
+                  </Button>
+                }
+              >
+                {financialFacts.error ? (
+                  <div style={{ padding: 16 }}>
+                    <ErrorNotice
+                      error={financialFacts.error}
+                      onRetry={financialFacts.reload}
+                    />
+                  </div>
+                ) : financialFacts.loading ? (
+                  <div style={{ padding: 16 }}>
+                    <LoadingRows rows={3} />
+                  </div>
+                ) : (financialFacts.data?.length ?? 0) === 0 ? (
+                  <EmptyState
+                    icon="payroll"
+                    title="No financial fact"
+                    description="Facts feed reservation and cash-collection checks."
+                  />
+                ) : (
+                  <div className="table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Fact</th>
+                          <th>Period</th>
+                          <th>Amount</th>
+                          <th>Quality</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(financialFacts.data ?? []).map((fact) => (
+                          <tr key={fact.id}>
+                            <td>
+                              <span className="cell-primary">{fact.factType}</span>
+                              <span className="cell-sub mono">
+                                {fact.sourceSystem} · {fact.sourceRecordId}
+                              </span>
+                            </td>
+                            <td className="nowrap">
+                              {fact.periodStart ?? "—"} – {fact.periodEnd ?? "—"}
+                            </td>
+                            <td>
+                              {fact.amount} {fact.currency}
+                            </td>
+                            <td>
+                              <Badge status={fact.qualityStatus} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            </div>
+          </>
+        )}
       </div>
 
       <Modal
@@ -1246,6 +1490,191 @@ export function SettlementsPage() {
             </FormField>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={cashOpen}
+        title="Record cash-gate input"
+        description="The cash gate is evidence that the cycle can fund the approved incentives."
+        onClose={() => setCashOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCashOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitCashGate}>
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {cashError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{cashError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Cycle" htmlFor="cash-cycle">
+            <Select
+              id="cash-cycle"
+              value={cashCycleId}
+              onChange={(event) => setCashCycleId(event.target.value)}
+              required
+            >
+              <option value="">Select a cycle</option>
+              {(cycles.data ?? []).map((cycle) => (
+                <option key={cycle.id} value={cycle.id}>
+                  {cycle.name}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="As of date" htmlFor="cash-date">
+            <TextInput
+              id="cash-date"
+              type="date"
+              value={cashAsOfDate}
+              onChange={(event) => setCashAsOfDate(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Safety reserve (months)" htmlFor="cash-reserve">
+            <TextInput
+              id="cash-reserve"
+              value={cashReserveMonths}
+              onChange={(event) => setCashReserveMonths(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="13-week forecast ref" htmlFor="cash-forecast">
+            <TextInput
+              id="cash-forecast"
+              value={cashForecastRef}
+              onChange={(event) => setCashForecastRef(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox field--full">
+            <input
+              type="checkbox"
+              checked={cashPassesGate}
+              onChange={(event) => setCashPassesGate(event.target.checked)}
+            />
+            <span>The cycle passes the cash gate.</span>
+          </label>
+          <FormField label="Approved by" htmlFor="cash-approver">
+            <PersonSelect
+              id="cash-approver"
+              value={cashApprovedBy}
+              onChange={setCashApprovedBy}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={factOpen}
+        title="Add financial fact"
+        description="Facts are keyed by source system and record id."
+        onClose={() => setFactOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setFactOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitFinancialFact}>
+              Add fact
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {factError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{factError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Source system" htmlFor="fact-source">
+            <TextInput
+              id="fact-source"
+              value={factSourceSystem}
+              onChange={(event) => setFactSourceSystem(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Source record id" htmlFor="fact-record">
+            <TextInput
+              id="fact-record"
+              value={factSourceRecordId}
+              onChange={(event) => setFactSourceRecordId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Fact type" htmlFor="fact-type">
+            <TextInput
+              id="fact-type"
+              value={factType}
+              onChange={(event) => setFactType(event.target.value)}
+              placeholder="CASH_COLLECTED"
+              required
+            />
+          </FormField>
+          <FormField label="Amount" htmlFor="fact-amount">
+            <TextInput
+              id="fact-amount"
+              value={factAmount}
+              onChange={(event) => setFactAmount(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Currency" htmlFor="fact-currency">
+            <TextInput
+              id="fact-currency"
+              value={factCurrency}
+              maxLength={3}
+              onChange={(event) =>
+                setFactCurrency(event.target.value.toUpperCase())
+              }
+              required
+            />
+          </FormField>
+          <FormField label="Quality" htmlFor="fact-quality">
+            <Select
+              id="fact-quality"
+              value={factQuality}
+              onChange={(event) => setFactQuality(event.target.value)}
+            >
+              {[
+                "VALID",
+                "MISSING",
+                "STALE",
+                "CONFLICTED",
+                "UNVERIFIED",
+                "INVALID",
+              ].map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Period start (optional)" htmlFor="fact-start">
+            <TextInput
+              id="fact-start"
+              type="date"
+              value={factPeriodStart}
+              onChange={(event) => setFactPeriodStart(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Period end (optional)" htmlFor="fact-end">
+            <TextInput
+              id="fact-end"
+              type="date"
+              value={factPeriodEnd}
+              onChange={(event) => setFactPeriodEnd(event.target.value)}
+            />
+          </FormField>
+        </div>
       </Modal>
     </>
   );

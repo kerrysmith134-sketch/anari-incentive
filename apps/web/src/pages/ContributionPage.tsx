@@ -36,6 +36,7 @@ import type {
   ContributionClaim,
   WorkPackage,
 } from "../lib/types.js";
+import type { DeliverableView } from "../lib/ops-types.js";
 
 type PackageAction = "commit" | "start" | "submit" | "review";
 
@@ -78,6 +79,26 @@ export function ContributionPage() {
   const [selectedPackage, setSelectedPackage] = useState<WorkPackage | null>(
     null,
   );
+  const deliverables = useApiQuery<DeliverableView[]>(
+    selectedPackage
+      ? `/api/v1/work-packages/${selectedPackage.id}/deliverables`
+      : null,
+    selectedPackage?.id,
+  );
+  const [deliverableOpen, setDeliverableOpen] = useState(false);
+  const [deliverableTitle, setDeliverableTitle] = useState("");
+  const [deliverableType, setDeliverableType] = useState("DOCUMENT");
+  const [deliverableOwner, setDeliverableOwner] = useState(session.personId);
+  const [deliverableDueAt, setDeliverableDueAt] = useState("");
+  const [deliverableError, setDeliverableError] = useState<string | null>(null);
+  const [acceptTarget, setAcceptTarget] = useState<DeliverableView | null>(null);
+  const [acceptDecision, setAcceptDecision] = useState<
+    "ACCEPT" | "REJECT" | "ACCEPT_WITH_ISSUES"
+  >("ACCEPT");
+  const [acceptReviewer, setAcceptReviewer] = useState(session.personId);
+  const [acceptComments, setAcceptComments] = useState("");
+  const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [deliverableBusy, setDeliverableBusy] = useState<string | null>(null);
   const [packageAction, setPackageAction] = useState<{
     kind: PackageAction;
     workPackage: WorkPackage;
@@ -543,6 +564,81 @@ export function ContributionPage() {
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function openDeliverable() {
+    setDeliverableTitle("");
+    setDeliverableType("DOCUMENT");
+    setDeliverableOwner(selectedPackage?.ownerPersonId ?? session.personId);
+    setDeliverableDueAt("");
+    setDeliverableError(null);
+    setDeliverableOpen(true);
+  }
+
+  async function createDeliverable() {
+    if (!selectedPackage) return;
+    setDeliverableError(null);
+    try {
+      await api(`/api/v1/work-packages/${selectedPackage.id}/deliverables`, {
+        method: "POST",
+        body: {
+          title: deliverableTitle.trim(),
+          deliverableType: deliverableType.trim(),
+          ownerPersonId: deliverableOwner,
+          dueAt: deliverableDueAt
+            ? new Date(deliverableDueAt).toISOString()
+            : undefined,
+        },
+      });
+      toast.success("Deliverable added", deliverableTitle);
+      setDeliverableOpen(false);
+      deliverables.reload();
+    } catch (caught) {
+      setDeliverableError(
+        caught instanceof ApiError ? caught.message : "Could not add deliverable",
+      );
+    }
+  }
+
+  async function submitDeliverable(deliverable: DeliverableView) {
+    setDeliverableBusy(`submit:${deliverable.id}`);
+    try {
+      await api(`/api/v1/deliverables/${deliverable.id}/submit`, {
+        method: "POST",
+        body: {},
+      });
+      toast.success("Deliverable submitted", deliverable.title);
+      deliverables.reload();
+    } catch (caught) {
+      toast.error(
+        "Could not submit deliverable",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setDeliverableBusy(null);
+    }
+  }
+
+  async function acceptDeliverable() {
+    if (!acceptTarget) return;
+    setAcceptError(null);
+    try {
+      await api(`/api/v1/deliverables/${acceptTarget.id}/acceptance`, {
+        method: "POST",
+        body: {
+          decision: acceptDecision,
+          reviewerPersonId: acceptReviewer,
+          comments: acceptComments.trim() || undefined,
+        },
+      });
+      toast.success("Deliverable reviewed", acceptTarget.title);
+      setAcceptTarget(null);
+      deliverables.reload();
+    } catch (caught) {
+      setAcceptError(
+        caught instanceof ApiError ? caught.message : "Could not record acceptance",
+      );
     }
   }
 
@@ -1314,6 +1410,91 @@ export function ContributionPage() {
                 ))}
               </ul>
             </div>
+            <div className="detail-section">
+              <div
+                className="inline"
+                style={{ justifyContent: "space-between", width: "100%" }}
+              >
+                <div className="detail-section__title" style={{ margin: 0 }}>
+                  Deliverables
+                </div>
+                <Button size="sm" variant="secondary" icon="plus" onClick={openDeliverable}>
+                  Add
+                </Button>
+              </div>
+              {deliverables.error ? (
+                <ErrorNotice
+                  error={deliverables.error}
+                  onRetry={deliverables.reload}
+                />
+              ) : deliverables.loading ? (
+                <LoadingRows rows={2} />
+              ) : (deliverables.data?.length ?? 0) === 0 ? (
+                <p className="muted">No deliverable recorded for this package.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Deliverable</th>
+                        <th>Status</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(deliverables.data ?? []).map((deliverable) => (
+                        <tr key={deliverable.id}>
+                          <td>
+                            <span className="cell-primary">
+                              {deliverable.title}
+                            </span>
+                            <span className="cell-sub">
+                              {titleCase(deliverable.deliverableType)} ·{" "}
+                              {displayName(deliverable.ownerPersonId, people)}
+                            </span>
+                          </td>
+                          <td>
+                            <Badge status={deliverable.status} />
+                          </td>
+                          <td className="cell-actions">
+                            {["DRAFT", "REJECTED"].includes(
+                              deliverable.status,
+                            ) ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                loading={
+                                  deliverableBusy ===
+                                  `submit:${deliverable.id}`
+                                }
+                                onClick={() => submitDeliverable(deliverable)}
+                              >
+                                Submit
+                              </Button>
+                            ) : null}
+                            {deliverable.status === "SUBMITTED" ? (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                onClick={() => {
+                                  setAcceptTarget(deliverable);
+                                  setAcceptDecision("ACCEPT");
+                                  setAcceptReviewer(session.personId);
+                                  setAcceptComments("");
+                                  setAcceptError(null);
+                                }}
+                              >
+                                Review
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
       </Modal>
@@ -1709,6 +1890,124 @@ export function ContributionPage() {
             </div>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={deliverableOpen}
+        title="Add deliverable"
+        description={selectedPackage?.title}
+        onClose={() => setDeliverableOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeliverableOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createDeliverable}>
+              Add deliverable
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {deliverableError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{deliverableError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Title" htmlFor="deliverable-title">
+            <TextInput
+              id="deliverable-title"
+              value={deliverableTitle}
+              onChange={(event) => setDeliverableTitle(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Type" htmlFor="deliverable-type">
+            <TextInput
+              id="deliverable-type"
+              value={deliverableType}
+              onChange={(event) => setDeliverableType(event.target.value)}
+              placeholder="DOCUMENT"
+              required
+            />
+          </FormField>
+          <FormField label="Owner" htmlFor="deliverable-owner">
+            <PersonSelect
+              id="deliverable-owner"
+              value={deliverableOwner}
+              onChange={setDeliverableOwner}
+            />
+          </FormField>
+          <FormField label="Due (optional)" htmlFor="deliverable-due">
+            <TextInput
+              id="deliverable-due"
+              type="date"
+              value={deliverableDueAt}
+              onChange={(event) => setDeliverableDueAt(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(acceptTarget)}
+        title="Review deliverable"
+        description={acceptTarget?.title}
+        onClose={() => setAcceptTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAcceptTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={acceptDeliverable}>
+              Record decision
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {acceptError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{acceptError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Decision" htmlFor="deliverable-decision">
+            <Select
+              id="deliverable-decision"
+              value={acceptDecision}
+              onChange={(event) =>
+                setAcceptDecision(
+                  event.target.value as
+                    | "ACCEPT"
+                    | "REJECT"
+                    | "ACCEPT_WITH_ISSUES",
+                )
+              }
+            >
+              <option value="ACCEPT">Accept</option>
+              <option value="ACCEPT_WITH_ISSUES">Accept with issues</option>
+              <option value="REJECT">Reject</option>
+            </Select>
+          </FormField>
+          <FormField label="Reviewer" htmlFor="deliverable-reviewer">
+            <PersonSelect
+              id="deliverable-reviewer"
+              value={acceptReviewer}
+              onChange={setAcceptReviewer}
+            />
+          </FormField>
+          <FormField
+            label="Comments (optional)"
+            htmlFor="deliverable-comments"
+            className="field--full"
+          >
+            <Textarea
+              id="deliverable-comments"
+              value={acceptComments}
+              onChange={(event) => setAcceptComments(event.target.value)}
+            />
+          </FormField>
+        </div>
       </Modal>
     </>
   );
