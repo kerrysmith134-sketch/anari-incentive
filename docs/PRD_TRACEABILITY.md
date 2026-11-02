@@ -89,7 +89,7 @@
 | ATT-04 覆盖率分层 | ✅ | 按 responsibilityCode、订单类型和 task/package type 三层统计证据覆盖率；packageType 随 work package 持久化并在 console 录入/展示 |
 | ATT-05 证据不足不默认 0 | ✅ | 评分结果新增 `insufficientEvidence`；默认 `evidenceDefaultRule=BLOCK` 拒绝缺失维度评分的 AI proposal，只有显式设为 `ZERO` 才允许落 0；测试覆盖 block/override |
 | ATT-06 先独立判断/AI 草稿/盲审 | ✅ | decision 必填 independentScores/reviewStartedAt/evidenceOpened；override 必须有理由；AI console 默认隐藏 AI 分数直到 reveal；audit sample 由服务端按 override/随机率抽取，盲审 flag 与 audit agreement 记录；校准会已接入 annual review |
-| ATT-07 申诉由非原决定人/SLA/证据披露 | 🟡 | 非原决定人复核 + 本轮新增 dueAt/evidenceRefs/SLA skill；无正式证据披露/无报复承诺流程 |
+| ATT-07 申诉由非原决定人/SLA/证据披露 | ✅/🟡 | 非原决定人复核、dueAt/evidenceRefs/SLA 已有；本轮新增正式证据披露：披露人≠申诉人、只能披露申诉所附证据、记录 method/note/time，申诉人可查看，有证据的申诉在披露前 resolve 返回 409；no-retaliation 以已发布的 FairnessCommitment 表达 |
 | ATT-08 贡献/绩效分离 | ✅ | 独立对象和 API |
 | ATT-09 子群体/一致性审计 | ✅ | 既有 reviewer consistency；本轮新增自愿、单独同意、伪名化的子群体标签（GENDER/AGE_BAND/REGION/TENURE_BAND/EMPLOYMENT_TYPE）与 `GET /reports/subgroup-impact`：<10 抑制、10–29 仅定性、≥30 输出均值/选择率/4-5 规则比；harness 只对 ≥30 的组计算误差 gap，小样本列为 qualitative；标签不进入个人决策，撤回即删除；console Annual review 展示 |
 
@@ -261,6 +261,8 @@
 61. **P0-02/P0-04 cycle time expansion**：operations coverage 新增 calculation→confirmation、payroll created→approved、appeal created→resolved 平均小时数，Policy coverage 展示；端到端员工/经理细分角色耗时与目标阈值仍待产品定义。
 
 62. **ATT-04/DATA-01 package-type coverage**：WorkPackage 新增 `packageType`（默认 ORDER_DELIVERY，复用既有 `package_type` 列），coverage report 增加按 package type 的分层，Contribution 表单/列表与 Policy coverage 展示；无迁移。
+
+63. **ATT-07 appeal evidence disclosure**：新增 `appeal_evidence_disclosures`（RLS）、POST/GET `/appeals/:id/evidence-disclosures`、披露人≠申诉人、证据子集校验；有 evidenceRefs 的申诉未披露时 resolve 返回 409。Exceptions UI 增加披露按钮，迁移 `063_appeal_evidence_disclosures.sql`。
 
 ## 仍建议按 P0 顺序补做
 

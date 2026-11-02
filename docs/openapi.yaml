@@ -6761,6 +6761,56 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/appeals/{id}/evidence-disclosures:
+    get:
+      tags: [Appeals]
+      summary: List evidence disclosed to the appellant
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Disclosures
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Appeals]
+      summary: Disclose appeal evidence to the appellant
+      description: |
+        Required before resolving an appeal that cites evidence. The discloser
+        must differ from the appellant, and only evidence attached to the
+        appeal may be disclosed.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppealEvidenceDisclosure"
+      responses:
+        "201":
+          description: Disclosed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/evidence:
     get:
       tags: [Evidence]
@@ -10276,6 +10326,24 @@ components:
           enum: [VIEWED, CONFIRMED, OBJECTED]
         reason:
           type: string
+
+    CreateAppealEvidenceDisclosure:
+      type: object
+      required: [disclosedBy, method, evidenceRefs]
+      properties:
+        disclosedBy:
+          $ref: "#/components/schemas/Uuid"
+        method:
+          type: string
+          enum: [PORTAL, EMAIL, IN_PERSON, OTHER]
+        evidenceRefs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Uuid"
+        note:
+          type: string
+          minLength: 3
 
     CreateAppeal:
       type: object

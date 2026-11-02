@@ -2933,6 +2933,22 @@ describePg("PgStore vertical slice", () => {
     const loaded = await store.getAppeal(appeal.id);
     expect(loaded.dueAt).toBe(dueAt);
     expect(loaded.evidenceRefs).toEqual([evidenceRef]);
+    const platform = new PgPlatformStore(platformPool);
+    const disclosure = await platform.createAppealEvidenceDisclosure({
+      tenantId: DEMO_TENANT_ID,
+      appealId: appeal.id,
+      disclosedBy: ADJUDICATOR,
+      method: "PORTAL",
+      evidenceRefs: [evidenceRef],
+      note: "Shared with the appellant",
+    });
+    expect(disclosure.evidenceRefs).toEqual([evidenceRef]);
+    const disclosures = await platform.listAppealEvidenceDisclosures(
+      DEMO_TENANT_ID,
+      appeal.id,
+    );
+    expect(disclosures).toHaveLength(1);
+    expect(disclosures[0]?.method).toBe("PORTAL");
   });
 
   it("persists data sources with owner, SLA and field classification", async () => {

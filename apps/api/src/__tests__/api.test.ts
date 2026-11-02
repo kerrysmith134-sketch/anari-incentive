@@ -8473,6 +8473,48 @@ describe("vertical slice", () => {
       ).status,
     ).toBe(200);
     expect((await call("POST", `/api/v1/appeals/${appealId}/review`)).status).toBe(200);
+    const undisclosed = await call(
+      "POST",
+      `/api/v1/appeals/${appealId}/resolve`,
+      {
+        reviewerPersonId: ADJUDICATOR,
+        resolution: "CHANGE",
+        rationale: "The missing delivery changes the attribution",
+      },
+    );
+    expect(undisclosed.status).toBe(409);
+    expect(undisclosed.body.error.message).toContain(
+      "APPEAL_EVIDENCE_DISCLOSURE_REQUIRED",
+    );
+    const unrelatedDisclosure = await call(
+      "POST",
+      `/api/v1/appeals/${appealId}/evidence-disclosures`,
+      {
+        disclosedBy: ADJUDICATOR,
+        method: "PORTAL",
+        evidenceRefs: ["00000000-0000-4000-8000-0000000000bb"],
+      },
+    );
+    expect(unrelatedDisclosure.status).toBe(409);
+    const disclosure = await call(
+      "POST",
+      `/api/v1/appeals/${appealId}/evidence-disclosures`,
+      {
+        disclosedBy: ADJUDICATOR,
+        method: "PORTAL",
+        evidenceRefs: [appealEvidenceRef],
+        note: "Full evidence set shared with the appellant",
+      },
+    );
+    expect(disclosure.status).toBe(201);
+    const disclosures = await call(
+      "GET",
+      `/api/v1/appeals/${appealId}/evidence-disclosures`,
+    );
+    expect(disclosures.body.data).toHaveLength(1);
+    expect(disclosures.body.data[0].evidenceRefs).toEqual([
+      appealEvidenceRef,
+    ]);
     const resolved = await call("POST", `/api/v1/appeals/${appealId}/resolve`, {
       reviewerPersonId: ADJUDICATOR,
       resolution: "CHANGE",

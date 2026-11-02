@@ -1522,6 +1522,16 @@ export const resolveAppealSchema = z.object({
 });
 export type ResolveAppealBody = z.infer<typeof resolveAppealSchema>;
 
+export const createAppealEvidenceDisclosureSchema = z.object({
+  disclosedBy: uuidSchema,
+  method: z.enum(["PORTAL", "EMAIL", "IN_PERSON", "OTHER"]),
+  evidenceRefs: z.array(uuidSchema).min(1),
+  note: z.string().trim().min(3).optional(),
+});
+export type CreateAppealEvidenceDisclosureBody = z.infer<
+  typeof createAppealEvidenceDisclosureSchema
+>;
+
 export const createRecalculationRequestSchema = z.object({
   targetType: z.enum(["EVIDENCE", "ATTRIBUTION", "EVALUATION", "LEDGER"]),
   targetId: uuidSchema,

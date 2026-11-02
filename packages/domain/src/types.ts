@@ -1927,6 +1927,25 @@ export interface AppealCase {
   resolvedAt?: string;
 }
 
+export type AppealDisclosureMethod =
+  | "PORTAL"
+  | "EMAIL"
+  | "IN_PERSON"
+  | "OTHER";
+
+/** Evidence shown to an appellant so the review is not a black box. */
+export interface AppealEvidenceDisclosure {
+  id: UUID;
+  tenantId: UUID;
+  appealId: UUID;
+  disclosedBy: UUID;
+  method: AppealDisclosureMethod;
+  evidenceRefs: UUID[];
+  note?: string;
+  disclosedAt: string;
+  createdAt: string;
+}
+
 export type RecalculationTargetType =
   | "EVIDENCE"
   | "ATTRIBUTION"

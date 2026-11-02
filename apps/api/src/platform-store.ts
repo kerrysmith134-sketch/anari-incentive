@@ -70,6 +70,7 @@ import type {
   PolicyTestCase,
   PolicyTestRun,
   RepresentationBodyType,
+  AppealEvidenceDisclosure,
   RetentionDisposalRequest,
   RetentionPolicy,
   WorkforceSubgroupAttribute,
@@ -281,6 +282,18 @@ export interface PlatformStore {
     actorPersonId: string;
     reason: string;
   }): Promise<RetentionDisposalRequest>;
+  createAppealEvidenceDisclosure(input: {
+    tenantId: string;
+    appealId: string;
+    disclosedBy: string;
+    method: AppealEvidenceDisclosure["method"];
+    evidenceRefs: string[];
+    note?: string;
+  }): Promise<AppealEvidenceDisclosure>;
+  listAppealEvidenceDisclosures(
+    tenantId: string,
+    appealId: string,
+  ): Promise<AppealEvidenceDisclosure[]>;
   recordWorkforceSubgroupAttribute(input: {
     tenantId: string;
     personId: string;
@@ -1494,6 +1507,10 @@ export class MemoryPlatformStore implements PlatformStore {
     string,
     WorkforceSubgroupAttribute
   >();
+  private readonly appealEvidenceDisclosures = new Map<
+    string,
+    AppealEvidenceDisclosure
+  >();
   private readonly dataSources = new Map<string, DataSource>();
   private readonly conflictDeclarations = new Map<
     string,
@@ -2493,6 +2510,48 @@ export class MemoryPlatformStore implements PlatformStore {
     request.cancelledAt = now();
     request.cancelReason = input.reason;
     return request;
+  }
+
+  async createAppealEvidenceDisclosure(input: {
+    tenantId: string;
+    appealId: string;
+    disclosedBy: string;
+    method: AppealEvidenceDisclosure["method"];
+    evidenceRefs: string[];
+    note?: string;
+  }): Promise<AppealEvidenceDisclosure> {
+    if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+    const discloser = this.persons.get(input.disclosedBy);
+    if (!discloser || discloser.tenantId !== input.tenantId) {
+      notFound("Person", input.disclosedBy);
+    }
+    const disclosure: AppealEvidenceDisclosure = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      appealId: input.appealId,
+      disclosedBy: input.disclosedBy,
+      method: input.method,
+      evidenceRefs: [...input.evidenceRefs],
+      note: input.note,
+      disclosedAt: now(),
+      createdAt: now(),
+    };
+    this.appealEvidenceDisclosures.set(disclosure.id, disclosure);
+    return disclosure;
+  }
+
+  async listAppealEvidenceDisclosures(
+    tenantId: string,
+    appealId: string,
+  ): Promise<AppealEvidenceDisclosure[]> {
+    if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+    return [...this.appealEvidenceDisclosures.values()]
+      .filter(
+        (disclosure) =>
+          disclosure.tenantId === tenantId &&
+          disclosure.appealId === appealId,
+      )
+      .sort((a, b) => b.disclosedAt.localeCompare(a.disclosedAt));
   }
 
   async recordWorkforceSubgroupAttribute(input: {
@@ -8657,6 +8716,56 @@ export class PgPlatformStore implements PlatformStore {
       );
     }
     return this.mapRetentionDisposalRequest(rows[0]);
+  }
+
+  async createAppealEvidenceDisclosure(input: {
+    tenantId: string;
+    appealId: string;
+    disclosedBy: string;
+    method: AppealEvidenceDisclosure["method"];
+    evidenceRefs: string[];
+    note?: string;
+  }): Promise<AppealEvidenceDisclosure> {
+    try {
+      const { rows } = await this.pool.query(
+        `INSERT INTO appeal_evidence_disclosures
+          (id, tenant_id, appeal_id, disclosed_by, method, evidence_refs,
+           note)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.tenantId,
+          input.appealId,
+          input.disclosedBy,
+          input.method,
+          JSON.stringify(input.evidenceRefs),
+          input.note ?? null,
+        ],
+      );
+      return this.mapAppealEvidenceDisclosure(rows[0]);
+    } catch (error) {
+      if ((error as { code?: string }).code === "23503") {
+        throw new NotFoundError(
+          `Appeal ${input.appealId} or discloser ${input.disclosedBy} not found`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  async listAppealEvidenceDisclosures(
+    tenantId: string,
+    appealId: string,
+  ): Promise<AppealEvidenceDisclosure[]> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      `SELECT * FROM appeal_evidence_disclosures
+        WHERE tenant_id=$1 AND appeal_id=$2
+        ORDER BY disclosed_at DESC`,
+      [tenantId, appealId],
+    );
+    return rows.map((row) => this.mapAppealEvidenceDisclosure(row));
   }
 
   async recordWorkforceSubgroupAttribute(input: {
@@ -14835,6 +14944,22 @@ export class PgPlatformStore implements PlatformStore {
       completedAt: iso(row.completed_at),
       cancelledAt: iso(row.cancelled_at),
       cancelReason: row.cancel_reason ?? undefined,
+    };
+  }
+
+  private mapAppealEvidenceDisclosure(
+    row: QueryResultRow,
+  ): AppealEvidenceDisclosure {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      appealId: row.appeal_id,
+      disclosedBy: row.disclosed_by,
+      method: row.method,
+      evidenceRefs: (row.evidence_refs ?? []) as string[],
+      note: row.note ?? undefined,
+      disclosedAt: iso(row.disclosed_at) ?? new Date().toISOString(),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

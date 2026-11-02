@@ -77,6 +77,7 @@ export function ExceptionsPage() {
   );
   const [appealRationale, setAppealRationale] = useState("");
   const [appealError, setAppealError] = useState<string | null>(null);
+  const [disclosing, setDisclosing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const issueList = issues.data ?? [];
@@ -139,6 +140,37 @@ export function ExceptionsPage() {
     setResolution("UPHOLD");
     setAppealRationale("");
     setAppealError(null);
+  }
+
+  async function discloseEvidence() {
+    if (!appealTarget?.evidenceRefs?.length) return;
+    setDisclosing(true);
+    setAppealError(null);
+    try {
+      await api(
+        `/api/v1/appeals/${appealTarget.id}/evidence-disclosures`,
+        {
+          method: "POST",
+          body: {
+            disclosedBy: reviewer,
+            method: "PORTAL",
+            evidenceRefs: appealTarget.evidenceRefs,
+            note: "Evidence set made available to the appellant before resolution",
+          },
+        },
+      );
+      toast.success("Appeal evidence disclosed", shortId(appealTarget.id));
+    } catch (caught) {
+      setAppealError(
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "The disclosure failed.",
+      );
+    } finally {
+      setDisclosing(false);
+    }
   }
 
   async function executeAppeal() {
@@ -614,12 +646,31 @@ export function ExceptionsPage() {
               ]}
             />
             {appealTarget.evidenceRefs && appealTarget.evidenceRefs.length > 0 ? (
-              <div className="chip-row">
-                {appealTarget.evidenceRefs.map((reference) => (
-                  <span className="chip" key={reference}>
-                    {reference}
-                  </span>
-                ))}
+              <div className="stack" style={{ gap: 8 }}>
+                <div className="chip-row">
+                  {appealTarget.evidenceRefs.map((reference) => (
+                    <span className="chip" key={reference}>
+                      {reference}
+                    </span>
+                  ))}
+                </div>
+                {appealTarget.status === "UNDER_REVIEW" ? (
+                  <>
+                    <InfoNotice tone="warning">
+                      Evidence disclosure is required before resolution. The
+                      disclosure record is visible to the appellant and retained
+                      with the appeal.
+                    </InfoNotice>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void discloseEvidence()}
+                      loading={disclosing}
+                    >
+                      Record evidence disclosure
+                    </Button>
+                  </>
+                ) : null}
               </div>
             ) : null}
             {appealTarget.status !== "TRIAGED" ? (

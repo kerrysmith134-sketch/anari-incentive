@@ -163,6 +163,7 @@ import {
   recordLegalGateSchema,
   rejectWorkPackageSchema,
   resolveAppealSchema,
+  createAppealEvidenceDisclosureSchema,
   reverseLedgerEntrySchema,
   setPersonManagerSchema,
   settlementCommandSchema,
@@ -8737,6 +8738,55 @@ export function buildApp(
     return data(appeal, request);
   });
 
+  app.post("/api/v1/appeals/:id/evidence-disclosures", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createAppealEvidenceDisclosureSchema, request.body);
+    const appeal = await storeFor(request).getAppeal(idOf(request));
+    if (body.disclosedBy === appeal.appellantPersonId) {
+      throw new ConflictError(
+        "APPEAL_DISCLOSER_IS_APPELLANT: another person must make the disclosure",
+      );
+    }
+    const allowed = new Set(appeal.evidenceRefs ?? []);
+    if (body.evidenceRefs.some((reference) => !allowed.has(reference))) {
+      throw new ConflictError(
+        "APPEAL_DISCLOSURE_EVIDENCE_NOT_ON_APPEAL",
+      );
+    }
+    const disclosure = await platformStore.createAppealEvidenceDisclosure({
+      tenantId: tenantOf(request),
+      appealId: appeal.id,
+      disclosedBy: body.disclosedBy,
+      method: body.method,
+      evidenceRefs: body.evidenceRefs,
+      note: body.note,
+    });
+    await notifyBestEffort(storeFor(request), {
+      recipientPersonId: appeal.appellantPersonId,
+      audience: "PERSON",
+      title: "Appeal evidence disclosed",
+      body: "The evidence considered in your appeal is now available.",
+      sourceType: "APPEAL",
+      sourceId: appeal.id,
+    });
+    return reply.status(201).send(data(disclosure, request));
+  });
+
+  app.get("/api/v1/appeals/:id/evidence-disclosures", async (request) => {
+    const appeal = await storeFor(request).getAppeal(idOf(request));
+    const person = personFilter(request);
+    if (person && appeal.appellantPersonId !== person) {
+      throw new ForbiddenError("appeal is not visible to this person");
+    }
+    return data(
+      await platformStore.listAppealEvidenceDisclosures(
+        tenantOf(request),
+        appeal.id,
+      ),
+      request,
+    );
+  });
+
   app.post("/api/v1/appeals/:id/triage", async (request) => {
     requireRoles(request, "manager");
     const body = parse(triageAppealSchema, request.body);
@@ -8775,6 +8825,19 @@ export function buildApp(
     requireRoles(request, "manager");
     const body = parse(resolveAppealSchema, request.body);
     const store = storeFor(request);
+    const existing = await store.getAppeal(idOf(request));
+    if ((existing.evidenceRefs?.length ?? 0) > 0) {
+      const disclosures =
+        await platformStore.listAppealEvidenceDisclosures(
+          tenantOf(request),
+          existing.id,
+        );
+      if (disclosures.length === 0) {
+        throw new ConflictError(
+          "APPEAL_EVIDENCE_DISCLOSURE_REQUIRED: disclose the evidence before resolving",
+        );
+      }
+    }
     const appeal = await store.resolveAppeal(idOf(request), body);
     await notifyBestEffort(store, {
       recipientPersonId: appeal.appellantPersonId,
