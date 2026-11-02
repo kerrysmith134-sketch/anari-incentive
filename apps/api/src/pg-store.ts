@@ -3035,6 +3035,19 @@ export class PgStore implements IncentiveStore {
     });
   }
 
+  async recordAuditEvent(input: {
+    actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+    actorId?: string;
+    action: string;
+    objectType: string;
+    objectId?: string;
+    beforeHash?: string;
+    afterHash?: string;
+    reason?: string;
+  }): Promise<void> {
+    await this.tx(async (client) => this.appendAudit(client, input));
+  }
+
   async reverseLedgerEntry(
     id: string,
     input: {

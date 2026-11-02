@@ -214,6 +214,17 @@ export interface IncentiveStore {
   listAdjustmentRecords(): Promise<AdjustmentRecord[]>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
   verifyAuditChain(): Promise<boolean>;
+  /** Append a governance/security audit event (settings and policy writes). */
+  recordAuditEvent(input: {
+    actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+    actorId?: string;
+    action: string;
+    objectType: string;
+    objectId?: string;
+    beforeHash?: string;
+    afterHash?: string;
+    reason?: string;
+  }): Promise<void>;
 
   createEvaluationCycle(input: {
     name: string;

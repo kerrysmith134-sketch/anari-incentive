@@ -7336,6 +7336,27 @@ describe("vertical slice", () => {
     ).toEqual(["isSubjectManager", "legalHoldActive", "sameOrgNode"]);
   });
 
+  it("audits field access policy changes with before and after hashes", async () => {
+    const update = await call("PUT", "/api/v1/field-access-policies", {
+      policies: {
+        "EVIDENCE.normalizedPayload": ["finance", "admin"],
+      },
+    });
+    expect(update.status).toBe(200);
+    const events = await call("GET", "/api/v1/audit-events?limit=10");
+    expect(events.status).toBe(200);
+    const event = events.body.data.find(
+      (candidate: { action: string }) =>
+        candidate.action === "FIELD_ACCESS_POLICIES_UPDATED",
+    );
+    expect(event).toBeTruthy();
+    expect(event.beforeHash).toMatch(/^sha256:/);
+    expect(event.afterHash).toMatch(/^sha256:/);
+    expect(event.reason).toBe("overrides=1");
+    const verify = await call("GET", "/api/v1/audit-events/verify");
+    expect(verify.body.data.valid).toBe(true);
+  });
+
   it("validates object field policies and rejects unsupported predicates", async () => {
     const accepted = await call("PUT", "/api/v1/field-access-policies", {
       policies: {

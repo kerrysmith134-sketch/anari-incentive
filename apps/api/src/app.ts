@@ -6317,9 +6317,25 @@ export function buildApp(
   app.put("/api/v1/field-access-policies", async (request) => {
     requireRoles(request, "admin");
     const body = parse(updateFieldAccessPoliciesSchema, request.body);
+    const tenantId = tenantOf(request);
+    const tenant = await platformStore.getTenant(tenantId);
+    const before = (
+      tenant.settings as { fieldAccessPolicies?: unknown }
+    ).fieldAccessPolicies;
     await platformStore.updateTenantSettings({
-      tenantId: tenantOf(request),
+      tenantId,
       settings: { fieldAccessPolicies: body.policies },
+    });
+    await storeFor(request).recordAuditEvent({
+      actorType: "USER",
+      actorId:
+        request.authContext?.userId ?? request.authContext?.personId,
+      action: "FIELD_ACCESS_POLICIES_UPDATED",
+      objectType: "TENANT_SETTINGS",
+      objectId: tenantId,
+      beforeHash: sha256(before ?? {}),
+      afterHash: sha256(body.policies),
+      reason: `overrides=${Object.keys(body.policies).length}`,
     });
     return data(
       {

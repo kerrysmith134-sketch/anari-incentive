@@ -385,6 +385,28 @@ describePg("PgStore vertical slice", () => {
     expect(await store.verifyAuditChain()).toBe(true);
   });
 
+  it("appends governance audit events into the hash chain", async () => {
+    const store = new PgStore(pool);
+    await store.recordAuditEvent({
+      actorType: "USER",
+      actorId: OWNER,
+      action: "FIELD_ACCESS_POLICIES_UPDATED",
+      objectType: "TENANT_SETTINGS",
+      objectId: DEMO_TENANT_ID,
+      beforeHash: "sha256:before",
+      afterHash: "sha256:after",
+      reason: "overrides=1",
+    });
+    const events = await store.listAuditEvents(10);
+    const event = events.find(
+      (candidate) => candidate.action === "FIELD_ACCESS_POLICIES_UPDATED",
+    );
+    expect(event).toBeTruthy();
+    expect(event?.beforeHash).toBe("sha256:before");
+    expect(event?.afterHash).toBe("sha256:after");
+    expect(event?.reason).toBe("overrides=1");
+    expect(await store.verifyAuditChain()).toBe(true);
+  });
   it("blocks a formal run on an unresolved blocking data-quality issue", async () => {
     const workPackageId = await acceptedWorkPackage();
     await confirmedClaim(workPackageId, OWNER);

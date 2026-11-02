@@ -156,6 +156,7 @@ export class Store implements IncentiveStore {
   private readonly appeals = new Map<string, AppealCase>();
   private readonly recalculations = new Map<string, RecalculationRequest>();
   private readonly adjustmentRecords = new Map<string, AdjustmentRecord>();
+  private readonly auditLog: AuditEvent[] = [];
   private readonly legalGates = new Map<string, LegalGateRecord>();
   private readonly confirmations = new Map<string, EmployeeConfirmation>();
   private readonly evidence = new Map<string, EvidenceNode>();
@@ -2109,12 +2110,65 @@ export class Store implements IncentiveStore {
     }
   }
 
-  async listAuditEvents(): Promise<AuditEvent[]> {
-    return [];
+  async listAuditEvents(limit = 100): Promise<AuditEvent[]> {
+    return [...this.auditLog]
+      .reverse()
+      .slice(0, Math.max(1, Math.min(limit, 500)))
+      .map((event) => ({ ...event }));
   }
 
   async verifyAuditChain(): Promise<boolean> {
+    let prevHash = "GENESIS";
+    for (const event of this.auditLog) {
+      if (event.prevHash !== prevHash) return false;
+      prevHash = event.eventHash;
+    }
     return true;
+  }
+
+  async recordAuditEvent(input: {
+    actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+    actorId?: string;
+    action: string;
+    objectType: string;
+    objectId?: string;
+    beforeHash?: string;
+    afterHash?: string;
+    reason?: string;
+  }): Promise<void> {
+    const sequence = this.auditLog.length + 1;
+    const occurredAt = now();
+    const prevHash = this.auditLog.at(-1)?.eventHash ?? "GENESIS";
+    const eventHash = sha256({
+      sequence,
+      action: input.action,
+      objectType: input.objectType,
+      objectId: input.objectId,
+      actorType: input.actorType,
+      actorId: input.actorId,
+      beforeHash: input.beforeHash,
+      afterHash: input.afterHash,
+      reason: input.reason,
+      prevHash,
+      occurredAt,
+    });
+    this.auditLog.push({
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      sequence,
+      actorType: input.actorType,
+      actorId: input.actorId,
+      action: input.action,
+      objectType: input.objectType,
+      objectId: input.objectId,
+      beforeHash: input.beforeHash,
+      afterHash: input.afterHash,
+      reason: input.reason,
+      correlationId: input.actorId ?? randomUUID(),
+      occurredAt,
+      prevHash,
+      eventHash,
+    });
   }
 
   async reverseLedgerEntry(
