@@ -7467,6 +7467,58 @@ describe("vertical slice", () => {
     expect(legalView[reportA.id]).toBe("8000");
     expect(legalView[reportB.id]).toBe("0");
     expect(legalView[managerB.id]).toBe("0");
+
+    const retention = await adminApp3.inject({
+      method: "POST",
+      url: "/api/v1/retention-policies",
+      payload: {
+        dataCategory: "LABOR_CONTRACTS",
+        retentionMonths: 24,
+        legalBasis: "Labour Contract Law Art. 50",
+        legalHold: true,
+      },
+    } as never);
+    expect(retention.statusCode).toBe(201);
+    const retentionId = retention.json().data.id as string;
+
+    const holdPolicy = {
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["manager"],
+          match: { legalHoldActive: true },
+          onDeny: "ZERO",
+        },
+      },
+    };
+    const holdApp = appFor(managerA.id, ["manager"]);
+    const adminApp4 = appFor(undefined, ["admin"]);
+    expect(
+      (
+        await adminApp4.inject({
+          method: "PUT",
+          url: "/api/v1/field-access-policies",
+          payload: holdPolicy,
+        } as never)
+      ).statusCode,
+    ).toBe(200);
+    const holdView = await salaryByPerson(holdApp);
+    expect(holdView[reportA.id]).toBe("8000");
+    expect(holdView[reportB.id]).toBe("9000");
+    expect(holdView[managerA.id]).toBe("10000");
+
+    expect(
+      (
+        await adminApp4.inject({
+          method: "POST",
+          url: `/api/v1/retention-policies/${retentionId}/legal-hold`,
+          payload: { legalHold: false },
+        } as never)
+      ).statusCode,
+    ).toBe(200);
+    const releasedView = await salaryByPerson(holdApp);
+    expect(releasedView[reportA.id]).toBe("0");
+    expect(releasedView[reportB.id]).toBe("0");
+    expect(releasedView[managerA.id]).toBe("10000");
   });
 
   it("applies tenant evidence payload policies on the evidence list", async () => {

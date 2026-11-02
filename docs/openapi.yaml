@@ -9111,6 +9111,8 @@ components:
               type: boolean
             sameLegalEntity:
               type: boolean
+            legalHoldActive:
+              type: boolean
             subjectEmploymentActive:
               type: boolean
             viewerEmploymentActive:

@@ -592,7 +592,23 @@ export interface FieldAccessMatchContext {
   activePersons: Set<string>;
   orgNodesByPerson: Map<string, Set<string>>;
   legalEntityByPerson: Map<string, string | undefined>;
+  /** Retention categories currently under legal hold. */
+  heldCategories: Set<string>;
 }
+
+/**
+ * Resources that map onto a retention data category. Unmapped resources make
+ * the legalHoldActive predicate evaluate false (and therefore fail closed for
+ * a `true` expectation).
+ */
+export const RETENTION_CATEGORIES_BY_RESOURCE: Record<string, string[]> = {
+  EMPLOYMENT_CONTRACT: ["LABOR_CONTRACTS"],
+  PAYROLL_LINE: ["PAYROLL_RECORDS"],
+  CALCULATION_LINE: ["ACCOUNTING_RECORDS"],
+  SETTLEMENT_LINE: ["ACCOUNTING_RECORDS"],
+  EVIDENCE: ["AI_EVALUATION_EVIDENCE"],
+  AI_PROPOSAL: ["AI_EVALUATION_EVIDENCE"],
+};
 
 interface NormalizedFieldPolicy {
   roles: string[];
@@ -662,17 +678,19 @@ export function fieldPolicyAllowsWithMatch(
   isSelf: boolean,
   context: FieldAccessMatchContext | undefined,
   subjectPersonId: string | undefined,
+  resourceName: string,
 ): boolean {
   if (roles.includes("admin")) return true;
   if (isSelf && policy.allowSelf) return true;
   if (!policy.roles.some((role) => roles.includes(role))) return false;
-  return fieldPolicyMatches(policy, context, subjectPersonId);
+  return fieldPolicyMatches(policy, context, subjectPersonId, resourceName);
 }
 
 function evaluateFieldPredicate(
   predicate: keyof FieldAccessMatch,
   context: FieldAccessMatchContext,
   subjectPersonId?: string,
+  resourceName?: string,
 ): boolean {
   switch (predicate) {
     case "viewerEmploymentActive":
@@ -684,6 +702,14 @@ function evaluateFieldPredicate(
       return Boolean(
         subjectPersonId && context.activePersons.has(subjectPersonId),
       );
+    case "legalHoldActive": {
+      const categories = resourceName
+        ? (RETENTION_CATEGORIES_BY_RESOURCE[resourceName] ?? [])
+        : [];
+      return categories.some((category) =>
+        context.heldCategories.has(category),
+      );
+    }
     case "isSubjectManager":
       return Boolean(
         subjectPersonId &&
@@ -724,6 +750,7 @@ export function fieldPolicyMatches(
   policy: NormalizedFieldPolicy,
   context: FieldAccessMatchContext | undefined,
   subjectPersonId?: string,
+  resourceName?: string,
 ): boolean {
   if (!policy.match) return true;
   if (!context) return false;
@@ -732,6 +759,7 @@ export function fieldPolicyMatches(
       predicate as keyof FieldAccessMatch,
       context,
       subjectPersonId,
+      resourceName,
     );
     if (actual !== expected) return false;
   }
@@ -796,6 +824,7 @@ export function redactResourceFields<T extends object>(
         isSelf,
         viewer.matchContext,
         subjectPersonId,
+        resourceName,
       )
     ) {
       continue;
@@ -907,6 +936,7 @@ export function redactCalculationRunFields(
             false,
             viewer.matchContext,
             line.personId,
+            "CALCULATION_LINE",
           )
         ) {
           continue;
@@ -962,6 +992,7 @@ export function redactPayrollFields(
             false,
             viewer.matchContext,
             line.personId,
+            "PAYROLL_LINE",
           )
         ) {
           continue;
@@ -1188,11 +1219,13 @@ export function buildApp(
       return undefined;
     }
     const tenantId = tenantOf(request);
-    const [persons, contracts, assignments] = await Promise.all([
-      platformStore.listPersons(tenantId),
-      platformStore.listEmploymentContracts(tenantId),
-      platformStore.listOrgAssignments(tenantId),
-    ]);
+    const [persons, contracts, assignments, retentionPolicies] =
+      await Promise.all([
+        platformStore.listPersons(tenantId),
+        platformStore.listEmploymentContracts(tenantId),
+        platformStore.listOrgAssignments(tenantId),
+        platformStore.listRetentionPolicies(tenantId),
+      ]);
     const orgNodesByPerson = new Map<string, Set<string>>();
     for (const assignment of assignments) {
       const nodes = orgNodesByPerson.get(assignment.personId) ?? new Set();
@@ -1218,6 +1251,11 @@ export function buildApp(
       ),
       orgNodesByPerson,
       legalEntityByPerson,
+      heldCategories: new Set(
+        retentionPolicies
+          .filter((policy) => policy.legalHold)
+          .map((policy) => policy.dataCategory),
+      ),
     };
     fieldMatchCache.set(request, context);
     return context;

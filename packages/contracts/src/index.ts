@@ -1841,6 +1841,7 @@ export const fieldAccessMatchSchema = z
     isSubjectManager: z.boolean().optional(),
     sameOrgNode: z.boolean().optional(),
     sameLegalEntity: z.boolean().optional(),
+    legalHoldActive: z.boolean().optional(),
     subjectEmploymentActive: z.boolean().optional(),
     viewerEmploymentActive: z.boolean().optional(),
   })
