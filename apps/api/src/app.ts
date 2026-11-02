@@ -170,7 +170,11 @@ import {
   settlementCommandSchema,
   triageAppealSchema,
 } from "@anari/contracts";
-import type { CreateCalculationRunInput, FieldAccessPolicy } from "@anari/contracts";
+import type {
+  CreateCalculationRunInput,
+  FieldAccessMatch,
+  FieldAccessPolicy,
+} from "@anari/contracts";
 import {
   InvalidStateTransitionError,
   InvariantViolationError,
@@ -581,10 +585,19 @@ const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
 
 type DenialMode = "OMIT" | "ZERO" | "REDACT";
 
+/** Server-derived facts used to evaluate object-policy predicates. */
+export interface FieldAccessMatchContext {
+  viewerPersonId?: string;
+  managerByPerson: Map<string, string | undefined>;
+  activePersons: Set<string>;
+  orgNodesByPerson: Map<string, Set<string>>;
+}
+
 interface NormalizedFieldPolicy {
   roles: string[];
   allowSelf: boolean;
   onDeny?: DenialMode;
+  match?: FieldAccessMatch;
 }
 
 /** Accept both the legacy role array and the object form from ADR-009. */
@@ -602,6 +615,7 @@ export function normalizeFieldPolicy(
     allowRoles?: unknown;
     allowSelf?: unknown;
     onDeny?: unknown;
+    match?: unknown;
   };
   const roles = Array.isArray(candidate.allowRoles)
     ? candidate.allowRoles.filter(
@@ -616,10 +630,14 @@ export function normalizeFieldPolicy(
     candidate.onDeny === "REDACT"
       ? candidate.onDeny
       : undefined;
+  const match =
+    candidate.match && typeof candidate.match === "object"
+      ? (candidate.match as FieldAccessMatch)
+      : undefined;
   if (roles.length === 0 && candidate.allowSelf === undefined) {
     return undefined;
   }
-  return { roles, allowSelf, onDeny };
+  return { roles, allowSelf, onDeny, match };
 }
 
 export function fieldPolicyAllows(
@@ -630,6 +648,65 @@ export function fieldPolicyAllows(
   if (roles.includes("admin")) return true;
   if (isSelf && policy.allowSelf) return true;
   return policy.roles.some((role) => roles.includes(role));
+}
+
+function evaluateFieldPredicate(
+  predicate: keyof FieldAccessMatch,
+  context: FieldAccessMatchContext,
+  subjectPersonId?: string,
+): boolean {
+  switch (predicate) {
+    case "viewerEmploymentActive":
+      return Boolean(
+        context.viewerPersonId &&
+          context.activePersons.has(context.viewerPersonId),
+      );
+    case "subjectEmploymentActive":
+      return Boolean(
+        subjectPersonId && context.activePersons.has(subjectPersonId),
+      );
+    case "isSubjectManager":
+      return Boolean(
+        subjectPersonId &&
+          context.viewerPersonId &&
+          context.managerByPerson.get(subjectPersonId) ===
+            context.viewerPersonId,
+      );
+    case "sameOrgNode": {
+      if (!subjectPersonId || !context.viewerPersonId) return false;
+      const viewerNodes = context.orgNodesByPerson.get(
+        context.viewerPersonId,
+      );
+      const subjectNodes = context.orgNodesByPerson.get(subjectPersonId);
+      if (!viewerNodes?.size || !subjectNodes?.size) return false;
+      return [...viewerNodes].some((node) => subjectNodes.has(node));
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * Predicates only narrow access: a policy that matches roles still redacts
+ * when a configured predicate is false. Without the server-derived context we
+ * fail closed rather than returning the field.
+ */
+export function fieldPolicyMatches(
+  policy: NormalizedFieldPolicy,
+  context: FieldAccessMatchContext | undefined,
+  subjectPersonId?: string,
+): boolean {
+  if (!policy.match) return true;
+  if (!context) return false;
+  for (const [predicate, expected] of Object.entries(policy.match)) {
+    const actual = evaluateFieldPredicate(
+      predicate as keyof FieldAccessMatch,
+      context,
+      subjectPersonId,
+    );
+    if (actual !== expected) return false;
+  }
+  return true;
 }
 
 export function deniedFieldValue(
@@ -662,6 +739,8 @@ export function redactResourceFields<T extends object>(
     recordPersonId?: string;
     roles: string[];
     policies?: Record<string, FieldAccessPolicy>;
+    matchContext?: FieldAccessMatchContext;
+    subjectPersonId?: string;
   },
 ): T & { redactedFields?: string[] } {
   const isSelf = Boolean(
@@ -680,7 +759,13 @@ export function redactResourceFields<T extends object>(
     if (!policy) continue;
     const [resourceKey, field] = key.split(".");
     if (resourceKey !== resourceName || !field || !(field in next)) continue;
-    if (fieldPolicyAllows(policy, viewer.roles, isSelf)) continue;
+    const subjectPersonId = viewer.subjectPersonId ?? viewer.recordPersonId;
+    if (
+      fieldPolicyAllows(policy, viewer.roles, isSelf) &&
+      fieldPolicyMatches(policy, viewer.matchContext, subjectPersonId)
+    ) {
+      continue;
+    }
     redacted.push(field);
     next[field] = deniedFieldValue(field, next[field], policy.onDeny);
   }
@@ -706,6 +791,7 @@ export function redactContractAmendmentTerms<
     recordPersonId?: string;
     roles: string[];
     policies?: Record<string, FieldAccessPolicy>;
+    matchContext?: FieldAccessMatchContext;
   },
 ): T & { redactedFields?: string[] } {
   const before = redactResourceFields(
@@ -737,6 +823,7 @@ export function redactSettlementBatchFields(
     personId?: string;
     roles: string[];
     policies?: Record<string, FieldAccessPolicy>;
+    matchContext?: FieldAccessMatchContext;
   },
 ): SettlementBatch {
   if (!batch.lines?.length) return batch;
@@ -762,6 +849,7 @@ export function redactCalculationRunFields(
   viewer: {
     roles: string[];
     policies?: Record<string, FieldAccessPolicy>;
+    matchContext?: FieldAccessMatchContext;
   },
 ): CalculationRun {
   const policies = {
@@ -778,7 +866,12 @@ export function redactCalculationRunFields(
         if (!policy) continue;
         const [resource, field] = key.split(".");
         if (resource !== "CALCULATION_LINE" || !field) continue;
-        if (fieldPolicyAllows(policy, viewer.roles, false)) continue;
+        if (
+          fieldPolicyAllows(policy, viewer.roles, false) &&
+          fieldPolicyMatches(policy, viewer.matchContext, line.personId)
+        ) {
+          continue;
+        }
         redacted.push(field);
         if (field === "trace" && !policy.onDeny) {
           next.trace = {};
@@ -804,6 +897,7 @@ export function redactPayrollFields(
     roles: string[];
     policies?: Record<string, FieldAccessPolicy>;
     breakGlass: boolean;
+    matchContext?: FieldAccessMatchContext;
   },
 ): PayrollRun {
   const policies = {
@@ -822,7 +916,12 @@ export function redactPayrollFields(
         const [resource, field] = key.split(".");
         if (resource !== "PAYROLL_LINE" || !field) continue;
         if (field === "bankAccountRef" && viewer.breakGlass) continue;
-        if (fieldPolicyAllows(policy, viewer.roles, false)) continue;
+        if (
+          fieldPolicyAllows(policy, viewer.roles, false) &&
+          fieldPolicyMatches(policy, viewer.matchContext, line.personId)
+        ) {
+          continue;
+        }
         redacted.push(field);
         if (field in next) {
           const current = (next as unknown as Record<string, unknown>)[field];
@@ -1015,6 +1114,61 @@ export function buildApp(
     }
     fieldPolicyCache.set(request, policies);
     return policies ?? undefined;
+  }
+
+  const fieldMatchCache = new WeakMap<
+    FastifyRequest,
+    FieldAccessMatchContext | null
+  >();
+
+  /**
+   * Load predicate inputs only when an effective policy uses `match`. The
+   * context is tenant-derived, never request-supplied, and cached per request.
+   */
+  async function fieldMatchContextFor(
+    request: FastifyRequest,
+    policies: Record<string, FieldAccessPolicy> | undefined,
+  ): Promise<FieldAccessMatchContext | undefined> {
+    if (fieldMatchCache.has(request)) {
+      return fieldMatchCache.get(request) ?? undefined;
+    }
+    const effective = {
+      ...DEFAULT_FIELD_ACCESS_POLICIES,
+      ...(policies ?? {}),
+    };
+    const needsMatch = Object.values(effective).some(
+      (policy) => normalizeFieldPolicy(policy)?.match,
+    );
+    if (!needsMatch) {
+      fieldMatchCache.set(request, null);
+      return undefined;
+    }
+    const tenantId = tenantOf(request);
+    const [persons, contracts, assignments] = await Promise.all([
+      platformStore.listPersons(tenantId),
+      platformStore.listEmploymentContracts(tenantId),
+      platformStore.listOrgAssignments(tenantId),
+    ]);
+    const orgNodesByPerson = new Map<string, Set<string>>();
+    for (const assignment of assignments) {
+      const nodes = orgNodesByPerson.get(assignment.personId) ?? new Set();
+      nodes.add(assignment.orgNodeId);
+      orgNodesByPerson.set(assignment.personId, nodes);
+    }
+    const context: FieldAccessMatchContext = {
+      viewerPersonId: ownPersonId(request),
+      managerByPerson: new Map(
+        persons.map((person) => [person.id, person.managerPersonId]),
+      ),
+      activePersons: new Set(
+        contracts
+          .filter((contract) => contract.status === "ACTIVE")
+          .map((contract) => contract.personId),
+      ),
+      orgNodesByPerson,
+    };
+    fieldMatchCache.set(request, context);
+    return context;
   }
 
   async function ensureApproval(
@@ -1261,23 +1415,31 @@ export function buildApp(
           ),
         )
       : false;
-    let policies: Record<string, FieldAccessPolicy> | undefined;
+    let legacyPolicies: Record<string, FieldAccessPolicy> | undefined;
     try {
       const tenant = await platformStore.getTenant(tenantOf(request));
       const configured = (
         tenant.settings as { payrollFieldPolicies?: unknown }
       ).payrollFieldPolicies;
       if (configured && typeof configured === "object") {
-        policies = configured as Record<string, FieldAccessPolicy>;
+        legacyPolicies = configured as Record<string, FieldAccessPolicy>;
       }
     } catch {
-      policies = undefined;
+      legacyPolicies = undefined;
     }
+    // The cross-resource matrix is authoritative; the legacy payroll map is
+    // kept underneath it so existing tenants keep working.
+    const policies = {
+      ...(legacyPolicies ?? {}),
+      ...((await fieldPoliciesFor(request)) ?? {}),
+    };
+    const matchContext = await fieldMatchContextFor(request, policies);
     return redactPayrollFields(run, {
       personId,
       roles,
       policies,
       breakGlass,
+      matchContext,
     });
   }
 
@@ -3846,6 +4008,7 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(evidence, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     const viewerPersonId = ownPersonId(request);
     return data(
       evidence.map((node) =>
@@ -3854,6 +4017,7 @@ export function buildApp(
           recordPersonId: node.submittedBy,
           roles,
           policies,
+          matchContext,
         }),
       ),
       request,
@@ -7384,6 +7548,7 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(proposals, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     const personId = ownPersonId(request);
     return data(
       proposals.map((proposal) =>
@@ -7392,6 +7557,7 @@ export function buildApp(
           recordPersonId: proposal.personId,
           roles,
           policies,
+          matchContext,
         }),
       ),
       request,
@@ -7419,6 +7585,7 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(filtered, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     const personId = ownPersonId(request);
     return data(
       filtered.map((proposal) =>
@@ -7427,6 +7594,7 @@ export function buildApp(
           recordPersonId: proposal.personId,
           roles,
           policies,
+          matchContext,
         }),
       ),
       request,
@@ -7442,12 +7610,14 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(proposal, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     return data(
       redactResourceFields(proposal, "AI_PROPOSAL", {
         personId: ownPersonId(request),
         recordPersonId: proposal.personId,
         roles,
         policies,
+        matchContext,
       }),
       request,
     );
@@ -8357,6 +8527,7 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(amendments, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     let contractPersonId: string | undefined;
     try {
       contractPersonId = (
@@ -8373,6 +8544,7 @@ export function buildApp(
           recordPersonId: contractPersonId,
           roles,
           policies,
+          matchContext,
         }),
       ),
       request,
@@ -8389,6 +8561,7 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(contracts, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     const personId = ownPersonId(request);
     return data(
       contracts.map((contract) =>
@@ -8397,6 +8570,7 @@ export function buildApp(
           recordPersonId: contract.personId,
           roles,
           policies,
+          matchContext,
         }),
       ),
       request,
@@ -8989,8 +9163,11 @@ export function buildApp(
       return data(runs, request);
     }
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     return data(
-      runs.map((run) => redactCalculationRunFields(run, { roles, policies })),
+      runs.map((run) =>
+        redactCalculationRunFields(run, { roles, policies, matchContext }),
+      ),
       request,
     );
   });
@@ -9011,8 +9188,9 @@ export function buildApp(
       return data(run, request);
     }
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     return data(
-      redactCalculationRunFields(run, { roles, policies }),
+      redactCalculationRunFields(run, { roles, policies, matchContext }),
       request,
     );
   });
@@ -9529,10 +9707,16 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(batches, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     const personId = ownPersonId(request);
     return data(
       batches.map((batch) =>
-        redactSettlementBatchFields(batch, { personId, roles, policies }),
+        redactSettlementBatchFields(batch, {
+          personId,
+          roles,
+          policies,
+          matchContext,
+        }),
       ),
       request,
     );
@@ -9544,11 +9728,13 @@ export function buildApp(
     const roles = request.authContext?.roles ?? [];
     if (roles.includes("admin")) return data(batch, request);
     const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
     return data(
       redactSettlementBatchFields(batch, {
         personId: ownPersonId(request),
         roles,
         policies,
+        matchContext,
       }),
       request,
     );

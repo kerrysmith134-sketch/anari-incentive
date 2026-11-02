@@ -9100,6 +9100,19 @@ components:
         onDeny:
           type: string
           enum: [OMIT, ZERO, REDACT]
+        match:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            isSubjectManager:
+              type: boolean
+            sameOrgNode:
+              type: boolean
+            subjectEmploymentActive:
+              type: boolean
+            viewerEmploymentActive:
+              type: boolean
       anyOf:
         - required: [allowRoles]
         - required: [allowSelf]

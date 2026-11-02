@@ -1829,11 +1829,30 @@ export type CreatePlatformUserBody = z.infer<
  * `allowRoles`/`allowSelf`/`onDeny` are accepted today; unknown keys such as
  * `match` are rejected until the predicate whitelist in ADR-009 ships.
  */
+/**
+ * Supported server-side predicates for object field policies. Unknown keys are
+ * rejected so a typo cannot silently broaden access. Missing subject context
+ * fails closed at evaluation time.
+ */
+export const fieldAccessMatchSchema = z
+  .object({
+    isSubjectManager: z.boolean().optional(),
+    sameOrgNode: z.boolean().optional(),
+    subjectEmploymentActive: z.boolean().optional(),
+    viewerEmploymentActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "match must contain at least one predicate",
+  });
+export type FieldAccessMatch = z.infer<typeof fieldAccessMatchSchema>;
+
 export const fieldAccessPolicyObjectSchema = z
   .object({
     allowRoles: z.array(z.string().min(1)).min(1).optional(),
     allowSelf: z.boolean().optional(),
     onDeny: z.enum(["OMIT", "ZERO", "REDACT"]).optional(),
+    match: fieldAccessMatchSchema.optional(),
   })
   .strict()
   .refine((value) => value.allowRoles !== undefined || value.allowSelf !== undefined, {

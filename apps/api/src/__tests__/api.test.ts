@@ -7251,6 +7251,195 @@ describe("vertical slice", () => {
     expect(empty.body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("fails closed when a match policy has no server-side context", () => {
+    const contract = {
+      personId: OWNER,
+      fixedMonthlySalary: "8000",
+    };
+    const view = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      roles: ["manager"],
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["manager"],
+          match: { isSubjectManager: true },
+        },
+      },
+    });
+    expect(view.fixedMonthlySalary).toBe("0");
+    expect(view.redactedFields).toContain("fixedMonthlySalary");
+  });
+
+  it("narrows contract salary access by manager and org-node predicates", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Predicate tenant",
+      slug: `predicate-${Date.now()}`,
+    });
+    const managerA = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "M-A",
+      displayName: "Manager A",
+    });
+    const managerB = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "M-B",
+      displayName: "Manager B",
+    });
+    const reportA = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "R-A",
+      displayName: "Report A",
+    });
+    const reportB = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "R-B",
+      displayName: "Report B",
+    });
+    await platformStore.setPersonManager({
+      tenantId: tenant.id,
+      personId: reportA.id,
+      managerPersonId: managerA.id,
+    });
+    await platformStore.setPersonManager({
+      tenantId: tenant.id,
+      personId: reportB.id,
+      managerPersonId: managerB.id,
+    });
+    const salesNode = await platformStore.createOrgNode({
+      tenantId: tenant.id,
+      name: "Sales",
+      nodeType: "TEAM",
+    });
+    const opsNode = await platformStore.createOrgNode({
+      tenantId: tenant.id,
+      name: "Ops",
+      nodeType: "TEAM",
+    });
+    const validFrom = new Date().toISOString();
+    for (const [personId, orgNodeId] of [
+      [managerA.id, salesNode.id],
+      [reportA.id, salesNode.id],
+      [managerB.id, opsNode.id],
+      [reportB.id, opsNode.id],
+    ] as const) {
+      await platformStore.assignPersonOrg({
+        tenantId: tenant.id,
+        personId,
+        orgNodeId,
+        validFrom,
+      });
+    }
+
+    const appFor = (personId: string | undefined, roles: string[]) =>
+      buildApp(
+        new Store(tenant.id),
+        undefined,
+        {
+          async authenticate() {
+            return {
+              tenantId: tenant.id,
+              userId: `user-${personId ?? "anon"}`,
+              personId,
+              roles,
+            };
+          },
+        },
+        platformStore,
+      );
+    const adminApp = appFor(undefined, ["admin"]);
+    const managerAApp = appFor(managerA.id, ["manager"]);
+    const managerBApp = appFor(managerB.id, ["manager"]);
+
+    for (const [person, code, salary] of [
+      [reportA, "CT-R-A", "8000"],
+      [reportB, "CT-R-B", "9000"],
+    ] as const) {
+      const created = await adminApp.inject({
+        method: "POST",
+        url: "/api/v1/employment-contracts",
+        payload: {
+          personId: person.id,
+          contractCode: code,
+          employmentType: "FULL_TIME",
+          startDate: "2025-01-01T00:00:00Z",
+          workLocation: "Shanghai",
+          currency: "CNY",
+          fixedMonthlySalary: salary,
+          minimumMonthlyWage: "2690",
+          consentSignatureRef: `ESIGN-${code}`,
+        },
+      } as never);
+      expect(created.statusCode).toBe(201);
+    }
+
+    const salaryByPerson = async (
+      appToCall: ReturnType<typeof appFor>,
+    ): Promise<Record<string, string>> => {
+      const response = await appToCall.inject({
+        method: "GET",
+        url: "/api/v1/employment-contracts",
+      } as never);
+      expect(response.statusCode).toBe(200);
+      return Object.fromEntries(
+        response
+          .json()
+          .data.map((contract: { personId: string; fixedMonthlySalary: string }) => [
+            contract.personId,
+            contract.fixedMonthlySalary,
+          ]),
+      );
+    };
+
+    const managerPolicy = {
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["manager"],
+          match: { isSubjectManager: true },
+          onDeny: "ZERO",
+        },
+      },
+    };
+    expect(
+      (
+        await adminApp.inject({
+          method: "PUT",
+          url: "/api/v1/field-access-policies",
+          payload: managerPolicy,
+        } as never)
+      ).statusCode,
+    ).toBe(200);
+    const aView = await salaryByPerson(managerAApp);
+    expect(aView[reportA.id]).toBe("8000");
+    expect(aView[reportB.id]).toBe("0");
+    const bView = await salaryByPerson(managerBApp);
+    expect(bView[reportB.id]).toBe("9000");
+    expect(bView[reportA.id]).toBe("0");
+
+    const orgPolicy = {
+      policies: {
+        "EMPLOYMENT_CONTRACT.fixedMonthlySalary": {
+          allowRoles: ["manager"],
+          match: { sameOrgNode: true },
+          onDeny: "ZERO",
+        },
+      },
+    };
+    const orgApp = appFor(managerA.id, ["manager"]);
+    const adminApp2 = appFor(undefined, ["admin"]);
+    expect(
+      (
+        await adminApp2.inject({
+          method: "PUT",
+          url: "/api/v1/field-access-policies",
+          payload: orgPolicy,
+        } as never)
+      ).statusCode,
+    ).toBe(200);
+    const orgView = await salaryByPerson(orgApp);
+    expect(orgView[reportA.id]).toBe("8000");
+    expect(orgView[reportB.id]).toBe("0");
+  });
+
   it("applies tenant evidence payload policies on the evidence list", async () => {
     const platformStore = new MemoryPlatformStore();
     const tenant = await platformStore.createTenant({
