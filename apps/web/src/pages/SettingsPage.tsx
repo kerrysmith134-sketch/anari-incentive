@@ -1438,7 +1438,10 @@ export function SettingsPage() {
                   {dataMap.data.summary.personalSources}
                 </div>
                 <div className="coverage-cell__sub">
-                  {dataMap.data.summary.fields} mapped fields
+                  {dataMap.data.summary.fields} mapped fields ·{" "}
+                  {dataMap.data.summary.minimization
+                    ?.personalFieldsWithoutRetention ?? 0}{" "}
+                  without retention
                 </div>
               </div>
               <div className="coverage-cell">

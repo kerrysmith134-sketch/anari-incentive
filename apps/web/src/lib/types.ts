@@ -917,6 +917,12 @@ export interface DataMapReport {
     fields: number;
     classifications: Record<string, number>;
     categories: Record<string, number>;
+    minimization?: {
+      fieldsWithPurpose: number;
+      personalFields: number;
+      personalFieldsWithRetention: number;
+      personalFieldsWithoutRetention: number;
+    };
     overdueReviews: number;
     retentionPolicies: number;
     approvedDpias: number;

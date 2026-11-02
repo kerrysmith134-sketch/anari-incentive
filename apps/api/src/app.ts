@@ -4433,6 +4433,15 @@ export function buildApp(
     for (const source of active) {
       categories[source.category] = (categories[source.category] ?? 0) + 1;
     }
+    const allFields = mapped.flatMap((source) => source.fields);
+    const personalFields = allFields.filter(
+      (field) =>
+        field.classification === "PERSONAL" ||
+        field.classification === "SENSITIVE",
+    );
+    const personalFieldsWithRetention = personalFields.filter(
+      (field) => typeof field.retentionMonths === "number",
+    ).length;
     return data(
       {
         generatedAt: new Date().toISOString(),
@@ -4448,12 +4457,16 @@ export function buildApp(
           processors: [
             ...new Set(active.flatMap((source) => source.processorRefs)),
           ],
-          fields: mapped.reduce(
-            (total, source) => total + source.fields.length,
-            0,
-          ),
+          fields: allFields.length,
           classifications,
           categories,
+          minimization: {
+            fieldsWithPurpose: allFields.filter((field) => field.purpose).length,
+            personalFields: personalFields.length,
+            personalFieldsWithRetention,
+            personalFieldsWithoutRetention:
+              personalFields.length - personalFieldsWithRetention,
+          },
           overdueReviews: active.filter((source) => source.reviewOverdue)
             .length,
           retentionPolicies: retention.length,

@@ -127,7 +127,7 @@
 | DATA-02 被动+自报+同伴+经理证明 | ✅ | 被动 ingestion、员工自报已有；本轮新增 peer/manager attestation（主体须为工作包参与者、不能自证、MANAGER 须为直属经理），可带证据引用、仅 attester 可撤回，console Contribution 可录入/查看 |
 | DATA-03 证据不足不默认 0 | ✅ | NEEDS_EVIDENCE + DQ blocking；新增可配置 `evidenceDefaultRule`（默认 BLOCK，显式 ZERO 才允许 0 分），AI scoring 在 proposal 前阻断缺失证据维度 |
 | DATA-04 owner/SLA/升级 | ✅ | 新增 `data_sources` 登记：owner/backup owner、响应 SLA、criticality、90 天复核到期与逾期统计；DQ 的 assignee/dueAt/escalate 继续独立存在 |
-| DATA-05 不采集活动量/最小化 | 🟡 | 新增字段级 data map（用途、分类、保留期）、跨境/处理者清单与最小化登记；仍无技术层面的活动量采集阻断或字段级最小化证明 |
+| DATA-05 不采集活动量/最小化 | 🟡 | 字段级 data map、用途/分类/保留期、跨境/处理者清单已有；本轮新增 minimization 报告（personal fields / with retention / missing retention），Settings 展示缺口；仍无活动量字段采集的技术阻断 |
 
 ### 8. 组织采用与安全
 
@@ -223,6 +223,8 @@
 42. **AI-05 reader/actor role isolation**：AgentTool 增加 READ/WRITE access；`AgentRuntimeOptions.role`（`AGENT_ROLE`）为 READER 时 WRITE 工具返回 `READER_ROLE_CANNOT_WRITE` 并审计；新增 runtime 测试。仍是进程级模式，per-task/per-tenant 强制隔离保留为后续。
 
 43. **SEC-04 bulk export limit**：新增 per-tenant/actor export limiter（默认 30/min），覆盖 payroll CSV/bank-file、evidence package 与 settlement EXPORT，超限 429；内容 DLP 仍待规则定义。
+
+44. **DATA-05 minimization report**：data map 增加 personal fields 保留期覆盖与 missing-retention 计数，Settings 展示；仍无活动量字段采集阻断。
 
 ## 仍建议按 P0 顺序补做
 

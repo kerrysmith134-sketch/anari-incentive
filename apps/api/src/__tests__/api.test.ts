@@ -7346,6 +7346,12 @@ describe("vertical slice", () => {
       CONFIDENTIAL: 1,
     });
     expect(map.body.data.summary.categories).toEqual({ SALES: 1 });
+    expect(map.body.data.summary.minimization).toEqual({
+      fieldsWithPurpose: 2,
+      personalFields: 1,
+      personalFieldsWithRetention: 0,
+      personalFieldsWithoutRetention: 1,
+    });
 
     const retired = await call(
       "POST",
