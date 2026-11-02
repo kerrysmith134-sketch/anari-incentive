@@ -1,5 +1,13 @@
 import { Link } from "react-router-dom";
-import { Badge, EmptyState, ErrorNotice, PageHeader, Panel, StatTile } from "../components/ui.js";
+import {
+  Badge,
+  EmptyState,
+  ErrorNotice,
+  LoadingRows,
+  PageHeader,
+  Panel,
+  StatTile,
+} from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
@@ -12,6 +20,7 @@ import {
   titleCase,
 } from "../lib/format.js";
 import type {
+  AppealCase,
   AppealStatsReport,
   ApprovalRequest,
   AuditEvent,
@@ -23,6 +32,7 @@ import type {
   PayrollRun,
   PlatformIdentity,
   TeamAggregateReport,
+  WorkPackage,
 } from "../lib/types.js";
 
 const CLOSED_CYCLE_STATUSES = new Set([
@@ -35,33 +45,57 @@ const CLOSED_CYCLE_STATUSES = new Set([
 
 export function DashboardPage() {
   useDocumentTitle("Overview");
-  const cycles = useApiQuery<EvaluationCycle[]>("/api/v1/evaluation-cycles");
-  const approvals = useApiQuery<ApprovalRequest[]>("/api/v1/approval-requests");
-  const payroll = useApiQuery<PayrollRun[]>("/api/v1/payroll-runs");
-  const bounties = useApiQuery<Bounty[]>("/api/v1/bounties");
-  const grants = useApiQuery<EquityGrant[]>("/api/v1/equity-grants");
-  const connections = useApiQuery<IntegrationConnection[]>(
-    "/api/v1/integration-connections",
-  );
-  const coverage = useApiQuery<OperationsCoverageReport>(
-    "/api/v1/reports/operations-coverage",
-  );
-  const audit = useApiQuery<AuditEvent[]>("/api/v1/audit-events?limit=7");
-  const auditChain = useApiQuery<{ valid: boolean }>(
-    "/api/v1/audit-events/verify",
-  );
   const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
-  const canViewTeam = Boolean(
+  const privileged = Boolean(
     identity.data?.roles.some((role) =>
       ["admin", "manager", "finance"].includes(role),
     ),
+  );
+  const canViewTeam = privileged;
+  const cycles = useApiQuery<EvaluationCycle[]>(
+    privileged ? "/api/v1/evaluation-cycles" : null,
+  );
+  const approvals = useApiQuery<ApprovalRequest[]>(
+    privileged ? "/api/v1/approval-requests" : null,
+  );
+  const payroll = useApiQuery<PayrollRun[]>(
+    privileged ? "/api/v1/payroll-runs" : null,
+  );
+  const bounties = useApiQuery<Bounty[]>(
+    privileged ? "/api/v1/bounties" : null,
+  );
+  const grants = useApiQuery<EquityGrant[]>(
+    privileged ? "/api/v1/equity-grants" : null,
+  );
+  const connections = useApiQuery<IntegrationConnection[]>(
+    privileged ? "/api/v1/integration-connections" : null,
+  );
+  const coverage = useApiQuery<OperationsCoverageReport>(
+    privileged ? "/api/v1/reports/operations-coverage" : null,
+  );
+  const audit = useApiQuery<AuditEvent[]>(
+    privileged ? "/api/v1/audit-events?limit=7" : null,
+  );
+  const auditChain = useApiQuery<{ valid: boolean }>(
+    privileged ? "/api/v1/audit-events/verify" : null,
   );
   const team = useApiQuery<TeamAggregateReport>(
     canViewTeam ? "/api/v1/reports/team-aggregate" : null,
   );
   const appealStats = useApiQuery<AppealStatsReport>(
-    "/api/v1/reports/appeal-stats",
+    privileged ? "/api/v1/reports/appeal-stats" : null,
   );
+
+  if (identity.loading) {
+    return (
+      <Panel title="Loading workspace">
+        <LoadingRows rows={4} />
+      </Panel>
+    );
+  }
+  if (!privileged) {
+    return <EmployeeHome />;
+  }
 
   const activeCycles =
     cycles.data?.filter(
@@ -771,6 +805,216 @@ export function DashboardPage() {
           </>
         )}
       </Panel>
+    </>
+  );
+}
+
+function EmployeeHome() {
+  useDocumentTitle("My overview");
+  const workPackages = useApiQuery<WorkPackage[]>("/api/v1/work-packages");
+  const appeals = useApiQuery<AppealCase[]>("/api/v1/appeals");
+  const confirmations = useApiQuery<
+    Array<{
+      id: string;
+      targetType: string;
+      decision: string;
+      createdAt: string;
+      confirmedAt?: string;
+      objectedAt?: string;
+    }>
+  >("/api/v1/employee-confirmations");
+  const ai = useApiQuery<{
+    aiUsed: boolean;
+    models: string[];
+    notices: Array<{ notice: { id: string; title: string } }>;
+    aiScoreProposals: Array<{ id: string; status: string }>;
+  }>("/api/v1/me/ai-explanations");
+  const team = useApiQuery<TeamAggregateReport>(
+    "/api/v1/reports/team-aggregate",
+  );
+
+  const activeWork =
+    workPackages.data?.filter(
+      (workPackage) => !CLOSED_CYCLE_STATUSES.has(workPackage.status),
+    ) ?? [];
+  const openAppeals =
+    appeals.data?.filter(
+      (appeal) => !["CLOSED", "DECIDED"].includes(appeal.status),
+    ) ?? [];
+  const objected =
+    confirmations.data?.filter(
+      (confirmation) => confirmation.decision === "OBJECTED",
+    ) ?? [];
+  const pendingAi =
+    ai.data?.aiScoreProposals.filter(
+      (proposal) => proposal.status === "PENDING",
+    ) ?? [];
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="My workspace"
+        title="My overview"
+        description="Your work, confirmations, appeals and AI record. Team data is aggregate-only and suppressed below the minimum group size."
+        actions={
+          <>
+            <Link className="btn btn--secondary" to="/contribution">
+              <Icon name="layers" size={16} />
+              <span>My work</span>
+            </Link>
+            <Link className="btn btn--primary" to="/my-ai">
+              <Icon name="ai" size={16} />
+              <span>My AI record</span>
+            </Link>
+          </>
+        }
+      />
+      <div className="stat-grid">
+        <StatTile
+          label="Active work"
+          value={activeWork.length}
+          detail={`${workPackages.data?.length ?? 0} packages in scope`}
+          icon="layers"
+        />
+        <StatTile
+          label="Open appeals"
+          value={openAppeals.length}
+          detail={`${appeals.data?.length ?? 0} total`}
+          icon="alert-circle"
+          tone={openAppeals.length > 0 ? "warning" : "neutral"}
+        />
+        <StatTile
+          label="Objections"
+          value={objected.length}
+          detail="Confirmations you objected to"
+          icon="check-circle"
+          tone={objected.length > 0 ? "warning" : "neutral"}
+        />
+        <StatTile
+          label="AI proposals pending"
+          value={pendingAi.length}
+          detail={
+            ai.data?.aiUsed
+              ? `${ai.data.models.join(", ") || "review pending"}`
+              : "AI not used for your record"
+          }
+          icon="ai"
+        />
+      </div>
+      <div className="split-grid section-gap">
+        <Panel title="My work" subtitle="Packages where you own or contribute">
+          {workPackages.error ? (
+            <ErrorNotice
+              error={workPackages.error}
+              onRetry={workPackages.reload}
+            />
+          ) : workPackages.loading ? (
+            <LoadingRows rows={3} />
+          ) : (workPackages.data?.length ?? 0) === 0 ? (
+            <EmptyState
+              icon="layers"
+              title="No work package"
+              description="Work assigned to you will appear here."
+            />
+          ) : (
+            <div className="stack" style={{ gap: 8 }}>
+              {workPackages.data?.slice(0, 5).map((workPackage) => (
+                <div
+                  key={workPackage.id}
+                  className="inline"
+                  style={{ justifyContent: "space-between", width: "100%" }}
+                >
+                  <span>{workPackage.title}</span>
+                  <Badge status={workPackage.status} />
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+        <Panel title="My appeals" subtitle="Independent review and evidence disclosure">
+          {appeals.error ? (
+            <ErrorNotice error={appeals.error} onRetry={appeals.reload} />
+          ) : appeals.loading ? (
+            <LoadingRows rows={3} />
+          ) : (appeals.data?.length ?? 0) === 0 ? (
+            <EmptyState
+              icon="approvals"
+              title="No appeal"
+              description="Your appeals and their evidence disclosures will appear here."
+            />
+          ) : (
+            <div className="stack" style={{ gap: 8 }}>
+              {appeals.data?.slice(0, 5).map((appeal) => (
+                <div
+                  key={appeal.id}
+                  className="inline"
+                  style={{ justifyContent: "space-between", width: "100%" }}
+                >
+                  <span>{appeal.reasonCode}</span>
+                  <span className="muted">
+                    <Badge status={appeal.status} />{" "}
+                    {appeal.dueAt ? formatDate(appeal.dueAt) : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+      <div className="split-grid section-gap">
+        <Panel title="My confirmation record">
+          {confirmations.error ? (
+            <ErrorNotice
+              error={confirmations.error}
+              onRetry={confirmations.reload}
+            />
+          ) : confirmations.loading ? (
+            <LoadingRows rows={2} />
+          ) : (confirmations.data?.length ?? 0) === 0 ? (
+            <p className="muted">No confirmation recorded yet.</p>
+          ) : (
+            <div className="stack" style={{ gap: 6 }}>
+              {confirmations.data?.slice(0, 6).map((confirmation) => (
+                <div
+                  key={confirmation.id}
+                  className="inline"
+                  style={{ justifyContent: "space-between", width: "100%" }}
+                >
+                  <span>{titleCase(confirmation.targetType)}</span>
+                  <span className="muted">
+                    {titleCase(confirmation.decision)} ·{" "}
+                    {formatDateTime(confirmation.createdAt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+        <Panel title="My team aggregate" subtitle="No individual names or amounts">
+          {team.error ? (
+            <p className="muted">
+              Team aggregate is unavailable until a manager is linked.
+            </p>
+          ) : team.loading ? (
+            <LoadingRows rows={2} />
+          ) : team.data?.suppressed ? (
+            <p className="muted">
+              Suppressed because the team is below the minimum group size.
+            </p>
+          ) : (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="inline" style={{ justifyContent: "space-between" }}>
+                <span>Team size</span>
+                <span className="muted">{team.data?.teamSize}</span>
+              </div>
+              <div className="inline" style={{ justifyContent: "space-between" }}>
+                <span>Evaluated</span>
+                <span className="muted">{team.data?.evaluations.evaluated}</span>
+              </div>
+            </div>
+          )}
+        </Panel>
+      </div>
     </>
   );
 }

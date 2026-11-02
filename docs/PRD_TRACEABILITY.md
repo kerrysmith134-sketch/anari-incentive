@@ -39,7 +39,7 @@
 | P0-02 确定性计算 | ✅ | decimal、舍入、封顶、最大余数分配、trace、result hash、`engine_version` |
 | P0-02 法律门禁 | 🟡 | 五类 ref + policyApproved/minimumWageChecked 阻断 FORMAL；范围/合同/扣款/AI 解释未闭环 |
 | P0-02 账本 | ✅ | append-only、幂等、锁定、冲销、adjustment、哈希链 |
-| P0-02 员工端 | 🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 增加角色感知导航（员工仅见 Overview/My AI record，finance/admin 见对应模块），但仍不是专用员工界面，也缺少员工自服务的团队聚合视图 |
+| P0-02 员工端 | ✅/🟡 | 旧 `/` 页面支持本人确认/申诉/claim/evidence/notice；新 `/console` 增加角色感知导航，非 privileged 用户进入专用 My overview（本人工作包、确认记录、申诉、AI proposal、团队聚合抑制视图），不再加载租户级 payroll/approval/audit 数据；员工端深度操作仍可继续完善 |
 | P0-02 审计 | ✅ | `audit_events`、`/audit-events/verify`，本轮新增证据包导出 |
 | P0-02 指标 | 🟡 | 覆盖率、对账差异、DQ、申诉率/统计、信任调查已有；本轮新增 acceptance、claim-decision、confirmation、payroll-approval、appeal-resolution cycle time，Policy coverage 展示；细分角色耗时与目标阈值仍有缺口 |
 | P0-03 明确不做 | ⚪ | 实际扩大了范围（用户明确授权），需要在产品文档中更新范围声明 |
@@ -134,7 +134,7 @@
 | ID | 状态 | 代码证据 / 缺口 |
 |---|---|---|
 | ORG-01 试点 volunteer/员工代表 | ✅ | Representation/Consultation 已有；本轮新增 pilot enrollment（volunteer、scope、consent signature、ACTIVE/WITHDRAWN、撤回原因），console Settings 可录入/撤回 |
-| ORG-02 透明/本人数据/团队聚合 | ✅/🟡 | 本人数据过滤、团队聚合报告（直接下属、评价覆盖率、维度均值、claim/appeal/work-package 计数，禁止个人金额/姓名，少于 3 人抑制）已有；本轮新增 console 角色感知导航、My AI record 入口，以及员工只能读取本人 manager 的团队聚合（不能指定其他 manager，少于 3 人仍抑制）；员工专用首页仍可继续完善 |
+| ORG-02 透明/本人数据/团队聚合 | ✅ | 本人数据过滤、团队聚合报告、角色感知导航、My AI record 入口、员工只能读取本人 manager 的团队聚合；非 privileged 用户看到 My overview 而非租户运营总览，团队 <3 人仍抑制，不展示同事金额/姓名 |
 | ORG-03 无报复/申诉统计公开 | ✅ | 新增 fairness commitment 版本化发布（新版本 supersede 旧版本）与 `/reports/appeal-stats` 聚合（申诉数、开放/逾期/关闭、结果分布、平均处理天数、申诉率、无个人标识）；Dashboard 对所有登录用户展示承诺与统计 |
 | ORG-04 经理培训/模板/校准会 | ✅ | 新增 manager training records（code/title/completed/expiry/evidence）与 calibration sessions（facilitator/attendees/notes/policy ref）；console Settings 可录入，年度审查报告含计数 |
 | ORG-05 信任/程序公平调查 | ✅ | 新增匿名 trust survey（草稿/开放/关闭）、伪名 hash 响应、维度/题目均值、分布与同 code 上一期 baseline；年度审查报告读取最近关闭期 |
@@ -265,6 +265,8 @@
 63. **ATT-07 appeal evidence disclosure**：新增 `appeal_evidence_disclosures`（RLS）、POST/GET `/appeals/:id/evidence-disclosures`、披露人≠申诉人、证据子集校验；有 evidenceRefs 的申诉未披露时 resolve 返回 409。Exceptions UI 增加披露按钮，迁移 `063_appeal_evidence_disclosures.sql`。
 
 64. **ADR-008 retention defaults**：新增 `GET /retention-policies/recommended`（系统推荐类别/月数/法律依据/configured 标记）与 Settings 预填创建 modal；推荐值不自动落库，需租户确认法律依据后创建；legal hold 始终优先。
+
+65. **P0-02 employee home**：Dashboard 按 identity 角色分流；非 privileged 用户只调用本人 work-package/confirmation/appeal/AI/team-aggregate 接口并展示 My overview，管理员/经理/财务继续使用运营总览；避免员工首屏加载租户级 payroll/approval/audit 数据。
 
 ## 仍建议按 P0 顺序补做
 
