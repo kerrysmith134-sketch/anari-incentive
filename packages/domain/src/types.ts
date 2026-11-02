@@ -1226,6 +1226,8 @@ export interface EmploymentContract {
   consentSignatureRef: string;
   consentSignedAt: string;
   status: EmploymentContractStatus;
+  /** Present when tenant field-access policies hid fields from this viewer. */
+  redactedFields?: string[];
   createdAt: string;
   updatedAt: string;
   version: number;

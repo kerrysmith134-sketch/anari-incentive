@@ -9103,7 +9103,7 @@ components:
             items:
               type: string
           propertyNames:
-            pattern: '^(PAYROLL_LINE|CALCULATION_LINE)\.[A-Za-z][A-Za-z0-9_]*$' 
+            pattern: '^(PAYROLL_LINE|CALCULATION_LINE|EMPLOYMENT_CONTRACT)\.[A-Za-z][A-Za-z0-9_]*$' 
 
     RecordWorkforceSubgroupAttribute:
       type: object

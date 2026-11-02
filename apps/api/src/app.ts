@@ -565,7 +565,64 @@ export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, string[]> = {
   "CALCULATION_LINE.roundedAmount": ["finance", "admin"],
   "CALCULATION_LINE.multiplier": ["finance", "admin"],
   "CALCULATION_LINE.trace": ["finance", "admin"],
+  "EMPLOYMENT_CONTRACT.bankAccountRef": ["finance", "admin"],
 };
+
+const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
+
+/**
+ * Apply the tenant field-access matrix to a single flat resource. This is the
+ * generic path used by resources added after payroll and calculation lines;
+ * identifier fields are removed, decimal strings are zeroed and other values
+ * are replaced with a marker so no sensitive content leaks through.
+ */
+export function redactResourceFields<T extends object>(
+  resource: T,
+  resourceName: string,
+  viewer: {
+    personId?: string;
+    recordPersonId?: string;
+    roles: string[];
+    policies?: Record<string, string[]>;
+  },
+): T & { redactedFields?: string[] } {
+  if (viewer.personId && viewer.personId === viewer.recordPersonId) {
+    return resource;
+  }
+  const policies = {
+    ...DEFAULT_FIELD_ACCESS_POLICIES,
+    ...(viewer.policies ?? {}),
+  };
+  const redacted: string[] = [];
+  const next: Record<string, unknown> = {
+    ...(resource as Record<string, unknown>),
+  };
+  for (const [key, allowed] of Object.entries(policies)) {
+    if (!Array.isArray(allowed)) continue;
+    const [resourceKey, field] = key.split(".");
+    if (resourceKey !== resourceName || !field || !(field in next)) continue;
+    if (
+      viewer.roles.includes("admin") ||
+      allowed.some((role) => viewer.roles.includes(role))
+    ) {
+      continue;
+    }
+    redacted.push(field);
+    if (/Ref$/.test(field)) {
+      next[field] = undefined;
+    } else if (
+      typeof next[field] === "string" &&
+      DECIMAL_STRING_PATTERN.test(next[field] as string)
+    ) {
+      next[field] = "0";
+    } else {
+      next[field] = "[REDACTED]";
+    }
+  }
+  return redacted.length === 0
+    ? resource
+    : ({ ...next, redactedFields: redacted } as unknown as T);
+}
 
 /**
  * Apply role-based field policies to a calculation run. This is deliberately
@@ -8102,10 +8159,33 @@ export function buildApp(
   app.get("/api/v1/employment-contracts", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { personId?: string };
+    const contracts = await platformStore.listEmploymentContracts(
+      tenantOf(request),
+      query.personId,
+    );
+    const roles = request.authContext?.roles ?? [];
+    if (roles.includes("admin")) return data(contracts, request);
+    let policies: Record<string, string[]> | undefined;
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (
+        tenant.settings as { fieldAccessPolicies?: unknown }
+      ).fieldAccessPolicies;
+      if (configured && typeof configured === "object") {
+        policies = configured as Record<string, string[]>;
+      }
+    } catch {
+      policies = undefined;
+    }
+    const personId = ownPersonId(request);
     return data(
-      await platformStore.listEmploymentContracts(
-        tenantOf(request),
-        query.personId,
+      contracts.map((contract) =>
+        redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+          personId,
+          recordPersonId: contract.personId,
+          roles,
+          policies,
+        }),
       ),
       request,
     );

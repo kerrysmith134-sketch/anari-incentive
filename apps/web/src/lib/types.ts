@@ -138,6 +138,7 @@ export interface EmploymentContract {
   consentSignatureRef: string;
   consentSignedAt: string;
   status: "ACTIVE" | "ENDED";
+  redactedFields?: string[];
   createdAt: string;
   updatedAt: string;
   version: number;

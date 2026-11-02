@@ -19,6 +19,7 @@ import {
   redactCalculationRunFields,
   redactPayrollBankAccounts,
   redactPayrollFields,
+  redactResourceFields,
   scanExportDlp,
 } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
@@ -6925,6 +6926,115 @@ describe("vertical slice", () => {
       policies: { "CALCULATION_LINE.baseAmount": ["admin"] },
     });
     expect(restrictedFinance.lines[0]?.baseAmount).toBe("0");
+  });
+
+  it("applies the field access matrix to employment contracts", () => {
+    const contract = {
+      id: "contract-1",
+      personId: OWNER,
+      bankAccountRef: "BANK-001",
+      fixedMonthlySalary: "8000",
+    };
+    const managerView = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      roles: ["manager"],
+    });
+    expect(managerView.bankAccountRef).toBeUndefined();
+    expect(managerView.redactedFields).toEqual(["bankAccountRef"]);
+    const financeView = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      roles: ["finance"],
+    });
+    expect(financeView.bankAccountRef).toBe("BANK-001");
+    expect(financeView.redactedFields).toBeUndefined();
+    const selfView = redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
+      personId: OWNER,
+      recordPersonId: OWNER,
+      roles: ["employee"],
+    });
+    expect(selfView.bankAccountRef).toBe("BANK-001");
+    const customView = redactResourceFields(
+      { personId: OWNER, amount: "100", note: "private" },
+      "EMPLOYMENT_CONTRACT",
+      {
+        roles: ["manager"],
+        policies: {
+          "EMPLOYMENT_CONTRACT.amount": ["finance", "admin"],
+          "EMPLOYMENT_CONTRACT.note": ["finance", "admin"],
+        },
+      },
+    );
+    expect(customView.amount).toBe("0");
+    expect(customView.note).toBe("[REDACTED]");
+    expect(customView.redactedFields).toEqual(["amount", "note"]);
+  });
+
+  it("redacts contract bank references for managers over HTTP", async () => {
+    const platformStore = new MemoryPlatformStore();
+    const tenant = await platformStore.createTenant({
+      name: "Contract tenant",
+      slug: `contract-${Date.now()}`,
+    });
+    const person = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "C-001",
+      displayName: "Contract Employee",
+    });
+    const adminApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      {
+        async authenticate() {
+          return { tenantId: tenant.id, userId: "contract-admin", roles: ["admin"] };
+        },
+      },
+      platformStore,
+    );
+    const managerApp = buildApp(
+      new Store(tenant.id),
+      undefined,
+      {
+        async authenticate() {
+          return {
+            tenantId: tenant.id,
+            userId: "contract-manager",
+            roles: ["manager"],
+          };
+        },
+      },
+      platformStore,
+    );
+    const created = await adminApp.inject({
+      method: "POST",
+      url: "/api/v1/employment-contracts",
+      payload: {
+        personId: person.id,
+        contractCode: "CT-REDACT-1",
+        employmentType: "FULL_TIME",
+        startDate: "2025-01-01T00:00:00Z",
+        workLocation: "Shanghai",
+        currency: "CNY",
+        fixedMonthlySalary: "8000",
+        minimumMonthlyWage: "2690",
+        bankAccountRef: "BANK-SECRET",
+        consentSignatureRef: "ESIGN-1",
+      },
+    } as never);
+    expect(created.statusCode).toBe(201);
+
+    const managerList = await managerApp.inject({
+      method: "GET",
+      url: "/api/v1/employment-contracts",
+    } as never);
+    expect(managerList.statusCode).toBe(200);
+    const managerContract = managerList.json().data[0];
+    expect(managerContract.bankAccountRef).toBeUndefined();
+    expect(managerContract.redactedFields).toContain("bankAccountRef");
+    expect(managerContract.fixedMonthlySalary).toBe("8000");
+
+    const adminList = await adminApp.inject({
+      method: "GET",
+      url: "/api/v1/employment-contracts",
+    } as never);
+    expect(adminList.json().data[0].bankAccountRef).toBe("BANK-SECRET");
   });
 
   it("exposes and updates the cross-resource field access matrix", async () => {
