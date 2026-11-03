@@ -40,8 +40,10 @@ import type {
   SettlementCommandResult,
 } from "../lib/types.js";
 import type {
+  AdjustmentRecordView,
   CashGateInputView,
   FinancialFactView,
+  SettlementExportView,
 } from "../lib/ops-types.js";
 
 type Command =
@@ -180,6 +182,15 @@ export function SettlementsPage() {
   const financialFacts = useApiQuery<FinancialFactView[]>(
     "/api/v1/financial-facts",
   );
+  const settlementExports = useApiQuery<SettlementExportView[]>(
+    "/api/v1/settlement-exports",
+  );
+  const adjustmentRecords = useApiQuery<AdjustmentRecordView[]>(
+    "/api/v1/adjustment-records",
+  );
+  const [ackTarget, setAckTarget] = useState<SettlementExportView | null>(null);
+  const [ackReference, setAckReference] = useState("");
+  const [ackError, setAckError] = useState<string | null>(null);
   const [cashOpen, setCashOpen] = useState(false);
   const [cashCycleId, setCashCycleId] = useState("");
   const [cashAsOfDate, setCashAsOfDate] = useState("");
@@ -489,6 +500,24 @@ export function SettlementsPage() {
     }
   }
 
+  async function acknowledgeExport() {
+    if (!ackTarget) return;
+    setAckError(null);
+    try {
+      await api(`/api/v1/settlement-exports/${ackTarget.id}/acknowledge`, {
+        method: "POST",
+        body: { externalReference: ackReference.trim() },
+      });
+      toast.success("Export acknowledged", ackTarget.exportRef);
+      setAckTarget(null);
+      settlementExports.reload();
+    } catch (caught) {
+      setAckError(
+        caught instanceof ApiError ? caught.message : "Could not acknowledge",
+      );
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -565,6 +594,11 @@ export function SettlementsPage() {
             id: "cash",
             label: "Cash & facts",
             count: cashGates.data?.length ?? 0,
+          },
+          {
+            id: "exports",
+            label: "Exports & adjustments",
+            count: settlementExports.data?.length ?? 0,
           },
         ]}
         active={tab}
@@ -1034,7 +1068,7 @@ export function SettlementsPage() {
               )}
             </Panel>
           </div>
-        ) : (
+        ) : tab === "cash" ? (
           <>
             <div className="split-grid">
               <Panel
@@ -1173,6 +1207,140 @@ export function SettlementsPage() {
               </Panel>
             </div>
           </>
+        ) : (
+          <div className="split-grid">
+            <Panel
+              title="Settlement exports"
+              subtitle="Exported files, their hash and external acknowledgement"
+              flush
+            >
+              {settlementExports.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={settlementExports.error}
+                    onRetry={settlementExports.reload}
+                  />
+                </div>
+              ) : settlementExports.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={3} />
+                </div>
+              ) : (settlementExports.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="download"
+                  title="No settlement export"
+                  description="Exports are recorded when a locked batch is exported."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Export</th>
+                        <th>Batch</th>
+                        <th>Acknowledged</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(settlementExports.data ?? []).map((record) => (
+                        <tr key={record.id}>
+                          <td>
+                            <span className="cell-primary mono">
+                              {record.exportRef}
+                            </span>
+                            <span className="cell-sub mono">
+                              {record.exportHash}
+                            </span>
+                          </td>
+                          <td className="mono">{shortId(record.batchId, 10)}</td>
+                          <td>
+                            {record.acknowledgedAt
+                              ? `${formatDateTime(record.acknowledgedAt)} · ${record.acknowledgementRef ?? ""}`
+                              : "Pending"}
+                          </td>
+                          <td className="cell-actions">
+                            {record.acknowledgedAt ? null : (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setAckTarget(record);
+                                  setAckReference("");
+                                  setAckError(null);
+                                }}
+                              >
+                                Acknowledge
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel
+              title="Ledger adjustments"
+              subtitle="Original → adjustment entry pairs with approval evidence"
+              flush
+            >
+              {adjustmentRecords.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={adjustmentRecords.error}
+                    onRetry={adjustmentRecords.reload}
+                  />
+                </div>
+              ) : adjustmentRecords.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={3} />
+                </div>
+              ) : (adjustmentRecords.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="clock"
+                  title="No adjustment"
+                  description="Adjustments append a correction entry; the original ledger row is never mutated."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Original</th>
+                        <th>Adjustment</th>
+                        <th>Reason</th>
+                        <th>Approved</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(adjustmentRecords.data ?? []).map((record) => (
+                        <tr key={record.id}>
+                          <td className="mono">
+                            {shortId(record.originalLedgerId, 10)}
+                          </td>
+                          <td className="mono">
+                            {shortId(record.adjustmentLedgerId, 10)}
+                          </td>
+                          <td>
+                            {record.reasonCode}
+                            <span className="cell-sub">
+                              {record.explanation}
+                            </span>
+                          </td>
+                          <td className="nowrap">
+                            {formatDateTime(record.approvedAt)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          </div>
         )}
       </div>
 
@@ -1672,6 +1840,44 @@ export function SettlementsPage() {
               type="date"
               value={factPeriodEnd}
               onChange={(event) => setFactPeriodEnd(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(ackTarget)}
+        title="Acknowledge settlement export"
+        description={ackTarget?.exportRef}
+        onClose={() => setAckTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAckTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={acknowledgeExport}>
+              Acknowledge
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {ackError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{ackError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="External reference"
+            htmlFor="ack-reference"
+            className="field--full"
+            hint="Bank or finance receipt reference for this export."
+          >
+            <TextInput
+              id="ack-reference"
+              value={ackReference}
+              onChange={(event) => setAckReference(event.target.value)}
+              required
             />
           </FormField>
         </div>

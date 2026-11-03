@@ -60,6 +60,9 @@ export function AiPage() {
   const datasets = useApiQuery<ModelEvaluationDataset[]>(
     "/api/v1/model-evaluation-datasets",
   );
+  const datasetsDue = useApiQuery<ModelEvaluationDataset[]>(
+    "/api/v1/model-evaluation-datasets/refresh-due?withinDays=30",
+  );
   const canaries = useApiQuery<ModelCanaryRun[]>(
     "/api/v1/model-canary-runs",
   );
@@ -140,6 +143,16 @@ export function AiPage() {
   const [refreshDue, setRefreshDue] = useState("");
   const [refreshSaving, setRefreshSaving] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [harnessOpen, setHarnessOpen] = useState(false);
+  const [harnessType, setHarnessType] = useState("SCORE_AGREEMENT");
+  const [harnessProvider, setHarnessProvider] = useState("anthropic");
+  const [harnessModel, setHarnessModel] = useState("claude");
+  const [harnessPromptVersion, setHarnessPromptVersion] = useState("v1");
+  const [harnessDatasetRef, setHarnessDatasetRef] = useState("gold-set-1");
+  const [harnessSamples, setHarnessSamples] = useState("[]");
+  const [harnessThresholds, setHarnessThresholds] = useState("{}");
+  const [harnessError, setHarnessError] = useState<string | null>(null);
+  const [harnessRunning, setHarnessRunning] = useState(false);
 
   const proposalList = proposals.data ?? [];
   const promptList = prompts.data ?? [];
@@ -539,6 +552,52 @@ export function AiPage() {
     }
   }
 
+  function openHarness() {
+    setHarnessType("SCORE_AGREEMENT");
+    setHarnessProvider("anthropic");
+    setHarnessModel("claude");
+    setHarnessPromptVersion("v1");
+    setHarnessDatasetRef(datasets.data?.[0]?.code ?? "gold-set-1");
+    setHarnessSamples("[]");
+    setHarnessThresholds("{}");
+    setHarnessError(null);
+    setHarnessOpen(true);
+  }
+
+  async function runHarness() {
+    setHarnessError(null);
+    setHarnessRunning(true);
+    try {
+      const samples = JSON.parse(harnessSamples) as unknown[];
+      const thresholds = JSON.parse(harnessThresholds) as Record<
+        string,
+        unknown
+      >;
+      await api("/api/v1/model-evaluation-runs:evaluate", {
+        method: "POST",
+        body: {
+          evaluationType: harnessType.trim(),
+          modelProvider: harnessProvider.trim(),
+          modelName: harnessModel.trim(),
+          promptVersion: harnessPromptVersion.trim(),
+          datasetRef: harnessDatasetRef.trim(),
+          samples,
+          thresholds,
+        },
+      });
+      toast.success("Harness evaluation recorded", harnessType);
+      setHarnessOpen(false);
+      evaluations.reload();
+      datasets.reload();
+    } catch (caught) {
+      setHarnessError(
+        caught instanceof Error ? caught.message : "Harness evaluation failed",
+      );
+    } finally {
+      setHarnessRunning(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -856,6 +915,11 @@ export function AiPage() {
             title="Evaluation runs"
             subtitle="Pass/fail is computed by the gated harness; imported records cannot unlock activation or scoring"
             flush
+            action={
+              <Button size="sm" variant="primary" icon="play" onClick={openHarness}>
+                Run harness
+              </Button>
+            }
           >
             {evaluations.error ? (
               <div style={{ padding: 16 }}>
@@ -1057,6 +1121,18 @@ export function AiPage() {
             }
             flush
           >
+            {datasetsDue.data && datasetsDue.data.length > 0 ? (
+              <div style={{ padding: "14px 16px 0" }}>
+                <InfoNotice tone="warning">
+                  {datasetsDue.data.length} gold set(s) due for refresh within 30
+                  days:{" "}
+                  {datasetsDue.data
+                    .map((dataset) => `${dataset.code} v${dataset.version}`)
+                    .join(", ")}
+                  .
+                </InfoNotice>
+              </div>
+            ) : null}
             {datasets.error ? (
               <div style={{ padding: 16 }}>
                 <ErrorNotice error={datasets.error} onRetry={datasets.reload} />
@@ -2187,6 +2263,105 @@ export function AiPage() {
             </InfoNotice>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={harnessOpen}
+        title="Run evaluation harness"
+        description="Samples are labelled pairs of human scores plus the model score. Pass/fail and blockers are computed server-side."
+        onClose={() => setHarnessOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setHarnessOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={runHarness}
+              loading={harnessRunning}
+            >
+              Run harness
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {harnessError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{harnessError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Evaluation type" htmlFor="harness-type">
+            <TextInput
+              id="harness-type"
+              value={harnessType}
+              onChange={(event) => setHarnessType(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Model provider" htmlFor="harness-provider">
+            <TextInput
+              id="harness-provider"
+              value={harnessProvider}
+              onChange={(event) => setHarnessProvider(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Model name" htmlFor="harness-model">
+            <TextInput
+              id="harness-model"
+              value={harnessModel}
+              onChange={(event) => setHarnessModel(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Prompt version" htmlFor="harness-prompt">
+            <TextInput
+              id="harness-prompt"
+              value={harnessPromptVersion}
+              onChange={(event) =>
+                setHarnessPromptVersion(event.target.value)
+              }
+              required
+            />
+          </FormField>
+          <FormField label="Dataset reference" htmlFor="harness-dataset">
+            <TextInput
+              id="harness-dataset"
+              value={harnessDatasetRef}
+              onChange={(event) => setHarnessDatasetRef(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Samples (JSON)"
+            htmlFor="harness-samples"
+            className="field--full"
+            hint="[{ sampleId, subgroup, humanScoreA, humanScoreB, aiScore, counterfactualScores, promptInjectionPassed, holdout }]"
+          >
+            <Textarea
+              id="harness-samples"
+              value={harnessSamples}
+              onChange={(event) => setHarnessSamples(event.target.value)}
+              rows={10}
+              spellCheck={false}
+            />
+          </FormField>
+          <FormField
+            label="Thresholds (JSON, optional)"
+            htmlFor="harness-thresholds"
+            className="field--full"
+          >
+            <Textarea
+              id="harness-thresholds"
+              value={harnessThresholds}
+              onChange={(event) => setHarnessThresholds(event.target.value)}
+              rows={4}
+              spellCheck={false}
+            />
+          </FormField>
+        </div>
       </Modal>
     </>
   );

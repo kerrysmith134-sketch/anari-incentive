@@ -78,3 +78,41 @@ test("serves the legacy admin entry points as SPA redirects", async ({ page }) =
     page.getByRole("heading", { level: 1, name: "Governance console" }),
   ).toBeVisible();
 });
+
+test("exposes the remaining governance surfaces", async ({ page }) => {
+  await expectPage(page, "/console/audit", "Audit");
+  await expect(
+    page.getByRole("heading", { name: "External anchor manifest" }),
+  ).toBeVisible();
+
+  await expectPage(page, "/console/settlements", "Settlements");
+  await page.getByRole("tab", { name: /Exports & adjustments/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Settlement exports" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Ledger adjustments" }),
+  ).toBeVisible();
+
+  await expectPage(page, "/console/policy", "Policy");
+  await page.getByRole("tab", { name: /Governance/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Policy simulation" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Policy notice links" }),
+  ).toBeVisible();
+
+  await expectPage(page, "/console/payroll", "Payroll");
+  await page.getByRole("tab", { name: /Contracts/ }).click();
+  await expect(page.getByRole("button", { name: "Apply due" })).toBeVisible();
+
+  await expectPage(page, "/console/ai", "AI assurance");
+  await page.getByRole("tab", { name: /Evaluation runs/ }).click();
+  await expect(page.getByRole("button", { name: "Run harness" })).toBeVisible();
+  await page.getByRole("button", { name: "Run harness" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Run evaluation harness" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+});

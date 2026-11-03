@@ -2290,6 +2290,11 @@ export function buildApp(
     return data(await storeFor(request).listPolicyVersions(), request);
   });
 
+  app.get("/api/v1/policy-versions/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(await storeFor(request).getPolicy(idOf(request)), request);
+  });
+
   app.get("/api/v1/policy-versions/:id/diff", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { against?: string };

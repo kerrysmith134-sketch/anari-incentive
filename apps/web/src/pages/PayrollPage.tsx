@@ -1231,9 +1231,36 @@ function ContractsTab({
       title="Employment contracts"
       subtitle="Declared fixed salary, minimum wage and withholding rates. Statutory calculation is available in Tax studio."
       action={
-        <Button size="sm" variant="primary" icon="plus" onClick={openForm}>
-          New contract
-        </Button>
+        <div className="row-actions">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="refresh"
+            onClick={async () => {
+              try {
+                const applied = await api<Array<unknown>>(
+                  "/api/v1/employment-contracts/apply-due",
+                  { method: "POST" },
+                );
+                toast.success(
+                  "Due amendments applied",
+                  `${applied.length} contract(s) updated`,
+                );
+                reload();
+              } catch (caught) {
+                toast.error(
+                  "Could not apply amendments",
+                  caught instanceof Error ? caught.message : undefined,
+                );
+              }
+            }}
+          >
+            Apply due
+          </Button>
+          <Button size="sm" variant="primary" icon="plus" onClick={openForm}>
+            New contract
+          </Button>
+        </div>
       }
       flush
     >

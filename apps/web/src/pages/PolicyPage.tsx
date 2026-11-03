@@ -43,6 +43,8 @@ import type {
   EmployeeRepresentationView,
   NoticeAcknowledgementView,
   PolicyConsultationView,
+  PolicyNoticeLinkView,
+  PolicySimulationResultView,
   RuleChangeOrderView,
 } from "../lib/ops-types.js";
 
@@ -136,6 +138,21 @@ export function PolicyPage() {
   const [concludeMinutesRef, setConcludeMinutesRef] = useState("");
   const [concludeFeedback, setConcludeFeedback] = useState("");
   const [concludeError, setConcludeError] = useState<string | null>(null);
+  const policyNotices = useApiQuery<PolicyNoticeLinkView[]>(
+    "/api/v1/policy-notices",
+  );
+  const [simOpen, setSimOpen] = useState(false);
+  const [simCurrentId, setSimCurrentId] = useState("");
+  const [simProposed, setSimProposed] = useState("{}");
+  const [simSamples, setSimSamples] = useState("[]");
+  const [simError, setSimError] = useState<string | null>(null);
+  const [simRunning, setSimRunning] = useState(false);
+  const [simResult, setSimResult] =
+    useState<PolicySimulationResultView | null>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkPolicyVersionId, setLinkPolicyVersionId] = useState("");
+  const [linkNoticeId, setLinkNoticeId] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const list = versions.data ?? [];
 
@@ -478,6 +495,82 @@ export function PolicyPage() {
         caught instanceof Error
           ? caught.message
           : "Could not conclude consultation",
+      );
+    }
+  }
+
+  async function openSimulation() {
+    const currentId = selectedId ?? list[0]?.policyVersionId ?? "";
+    setSimCurrentId(currentId);
+    setSimProposed("{}");
+    setSimSamples("[]");
+    setSimResult(null);
+    setSimError(null);
+    setSimOpen(true);
+    if (!currentId) return;
+    try {
+      const policy = await api<Record<string, unknown>>(
+        `/api/v1/policy-versions/${currentId}`,
+      );
+      setSimProposed(JSON.stringify(policy, null, 2));
+    } catch (caught) {
+      setSimError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not load the current policy",
+      );
+    }
+  }
+
+  async function runSimulation() {
+    setSimError(null);
+    setSimRunning(true);
+    try {
+      const proposedPolicy = JSON.parse(simProposed) as Record<string, unknown>;
+      const samples = JSON.parse(simSamples) as Array<{
+        personId: string;
+        input: Record<string, unknown>;
+      }>;
+      const result = await api<PolicySimulationResultView>(
+        "/api/v1/policy-simulations",
+        {
+          method: "POST",
+          body: {
+            currentPolicyVersionId: simCurrentId,
+            proposedPolicy,
+            samples,
+          },
+        },
+      );
+      setSimResult(result);
+    } catch (caught) {
+      setSimError(
+        caught instanceof Error ? caught.message : "Simulation failed",
+      );
+    } finally {
+      setSimRunning(false);
+    }
+  }
+
+  async function linkNotice() {
+    setLinkError(null);
+    try {
+      await api("/api/v1/policy-notices", {
+        method: "POST",
+        body: {
+          policyVersionId: linkPolicyVersionId,
+          noticeId: linkNoticeId,
+          audience: {},
+        },
+      });
+      toast.success("Notice linked to policy", shortId(linkNoticeId));
+      setLinkOpen(false);
+      policyNotices.reload();
+    } catch (caught) {
+      setLinkError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not link the notice",
       );
     }
   }
@@ -1511,6 +1604,160 @@ export function PolicyPage() {
         ) : (
           <>
             <Panel
+              title="Policy simulation"
+              subtitle="Replay representative inputs through the current and proposed policies; decision support only"
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon="play"
+                  onClick={openSimulation}
+                >
+                  Run simulation
+                </Button>
+              }
+            >
+              {simResult ? (
+                <>
+                  <div className="coverage-grid">
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Current total</div>
+                      <div className="coverage-cell__value">
+                        {simResult.currentTotal}
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Proposed total</div>
+                      <div className="coverage-cell__value">
+                        {simResult.proposedTotal}
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Delta</div>
+                      <div className="coverage-cell__value">
+                        {simResult.deltaTotal}
+                      </div>
+                    </div>
+                    <div className="coverage-cell">
+                      <div className="coverage-cell__label">Affected people</div>
+                      <div className="coverage-cell__value">
+                        {simResult.affectedPeople}
+                      </div>
+                    </div>
+                  </div>
+                  {simResult.blockers.length > 0 ? (
+                    <div className="chip-row section-gap">
+                      {simResult.blockers.map((blocker) => (
+                        <span className="chip" key={blocker}>
+                          {blocker}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="table-wrap section-gap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Person</th>
+                          <th>Current</th>
+                          <th>Proposed</th>
+                          <th>Delta</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {simResult.lines.map((line) => (
+                          <tr key={line.personId}>
+                            <td className="mono">
+                              {shortId(line.personId, 10)}
+                            </td>
+                            <td>{line.currentAmount}</td>
+                            <td>{line.proposedAmount}</td>
+                            <td>{line.delta}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="muted">
+                  Paste representative calculation inputs to compare the current
+                  policy with a proposed definition. No ledger or policy is
+                  written.
+                </p>
+              )}
+            </Panel>
+
+            <Panel
+              title="Policy notice links"
+              subtitle="Bind notices to a policy version for readiness coverage"
+              flush
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="plus"
+                  onClick={() => {
+                    setLinkPolicyVersionId(selectedId ?? "");
+                    setLinkNoticeId((notices.data ?? [])[0]?.id ?? "");
+                    setLinkError(null);
+                    setLinkOpen(true);
+                  }}
+                >
+                  Link notice
+                </Button>
+              }
+            >
+              {policyNotices.error ? (
+                <div style={{ padding: 16 }}>
+                  <ErrorNotice
+                    error={policyNotices.error}
+                    onRetry={policyNotices.reload}
+                  />
+                </div>
+              ) : policyNotices.loading ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingRows rows={2} />
+                </div>
+              ) : (policyNotices.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="No notice linked"
+                  description="Policy readiness checks acknowledgement coverage for linked notices."
+                />
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Policy version</th>
+                        <th>Notice</th>
+                        <th>Linked</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(policyNotices.data ?? []).map((link) => (
+                        <tr key={link.id}>
+                          <td className="mono">
+                            {shortId(link.policyVersionId, 10)}
+                          </td>
+                          <td>
+                            {notices.data?.find(
+                              (notice) => notice.id === link.noticeId,
+                            )?.title ?? shortId(link.noticeId, 10)}
+                          </td>
+                          <td className="nowrap">
+                            {formatDateTime(link.createdAt)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+
+            <Panel
               title="Rule change orders"
               subtitle="Draft → approved or rejected → publicized, with policy-test gating"
               flush
@@ -2487,6 +2734,139 @@ export function PolicyPage() {
               value={concludeFeedback}
               onChange={(event) => setConcludeFeedback(event.target.value)}
             />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={simOpen}
+        title="Policy simulation"
+        description="The current policy is loaded from the selected version; paste a proposed definition and representative inputs."
+        onClose={() => setSimOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSimOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={runSimulation}
+              loading={simRunning}
+              disabled={!simCurrentId}
+            >
+              Simulate
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {simError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{simError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Current policy version" htmlFor="sim-current">
+            <Select
+              id="sim-current"
+              value={simCurrentId}
+              onChange={(event) => setSimCurrentId(event.target.value)}
+              required
+            >
+              <option value="">Select a version</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField
+            label="Proposed policy (JSON)"
+            htmlFor="sim-proposed"
+            className="field--full"
+          >
+            <Textarea
+              id="sim-proposed"
+              value={simProposed}
+              onChange={(event) => setSimProposed(event.target.value)}
+              rows={12}
+              spellCheck={false}
+            />
+          </FormField>
+          <FormField
+            label="Samples (JSON: [{ personId, input }])"
+            htmlFor="sim-samples"
+            className="field--full"
+            hint="Uses the calculation-run input shape; at least one sample."
+          >
+            <Textarea
+              id="sim-samples"
+              value={simSamples}
+              onChange={(event) => setSimSamples(event.target.value)}
+              rows={8}
+              spellCheck={false}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={linkOpen}
+        title="Link notice to policy version"
+        onClose={() => setLinkOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLinkOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={linkNotice}>
+              Link
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {linkError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{linkError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Policy version" htmlFor="link-policy">
+            <Select
+              id="link-policy"
+              value={linkPolicyVersionId}
+              onChange={(event) => setLinkPolicyVersionId(event.target.value)}
+              required
+            >
+              <option value="">Select a version</option>
+              {list.map((version) => (
+                <option
+                  key={version.policyVersionId}
+                  value={version.policyVersionId}
+                >
+                  {version.code} v{version.version}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Notice" htmlFor="link-notice">
+            <Select
+              id="link-notice"
+              value={linkNoticeId}
+              onChange={(event) => setLinkNoticeId(event.target.value)}
+              required
+            >
+              <option value="">Select a notice</option>
+              {(notices.data ?? []).map((notice) => (
+                <option key={notice.id} value={notice.id}>
+                  {notice.title}
+                </option>
+              ))}
+            </Select>
           </FormField>
         </div>
       </Modal>

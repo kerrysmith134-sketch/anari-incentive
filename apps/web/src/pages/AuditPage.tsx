@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Badge,
   Button,
+  DefinitionList,
   EmptyState,
   ErrorNotice,
   InfoNotice,
@@ -13,6 +14,7 @@ import {
   Select,
 } from "../components/ui.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { downloadJson } from "../lib/api.js";
 import {
   formatDateTime,
   formatRelative,
@@ -30,6 +32,19 @@ export function AuditPage() {
     checks: Record<string, boolean | string | null>;
     note: string;
   }>("/api/v1/audit-events/durability");
+  const anchor = useApiQuery<{
+    tenantId: string;
+    generatedAt: string;
+    window: {
+      fromSequence: number | null;
+      toSequence: number | null;
+      eventCount: number;
+    };
+    rootHash: string;
+    firstEventHash: string | null;
+    lastEventHash: string | null;
+    note: string;
+  }>("/api/v1/audit-events/anchor");
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("ALL");
   const [selected, setSelected] = useState<AuditEvent | null>(null);
@@ -74,6 +89,8 @@ export function AuditPage() {
             onClick={() => {
               events.reload();
               verify.reload();
+              durability.reload();
+              anchor.reload();
             }}
             loading={events.loading}
           >
@@ -90,6 +107,71 @@ export function AuditPage() {
           {durability.data.note}
         </InfoNotice>
       ) : null}
+
+      <Panel
+        title="External anchor manifest"
+        subtitle="Submit rootHash to an independent TSA or append-only ledger and archive the receipt"
+        action={
+          <div className="row-actions">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="download"
+              disabled={!anchor.data}
+              onClick={() =>
+                downloadJson(
+                  anchor.data,
+                  `audit-anchor-${anchor.data?.generatedAt ?? "export"}.json`,
+                )
+              }
+            >
+              Download
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="refresh"
+              onClick={anchor.reload}
+              loading={anchor.loading}
+            >
+              Refresh
+            </Button>
+          </div>
+        }
+      >
+        {anchor.error ? (
+          <ErrorNotice error={anchor.error} onRetry={anchor.reload} />
+        ) : anchor.loading || !anchor.data ? (
+          <LoadingRows rows={2} />
+        ) : (
+          <>
+            <DefinitionList
+              items={[
+                { label: "Root hash", value: anchor.data.rootHash },
+                {
+                  label: "Sequence window",
+                  value: `${anchor.data.window.fromSequence ?? "—"} → ${anchor.data.window.toSequence ?? "—"} (${anchor.data.window.eventCount} events)`,
+                },
+                {
+                  label: "First event hash",
+                  value: anchor.data.firstEventHash ?? "—",
+                },
+                {
+                  label: "Last event hash",
+                  value: anchor.data.lastEventHash ?? "—",
+                },
+                {
+                  label: "Generated",
+                  value: formatDateTime(anchor.data.generatedAt),
+                },
+              ]}
+            />
+            <p className="subtle" style={{ fontSize: 11.5 }}>
+              {anchor.data.note}
+            </p>
+          </>
+        )}
+      </Panel>
 
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">

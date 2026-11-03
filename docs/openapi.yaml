@@ -1514,6 +1514,29 @@ paths:
         "422":
           $ref: "#/components/responses/InvariantViolation"
 
+  /api/v1/policy-versions/{id}:
+    get:
+      tags: [Policy]
+      summary: Read a published policy definition
+      description: |
+        Returns the policy content bound to a version. Used by the simulation
+        screen to seed a proposed definition without exposing an edit path.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Policy definition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/policy-versions/{id}/diff:
     get:
       tags: [Policy]

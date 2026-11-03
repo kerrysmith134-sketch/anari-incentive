@@ -6017,6 +6017,16 @@ describe("vertical slice", () => {
     expect(replay.body.data.id).toBe(taskId);
   });
 
+  it("returns the published policy definition for a version", async () => {
+    const response = await call(
+      "GET",
+      `/api/v1/policy-versions/${REFERENCE_POLICY_ID}`,
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.data.code).toBeTruthy();
+    expect(response.body.data.version).toBeGreaterThan(0);
+  });
+
   it("simulates a policy change without publishing it", async () => {
     const simulation = await call("POST", "/api/v1/policy-simulations", {
       currentPolicyVersionId: REFERENCE_POLICY_ID,

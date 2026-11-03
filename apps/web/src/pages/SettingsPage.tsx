@@ -75,6 +75,15 @@ export function SettingsPage() {
   const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
+  const retentionReport = useApiQuery<{
+    generatedAt: string;
+    policies: Array<
+      RetentionPolicy & {
+        cutoffDate: string;
+        eligibleForDisposal: boolean;
+      }
+    >;
+  }>("/api/v1/retention-policies/report");
   const retentionRecommendations =
     useApiQuery<RetentionRecommendationsReport>(
       "/api/v1/retention-policies/recommended",
@@ -1592,26 +1601,55 @@ export function SettingsPage() {
                   <th className="cell-num">Retention</th>
                   <th>Legal basis</th>
                   <th>Legal hold</th>
+                  <th>Cutoff</th>
+                  <th>Disposal</th>
                   <th>Created</th>
                 </tr>
               </thead>
               <tbody>
-                {retention.data?.map((policy) => (
-                  <tr key={policy.id}>
-                    <td>
-                      <span className="cell-primary">{policy.dataCategory}</span>
-                      <span className="cell-sub mono">{shortId(policy.id, 10)}</span>
-                    </td>
-                    <td className="cell-num">{policy.retentionMonths} months</td>
-                    <td>{policy.legalBasis}</td>
-                    <td>
-                      <Badge tone={policy.legalHold ? "warning" : "neutral"}>
-                        {policy.legalHold ? "Held" : "None"}
-                      </Badge>
-                    </td>
-                    <td className="nowrap">{formatDate(policy.createdAt)}</td>
-                  </tr>
-                ))}
+                {retention.data?.map((policy) => {
+                  const report = retentionReport.data?.policies.find(
+                    (entry) => entry.id === policy.id,
+                  );
+                  return (
+                    <tr key={policy.id}>
+                      <td>
+                        <span className="cell-primary">
+                          {policy.dataCategory}
+                        </span>
+                        <span className="cell-sub mono">
+                          {shortId(policy.id, 10)}
+                        </span>
+                      </td>
+                      <td className="cell-num">
+                        {policy.retentionMonths} months
+                      </td>
+                      <td>{policy.legalBasis}</td>
+                      <td>
+                        <Badge tone={policy.legalHold ? "warning" : "neutral"}>
+                          {policy.legalHold ? "Held" : "None"}
+                        </Badge>
+                      </td>
+                      <td className="nowrap">{report?.cutoffDate ?? "—"}</td>
+                      <td>
+                        {report ? (
+                          <Badge
+                            tone={
+                              report.eligibleForDisposal ? "warning" : "neutral"
+                            }
+                          >
+                            {report.eligibleForDisposal
+                              ? "Eligible"
+                              : "Blocked"}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="nowrap">{formatDate(policy.createdAt)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -315,3 +315,48 @@ export interface NotificationView {
   readAt?: string;
   createdAt: string;
 }
+
+export interface SettlementExportView {
+  id: Uuid;
+  batchId: Uuid;
+  exportRef: string;
+  exportHash: string;
+  exportedBy: Uuid;
+  exportedAt: string;
+  acknowledgedAt?: string;
+  acknowledgementRef?: string;
+  createdAt: string;
+}
+
+export interface AdjustmentRecordView {
+  id: Uuid;
+  originalLedgerId: Uuid;
+  adjustmentLedgerId: Uuid;
+  reasonCode: string;
+  explanation: string;
+  approvedBy: Uuid;
+  approvedAt: string;
+  createdAt: string;
+}
+
+export interface PolicyNoticeLinkView {
+  id: Uuid;
+  policyVersionId: Uuid;
+  noticeId: Uuid;
+  audience: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface PolicySimulationResultView {
+  currentTotal: string;
+  proposedTotal: string;
+  deltaTotal: string;
+  affectedPeople: number;
+  lines: Array<{
+    personId: Uuid;
+    currentAmount: string;
+    proposedAmount: string;
+    delta: string;
+  }>;
+  blockers: string[];
+}
