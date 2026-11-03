@@ -4348,60 +4348,23 @@ describe("observability", () => {
   });
 });
 
-describe("admin view", () => {
-  it("serves the admin simulation and agent approval page", async () => {
+describe("admin entry points", () => {
+  it("redirects the legacy admin page to the SPA platform console", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/admin",
     } as never);
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.headers["x-content-type-options"]).toBe("nosniff");
-    expect(response.headers["x-frame-options"]).toBe("DENY");
-    expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.headers["content-security-policy"]).toContain(
-      "frame-ancestors 'none'",
-    );
-    expect(response.body).toContain("N-Perform 管理端");
-    expect(response.body).toContain("/api/v1/policy-simulations");
-    expect(response.body).toContain("/api/v1/agent-tasks");
-    expect(response.body).toContain("结算批次");
-    expect(response.body).toContain("审计事件");
-    expect(response.body).toContain("评价管理");
-    expect(response.body).toContain("数据质量");
-    expect(response.body).toContain("申诉处理");
-    expect(response.body).toContain("贡献与认定");
-    expect(response.body).toContain("政策发布");
-    expect(response.body).toContain("账本冲销");
-    expect(response.body).toContain("通知中心");
-    expect(response.body).toContain("对比政策版本");
-    expect(response.body).toContain("批量计算");
-    expect(response.body).toContain("批量认定");
-    expect(response.body).toContain("平台租户");
-    expect(response.body).toContain("保存租户设置");
-    expect(response.body).toContain("/api/v1/platform/tenants/");
-    expect(response.body).toContain("法律门禁与 DPIA");
-    expect(response.body).toContain("/api/v1/dpia-records");
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/console/platform");
   });
 
-  it("serves the governance operations page", async () => {
+  it("redirects the legacy governance page to the SPA governance hub", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/admin/governance",
     } as never);
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.body).toContain("N-Perform 治理操作台");
-    expect(response.body).toContain("审批请求");
-    expect(response.body).toContain("预算池与现金门禁");
-    expect(response.body).toContain("财务事实");
-    expect(response.body).toContain("交付物与验收");
-    expect(response.body).toContain("结算导出证据");
-    expect(response.body).toContain("集成与收件箱");
-    expect(response.body).toContain("AI 与工作流记录");
-    expect(response.body).toContain("/api/v1/approval-requests");
-    expect(response.body).toContain("/api/v1/financial-facts");
-    expect(response.body).toContain("/api/v1/model-evaluation-runs");
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/console/governance");
   });
 });
 

@@ -289,16 +289,6 @@ const employeeUi = readFileSync(
   "utf8",
 );
 
-const adminUi = readFileSync(
-  new URL("../public/admin.html", import.meta.url),
-  "utf8",
-);
-
-const governanceUi = readFileSync(
-  new URL("../public/governance.html", import.meta.url),
-  "utf8",
-);
-
 const consoleDist = fileURLToPath(
   new URL("../../web/dist/", import.meta.url),
 );
@@ -2724,11 +2714,11 @@ export function buildApp(
   );
 
   app.get("/admin", async (_request, reply) =>
-    reply.type("text/html; charset=utf-8").send(adminUi),
+    reply.redirect("/console/platform"),
   );
 
   app.get("/admin/governance", async (_request, reply) =>
-    reply.type("text/html; charset=utf-8").send(governanceUi),
+    reply.redirect("/console/governance"),
   );
 
   app.get("/console", async (_request, reply) =>
@@ -8136,7 +8126,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/integration-connections", async (request) => {
-    requireRoles(request, "manager", "finance");
+    requireRoles(request, "manager", "finance", "integration");
     return data(
       await platformStore.listIntegrationConnections(tenantOf(request)),
       request,
@@ -8144,7 +8134,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/integration-connections/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
+    requireRoles(request, "manager", "finance", "integration");
     return data(
       await platformStore.getIntegrationConnection(
         tenantOf(request),
@@ -9072,7 +9062,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/integration-connections/:id/sync-runs", async (request, reply) => {
-    requireRoles(request, "manager", "finance");
+    requireRoles(request, "manager", "finance", "integration");
     const body = parse(createSyncRunSchema, request.body ?? {});
     return reply.status(201).send(
       data(
@@ -9088,7 +9078,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/integration-connections/:id/sync-runs", async (request) => {
-    requireRoles(request, "manager", "finance");
+    requireRoles(request, "manager", "finance", "integration");
     return data(
       await platformStore.listSyncRuns(tenantOf(request), idOf(request)),
       request,
@@ -9096,7 +9086,7 @@ export function buildApp(
   });
 
   app.post("/api/v1/sync-runs/:id/finish", async (request) => {
-    requireRoles(request, "manager", "finance");
+    requireRoles(request, "manager", "finance", "integration");
     const body = parse(finishSyncRunSchema, request.body);
     return data(
       await platformStore.finishSyncRun({

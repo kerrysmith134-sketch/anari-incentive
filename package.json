@@ -30,12 +30,15 @@
     "worker": "tsx apps/worker/src/index.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "seed:packs": "tsx scripts/seed-policy-packs.ts",
-    "demo:cycle": "tsx scripts/demo-cycle.ts"
+    "demo:cycle": "tsx scripts/demo-cycle.ts",
+    "shadow:settle": "tsx scripts/shadow-settlement.ts",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.5.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",

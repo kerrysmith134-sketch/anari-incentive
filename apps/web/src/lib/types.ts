@@ -1436,3 +1436,46 @@ export interface AdverseActionCase {
   updatedAt: string;
   version: number;
 }
+
+export interface PlatformTenant {
+  id: Uuid;
+  name: string;
+  slug: string;
+  status: string;
+  defaultTimezone: string;
+  defaultCurrency: string;
+  settings?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface PlatformUser {
+  id: Uuid;
+  email?: string;
+  displayName: string;
+  authSubject: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface PlatformMembership {
+  id: Uuid;
+  tenantId: Uuid;
+  userId: Uuid;
+  status: string;
+  roleCodes: string[];
+  joinedAt?: string;
+  createdAt: string;
+  userDisplayName?: string;
+  userEmail?: string;
+}
+
+export interface PlatformOrgNode {
+  id: Uuid;
+  tenantId: Uuid;
+  parentId?: Uuid;
+  nodeType: string;
+  name: string;
+  path?: string;
+  active: boolean;
+  createdAt: string;
+}

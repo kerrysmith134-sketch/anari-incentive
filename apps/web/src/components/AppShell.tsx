@@ -81,6 +81,12 @@ const NAV: NavGroup[] = [
     label: "Governance",
     items: [
       {
+        to: "/governance",
+        label: "Governance hub",
+        icon: "shield",
+        allowed: ["admin"],
+      },
+      {
         to: "/ai",
         label: "AI assurance",
         icon: "ai",
@@ -132,6 +138,12 @@ const NAV: NavGroup[] = [
         label: "People",
         icon: "people",
         allowed: ["admin", "manager"],
+      },
+      {
+        to: "/platform",
+        label: "Platform",
+        icon: "layers",
+        allowed: ["admin"],
       },
       {
         to: "/settings",

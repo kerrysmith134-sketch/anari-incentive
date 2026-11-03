@@ -102,6 +102,16 @@ const FieldAccessPage = lazy(() =>
     default: module.FieldAccessPage,
   })),
 );
+const PlatformAdminPage = lazy(() =>
+  import("./pages/PlatformAdminPage.js").then((module) => ({
+    default: module.PlatformAdminPage,
+  })),
+);
+const GovernanceHubPage = lazy(() =>
+  import("./pages/GovernanceHubPage.js").then((module) => ({
+    default: module.GovernanceHubPage,
+  })),
+);
 const SettlementsPage = lazy(() =>
   import("./pages/SettlementsPage.js").then((module) => ({
     default: module.SettlementsPage,
@@ -189,6 +199,8 @@ export function App() {
                     <Route path="/rewards" element={<RewardsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />
                     <Route path="/field-access" element={<FieldAccessPage />} />
+                    <Route path="/platform" element={<PlatformAdminPage />} />
+                    <Route path="/governance" element={<GovernanceHubPage />} />
                     <Route path="/settlements" element={<SettlementsPage />} />
                     <Route path="/adverse-actions" element={<AdverseActionsPage />} />
                     <Route path="/ai" element={<AiPage />} />

@@ -7,3 +7,4 @@ export * from "./oauth.js";
 export * from "./hubspot.js";
 export * from "./feishu.js";
 export * from "./presets.js";
+export * from "./integration.js";
