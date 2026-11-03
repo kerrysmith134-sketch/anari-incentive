@@ -3,3 +3,4 @@ export * from "./types.js";
 export * from "./invariants.js";
 export * from "./entity-contracts.js";
 export * from "./entity-types-codegen.js";
+export * from "./access-contracts.js";

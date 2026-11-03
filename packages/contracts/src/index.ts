@@ -2152,6 +2152,19 @@ export const policySimulationSchema = z.object({
 });
 export type PolicySimulationBody = z.input<typeof policySimulationSchema>;
 
+export const marginalSimulationSchema = z.object({
+  policyVersionId: z.string().min(1),
+  sample: createCalculationRunSchema,
+  participantIndex: z.number().int().min(0).default(0),
+  field: z
+    .enum(["attributionWeight", "evaluationMultiplier"])
+    .default("attributionWeight"),
+  from: decimal,
+  to: decimal,
+  step: decimal,
+});
+export type MarginalSimulationBody = z.input<typeof marginalSimulationSchema>;
+
 export const ingestionEventSchema = z.object({
   sourceRecordId: z.string().min(1),
   sourceEventVersion: z.string().min(1).optional(),

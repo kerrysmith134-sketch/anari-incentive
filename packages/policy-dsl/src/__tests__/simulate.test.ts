@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
-import { simulatePolicyChange } from "../index.js";
+import { simulateMarginalChange, simulatePolicyChange } from "../index.js";
 
 const current: PolicyDefinition = {
   code: "GENERIC_CONTRIBUTION_V1",
@@ -62,5 +62,52 @@ describe("simulatePolicyChange", () => {
     expect(result.blockers).toContain(
       "EVALUATION_WEIGHTS_NOT_RESOLVED_IN_SIMULATION",
     );
+  });
+});
+
+describe("simulateMarginalChange", () => {
+  it("sweeps a participant weight and reports total, target and delta", () => {
+    const sample = input("100000");
+    sample.participants.push({
+      personId: "person-2",
+      workPackageId: "wp-2",
+      attributionWeight: "1",
+      role: "CONTRIBUTOR",
+    });
+    const result = simulateMarginalChange(current, sample, {
+      from: "0.5",
+      to: "0.7",
+      step: "0.1",
+    });
+    expect(result.points.map((point) => point.value)).toEqual([
+      "0.5",
+      "0.6",
+      "0.7",
+    ]);
+    const targets = result.points.map((point) =>
+      Number(point.targetAmount),
+    );
+    expect(targets[0]).toBeLessThan(targets[1]!);
+    expect(targets[1]).toBeLessThan(targets[2]!);
+    expect(result.points[0]!.delta).toBe("0");
+    expect(Number(result.points[1]!.targetDelta)).toBeGreaterThan(0);
+    expect(Number(result.maxDelta)).toBeGreaterThan(0);
+  });
+
+  it("rejects non-positive steps and inverted ranges", () => {
+    expect(() =>
+      simulateMarginalChange(current, input("100000"), {
+        from: "1",
+        to: "1",
+        step: "0",
+      }),
+    ).toThrow(/step/);
+    expect(() =>
+      simulateMarginalChange(current, input("100000"), {
+        from: "1",
+        to: "0.5",
+        step: "0.1",
+      }),
+    ).toThrow(/from/);
   });
 });

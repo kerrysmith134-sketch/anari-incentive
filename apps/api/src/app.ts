@@ -151,6 +151,7 @@ import {
   ingestionBatchSchema,
   linkPersonUserSchema,
   policySimulationSchema,
+  marginalSimulationSchema,
   publishPolicySchema,
   rollbackPolicySchema,
   cycleReadinessQuerySchema,
@@ -223,6 +224,7 @@ import {
   formatDecimal,
   parseDecimal,
   sha256,
+  simulateMarginalChange,
   simulatePolicyChange,
 } from "@anari/policy-dsl";
 import { LedgerError } from "@anari/ledger";
@@ -2648,6 +2650,26 @@ export function buildApp(
     }));
     return data(
       simulatePolicyChange(currentPolicy, body.proposedPolicy, samples),
+      request,
+    );
+  });
+
+  app.post("/api/v1/policy-simulations:marginal", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(marginalSimulationSchema, request.body);
+    const policy = await storeFor(request).getPolicy(body.policyVersionId);
+    const tenantId =
+      request.authContext?.tenantId ??
+      (request.headers["x-tenant-id"] as string | undefined) ??
+      "tenant-demo";
+    return data(
+      simulateMarginalChange(policy, { ...body.sample, tenantId }, {
+        participantIndex: body.participantIndex,
+        field: body.field,
+        from: body.from,
+        to: body.to,
+        step: body.step,
+      }),
       request,
     );
   });
@@ -9732,6 +9754,14 @@ export function buildApp(
     requireRoles(request, "manager", "finance");
     const tenantId = tenantOf(request);
     const cycleId = paramOf(request, "cycleId");
+    const exportQuery = request.query as {
+      legalEntity?: string;
+      jurisdiction?: string;
+      dlpApprovalRequestId?: string;
+    };
+    const legalEntity = exportQuery.legalEntity?.trim();
+    const jurisdiction = exportQuery.jurisdiction?.trim();
+    const scoped = Boolean(legalEntity || jurisdiction);
     const store = storeFor(request);
     const cycle = await store.getEvaluationCycle(cycleId);
     const [
@@ -9778,7 +9808,32 @@ export function buildApp(
       store.listPolicyVersions(),
     ]);
 
-    const runs = allRuns.filter((run) => run.cycleId === cycleId);
+    const scopedPolicies = policyVersions.filter((policy) => {
+      if (!scoped) return true;
+      if (legalEntity && policy.applicability?.legalEntity !== legalEntity) {
+        return false;
+      }
+      if (
+        jurisdiction &&
+        !policy.applicability?.jurisdictions?.includes(jurisdiction)
+      ) {
+        return false;
+      }
+      return true;
+    });
+    const scopedPolicyIds = new Set(
+      scopedPolicies.map((policy) => policy.policyVersionId),
+    );
+    const runs = allRuns.filter(
+      (run) =>
+        run.cycleId === cycleId &&
+        (!scoped || scopedPolicyIds.has(run.policyVersionId)),
+    );
+    if (scoped && runs.length === 0) {
+      throw new ConflictError(
+        "EVIDENCE_PACKAGE_SCOPE_EMPTY: no calculation run matches the requested legal entity/jurisdiction",
+      );
+    }
     const runIds = new Set(runs.map((run) => run.id));
     const workPackageIds = new Set(
       runs.flatMap((run) =>
@@ -9928,6 +9983,10 @@ export function buildApp(
       schemaVersion: "n-perform.evidence-package/v1",
       generatedAt: new Date().toISOString(),
       tenantId,
+      scope: {
+        legalEntity: legalEntity ?? null,
+        jurisdiction: jurisdiction ?? null,
+      },
       cycle,
       policies: policyDetails,
       workPackages,
@@ -10004,13 +10063,12 @@ export function buildApp(
         ),
       },
     };
-    const query = request.query as { dlpApprovalRequestId?: string };
     await assertExportDlp(
       request,
       JSON.stringify(viewerBody),
       "EVIDENCE_PACKAGE",
       packageBody.cycle.id,
-      query.dlpApprovalRequestId,
+      exportQuery.dlpApprovalRequestId,
     );
     return data({ ...viewerBody, packageHash }, request);
   });

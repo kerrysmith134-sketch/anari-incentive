@@ -8165,6 +8165,33 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/policy-simulations:marginal:
+    post:
+      tags: [Policy]
+      summary: Sweep a participant field to expose marginal amount changes
+      description: |
+        Recalculates one sample while stepping a participant's
+        attributionWeight or evaluationMultiplier between `from` and `to`.
+        Returns total and target-person amounts with deltas; no policy or
+        ledger record is written.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarginalSimulation"
+      responses:
+        "200":
+          description: Marginal simulation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/agent-tasks:
     get:
       tags: [Agent]
@@ -11203,6 +11230,29 @@ components:
                 $ref: "#/components/schemas/Uuid"
               input:
                 $ref: "#/components/schemas/CreateCalculationRun"
+
+    MarginalSimulation:
+      type: object
+      required: [policyVersionId, sample, from, to, step]
+      properties:
+        policyVersionId:
+          type: string
+        sample:
+          $ref: "#/components/schemas/CreateCalculationRun"
+        participantIndex:
+          type: integer
+          minimum: 0
+          default: 0
+        field:
+          type: string
+          enum: [attributionWeight, evaluationMultiplier]
+          default: attributionWeight
+        from:
+          $ref: "#/components/schemas/Decimal"
+        to:
+          $ref: "#/components/schemas/Decimal"
+        step:
+          $ref: "#/components/schemas/Decimal"
 
     EnqueueAgentTask:
       type: object

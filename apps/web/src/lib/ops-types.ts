@@ -375,3 +375,20 @@ export interface AgentMetricsView {
   aiOffFloor: null;
   note: string;
 }
+
+export interface MarginalSimulationView {
+  participantIndex: number;
+  field: "attributionWeight" | "evaluationMultiplier";
+  from: string;
+  to: string;
+  step: string;
+  maxDelta: string;
+  note: string;
+  points: Array<{
+    value: string;
+    total: string;
+    targetAmount: string;
+    delta: string;
+    targetDelta: string;
+  }>;
+}

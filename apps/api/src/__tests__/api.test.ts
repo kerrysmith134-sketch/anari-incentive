@@ -5526,6 +5526,18 @@ describe("vertical slice", () => {
     expect(result.body.data.packageHash).toMatch(/^sha256:/);
     expect(Array.isArray(result.body.data.policies)).toBe(true);
     expect(Array.isArray(result.body.data.auditEvents)).toBe(true);
+    expect(result.body.data.scope).toEqual({
+      legalEntity: null,
+      jurisdiction: null,
+    });
+    const scoped = await call(
+      "GET",
+      `/api/v1/evidence-packages/${CYCLE}?legalEntity=Other%20Entity`,
+    );
+    expect(scoped.status).toBe(409);
+    expect(scoped.body.error.message).toContain(
+      "EVIDENCE_PACKAGE_SCOPE_EMPTY",
+    );
   });
 
   it("applies evidence field policies to the evidence package", async () => {

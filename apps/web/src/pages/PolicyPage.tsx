@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
+  DefinitionList,
   EmptyState,
   ErrorNotice,
   FormField,
@@ -44,6 +45,7 @@ import type {
   NoticeAcknowledgementView,
   PolicyConsultationView,
   PolicyNoticeLinkView,
+  MarginalSimulationView,
   PolicySimulationResultView,
   RuleChangeOrderView,
 } from "../lib/ops-types.js";
@@ -153,6 +155,19 @@ export function PolicyPage() {
   const [linkPolicyVersionId, setLinkPolicyVersionId] = useState("");
   const [linkNoticeId, setLinkNoticeId] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [marginalOpen, setMarginalOpen] = useState(false);
+  const [marginalSample, setMarginalSample] = useState("{}");
+  const [marginalIndex, setMarginalIndex] = useState("0");
+  const [marginalField, setMarginalField] = useState<
+    "attributionWeight" | "evaluationMultiplier"
+  >("attributionWeight");
+  const [marginalFrom, setMarginalFrom] = useState("0.9");
+  const [marginalTo, setMarginalTo] = useState("1.1");
+  const [marginalStep, setMarginalStep] = useState("0.01");
+  const [marginalError, setMarginalError] = useState<string | null>(null);
+  const [marginalRunning, setMarginalRunning] = useState(false);
+  const [marginalResult, setMarginalResult] =
+    useState<MarginalSimulationView | null>(null);
 
   const list = versions.data ?? [];
 
@@ -572,6 +587,52 @@ export function PolicyPage() {
           ? caught.message
           : "Could not link the notice",
       );
+    }
+  }
+
+  function openMarginal() {
+    setMarginalOpen(true);
+    setMarginalSample("{}");
+    setMarginalIndex("0");
+    setMarginalField("attributionWeight");
+    setMarginalFrom("0.9");
+    setMarginalTo("1.1");
+    setMarginalStep("0.01");
+    setMarginalResult(null);
+    setMarginalError(null);
+  }
+
+  async function runMarginal() {
+    if (!selectedId) {
+      setMarginalError("Select a policy version first.");
+      return;
+    }
+    setMarginalError(null);
+    setMarginalRunning(true);
+    try {
+      const sample = JSON.parse(marginalSample) as Record<string, unknown>;
+      const result = await api<MarginalSimulationView>(
+        "/api/v1/policy-simulations:marginal",
+        {
+          method: "POST",
+          body: {
+            policyVersionId: selectedId,
+            sample,
+            participantIndex: Number(marginalIndex),
+            field: marginalField,
+            from: marginalFrom,
+            to: marginalTo,
+            step: marginalStep,
+          },
+        },
+      );
+      setMarginalResult(result);
+    } catch (caught) {
+      setMarginalError(
+        caught instanceof Error ? caught.message : "Marginal sweep failed",
+      );
+    } finally {
+      setMarginalRunning(false);
     }
   }
 
@@ -1607,14 +1668,24 @@ export function PolicyPage() {
               title="Policy simulation"
               subtitle="Replay representative inputs through the current and proposed policies; decision support only"
               action={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon="play"
-                  onClick={openSimulation}
-                >
-                  Run simulation
-                </Button>
+                <div className="row-actions">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon="play"
+                    onClick={openMarginal}
+                  >
+                    Marginal sweep
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon="play"
+                    onClick={openSimulation}
+                  >
+                    Run simulation
+                  </Button>
+                </div>
               }
             >
               {simResult ? (
@@ -2869,6 +2940,145 @@ export function PolicyPage() {
             </Select>
           </FormField>
         </div>
+      </Modal>
+
+      <Modal
+        open={marginalOpen}
+        title="Marginal threshold sweep"
+        description="Step one participant field by a small amount to expose cliff effects in the amount."
+        onClose={() => setMarginalOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setMarginalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={runMarginal}
+              loading={marginalRunning}
+            >
+              Sweep
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {marginalError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{marginalError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Participant index" htmlFor="marginal-index">
+            <TextInput
+              id="marginal-index"
+              value={marginalIndex}
+              onChange={(event) => setMarginalIndex(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Field" htmlFor="marginal-field">
+            <Select
+              id="marginal-field"
+              value={marginalField}
+              onChange={(event) =>
+                setMarginalField(
+                  event.target.value as
+                    | "attributionWeight"
+                    | "evaluationMultiplier",
+                )
+              }
+            >
+              <option value="attributionWeight">Attribution weight</option>
+              <option value="evaluationMultiplier">Evaluation multiplier</option>
+            </Select>
+          </FormField>
+          <FormField label="From" htmlFor="marginal-from">
+            <TextInput
+              id="marginal-from"
+              value={marginalFrom}
+              onChange={(event) => setMarginalFrom(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="To" htmlFor="marginal-to">
+            <TextInput
+              id="marginal-to"
+              value={marginalTo}
+              onChange={(event) => setMarginalTo(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Step" htmlFor="marginal-step">
+            <TextInput
+              id="marginal-step"
+              value={marginalStep}
+              onChange={(event) => setMarginalStep(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Sample (JSON)"
+            htmlFor="marginal-sample"
+            className="field--full"
+          >
+            <Textarea
+              id="marginal-sample"
+              value={marginalSample}
+              onChange={(event) => setMarginalSample(event.target.value)}
+              rows={8}
+              spellCheck={false}
+            />
+          </FormField>
+        </div>
+        {marginalResult ? (
+          <div className="detail-section">
+            <DefinitionList
+              items={[
+                {
+                  label: "Sweep",
+                  value: `${marginalResult.field} ${marginalResult.from} → ${marginalResult.to} (step ${marginalResult.step})`,
+                },
+                {
+                  label: "Max target delta",
+                  value: marginalResult.maxDelta,
+                },
+              ]}
+            />
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Value</th>
+                    <th>Total</th>
+                    <th>Target amount</th>
+                    <th>Target delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marginalResult.points.map((point) => (
+                    <tr key={point.value}>
+                      <td className="mono">{point.value}</td>
+                      <td>{point.total}</td>
+                      <td>{point.targetAmount}</td>
+                      <td>
+                        <Badge
+                          tone={
+                            point.targetDelta === "0" ? "neutral" : "warning"
+                          }
+                        >
+                          {point.targetDelta}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="subtle" style={{ fontSize: 11.5 }}>
+              {marginalResult.note}
+            </p>
+          </div>
+        ) : null}
       </Modal>
 
     </>

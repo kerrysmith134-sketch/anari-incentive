@@ -19,7 +19,7 @@ import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { ApiError, api, downloadJson } from "../lib/api.js";
+import { ApiError, api, downloadJson, qs } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -75,6 +75,9 @@ export function CyclesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportScopeOpen, setExportScopeOpen] = useState(false);
+  const [exportLegalEntity, setExportLegalEntity] = useState("");
+  const [exportJurisdiction, setExportJurisdiction] = useState("");
   const [detailDraft, setDetailDraft] = useState<EvaluationDraft | null>(null);
   const [reviewDraft, setReviewDraft] = useState<EvaluationDraft | null>(null);
   const [decision, setDecision] = useState<"APPROVE" | "REJECT">("APPROVE");
@@ -277,7 +280,10 @@ export function CyclesPage() {
     setExporting(true);
     try {
       const evidencePackage = await api<Record<string, unknown>>(
-        `/api/v1/evidence-packages/${selectedId}`,
+        `/api/v1/evidence-packages/${selectedId}${qs({
+          legalEntity: exportLegalEntity.trim(),
+          jurisdiction: exportJurisdiction.trim(),
+        })}`,
       );
       downloadJson(
         evidencePackage,
@@ -421,7 +427,7 @@ export function CyclesPage() {
             <Button
               variant="secondary"
               icon="download"
-              onClick={exportEvidencePackage}
+              onClick={() => setExportScopeOpen(true)}
               loading={exporting}
               disabled={!selectedId}
             >
@@ -1064,6 +1070,52 @@ export function CyclesPage() {
             </Select>
           </FormField>
         </form>
+      </Modal>
+
+      <Modal
+        open={exportScopeOpen}
+        title="Evidence package scope"
+        description="Optionally scope the package to a legal entity and jurisdiction. Leave blank for the full cycle."
+        onClose={() => setExportScopeOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setExportScopeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              icon="download"
+              loading={exporting}
+              onClick={async () => {
+                await exportEvidencePackage();
+                setExportScopeOpen(false);
+              }}
+            >
+              Download
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          <FormField label="Legal entity (optional)" htmlFor="export-entity">
+            <TextInput
+              id="export-entity"
+              value={exportLegalEntity}
+              onChange={(event) => setExportLegalEntity(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Jurisdiction (optional)"
+            htmlFor="export-jurisdiction"
+          >
+            <TextInput
+              id="export-jurisdiction"
+              value={exportJurisdiction}
+              onChange={(event) => setExportJurisdiction(event.target.value)}
+              placeholder="CN"
+            />
+          </FormField>
+        </div>
       </Modal>
 
       <Modal

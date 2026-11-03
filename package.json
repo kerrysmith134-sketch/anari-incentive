@@ -23,7 +23,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "test:pg": "./scripts/test-pg.sh",
     "contracts:manifest": "tsx scripts/generate-request-contracts.ts",
-    "contracts:entities": "tsx scripts/generate-entity-contracts.ts && tsx scripts/generate-entity-types.ts",
+    "contracts:entities": "tsx scripts/generate-entity-contracts.ts && tsx scripts/generate-entity-types.ts && tsx scripts/generate-access-contracts.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "agent:scan": "tsx scripts/agent-scan.ts",
     "sync:runner": "tsx scripts/sync-runner.ts",
