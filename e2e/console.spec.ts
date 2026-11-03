@@ -107,6 +107,12 @@ test("exposes the remaining governance surfaces", async ({ page }) => {
   await page.getByRole("tab", { name: /Contracts/ }).click();
   await expect(page.getByRole("button", { name: "Apply due" })).toBeVisible();
 
+  await expectPage(page, "/console/agent-ops", "Agent operations");
+  await page.getByRole("tab", { name: /Acceptance metrics/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Acceptance metrics" }),
+  ).toBeVisible();
+
   await expectPage(page, "/console/ai", "AI assurance");
   await page.getByRole("tab", { name: /Evaluation runs/ }).click();
   await expect(page.getByRole("button", { name: "Run harness" })).toBeVisible();

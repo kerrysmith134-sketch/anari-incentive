@@ -7097,13 +7097,37 @@ paths:
       tags: [Reporting]
       summary: Report PRD success metrics with thresholds
       description: |
-        Evidence coverage (>=70%), claim decision time (<=2h proxy), dispute
-        rate (<10%) and reconciliation differences (=0). Employee evidence
-        supplement time is UNAVAILABLE because the product does not time
-        sessions; overall is PARTIAL when a metric is unavailable.
+        Evidence coverage (>=70%), manager review time for decisions issued by
+        people with direct reports (<=2h), dispute rate (<10%),
+        reconciliation differences (=0), employee evidence supplement time
+        (proxy from resolved evidence data-quality issues, <=30m) and the
+        latest closed trust survey versus its prior baseline. A metric is
+        UNAVAILABLE when no sample or baseline exists; overall is PARTIAL
+        when any metric is unavailable.
       responses:
         "200":
           description: Success metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/reports/agent-metrics:
+    get:
+      tags: [Reporting]
+      summary: Report agent operational acceptance metrics
+      description: |
+        Closed-task median time, auto-resolution rate, escalation rate, human
+        override rate and average attempts. False-positive labels, cost per
+        closed loop and the AI-off completion floor are reported as null until
+        external review/accounting data exists.
+      responses:
+        "200":
+          description: Agent metrics
           content:
             application/json:
               schema:

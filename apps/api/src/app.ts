@@ -193,7 +193,11 @@ import {
   type PolicyTestSuiteResult,
   type SettlementBatch,
 } from "@anari/domain";
-import { AgentRuntimeError, type AgentRuntime } from "@anari/agent-runtime";
+import {
+  AgentRuntimeError,
+  summarizeAgentMetrics,
+  type AgentRuntime,
+} from "@anari/agent-runtime";
 import {
   DEFAULT_THRESHOLDS,
   assessAiRisk,
@@ -1757,11 +1761,57 @@ export function buildApp(
     }
   }
 
+  /**
+   * Governance data already linked to the policy version can hard-block a
+   * formal run. Free-text gate references stay evidence-only; when a tenant
+   * uses the notice/consultation registries, those records must be complete.
+   */
+  async function formalCoverageBlockers(
+    request: FastifyRequest,
+    policyVersionId: string,
+  ): Promise<string[]> {
+    const tenantId = tenantOf(request);
+    const blockers: string[] = [];
+    const links = await platformStore.listPolicyNotices(
+      tenantId,
+      policyVersionId,
+    );
+    if (links.length > 0) {
+      const notices = await platformStore.listNotices(tenantId);
+      const byId = new Map(notices.map((notice) => [notice.id, notice]));
+      for (const link of links) {
+        const notice = byId.get(link.noticeId);
+        if (!notice?.acknowledgementRequired) continue;
+        const coverage = await platformStore.listAcknowledgements(
+          tenantId,
+          notice.id,
+        );
+        if (!coverage.summary.complete) {
+          blockers.push(`NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE:${notice.id}`);
+        }
+      }
+    }
+    const consultations = await platformStore.listConsultations(
+      tenantId,
+      policyVersionId,
+    );
+    if (
+      consultations.length > 0 &&
+      !consultations.some(
+        (consultation) =>
+          Boolean(consultation.endedAt) &&
+          consultation.outcome !== "PENDING",
+      )
+    ) {
+      blockers.push("DEMOCRATIC_CONSULTATION_NOT_CONCLUDED");
+    }
+    return blockers;
+  }
+
   async function preflightBudget(
     request: FastifyRequest,
     input: CreateCalculationRunInput,
-  ): Promise<void> {
-    if (!options.enforceBudgetPools || input.mode !== "FORMAL") return;
+  ): Promise<void> {    if (!options.enforceBudgetPools || input.mode !== "FORMAL") return;
     if (!input.budgetPoolId) {
       throw new ConflictError(
         "BUDGET_POOL_REQUIRED: FORMAL calculations require budgetPoolId",
@@ -4011,16 +4061,29 @@ export function buildApp(
   app.get("/api/v1/reports/success-metrics", async (request) => {
     requireRoles(request, "manager", "finance");
     const store = storeFor(request);
-    const [workPackages, claims, evidence, appeals, decisions, runs, batches] =
-      await Promise.all([
-        store.listWorkPackages(),
-        store.listClaims(),
-        store.listEvidence(),
-        store.listAppeals(),
-        store.listDecisions(),
-        store.listRuns(),
-        store.listSettlementBatches(),
-      ]);
+    const [
+      workPackages,
+      claims,
+      evidence,
+      appeals,
+      decisions,
+      runs,
+      batches,
+      dataQualityIssues,
+      persons,
+      trustSurveys,
+    ] = await Promise.all([
+      store.listWorkPackages(),
+      store.listClaims(),
+      store.listEvidence(),
+      store.listAppeals(),
+      store.listDecisions(),
+      store.listRuns(),
+      store.listSettlementBatches(),
+      store.listDataQualityIssues(),
+      platformStore.listPersons(tenantOf(request)),
+      platformStore.listTrustSurveys(tenantOf(request)),
+    ]);
     const accepted = workPackages.filter(
       (workPackage) => workPackage.status === "ACCEPTED",
     );
@@ -4060,14 +4123,82 @@ export function buildApp(
           Number.isFinite(value) &&
           value >= 0,
       );
+    const managerIds = new Set(
+      persons
+        .map((person) => person.managerPersonId)
+        .filter((value): value is string => Boolean(value)),
+    );
+    const managerDecisionHours = claims
+      .map((claim) => {
+        const decision = latestDecisionByClaim.get(claim.id);
+        if (!decision || !managerIds.has(decision.adjudicatorPersonId)) {
+          return undefined;
+        }
+        return (
+          (Date.parse(decision.createdAt) -
+            Date.parse(claim.submittedAt ?? claim.createdAt)) /
+          (60 * 60 * 1000)
+        );
+      })
+      .filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value >= 0,
+      );
     const managerReviewHours =
-      decisionHours.length === 0
-        ? 0
+      managerDecisionHours.length === 0
+        ? null
         : Math.round(
-            (decisionHours.reduce((sum, value) => sum + value, 0) /
-              decisionHours.length) *
+            (managerDecisionHours.reduce((sum, value) => sum + value, 0) /
+              managerDecisionHours.length) *
               10,
           ) / 10;
+    const evidenceSupplementMinutes = dataQualityIssues
+      .filter(
+        (issue) =>
+          /EVIDENCE/i.test(issue.issueCode) && Boolean(issue.resolvedAt),
+      )
+      .map(
+        (issue) =>
+          (Date.parse(issue.resolvedAt as string) -
+            Date.parse(issue.createdAt)) /
+          (60 * 1000),
+      )
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const evidenceSupplementAvg =
+      evidenceSupplementMinutes.length === 0
+        ? null
+        : Math.round(
+            (evidenceSupplementMinutes.reduce((sum, value) => sum + value, 0) /
+              evidenceSupplementMinutes.length) *
+              10,
+          ) / 10;
+    const latestClosedSurvey = trustSurveys
+      .filter((survey) => survey.status === "CLOSED")
+      .sort((a, b) =>
+        (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt),
+      )[0];
+    const trustReport = latestClosedSurvey
+      ? await platformStore.getTrustSurveyReport(
+          tenantOf(request),
+          latestClosedSurvey.id,
+        )
+      : undefined;
+    const meanOf = (values: Record<string, number>): number | null => {
+      const numbers = Object.values(values);
+      if (numbers.length === 0) return null;
+      return (
+        Math.round(
+          (numbers.reduce((sum, value) => sum + value, 0) / numbers.length) *
+            100,
+        ) / 100
+      );
+    };
+    const trustCurrent = trustReport ? meanOf(trustReport.dimensions) : null;
+    const trustBaseline = trustReport?.baseline
+      ? meanOf(trustReport.baseline.dimensions)
+      : null;
     const disputeRate =
       claims.length === 0 ? 0 : appeals.length / claims.length;
     const reconciliationDifferences =
@@ -4088,13 +4219,18 @@ export function buildApp(
       },
       {
         id: "MANAGER_REVIEW_HOURS",
-        label: "Claim decision time",
+        label: "Manager review time",
         value: managerReviewHours,
         unit: "HOURS",
         target: 2,
         comparator: "LTE",
-        status: managerReviewHours <= 2 ? "PASS" : "FAIL",
-        note: "Proxy: claim submission to latest attribution decision. Role-level breakdown remains a gap.",
+        status:
+          managerReviewHours === null
+            ? "UNAVAILABLE"
+            : managerReviewHours <= 2
+              ? "PASS"
+              : "FAIL",
+        note: "Claims whose latest decision was issued by a person with direct reports; submission to decision.",
       },
       {
         id: "CONTRIBUTION_DISPUTE_RATE",
@@ -4119,12 +4255,32 @@ export function buildApp(
       {
         id: "EMPLOYEE_EVIDENCE_MINUTES",
         label: "Employee evidence supplement time",
-        value: null,
+        value: evidenceSupplementAvg,
         unit: "MINUTES",
         target: 30,
         comparator: "LTE",
-        status: "UNAVAILABLE",
-        note: "No per-session timing is collected; adding it would itself require a privacy review.",
+        status:
+          evidenceSupplementAvg === null
+            ? "UNAVAILABLE"
+            : evidenceSupplementAvg <= 30
+              ? "PASS"
+              : "FAIL",
+        note: "Proxy: resolved data-quality issues about evidence, from issue creation to resolution. No session or activity tracking is used.",
+      },
+      {
+        id: "TRUST_VS_BASELINE",
+        label: "Trust vs baseline",
+        value: trustCurrent,
+        unit: "RATIO",
+        target: trustBaseline ?? 0,
+        comparator: "GTE",
+        status:
+          trustCurrent === null || trustBaseline === null
+            ? "UNAVAILABLE"
+            : trustCurrent >= trustBaseline
+              ? "PASS"
+              : "FAIL",
+        note: "Mean of the latest closed trust-survey dimensions versus the previous closed survey with the same code.",
       },
     ];
     return data(
@@ -4139,6 +4295,12 @@ export function buildApp(
       },
       request,
     );
+  });
+
+  app.get("/api/v1/reports/agent-metrics", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const tasks = await runtimeFor(request).list();
+    return data(summarizeAgentMetrics(tasks), request);
   });
 
   app.post("/api/v1/ingestion/events:batch", async (request) => {
@@ -8995,10 +9157,48 @@ export function buildApp(
       }
     }
     const ledger = await storeFor(request).listLedger();
+    const unacknowledgedNoticesByPerson: Record<string, string[]> = {};
+    const cycle = await storeFor(request).getEvaluationCycle(run.cycleId);
+    if (cycle.policyVersionId) {
+      const links = await platformStore.listPolicyNotices(
+        tenantId,
+        cycle.policyVersionId,
+      );
+      if (links.length > 0) {
+        const notices = await platformStore.listNotices(tenantId);
+        const noticeById = new Map(
+          notices.map((notice) => [notice.id, notice]),
+        );
+        for (const link of links) {
+          const notice = noticeById.get(link.noticeId);
+          if (!notice?.acknowledgementRequired) continue;
+          const coverage = await platformStore.listAcknowledgements(
+            tenantId,
+            notice.id,
+          );
+          const acknowledged = new Set(
+            coverage.acknowledgements
+              .filter((acknowledgement) =>
+                Boolean(acknowledgement.acknowledgedAt),
+              )
+              .map((acknowledgement) => acknowledgement.personId),
+          );
+          for (const contract of contracts) {
+            if (!acknowledged.has(contract.personId)) {
+              const missing =
+                unacknowledgedNoticesByPerson[contract.personId] ?? [];
+              missing.push(notice.id);
+              unacknowledgedNoticesByPerson[contract.personId] = missing;
+            }
+          }
+        }
+      }
+    }
     const calculation = calculatePayroll({
       contracts,
       ledger,
       priorIncentives,
+      unacknowledgedNoticesByPerson,
       cycleId: run.cycleId,
       currency: run.currency,
       periodStart: run.periodStart,
@@ -9353,6 +9553,15 @@ export function buildApp(
       request,
       ...(body.mode === "FORMAL" ? ["finance"] : ["manager", "finance"]),
     );
+    if (body.mode === "FORMAL") {
+      const blockers = await formalCoverageBlockers(
+        request,
+        body.policyVersionId,
+      );
+      if (blockers.length > 0) {
+        throw new CalculationBlockedError(blockers);
+      }
+    }
     await preflightBudget(request, body);
     const run = await storeFor(request).createCalculationRun(body);
     await reserveRunBudget(request, body, run);
@@ -9370,6 +9579,19 @@ export function buildApp(
       throw new ConflictError(
         "BUDGET_ENFORCEMENT_BATCH_UNSUPPORTED: create formal runs individually when budget enforcement is enabled",
       );
+    }
+    const blockers = new Set<string>();
+    for (const run of body.runs) {
+      if (run.mode !== "FORMAL") continue;
+      for (const blocker of await formalCoverageBlockers(
+        request,
+        run.policyVersionId,
+      )) {
+        blockers.add(blocker);
+      }
+    }
+    if (blockers.size > 0) {
+      throw new CalculationBlockedError([...blockers]);
     }
     const runs = await storeFor(request).createCalculationRunsBatch(body.runs);
     countEvent("calculation_batch_created");

@@ -706,6 +706,20 @@ function RunsTab({
                                     ? "Variable share within cap"
                                     : "Variable share exceeded"}
                                 </Badge>
+                                <Badge
+                                  tone={
+                                    line.noticeAcknowledgementPassed
+                                      ? "success"
+                                      : "danger"
+                                  }
+                                >
+                                  {line.noticeAcknowledgementPassed
+                                    ? "Notices acknowledged"
+                                    : `Unacknowledged notices: ${
+                                        line.noticeAcknowledgementMissing
+                                          .length
+                                      }`}
+                                </Badge>
                                 {line.deductionBreakdown.length > 0 ? (
                                   <span className="cell-sub">
                                     {line.deductionBreakdown

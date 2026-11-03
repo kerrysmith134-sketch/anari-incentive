@@ -30,6 +30,8 @@ export function calculatePayroll(input: {
   contracts: EmploymentContract[];
   ledger: AmountLedgerEntry[];
   priorIncentives?: Record<string, string>;
+  /** Required notices the person has not acknowledged, by person id. */
+  unacknowledgedNoticesByPerson?: Record<string, string[]>;
   cycleId: string;
   currency: string;
   periodStart: string;
@@ -154,12 +156,17 @@ export function calculatePayroll(input: {
       priorIncentive === 0n ||
       incentiveChangeRate <= smoothingThresholdRate;
     const minimumWagePassed = net >= minimum;
+    const noticeAcknowledgementMissing =
+      input.unacknowledgedNoticesByPerson?.[contract.personId] ?? [];
+    const noticeAcknowledgementPassed =
+      noticeAcknowledgementMissing.length === 0;
     const passed =
       minimumWagePassed &&
       deductionCapPassed &&
       variableSharePassed &&
       deductionTypeCapPassed &&
-      smoothingPassed;
+      smoothingPassed &&
+      noticeAcknowledgementPassed;
     if (!passed) blockedCount += 1;
     totalGross += gross;
     totalDeductions += deductions + tax + socialInsurance;
@@ -192,6 +199,8 @@ export function calculatePayroll(input: {
       incentiveChangeRate: formatDecimal(incentiveChangeRate),
       smoothingThresholdRate: formatDecimal(smoothingThresholdRate),
       smoothingPassed,
+      noticeAcknowledgementPassed,
+      noticeAcknowledgementMissing,
       deductionBreakdown: [...breakdown.entries()]
         .sort((a, b) => a[1].priority - b[1].priority)
         .map(([type, value]) => ({

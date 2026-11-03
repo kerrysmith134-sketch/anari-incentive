@@ -84,6 +84,8 @@ export interface PayrollLinePersisted {
   minimumMonthlyWage: DecimalString;
   minimumWagePassed: boolean;
   netAmount: DecimalString;
+  noticeAcknowledgementMissing: string[];
+  noticeAcknowledgementPassed: boolean;
   personId: UUID;
   priorIncentiveAmount: DecimalString;
   runId: UUID;

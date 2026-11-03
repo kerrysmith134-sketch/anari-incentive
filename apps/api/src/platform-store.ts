@@ -14241,8 +14241,9 @@ export class PgPlatformStore implements PlatformStore {
              variable_share_passed, deduction_breakdown,
              deduction_type_cap_passed, deduction_type_cap_breaches,
              prior_incentive_amount, incentive_change_rate,
-             smoothing_threshold_rate, smoothing_passed, bank_account_ref)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30)`,
+             smoothing_threshold_rate, smoothing_passed, bank_account_ref,
+             notice_acknowledgement_passed, notice_acknowledgement_missing)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30,$31,$32::jsonb)`,
           [
             randomUUID(),
             input.tenantId,
@@ -14274,6 +14275,8 @@ export class PgPlatformStore implements PlatformStore {
             line.smoothingThresholdRate,
             line.smoothingPassed,
             line.bankAccountRef ?? null,
+            line.noticeAcknowledgementPassed,
+            JSON.stringify(line.noticeAcknowledgementMissing),
           ],
         );
       }
@@ -15990,6 +15993,10 @@ export class PgPlatformStore implements PlatformStore {
       smoothingThresholdRate:
         decimalText(String(row.smoothing_threshold_rate)) ?? "1",
       smoothingPassed: row.smoothing_passed,
+      noticeAcknowledgementPassed:
+        row.notice_acknowledgement_passed ?? true,
+      noticeAcknowledgementMissing:
+        (row.notice_acknowledgement_missing as string[] | null) ?? [],
       bankAccountRef: row.bank_account_ref ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

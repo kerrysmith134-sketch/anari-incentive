@@ -2586,6 +2586,92 @@ describe("payroll", () => {
     expect(blockedApproval.status).toBe(409);
   });
 
+  it("blocks a payroll line until the employee acknowledges a linked notice", async () => {
+    const cycle = await call("POST", "/api/v1/evaluation-cycles", {
+      name: "Notice payroll cycle",
+      cycleType: "MONTHLY",
+      startsAt: "2026-10-01T00:00:00Z",
+      endsAt: "2026-10-31T23:59:59Z",
+      timezone: "Asia/Shanghai",
+      policyVersionId: REFERENCE_POLICY_ID,
+    });
+    expect(cycle.status).toBe(201);
+    const contract = await call("POST", "/api/v1/employment-contracts", {
+      personId: MEMBER,
+      contractCode: "CT-NOTICE-1",
+      employmentType: "FULL_TIME",
+      startDate: "2025-01-01T00:00:00Z",
+      workLocation: "Shanghai",
+      currency: "CNY",
+      fixedMonthlySalary: "8000",
+      minimumMonthlyWage: "2690",
+      consentSignatureRef: "ESIGN-NOTICE-1",
+    });
+    expect(contract.status).toBe(201);
+    const run = await call("POST", "/api/v1/payroll-runs", {
+      cycleId: cycle.body.data.id,
+      periodStart: "2026-10-01T00:00:00Z",
+      periodEnd: "2026-10-31T23:59:59Z",
+      currency: "CNY",
+      preparedBy: ADJUDICATOR,
+    });
+    expect(run.status).toBe(201);
+    const runId = run.body.data.id as string;
+    const initial = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/calculate`,
+    );
+    expect(initial.status).toBe(200);
+    expect(initial.body.data.blockedCount).toBe(0);
+
+    const notice = await call("POST", "/api/v1/notices", {
+      noticeType: "POLICY",
+      title: "New payroll deductions",
+      bodyRef: "notice-doc-1",
+      policyVersionId: REFERENCE_POLICY_ID,
+      effectiveFrom: "2026-01-01T00:00:00Z",
+      acknowledgementRequired: true,
+    });
+    expect(notice.status).toBe(201);
+    const noticeId = notice.body.data.id as string;
+    expect(
+      (
+        await call("POST", "/api/v1/policy-notices", {
+          policyVersionId: REFERENCE_POLICY_ID,
+          noticeId,
+        })
+      ).status,
+    ).toBe(201);
+
+    const blocked = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/calculate`,
+    );
+    expect(blocked.status).toBe(200);
+    expect(blocked.body.data.status).toBe("BLOCKED");
+    expect(blocked.body.data.blockedCount).toBe(1);
+    expect(blocked.body.data.lines[0].noticeAcknowledgementPassed).toBe(false);
+    expect(blocked.body.data.lines[0].noticeAcknowledgementMissing).toContain(
+      noticeId,
+    );
+
+    expect(
+      (
+        await call("POST", `/api/v1/notices/${noticeId}/acknowledgements`, {
+          personId: MEMBER,
+          decision: "ACKNOWLEDGE",
+        })
+      ).status,
+    ).toBe(200);
+    const allowed = await call(
+      "POST",
+      `/api/v1/payroll-runs/${runId}/calculate`,
+    );
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.data.blockedCount).toBe(0);
+    expect(allowed.body.data.lines[0].noticeAcknowledgementPassed).toBe(true);
+  });
+
   it("records contract amendments only with consent evidence", async () => {
     const contract = await call("POST", "/api/v1/employment-contracts", {
       personId: OWNER,
@@ -4557,6 +4643,51 @@ describe("vertical slice", () => {
     expect(formal.status).toBe(422);
     expect(formal.body.error.code).toBe("CALCULATION_BLOCKED");
     expect(formal.body.error.details.blockers).toContain("LEGAL_GATE_MISSING");
+  });
+
+  it("blocks a formal run until linked notices are acknowledged", async () => {
+    const workPackageId = await createAcceptedWorkPackage();
+    await createConfirmedClaim(workPackageId, OWNER);
+    await createConfirmedClaim(workPackageId, MEMBER);
+    await recordCompleteLegalGate();
+    const notice = await call("POST", "/api/v1/notices", {
+      noticeType: "POLICY",
+      title: "New incentive rules",
+      bodyRef: "doc-1",
+      policyVersionId: REFERENCE_POLICY_ID,
+      effectiveFrom: "2026-01-01T00:00:00Z",
+      acknowledgementRequired: true,
+    });
+    expect(notice.status).toBe(201);
+    const noticeId = notice.body.data.id as string;
+    expect(
+      (
+        await call("POST", "/api/v1/policy-notices", {
+          policyVersionId: REFERENCE_POLICY_ID,
+          noticeId,
+        })
+      ).status,
+    ).toBe(201);
+
+    const blocked = await formalRun(workPackageId);
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.error.code).toBe("CALCULATION_BLOCKED");
+    expect(blocked.body.error.details.blockers).toContain(
+      `NOTICE_ACKNOWLEDGEMENTS_INCOMPLETE:${noticeId}`,
+    );
+
+    for (const personId of [OWNER, MEMBER, ADJUDICATOR]) {
+      expect(
+        (
+          await call("POST", `/api/v1/notices/${noticeId}/acknowledgements`, {
+            personId,
+            decision: "ACKNOWLEDGE",
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const allowed = await formalRun(workPackageId);
+    expect(allowed.status).toBe(201);
   });
 
   it("reports missing legal-gate references explicitly", async () => {
@@ -8467,7 +8598,7 @@ describe("vertical slice", () => {
     ).toBeGreaterThanOrEqual(0);
     const success = await call("GET", "/api/v1/reports/success-metrics");
     expect(success.status).toBe(200);
-    expect(success.body.data.metrics).toHaveLength(5);
+    expect(success.body.data.metrics).toHaveLength(6);
     const coverageMetric = success.body.data.metrics.find(
       (metric: { id: string }) => metric.id === "EVIDENCE_COVERAGE",
     );
@@ -8485,6 +8616,11 @@ describe("vertical slice", () => {
     );
     expect(employeeTime.status).toBe("UNAVAILABLE");
     expect(success.body.data.overall).toBe("PARTIAL");
+
+    const agentMetrics = await call("GET", "/api/v1/reports/agent-metrics");
+    expect(agentMetrics.status).toBe(200);
+    expect(agentMetrics.body.data.totalTasks).toBeGreaterThanOrEqual(0);
+    expect(agentMetrics.body.data.note).toContain("external");
   });
 
   it("breaks confirmation, payroll and appeal cycle times down by responsibility", async () => {

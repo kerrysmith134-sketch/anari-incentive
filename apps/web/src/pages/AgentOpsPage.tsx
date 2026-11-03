@@ -21,10 +21,11 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
-import { formatDateTime, shortId, titleCase } from "../lib/format.js";
+import { formatDateTime, formatPercent, shortId, titleCase } from "../lib/format.js";
 import type {
   AgentActionView,
   AgentTaskView,
+  AgentMetricsView,
   AiSuggestionLogView,
   WorkflowRunView,
 } from "../lib/ops-types.js";
@@ -49,6 +50,9 @@ export function AgentOpsPage() {
   const workflows = useApiQuery<WorkflowRunView[]>("/api/v1/workflow-runs");
   const suggestions = useApiQuery<AiSuggestionLogView[]>(
     "/api/v1/ai-suggestion-logs",
+  );
+  const agentMetrics = useApiQuery<AgentMetricsView>(
+    "/api/v1/reports/agent-metrics",
   );
   const [tab, setTab] = useState("tasks");
   const [busy, setBusy] = useState<string | null>(null);
@@ -314,6 +318,7 @@ export function AgentOpsPage() {
             count: pendingActions.length,
           },
           { id: "workflows", label: "Workflow runs", count: workflowList.length },
+          { id: "metrics", label: "Acceptance metrics" },
           {
             id: "suggestions",
             label: "Suggestion logs",
@@ -551,7 +556,7 @@ export function AgentOpsPage() {
               </div>
             )}
           </Panel>
-        ) : (
+        ) : tab === "suggestions" ? (
           <Panel
             title="AI suggestion logs"
             subtitle="Model outputs linked to an agent task; acceptance is attributed"
@@ -653,6 +658,79 @@ export function AgentOpsPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </Panel>
+        ) : (
+          <Panel
+            title="Acceptance metrics"
+            subtitle="Operational loop metrics; false positives, cost and the AI-off floor need external data"
+          >
+            {agentMetrics.error ? (
+              <ErrorNotice
+                error={agentMetrics.error}
+                onRetry={agentMetrics.reload}
+              />
+            ) : agentMetrics.loading || !agentMetrics.data ? (
+              <LoadingRows rows={3} />
+            ) : (
+              <>
+                <div className="coverage-grid">
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Closed tasks</div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.closedTasks}/
+                      {agentMetrics.data.totalTasks}
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">
+                      Median close time
+                    </div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.medianCloseHours ?? "—"}h
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">
+                      Auto-resolved rate
+                    </div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.autoResolvedRate === null
+                        ? "—"
+                        : formatPercent(
+                            agentMetrics.data.autoResolvedRate,
+                          )}
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Escalation rate</div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.escalationRate === null
+                        ? "—"
+                        : formatPercent(agentMetrics.data.escalationRate)}
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">Human override</div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.humanOverrideRate === null
+                        ? "—"
+                        : formatPercent(agentMetrics.data.humanOverrideRate)}
+                    </div>
+                  </div>
+                  <div className="coverage-cell">
+                    <div className="coverage-cell__label">
+                      Average attempts
+                    </div>
+                    <div className="coverage-cell__value">
+                      {agentMetrics.data.averageAttempts ?? "—"}
+                    </div>
+                  </div>
+                </div>
+                <p className="subtle" style={{ fontSize: 11.5 }}>
+                  {agentMetrics.data.note}
+                </p>
+              </>
             )}
           </Panel>
         )}

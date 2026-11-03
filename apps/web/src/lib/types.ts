@@ -78,6 +78,8 @@ export interface PayrollLine {
   incentiveChangeRate: DecimalString;
   smoothingThresholdRate: DecimalString;
   smoothingPassed: boolean;
+  noticeAcknowledgementPassed: boolean;
+  noticeAcknowledgementMissing: string[];
   redactedFields?: string[];
   bankAccountRef?: string;
   createdAt: string;

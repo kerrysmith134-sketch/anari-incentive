@@ -360,3 +360,18 @@ export interface PolicySimulationResultView {
   }>;
   blockers: string[];
 }
+
+export interface AgentMetricsView {
+  generatedAt: string;
+  totalTasks: number;
+  closedTasks: number;
+  medianCloseHours: number | null;
+  autoResolvedRate: number | null;
+  escalationRate: number | null;
+  humanOverrideRate: number | null;
+  falsePositiveRate: number | null;
+  averageAttempts: number | null;
+  costPerClosedLoop: null;
+  aiOffFloor: null;
+  note: string;
+}

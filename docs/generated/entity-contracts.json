@@ -861,6 +861,20 @@
           "classification": "FINANCIAL"
         },
         {
+          "column": "notice_acknowledgement_missing",
+          "field": "noticeAcknowledgementMissing",
+          "tsType": "string[]",
+          "optional": false,
+          "exposed": true
+        },
+        {
+          "column": "notice_acknowledgement_passed",
+          "field": "noticeAcknowledgementPassed",
+          "tsType": "boolean",
+          "optional": false,
+          "exposed": true
+        },
+        {
           "column": "person_id",
           "field": "personId",
           "tsType": "UUID",

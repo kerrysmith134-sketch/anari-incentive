@@ -118,6 +118,8 @@ export const CORE_ENTITY_CONTRACTS: readonly EntityContract[] = [
       { column: "minimum_monthly_wage", field: "minimumMonthlyWage", tsType: "DecimalString" },
       { column: "minimum_wage_passed", field: "minimumWagePassed", tsType: "boolean" },
       { column: "net_amount", field: "netAmount", tsType: "DecimalString", classification: "FINANCIAL" },
+      { column: "notice_acknowledgement_missing", field: "noticeAcknowledgementMissing", tsType: "string[]" },
+      { column: "notice_acknowledgement_passed", field: "noticeAcknowledgementPassed", tsType: "boolean" },
       { column: "person_id", field: "personId", tsType: "UUID" },
       { column: "prior_incentive_amount", field: "priorIncentiveAmount", tsType: "DecimalString", classification: "FINANCIAL" },
       { column: "run_id", field: "runId", tsType: "UUID" },
