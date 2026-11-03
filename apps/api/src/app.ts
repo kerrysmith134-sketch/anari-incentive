@@ -9158,8 +9158,15 @@ export function buildApp(
     }
     const ledger = await storeFor(request).listLedger();
     const unacknowledgedNoticesByPerson: Record<string, string[]> = {};
-    const cycle = await storeFor(request).getEvaluationCycle(run.cycleId);
-    if (cycle.policyVersionId) {
+    let cycle: Awaited<
+      ReturnType<ReturnType<typeof storeFor>["getEvaluationCycle"]>
+    > | undefined;
+    try {
+      cycle = await storeFor(request).getEvaluationCycle(run.cycleId);
+    } catch {
+      cycle = undefined;
+    }
+    if (cycle?.policyVersionId) {
       const links = await platformStore.listPolicyNotices(
         tenantId,
         cycle.policyVersionId,
