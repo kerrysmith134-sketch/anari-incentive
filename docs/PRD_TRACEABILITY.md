@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（349 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（354 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -53,7 +53,7 @@
 | LG-01 记录/阻断/审计 | ✅ | `legalGateBlockers`、`legal_gate_records`、门禁审计 |
 | LG-02 法人/法域/员工类型 | ✅ | 发布 schema 必填 legalEntity/jurisdictions/workLocations/employeeCategories/workTimeTypes；memory/PG 持久化并在 store 层拒绝缺失；rollback 继承源版本适用性；console 显示 |
 | LG-03 民主程序/员工代表 | ✅ | Representation、Consultation、legal gate ref、readiness 检查 |
-| LG-04 告知/签收 | ✅ | EmployeeNotice、Acknowledgement/Decline、覆盖率门禁；沉默不视为同意 |
+| LG-04 告知/签收 | ✅ | EmployeeNotice、Acknowledgement/Decline、覆盖率门禁；沉默不视为同意；linked policy notices 未完成时 FORMAL 计算硬阻断；payroll 逐员工未签收时该行阻断（迁移 065） |
 | LG-05 合同/薪酬方案变更 | ✅ | 必填 consent signature、payPlanVersion、amendment history、未来排期/自动应用已有；本轮新增 e-sign envelope + HMAC provider callback，SIGNED 回调写回合同 consent signature；外部 provider 账号/合同仍由部署配置 |
 | LG-06 最低工资/扣款 | 🟡 | 最低工资、总额扣款上限、tax/social 分列、deductionOrder/breakdown 已有；本轮新增 contract `deductionTypeCaps` 与 payroll 逐类型 cap 校验/违约列表，超出阻断行；法定扣款类型映射与执行令/员工同意的法律优先级仍待法务确认 |
 | LG-07 PIP/不利决定 | ✅ | 新增 human-only adverse-action 工作流：DRAFT→LEGAL_REVIEW→APPROVED→ACTIVE→COMPLETED/CANCELLED，法律复核/批准分离；无 score→adverse-action 自动路径 |
@@ -327,6 +327,12 @@
 94. **Playwright E2E**：新增 `playwright.config.ts` 与 `e2e/console.spec.ts`（17 个测试），覆盖首页、14 个模块页、计算 run 弹窗、字段矩阵保存与 admin 重定向；CI 增加 e2e job（安装 chromium、失败上传报告）；`npm run test:e2e` 本地全绿。
 
 95. **剩余 9 项前端缺口补齐**：Policy 增加政策影响模拟（新增 `GET /policy-versions/:id` 读取当前定义、samples JSON、结果/差异/blockers）与政策-告知关联；AI 页增加服务端 harness 评测弹窗与 gold-set 30 天到期提示；Audit 页增加外部 anchor 清单/下载；Settlements 增加导出证据确认与账本调整记录；Settings 保留期表增加 cutoff/可处置状态；Payroll 合同增加“应用到期修订”；OpenAPI 补充新路由；E2E 新增治理面覆盖（18 个场景）。至此仅剩 worker/provider/bulk 类接口为 API-only。
+
+96. **法律门禁硬闭环 + 逐员工签收**：FORMAL 计算（单条与批量）在创建前加载 policy-notice 关联，任何 acknowledgementRequired 通知未全员签收即 `CALCULATION_BLOCKED`；已关联咨询存在但均未结论时阻断。payroll 计算按 cycle 的 policy version 计算每位员工未签收通知，`PayrollLine` 新增 `noticeAcknowledgementPassed/Missing`（迁移 065、实体注册表/生成类型/PostgreSQL 映射），未签收行计入 blockedCount，console 显示徽标。
+
+97. **P0-04 指标补齐**：success-metrics 由 5 项扩为 6 项：经理复核时间改为“有直接下属的人做出的最新 claim 决策”耗时（无样本则 UNAVAILABLE）；员工补证时间改为已解决 evidence 类 DQ issue 的创建→解决时长代理（明确不用行为埋点）；新增信任 vs 上一份同 code 已关闭调查基线的维度均值比较。
+
+98. **Agent 验收指标**：新增 `GET /reports/agent-metrics` 与 `summarizeAgentMetrics`，输出关闭任务中位时长、自动解决率、升级率、人工改判率、平均尝试次数；误报率、每闭环成本、AI 关闭人工可完成率在无外部数据时明确为 null；Agent ops 新增 Acceptance metrics 页签，3 个单元测试覆盖。
 
 ## 仍建议按 P0 顺序补做
 
