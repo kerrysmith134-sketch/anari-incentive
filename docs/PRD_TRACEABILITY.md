@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（339 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**验证**：`npm run typecheck`、`npm test`（349 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
 
 ## 结论
 
@@ -325,6 +325,8 @@
 93. **Admin SPA 迁移**：新增 `/console/platform`（租户/用户/成员/组织节点/租户设置）与 `/console/governance` 治理入口；`/admin`、`/admin/governance` 改为 302 到 SPA，删除遗留 `public/admin.html`、`public/governance.html` 及其启动时读取；相关测试改为断言重定向。
 
 94. **Playwright E2E**：新增 `playwright.config.ts` 与 `e2e/console.spec.ts`（17 个测试），覆盖首页、14 个模块页、计算 run 弹窗、字段矩阵保存与 admin 重定向；CI 增加 e2e job（安装 chromium、失败上传报告）；`npm run test:e2e` 本地全绿。
+
+95. **剩余 9 项前端缺口补齐**：Policy 增加政策影响模拟（新增 `GET /policy-versions/:id` 读取当前定义、samples JSON、结果/差异/blockers）与政策-告知关联；AI 页增加服务端 harness 评测弹窗与 gold-set 30 天到期提示；Audit 页增加外部 anchor 清单/下载；Settlements 增加导出证据确认与账本调整记录；Settings 保留期表增加 cutoff/可处置状态；Payroll 合同增加“应用到期修订”；OpenAPI 补充新路由；E2E 新增治理面覆盖（18 个场景）。至此仅剩 worker/provider/bulk 类接口为 API-only。
 
 ## 仍建议按 P0 顺序补做
 
