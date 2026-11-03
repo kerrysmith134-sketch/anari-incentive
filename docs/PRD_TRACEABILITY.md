@@ -318,6 +318,14 @@
 
 90. **SEC-06 字段策略变更审计**：`IncentiveStore` 新增 `recordAuditEvent`（memory 实现哈希链、PostgreSQL 复用 appendAudit + 链触发）；`PUT /field-access-policies` 与平台设置接口（同租户或 resolver 可解析时）均记录 `FIELD_ACCESS_POLICIES_UPDATED`，含 actor、tenant、before/after 内容哈希与 override 数量；memory 验证会重算每个 event hash，memory 与 PG 测试均校验 `verifyAuditChain()` 仍为 true。
 
+91. **Shadow settlement CLI**：`packages/ledger` 新增 `compareShadowSettlement`（按 person+currency 聚合、绝对容差、缺失双边、总额/差异、reportHash），`scripts/shadow-settlement.ts` 读取 engine JSON 与 finance CSV，输出 JSON 报告并在差异/缺失时以非零退出；夹具 `shadow-engine-001.json` / `shadow-finance-*.csv` 与 6 个单元测试覆盖。
+
+92. **CRM/ERP connector 编排**：`buildHttpJsonConnectorConfig` 将连接配置（endpoint/headers）与 mapping（字段映射/recordsPath/分页）合并并校验必需字段；`scripts/sync-runner.ts` 现在会认领计划、创建 sync run、实际 pull HTTP/JSON 数据、调用 ingestion batch，并以 SUCCEEDED/FAILED 收尾；integration 角色可读连接并创建/结束 sync run；3 个配置单元测试覆盖。
+
+93. **Admin SPA 迁移**：新增 `/console/platform`（租户/用户/成员/组织节点/租户设置）与 `/console/governance` 治理入口；`/admin`、`/admin/governance` 改为 302 到 SPA，删除遗留 `public/admin.html`、`public/governance.html` 及其启动时读取；相关测试改为断言重定向。
+
+94. **Playwright E2E**：新增 `playwright.config.ts` 与 `e2e/console.spec.ts`（17 个测试），覆盖首页、14 个模块页、计算 run 弹窗、字段矩阵保存与 admin 重定向；CI 增加 e2e job（安装 chromium、失败上传报告）；`npm run test:e2e` 本地全绿。
+
 ## 仍建议按 P0 顺序补做
 
 1. **LG-05 future-dated consent/e-signature**：合同未来生效排期、到期自动应用与外部电子签服务对接。
