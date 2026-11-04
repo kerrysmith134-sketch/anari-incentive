@@ -34,7 +34,8 @@
     "shadow:settle": "tsx scripts/shadow-settlement.ts",
     "test:e2e": "playwright test",
     "start": "tsx apps/api/src/server.ts",
-    "start:worker": "npm run worker"
+    "start:worker": "npm run worker",
+    "anchor:export": "tsx scripts/anchor-export.ts"
   },
   "engines": {
     "node": ">=20"

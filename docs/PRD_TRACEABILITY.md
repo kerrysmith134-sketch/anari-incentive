@@ -1,8 +1,33 @@
-# PRD V4.1 落地核对（2026-11-02）
+# PRD V4.1 落地核对（2026-11-05 更新）
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
 **代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
 **验证**：`npm run typecheck`、`npm test`（360 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+
+# 2026-11-05 成熟产品收尾轮
+
+在本轮之前，代码侧 P0 已闭环但 README 仍标注 "not production-ready"，且存在一批明确暂缓项。本轮按"全部执行完毕的成熟产品"口径收尾，全部改动均有测试（本轮结束时 406 unit/API + 65 PostgreSQL + 18 E2E 全绿）：
+
+1. **生产加固**：`assertRuntimeConfig` 启动 fail-fast（生产 + dev 认证 / 内存 store 拒绝启动，覆盖标志须显式接受风险）；worker 生产环境缺凭证拒绝启动；Dockerfile 改多阶段（生产依赖、非 root、HEALTHCHECK、`npm run start`）；compose 开发栈显式 `NODE_ENV=development`；新增 `docs/operations/production-deployment.md` 与 `backup-restore.md`（RPO≤15min/RTO≤1h、恢复演练对齐 `AUDIT_RESTORE_DRILL_AT`）。
+2. **SaaS 商业化（原 POS-03 暂缓项）**：`POST /api/v1/public/signup` 自助开通（租户+管理员+成员+人员+试用订阅；IP 限流、蜜罐、可关闭）；订阅计划目录 / 租户订阅（TRIALING/ACTIVE/PAST_DUE/CANCELED）/ 发票（DRAFT→ISSUED→PAID/VOID，两位小数金额）；席位强制（超出 402 SEAT_LIMIT_REACHED，仅 ACTIVE 占席）；平台管理 API + 租户自读（`/me/subscription`、`/me/invoices`）；迁移 066 + RLS；console Billing 页签与 `/console/signup`。
+3. **法定个税闭环（原"完整法定薪资集成"暂缓项）**：`payrollTaxMode=STATUTORY_CN` 切换居民累计预扣法（同年 PAID run 聚合 YTD、5000 基本减除、税率/速算扣除、税款永不为负）；PayrollLine 持久化 tax_calculation_mode / ytd_taxable_income / ytd_tax_withheld / iit_rate_percent / iit_quick_deduction（迁移 067、实体注册表、PG 映射）；`GET /payroll-runs/:id/tax-filing` 申报 CSV（finance + 审批/DLP）；银行代发 `format=GENERIC|ICBC|CMB` 预设。
+4. **INC-09 A 类池/战略池（原明确非目标，用户授权扩张）**：StrategicPoolCase DRAFT→COST_REVIEWED（标准成本 units×单价 + 转移定价引用必填）→FINANCE_APPROVED（审批人≠申请人、总池封顶、预算池可用额度校验、递延分期）→ACTIVE→SETTLED；迁移 068 + RLS；console Rewards 页签。
+5. **INC-10 收尾**：`POST /clawback-cases/:id/generate-recovery` —— APPROVED 案例幂等地追加一笔锁定负向账本调整（按案例幂等键去重）并开启 RECOVERY 结算批次，负数行维持员工 SETTLEMENT 确认门；端到端 money-path 测试覆盖"工作包→申报→认定→正式计算→锁定→clawback→恢复→重复拒绝"。
+6. **LG-06 机制收尾**：租户 `statutoryDeductionTypes` 注册表（类型分类、法定优先级、requiresCourtOrder/requiresConsent 标记、默认逐类型上限）；payroll breakdown 项带 statutory 标记，合同 cap 优先、注册表兜底；法定映射内容本身仍待法务确认（ADR-008 口径不变）。
+7. **AI 模型适配器（原"model-backed scoring"暂缓项）**：`HttpModelScoringProvider`（OpenAI 兼容）——证据以不可信数据包裹、系统提示禁止执行证据内指令、输出严格 JSON schema 校验（0-5 维度分、置信度、缺维度拒绝）；`POST /ai/model-summary` 结果仅写入 AI suggestion log（advisory），未配置返回 501、坏输出 502；评测门禁与人工复核链路不变。
+8. **Provider 拉取连接器**：HttpJsonConnector 支持 POST + body 游标；`buildHubspotSearchPullConfig`（CRM search `after` 分页）与 `buildFeishuBitablePullConfig`（多维表格 page_token 分页）预设 + 假 fetch 测试。
+9. **Console 产品级身份（原暂缓项）**：`/console/login` 支持 OIDC bearer 与 dev-header 双模式，登录即验证 `/platform/identity` 后解锁；侧栏显示会话模式并提供切换入口；api client 已统一携带 authorization 头。
+10. **SEC-06 自动处置执行器**：`POST /retention-disposal-requests:process` 批量完成到期已批准处置（legal-hold 类别跳过；与单条端点同一守卫：APPROVED+宽限期+法务保留），供集成角色定时调用；补齐平铺创建端点 `POST /retention-disposal-requests`（admin，嵌套端点保留）。ADR-008 的"默认不自动硬删除"不变——执行器只是把已审流程的最后一公里自动化。
+11. **MON-07 anchor 归档 job**：`npm run anchor:export` 拉取 anchor 清单推送 `AUDIT_WORM_URI`（带认证头），未配置时落本地 `anchor-archive/` 回执链，供定时任务归档 WORM。
+12. **契约与测试**：Zod 请求契约扩到 33 个并全部对齐 OpenAPI；新增 46 个测试（config 8、billing 10、statutory payroll 3+4、incentive extensions 4、model summary 3、retention disposal 1、connector preset 2、openapi 契约扩容），全量 406 unit/API + 65 PG + 18 E2E 通过。
+
+## 2026-11-05 之后的剩余项
+
+代码可关闭项已清零。剩余均为仓库外证据/决策：LG-05 真实电子签账号与模板、LG-06 法定映射的法务确认、MON-07 WORM/TSA 部署回执与 90 天恢复演练记录、AI-02 外部重训/重标流水线、供应商 DPA 证据、生产 IdP 接入。按 ADR-008 保持禁用的项（LLM 写金额、T3 自主执行、自动硬删除默认开启、绝对客观分）为产品红线，不属于缺口。
+
+---
+
+# 2026-11-02 核对记录（存档）
 
 ## 结论
 

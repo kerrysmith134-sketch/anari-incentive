@@ -64,8 +64,10 @@ import {
   concludeConsultationSchema,
   createDpiaSchema,
   createDataSourceSchema,
-  createRetentionDisposalRequestSchema,
   approveRetentionDisposalRequestSchema,
+  createFlatRetentionDisposalRequestSchema,
+  createRetentionDisposalRequestSchema,
+  processRetentionDisposalsSchema,
   completeRetentionDisposalRequestSchema,
   cancelRetentionDisposalRequestSchema,
   recordWorkforceSubgroupAttributeSchema,
@@ -6893,10 +6895,76 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/retention-disposal-requests", async (request, reply) => {
+    requireRoles(request, "admin");
+    const body = parse(createFlatRetentionDisposalRequestSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await platformStore.createRetentionDisposalRequest({
+          tenantId: tenantOf(request),
+          retentionPolicyId: body.retentionPolicyId,
+          requestedBy: body.requestedBy,
+          reason: body.reason,
+          scheduledFor: body.scheduledFor,
+        }),
+        request,
+      ),
+    );
+  });
+
   app.get("/api/v1/retention-disposal-requests", async (request) => {
     requireRoles(request, "manager", "finance");
     return data(
       await platformStore.listRetentionDisposalRequests(tenantOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/retention-disposal-requests:process", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(processRetentionDisposalsSchema, request.body);
+    const tenantId = tenantOf(request);
+    const pending = (await platformStore.listRetentionDisposalRequests(tenantId))
+      .filter(
+        (candidate) =>
+          candidate.status === "APPROVED" &&
+          Date.now() >= Date.parse(candidate.scheduledFor),
+      );
+    const completed: string[] = [];
+    const skipped: Array<{ requestId: string; reason: string }> = [];
+    const policies = await platformStore.listRetentionPolicies(tenantId);
+    const policyById = new Map(policies.map((policy) => [policy.id, policy]));
+    for (const candidate of pending) {
+      const policy = policyById.get(candidate.retentionPolicyId);
+      if (policy?.legalHold) {
+        skipped.push({
+          requestId: candidate.id,
+          reason: "RETENTION_LEGAL_HOLD",
+        });
+        continue;
+      }
+      try {
+        const processed = await platformStore.completeRetentionDisposalRequest({
+          tenantId,
+          requestId: candidate.id,
+          actorPersonId: body.actorPersonId,
+        });
+        completed.push(processed.id);
+      } catch (caught) {
+        skipped.push({
+          requestId: candidate.id,
+          reason: caught instanceof Error ? caught.message : "unknown",
+        });
+      }
+    }
+    countEvent("retention_disposals_processed");
+    return data(
+      {
+        processedCount: completed.length,
+        completed,
+        skipped,
+        checkedAt: new Date().toISOString(),
+      },
       request,
     );
   });

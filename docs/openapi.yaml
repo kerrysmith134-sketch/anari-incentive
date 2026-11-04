@@ -2403,12 +2403,52 @@ paths:
           $ref: "#/components/responses/StateConflict"
 
   /api/v1/retention-disposal-requests:
+    post:
+      tags: [Privacy]
+      summary: Request disposal for a retention category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFlatRetentionDisposalRequest"
+      responses:
+        "201":
+          description: Requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
     get:
-      tags: [Compliance]
-      summary: List retention disposal requests
+      tags: [Privacy]
+      summary: List disposal requests
       responses:
         "200":
-          description: Disposal requests
+          description: Requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/retention-disposal-requests:process:
+    post:
+      tags: [Privacy]
+      summary: Process due retention disposals (batch executor)
+      description: >
+        Completes APPROVED disposal requests whose grace period has elapsed,
+        skipping any whose category is under legal hold. Intended for
+        scheduled invocation by an integration role; every completion still
+        passes the same guards as the single-request endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessRetentionDisposals"
+      responses:
+        "200":
+          description: Processing summary
           content:
             application/json:
               schema:
@@ -11253,6 +11293,24 @@ components:
         rubricVersionId:
           $ref: "#/components/schemas/Uuid"
 
+    CreateFlatRetentionDisposalRequest:
+      type: object
+      required: [retentionPolicyId, requestedBy, reason]
+      properties:
+        retentionPolicyId:
+          type: string
+        requestedBy:
+          type: string
+        reason:
+          type: string
+        scheduledFor:
+          type: string
+    ProcessRetentionDisposals:
+      type: object
+      required: [actorPersonId]
+      properties:
+        actorPersonId:
+          type: string
     ModelSummary:
       type: object
       required: [dimensions, evidenceRefs]

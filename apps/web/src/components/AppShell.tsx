@@ -271,20 +271,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="env-card">
             <span className="env-card__dot" aria-hidden="true" />
             <div>
-              <strong>Header auth</strong>
-              <span>Development identity</span>
+              <strong>{session.token ? "OIDC token" : "Header auth"}</strong>
+              <span>{session.token ? "Bearer session" : "Development identity"}</span>
             </div>
           </div>
           {roles.length === 0 || roles.includes("admin") ? (
           <NavLink to="/settings" className="user-chip">
             <Avatar name="Operator" size={30} />
             <span className="user-chip__copy">
-              <strong>{shortId(session.userId, 16)}</strong>
+              <strong>{shortId(session.userId || session.personId, 16)}</strong>
               <span>{shortId(session.tenantId, 18)}</span>
             </span>
             <Icon name="chevron-right" size={14} />
           </NavLink>
           ) : null}
+          <NavLink to="/login" className="user-chip">
+            <Avatar name="Session" size={30} />
+            <span className="user-chip__copy">
+              <strong>Sign in / switch session</strong>
+              <span>{session.token ? "OIDC bearer" : "Dev headers"}</span>
+            </span>
+            <Icon name="chevron-right" size={14} />
+          </NavLink>
         </div>
       </aside>
 

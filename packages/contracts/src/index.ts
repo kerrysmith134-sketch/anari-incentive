@@ -610,6 +610,13 @@ export const createRetentionDisposalRequestSchema = z.object({
   requestedBy: uuidSchema,
   scheduledFor: z.string().datetime().optional(),
 });
+
+export const createFlatRetentionDisposalRequestSchema = z.object({
+  retentionPolicyId: uuidSchema,
+  reason: z.string().min(5),
+  requestedBy: uuidSchema,
+  scheduledFor: z.string().datetime().optional(),
+});
 export type CreateRetentionDisposalRequestBody = z.infer<
   typeof createRetentionDisposalRequestSchema
 >;
@@ -2301,6 +2308,13 @@ export const strategicPoolFinanceApproveSchema = z.object({
   deferredInstallmentMonths: z.number().int().min(0).max(36),
 });
 
+export const processRetentionDisposalsSchema = z.object({
+  actorPersonId: uuidSchema,
+});
+export type ProcessRetentionDisposalsBody = z.infer<
+  typeof processRetentionDisposalsSchema
+>;
+
 export const modelSummarySchema = z.object({
   dimensions: z.array(z.string().min(1)).min(1).max(8),
   evidenceRefs: z.array(z.string().min(1)).min(1).max(20),
@@ -2341,6 +2355,7 @@ export const requestSchemaRegistry = {
   StrategicPoolFinanceApprove: strategicPoolFinanceApproveSchema,
   CreateTenantInvoice: createTenantInvoiceSchema,
   ModelSummary: modelSummarySchema,
+  ProcessRetentionDisposals: processRetentionDisposalsSchema,
   PublicSignup: publicSignupSchema,
   SetTenantInvoiceStatus: setTenantInvoiceStatusSchema,
   SetTenantSubscription: setTenantSubscriptionSchema,
