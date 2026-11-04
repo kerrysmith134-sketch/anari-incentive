@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { assertRuntimeConfig } from "./config.js";
 import {
   AgentRuntime,
   createDefaultSkills,
@@ -19,6 +20,8 @@ import {
   MemoryPlatformStore,
   PgPlatformStore,
 } from "./platform-store.js";
+
+assertRuntimeConfig();
 
 const port = Number(process.env.PORT ?? 3000);
 const usePostgres =

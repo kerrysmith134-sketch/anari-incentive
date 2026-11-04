@@ -28,6 +28,22 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
+if (
+  process.env.NODE_ENV === "production" &&
+  !(
+    process.env.WORKER_TOKEN ||
+    (process.env.OIDC_TOKEN_URL &&
+      process.env.OIDC_CLIENT_ID &&
+      process.env.OIDC_CLIENT_SECRET)
+  )
+) {
+  console.error(
+    "The worker needs WORKER_TOKEN or OIDC_TOKEN_URL/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET in production; " +
+      "an unauthenticated worker cannot call an OIDC-protected API.",
+  );
+  process.exit(1);
+}
+
 function createTokenProvider(): TokenProvider | undefined {
   if (
     process.env.OIDC_TOKEN_URL &&

@@ -36,6 +36,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
+      NODE_ENV: development
       DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
       STORE: postgres
       PORT: 3000
@@ -72,6 +73,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
+      NODE_ENV: development
       DATABASE_URL: postgres://anari_app:anari_app@postgres:5432/anari_incentive
       API_BASE_URL: http://api:3000
       TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}

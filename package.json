@@ -2,7 +2,7 @@
   "name": "anari-incentive",
   "version": "0.1.0",
   "private": true,
-  "description": "N-Perform \u2014 multi-party contribution attribution and incentive settlement assurance layer",
+  "description": "N-Perform — multi-party contribution attribution and incentive settlement assurance layer",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -32,7 +32,9 @@
     "seed:packs": "tsx scripts/seed-policy-packs.ts",
     "demo:cycle": "tsx scripts/demo-cycle.ts",
     "shadow:settle": "tsx scripts/shadow-settlement.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "start": "tsx apps/api/src/server.ts",
+    "start:worker": "npm run worker"
   },
   "engines": {
     "node": ">=20"
@@ -40,9 +42,11 @@
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@types/node": "^22.5.5",
-    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4",
     "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2"
   }
 }
