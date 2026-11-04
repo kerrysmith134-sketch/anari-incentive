@@ -2267,6 +2267,40 @@ export const setTenantInvoiceStatusSchema = z.object({
   status: z.enum(["ISSUED", "PAID", "VOID"]),
 });
 
+export const generateClawbackRecoverySchema = z.object({
+  cycleId: z.string().min(1),
+  ledgerEntryId: z.string().min(1),
+  createBatch: z.boolean().optional(),
+});
+export type GenerateClawbackRecoveryBody = z.infer<
+  typeof generateClawbackRecoverySchema
+>;
+
+export const createStrategicPoolCaseSchema = z.object({
+  cycleId: z.string().min(1),
+  poolAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  capAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  currency: z.string().length(3),
+  budgetPoolId: z.string().optional(),
+  requestedBy: z.string().min(1),
+  rationale: z.string().min(1),
+});
+export type CreateStrategicPoolCaseBody = z.infer<
+  typeof createStrategicPoolCaseSchema
+>;
+
+export const strategicPoolCostReviewSchema = z.object({
+  units: z.number().int().min(0),
+  unitStandardCost: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  transferPricingRef: z.string().min(1),
+  reviewedBy: z.string().min(1),
+});
+
+export const strategicPoolFinanceApproveSchema = z.object({
+  approvedBy: z.string().min(1),
+  deferredInstallmentMonths: z.number().int().min(0).max(36),
+});
+
 export const publicSignupSchema = z.object({
   companyName: z.string().min(2),
   slug: z
@@ -2292,7 +2326,11 @@ export const requestSchemaRegistry = {
   ApprovePayrollRun: approvePayrollRunSchema,
   CreateAiScoreProposal: createAiScoreProposalSchema,
   CreateAppeal: createAppealSchema,
+  CreateStrategicPoolCase: createStrategicPoolCaseSchema,
   CreateSubscriptionPlan: createSubscriptionPlanSchema,
+  GenerateClawbackRecovery: generateClawbackRecoverySchema,
+  StrategicPoolCostReview: strategicPoolCostReviewSchema,
+  StrategicPoolFinanceApprove: strategicPoolFinanceApproveSchema,
   CreateTenantInvoice: createTenantInvoiceSchema,
   PublicSignup: publicSignupSchema,
   SetTenantInvoiceStatus: setTenantInvoiceStatusSchema,

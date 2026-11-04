@@ -70,7 +70,7 @@ export interface PayrollLinePersisted {
   createdAt: string;
   currency: string;
   deductionAmount: DecimalString;
-  deductionBreakdown: Array<{ type: string; amount: DecimalString; priority: number; }>;
+  deductionBreakdown: Array<{ type: string; amount: DecimalString; priority: number; statutory?: boolean; requiresCourtOrder?: boolean; requiresConsent?: boolean; }>;
   deductionCapAmount: DecimalString;
   deductionCapPassed: boolean;
   deductionCapRate: DecimalString;

@@ -90,6 +90,7 @@ import type {
   SettlementAcknowledgement,
   SettlementExport,
   SyncSchedule,
+  StrategicPoolCase,
   SyncRun,
   TrustSurveyQuestion,
   TrustSurveyReport,
@@ -179,6 +180,22 @@ export interface PlatformStore {
     invoiceId: string;
     status: TenantInvoiceStatus;
   }): Promise<TenantInvoice>;
+  createStrategicPoolCase(input: {
+    tenantId: string;
+    cycleId: string;
+    poolAmount: string;
+    capAmount: string;
+    currency: string;
+    budgetPoolId?: string;
+    rationale: string;
+    requestedBy: string;
+  }): Promise<StrategicPoolCase>;
+  listStrategicPoolCases(tenantId: string): Promise<StrategicPoolCase[]>;
+  updateStrategicPoolCase(input: {
+    tenantId: string;
+    caseId: string;
+    patch: Partial<Omit<StrategicPoolCase, "id" | "tenantId">>;
+  }): Promise<StrategicPoolCase>;
   linkPersonUser(input: {
     tenantId: string;
     personId: string;
@@ -1666,6 +1683,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly subscriptionPlans = new Map<string, SubscriptionPlan>();
   private readonly tenantSubscriptions = new Map<string, TenantSubscription>();
   private readonly invoices = new Map<string, TenantInvoice>();
+  private readonly strategicPoolCases = new Map<string, StrategicPoolCase>();
 
   constructor(
     options: {
@@ -2017,6 +2035,61 @@ export class MemoryPlatformStore implements PlatformStore {
         input.status === "PAID" ? invoice.paidAt ?? timestamp : invoice.paidAt,
     };
     this.invoices.set(invoice.id, updated);
+    return updated;
+  }
+
+  async createStrategicPoolCase(input: {
+    tenantId: string;
+    cycleId: string;
+    poolAmount: string;
+    capAmount: string;
+    currency: string;
+    budgetPoolId?: string;
+    rationale: string;
+    requestedBy: string;
+  }): Promise<StrategicPoolCase> {
+    const record: StrategicPoolCase = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      cycleId: input.cycleId,
+      poolAmount: input.poolAmount,
+      capAmount: input.capAmount,
+      currency: input.currency,
+      budgetPoolId: input.budgetPoolId,
+      rationale: input.rationale,
+      requestedBy: input.requestedBy,
+      deferredInstallmentMonths: 0,
+      status: "DRAFT",
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    this.strategicPoolCases.set(record.id, record);
+    return record;
+  }
+
+  async listStrategicPoolCases(
+    tenantId: string,
+  ): Promise<StrategicPoolCase[]> {
+    return [...this.strategicPoolCases.values()]
+      .filter((record) => record.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async updateStrategicPoolCase(input: {
+    tenantId: string;
+    caseId: string;
+    patch: Partial<Omit<StrategicPoolCase, "id" | "tenantId">>;
+  }): Promise<StrategicPoolCase> {
+    const record = this.strategicPoolCases.get(input.caseId);
+    if (!record || record.tenantId !== input.tenantId) {
+      notFound("StrategicPoolCase", input.caseId);
+    }
+    const updated: StrategicPoolCase = {
+      ...record,
+      ...input.patch,
+      updatedAt: now(),
+    };
+    this.strategicPoolCases.set(record.id, updated);
     return updated;
   }
 
@@ -8196,6 +8269,88 @@ export class PgPlatformStore implements PlatformStore {
     );
     if (rows.length === 0) notFound("Invoice", input.invoiceId);
     return this.mapInvoice(rows[0]);
+  }
+
+  async createStrategicPoolCase(input: {
+    tenantId: string;
+    cycleId: string;
+    poolAmount: string;
+    capAmount: string;
+    currency: string;
+    budgetPoolId?: string;
+    rationale: string;
+    requestedBy: string;
+  }): Promise<StrategicPoolCase> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO strategic_pool_cases
+         (tenant_id, cycle_id, pool_amount, cap_amount, currency,
+          budget_pool_id, rationale, requested_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        input.tenantId,
+        input.cycleId,
+        input.poolAmount,
+        input.capAmount,
+        input.currency,
+        input.budgetPoolId ?? null,
+        input.rationale,
+        input.requestedBy,
+      ],
+    );
+    return this.mapStrategicPoolCase(rows[0]);
+  }
+
+  async listStrategicPoolCases(
+    tenantId: string,
+  ): Promise<StrategicPoolCase[]> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM strategic_pool_cases WHERE tenant_id=$1 ORDER BY created_at DESC",
+      [tenantId],
+    );
+    return rows.map((row) => this.mapStrategicPoolCase(row));
+  }
+
+  async updateStrategicPoolCase(input: {
+    tenantId: string;
+    caseId: string;
+    patch: Partial<Omit<StrategicPoolCase, "id" | "tenantId">>;
+  }): Promise<StrategicPoolCase> {
+    const record = await this.listStrategicPoolCases(input.tenantId);
+    const current = record.find((candidate) => candidate.id === input.caseId);
+    if (!current) notFound("StrategicPoolCase", input.caseId);
+    const next = { ...current, ...input.patch };
+    const { rows } = await this.pool.query(
+      `UPDATE strategic_pool_cases SET
+         units=$3, unit_standard_cost=$4, total_standard_cost=$5,
+         transfer_pricing_ref=$6, cost_reviewed_by=$7, cost_reviewed_at=$8,
+         finance_approved_by=$9, finance_approved_at=$10,
+         deferred_installment_months=$11, status=$12,
+         rejected_reason=$13, activated_at=$14, settled_at=$15,
+         pool_amount=$16, cap_amount=$17, updated_at=now()
+       WHERE tenant_id=$1 AND id=$2
+       RETURNING *`,
+      [
+        input.tenantId,
+        input.caseId,
+        next.units ?? null,
+        next.unitStandardCost ?? null,
+        next.totalStandardCost ?? null,
+        next.transferPricingRef ?? null,
+        next.costReviewedBy ?? null,
+        next.costReviewedAt ?? null,
+        next.financeApprovedBy ?? null,
+        next.financeApprovedAt ?? null,
+        next.deferredInstallmentMonths,
+        next.status,
+        next.rejectedReason ?? null,
+        next.activatedAt ?? null,
+        next.settledAt ?? null,
+        next.poolAmount,
+        next.capAmount,
+      ],
+    );
+    return this.mapStrategicPoolCase(rows[0]);
   }
 
   async linkPersonUser(input: {
@@ -15254,6 +15409,41 @@ export class PgPlatformStore implements PlatformStore {
       trialEndsAt: iso(row.trial_ends_at) ?? undefined,
       canceledAt: iso(row.canceled_at) ?? undefined,
       cancelReason: row.cancel_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapStrategicPoolCase(row: QueryResultRow): StrategicPoolCase {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      poolAmount: String(row.pool_amount),
+      capAmount: String(row.cap_amount),
+      currency: row.currency,
+      budgetPoolId: row.budget_pool_id ?? undefined,
+      rationale: row.rationale,
+      requestedBy: row.requested_by,
+      units: row.units ?? undefined,
+      unitStandardCost:
+        row.unit_standard_cost === null
+          ? undefined
+          : String(row.unit_standard_cost),
+      totalStandardCost:
+        row.total_standard_cost === null
+          ? undefined
+          : String(row.total_standard_cost),
+      transferPricingRef: row.transfer_pricing_ref ?? undefined,
+      costReviewedBy: row.cost_reviewed_by ?? undefined,
+      costReviewedAt: iso(row.cost_reviewed_at) ?? undefined,
+      financeApprovedBy: row.finance_approved_by ?? undefined,
+      financeApprovedAt: iso(row.finance_approved_at) ?? undefined,
+      deferredInstallmentMonths: row.deferred_installment_months,
+      status: row.status,
+      rejectedReason: row.rejected_reason ?? undefined,
+      activatedAt: iso(row.activated_at) ?? undefined,
+      settledAt: iso(row.settled_at) ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };

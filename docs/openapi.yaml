@@ -5524,6 +5524,135 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/clawback-cases/{id}/generate-recovery:
+    post:
+      tags: [Payroll]
+      summary: Generate the clawback recovery adjustment and batch
+      description: >
+        Requires an APPROVED clawback case. Appends a locked negative ledger
+        adjustment (idempotent per case) and, unless createBatch=false, opens a
+        RECOVERY settlement batch for the cycle whose negative lines require
+        the affected people's SETTLEMENT confirmation before locking.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateClawbackRecovery"
+      responses:
+        "200":
+          description: Recovery generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/strategic-pool-cases:
+    get:
+      tags: [Rewards]
+      summary: List strategic/A-class pool cases
+      responses:
+        "200":
+          description: Cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Rewards]
+      summary: Create a strategic/A-class pool case (INC-09)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStrategicPoolCase"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/strategic-pool-cases/{id}/cost-review:
+    post:
+      tags: [Rewards]
+      summary: Record standard-cost accounting and the transfer-pricing reference
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StrategicPoolCostReview"
+      responses:
+        "200":
+          description: Case advanced to COST_REVIEWED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/strategic-pool-cases/{id}/finance-approve:
+    post:
+      tags: [Rewards]
+      summary: Finance sign-off (approver must differ from the requester)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StrategicPoolFinanceApprove"
+      responses:
+        "200":
+          description: Case advanced to FINANCE_APPROVED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/strategic-pool-cases/{id}/activate:
+    post:
+      tags: [Rewards]
+      summary: Activate a finance-approved strategic pool
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Case activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/strategic-pool-cases/{id}/settle:
+    post:
+      tags: [Rewards]
+      summary: Settle an active strategic pool
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Case settled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
   /api/v1/payroll-runs/{id}/tax-filing:
     get:
       tags: [Payroll]
@@ -11097,6 +11226,54 @@ components:
         rubricVersionId:
           $ref: "#/components/schemas/Uuid"
 
+    GenerateClawbackRecovery:
+      type: object
+      required: [cycleId, ledgerEntryId]
+      properties:
+        cycleId:
+          type: string
+        ledgerEntryId:
+          type: string
+        createBatch:
+          type: boolean
+    CreateStrategicPoolCase:
+      type: object
+      required: [cycleId, poolAmount, capAmount, currency, requestedBy, rationale]
+      properties:
+        cycleId:
+          type: string
+        poolAmount:
+          type: string
+        capAmount:
+          type: string
+        currency:
+          type: string
+        budgetPoolId:
+          type: string
+        requestedBy:
+          type: string
+        rationale:
+          type: string
+    StrategicPoolCostReview:
+      type: object
+      required: [units, unitStandardCost, transferPricingRef, reviewedBy]
+      properties:
+        units:
+          type: integer
+        unitStandardCost:
+          type: string
+        transferPricingRef:
+          type: string
+        reviewedBy:
+          type: string
+    StrategicPoolFinanceApprove:
+      type: object
+      required: [approvedBy, deferredInstallmentMonths]
+      properties:
+        approvedBy:
+          type: string
+        deferredInstallmentMonths:
+          type: integer
     CreateSubscriptionPlan:
       type: object
       required: [code, name, monthlyPrice, currency, seatLimit, trialDays]

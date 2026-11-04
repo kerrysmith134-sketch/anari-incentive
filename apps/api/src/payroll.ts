@@ -32,6 +32,23 @@ export interface PayrollCalculation {
  */
 export type PayrollTaxMode = "DECLARED" | "STATUTORY_CN";
 
+/** Tenant-configurable statutory deduction classification (LG-06). */
+export interface StatutoryDeductionTypeRule {
+  type: string;
+  priority: number;
+  requiresCourtOrder?: boolean;
+  requiresConsent?: boolean;
+  capRate?: string;
+}
+
+interface DeductionBreakdownAccumulator {
+  amount: bigint;
+  priority: number;
+  statutory?: boolean;
+  requiresCourtOrder?: boolean;
+  requiresConsent?: boolean;
+}
+
 export function calculatePayroll(input: {
   contracts: EmploymentContract[];
   ledger: AmountLedgerEntry[];
@@ -48,6 +65,8 @@ export function calculatePayroll(input: {
     string,
     { taxableIncome: string; taxWithheld: string }
   >;
+  /** Statutory deduction type registry from tenant settings (LG-06). */
+  statutoryDeductionTypes?: StatutoryDeductionTypeRule[];
   cycleId: string;
   currency: string;
   periodStart: string;
@@ -98,7 +117,7 @@ export function calculatePayroll(input: {
     const negativeEntries = entries
       .filter((entry) => parseDecimal(entry.amount) < 0n)
       .sort((a, b) => priorityOf(a.entryType) - priorityOf(b.entryType));
-    const breakdown = new Map<string, { amount: bigint; priority: number }>();
+    const breakdown = new Map<string, DeductionBreakdownAccumulator>();
     for (const entry of entries) {
       const amount = parseDecimal(entry.amount);
       if (amount >= 0n) {
@@ -170,7 +189,16 @@ export function calculatePayroll(input: {
     const variableSharePassed = incentive <= variableShareCapAmount;
     const deductionTypeCapBreaches: string[] = [];
     for (const [type, value] of breakdown.entries()) {
-      const rate = contract.deductionTypeCaps[type];
+      const rule = input.statutoryDeductionTypes?.find(
+        (candidate) => candidate.type === type,
+      );
+      if (rule) {
+        value.statutory = true;
+        value.requiresCourtOrder = rule.requiresCourtOrder ?? false;
+        value.requiresConsent = rule.requiresConsent ?? false;
+        value.priority = rule.priority;
+      }
+      const rate = contract.deductionTypeCaps[type] ?? rule?.capRate;
       if (!rate) continue;
       const capRate = parseDecimal(rate);
       const capAmount = (gross * capRate) / 1_000_000n;
@@ -251,6 +279,9 @@ export function calculatePayroll(input: {
           type,
           amount: formatDecimal(value.amount),
           priority: value.priority,
+          statutory: value.statutory,
+          requiresCourtOrder: value.requiresCourtOrder,
+          requiresConsent: value.requiresConsent,
         })),
       bankAccountRef: contract.bankAccountRef,
       taxCalculationMode,

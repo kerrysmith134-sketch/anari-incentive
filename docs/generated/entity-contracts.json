@@ -759,7 +759,7 @@
         {
           "column": "deduction_breakdown",
           "field": "deductionBreakdown",
-          "tsType": "Array<{ type: string; amount: DecimalString; priority: number; }>",
+          "tsType": "Array<{ type: string; amount: DecimalString; priority: number; statutory?: boolean; requiresCourtOrder?: boolean; requiresConsent?: boolean; }>",
           "optional": false,
           "exposed": true,
           "classification": "FINANCIAL"

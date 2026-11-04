@@ -20,7 +20,8 @@ async function call(
   return {
     status: response.statusCode,
     text: response.body,
-    get body(): Record<string, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    get body(): any {
       return response.json();
     },
   };

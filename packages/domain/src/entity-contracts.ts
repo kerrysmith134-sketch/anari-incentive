@@ -104,7 +104,7 @@ export const CORE_ENTITY_CONTRACTS: readonly EntityContract[] = [
       { column: "created_at", field: "createdAt", tsType: "string" },
       { column: "currency", field: "currency", tsType: "string" },
       { column: "deduction_amount", field: "deductionAmount", tsType: "DecimalString", classification: "FINANCIAL" },
-      { column: "deduction_breakdown", field: "deductionBreakdown", tsType: "Array<{ type: string; amount: DecimalString; priority: number; }>", classification: "FINANCIAL" },
+      { column: "deduction_breakdown", field: "deductionBreakdown", tsType: "Array<{ type: string; amount: DecimalString; priority: number; statutory?: boolean; requiresCourtOrder?: boolean; requiresConsent?: boolean; }>", classification: "FINANCIAL" },
       { column: "deduction_cap_amount", field: "deductionCapAmount", tsType: "DecimalString", classification: "FINANCIAL" },
       { column: "deduction_cap_passed", field: "deductionCapPassed", tsType: "boolean" },
       { column: "deduction_cap_rate", field: "deductionCapRate", tsType: "DecimalString" },

@@ -20,7 +20,7 @@ import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { ApiError, api } from "../lib/api.js";
+import { ApiError, api, getApiSession } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -152,15 +152,262 @@ export function RewardsPage() {
             reloadGrants={grants.reload}
             reloadExercises={exercises.reload}
           />
-        ) : (
+        ) : tab === "bounties" ? (
           <BountiesTab
             bounties={bountyList}
             loading={bounties.loading}
             error={bounties.error instanceof Error ? bounties.error : undefined}
             reload={bounties.reload}
           />
+        ) : (
+          <StrategicPoolsTab />
         )}
       </div>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------- strategic */
+
+interface StrategicPoolCaseView {
+  id: string;
+  cycleId: string;
+  poolAmount: string;
+  capAmount: string;
+  currency: string;
+  rationale: string;
+  requestedBy: string;
+  units?: number;
+  unitStandardCost?: string;
+  totalStandardCost?: string;
+  transferPricingRef?: string;
+  deferredInstallmentMonths: number;
+  status: string;
+}
+
+function StrategicPoolsTab() {
+  const toast = useToast();
+  const cases = useApiQuery<StrategicPoolCaseView[]>(
+    "/api/v1/strategic-pool-cases",
+  );
+  const [open, setOpen] = useState(false);
+  const [cycleId, setCycleId] = useState("");
+  const [poolAmount, setPoolAmount] = useState("100000");
+  const [capAmount, setCapAmount] = useState("120000");
+  const [rationale, setRationale] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function createCase() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api("/api/v1/strategic-pool-cases", {
+        method: "POST",
+        body: {
+          cycleId: cycleId.trim(),
+          poolAmount: poolAmount.trim(),
+          capAmount: capAmount.trim(),
+          currency: "CNY",
+          requestedBy:
+            getApiSession().personId ?? getApiSession().userId ?? "console",
+          rationale: rationale.trim(),
+        },
+      });
+      toast.success("Strategic pool case created");
+      setOpen(false);
+      cases.reload();
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? caught.message : "Could not create case",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function advance(
+    record: StrategicPoolCaseView,
+    command: "cost-review" | "finance-approve" | "activate" | "settle",
+  ) {
+    try {
+      const body =
+        command === "cost-review"
+          ? {
+              units: 1,
+              unitStandardCost: "0",
+              transferPricingRef: `TP-${record.id.slice(0, 8)}`,
+              reviewedBy:
+                getApiSession().personId ?? getApiSession().userId ?? "console",
+            }
+          : command === "finance-approve"
+            ? {
+                approvedBy:
+                  getApiSession().personId ?? getApiSession().userId ?? "console",
+                deferredInstallmentMonths: 0,
+              }
+            : {};
+      await api(`/api/v1/strategic-pool-cases/${record.id}/${command}`, {
+        method: "POST",
+        body,
+      });
+      toast.success("Strategic pool updated", command);
+      cases.reload();
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "Could not update case",
+      );
+    }
+  }
+
+  const list = cases.data ?? [];
+  return (
+    <>
+      <Panel
+        title="Strategic / A-class pools"
+        action={<Button onClick={() => setOpen(true)}>New case</Button>}
+      >
+        {cases.loading && cases.data === undefined ? (
+          <LoadingRows rows={4} />
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon="layers"
+            title="No strategic pool cases"
+            description="A-class pools require standard-cost accounting, a transfer-pricing reference, a total cap and finance sign-off before activation (INC-09)."
+          />
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Cycle</th>
+                <th>Pool / cap</th>
+                <th>Standard cost</th>
+                <th>Transfer pricing</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((record) => (
+                <tr key={record.id}>
+                  <td>
+                    <code>{shortId(record.cycleId)}</code>
+                  </td>
+                  <td>
+                    {record.poolAmount} / {record.capAmount} {record.currency}
+                  </td>
+                  <td>
+                    {record.totalStandardCost
+                      ? `${record.totalStandardCost} (${record.units} × ${record.unitStandardCost})`
+                      : "—"}
+                  </td>
+                  <td>{record.transferPricingRef ?? "—"}</td>
+                  <td>
+                    <Badge
+                      tone={
+                        record.status === "ACTIVE"
+                          ? "success"
+                          : record.status === "REJECTED"
+                            ? "neutral"
+                            : "info"
+                      }
+                    >
+                      {titleCase(record.status)}
+                    </Badge>
+                  </td>
+                  <td>
+                    {record.status === "DRAFT" ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => advance(record, "cost-review")}
+                      >
+                        Cost review
+                      </Button>
+                    ) : record.status === "COST_REVIEWED" ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => advance(record, "finance-approve")}
+                      >
+                        Finance approve
+                      </Button>
+                    ) : record.status === "FINANCE_APPROVED" ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => advance(record, "activate")}
+                      >
+                        Activate
+                      </Button>
+                    ) : record.status === "ACTIVE" ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => advance(record, "settle")}
+                      >
+                        Settle
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <Modal
+        open={open}
+        title="New strategic pool case"
+        onClose={() => setOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={createCase}>
+              Create case
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {error ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{error}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Cycle ID" htmlFor="sp-cycle">
+            <TextInput
+              id="sp-cycle"
+              value={cycleId}
+              onChange={(event) => setCycleId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Pool amount" htmlFor="sp-amount">
+            <TextInput
+              id="sp-amount"
+              value={poolAmount}
+              onChange={(event) => setPoolAmount(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Cap amount" htmlFor="sp-cap">
+            <TextInput
+              id="sp-cap"
+              value={capAmount}
+              onChange={(event) => setCapAmount(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Rationale" htmlFor="sp-rationale">
+            <TextInput
+              id="sp-rationale"
+              value={rationale}
+              onChange={(event) => setRationale(event.target.value)}
+              required
+            />
+          </FormField>
+        </div>
+      </Modal>
     </>
   );
 }

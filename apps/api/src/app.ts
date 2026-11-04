@@ -36,6 +36,10 @@ import {
   withdrawPilotEnrollmentSchema,
   createBreakGlassGrantSchema,
   createClawbackCaseSchema,
+  generateClawbackRecoverySchema,
+  createStrategicPoolCaseSchema,
+  strategicPoolCostReviewSchema,
+  strategicPoolFinanceApproveSchema,
   approveClawbackCaseSchema,
   closeClawbackCaseSchema,
   createDiscretionaryPoolReviewSchema,
@@ -198,6 +202,7 @@ import {
   type PolicyRollbackResult,
   type PolicyTestSuiteResult,
   type SettlementBatch,
+  type StrategicPoolCase,
 } from "@anari/domain";
 import {
   AgentRuntimeError,
@@ -5257,6 +5262,234 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/strategic-pool-cases", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createStrategicPoolCaseSchema, request.body);
+    if (parseDecimal(body.poolAmount) > parseDecimal(body.capAmount)) {
+      throw new ConflictError(
+        "STRATEGIC_POOL_EXCEEDS_CAP: poolAmount must not exceed capAmount",
+      );
+    }
+    if (body.budgetPoolId) {
+      const pool = await platformStore.getBudgetPool(
+        tenantOf(request),
+        body.budgetPoolId,
+      );
+      if (pool.status !== "APPROVED") {
+        throw new ConflictError(
+          `BUDGET_POOL_NOT_APPROVED: pool is ${pool.status}`,
+        );
+      }
+      const available =
+        parseDecimal(pool.approvedAmount) - parseDecimal(pool.committedAmount);
+      if (parseDecimal(body.poolAmount) > available) {
+        throw new ConflictError(
+          "STRATEGIC_POOL_EXCEEDS_BUDGET: poolAmount exceeds the budget pool's uncommitted amount",
+        );
+      }
+    }
+    return reply.status(201).send(
+      data(
+        await platformStore.createStrategicPoolCase({
+          tenantId: tenantOf(request),
+          ...body,
+        }),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/strategic-pool-cases", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.listStrategicPoolCases(tenantOf(request)),
+      request,
+    );
+  });
+
+  async function strategicPoolOf(
+    request: FastifyRequest,
+  ): Promise<{ record: StrategicPoolCase }> {
+    const records = await platformStore.listStrategicPoolCases(
+      tenantOf(request),
+    );
+    const record = records.find((candidate) => candidate.id === idOf(request));
+    if (!record) {
+      throw new NotFoundError(`StrategicPoolCase ${idOf(request)} not found`);
+    }
+    return { record };
+  }
+
+  app.post("/api/v1/strategic-pool-cases/:id/cost-review", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(strategicPoolCostReviewSchema, request.body);
+    const { record } = await strategicPoolOf(request);
+    if (record.status !== "DRAFT") {
+      throw new ConflictError(
+        `STRATEGIC_POOL_NOT_DRAFT: case is ${record.status}`,
+      );
+    }
+    const total = parseDecimal(body.unitStandardCost) * BigInt(body.units);
+    const updated = await platformStore.updateStrategicPoolCase({
+      tenantId: tenantOf(request),
+      caseId: record.id,
+      patch: {
+        units: body.units,
+        unitStandardCost: body.unitStandardCost,
+        totalStandardCost: formatDecimal(total),
+        transferPricingRef: body.transferPricingRef,
+        costReviewedBy: body.reviewedBy,
+        costReviewedAt: new Date().toISOString(),
+        status: "COST_REVIEWED",
+      },
+    });
+    countEvent("strategic_pool_cost_reviewed");
+    return data(updated, request);
+  });
+
+  app.post("/api/v1/strategic-pool-cases/:id/finance-approve", async (request) => {
+    requireRoles(request, "admin", "finance");
+    const body = parse(strategicPoolFinanceApproveSchema, request.body);
+    const { record } = await strategicPoolOf(request);
+    if (record.status !== "COST_REVIEWED") {
+      throw new ConflictError(
+        `STRATEGIC_POOL_NOT_COST_REVIEWED: case is ${record.status}`,
+      );
+    }
+    if (body.approvedBy === record.requestedBy) {
+      throw new ConflictError(
+        "STRATEGIC_POOL_SELF_APPROVAL: finance approver must differ from the requester",
+      );
+    }
+    if (parseDecimal(record.poolAmount) > parseDecimal(record.capAmount)) {
+      throw new ConflictError("STRATEGIC_POOL_EXCEEDS_CAP");
+    }
+    const updated = await platformStore.updateStrategicPoolCase({
+      tenantId: tenantOf(request),
+      caseId: record.id,
+      patch: {
+        financeApprovedBy: body.approvedBy,
+        financeApprovedAt: new Date().toISOString(),
+        deferredInstallmentMonths: body.deferredInstallmentMonths,
+        status: "FINANCE_APPROVED",
+      },
+    });
+    countEvent("strategic_pool_finance_approved");
+    return data(updated, request);
+  });
+
+  app.post("/api/v1/strategic-pool-cases/:id/activate", async (request) => {
+    requireRoles(request, "admin", "finance");
+    const { record } = await strategicPoolOf(request);
+    if (record.status !== "FINANCE_APPROVED") {
+      throw new ConflictError(
+        `STRATEGIC_POOL_NOT_FINANCE_APPROVED: case is ${record.status}`,
+      );
+    }
+    const updated = await platformStore.updateStrategicPoolCase({
+      tenantId: tenantOf(request),
+      caseId: record.id,
+      patch: {
+        status: "ACTIVE",
+        activatedAt: new Date().toISOString(),
+      },
+    });
+    countEvent("strategic_pool_activated");
+    return data(updated, request);
+  });
+
+  app.post("/api/v1/strategic-pool-cases/:id/settle", async (request) => {
+    requireRoles(request, "finance");
+    const { record } = await strategicPoolOf(request);
+    if (record.status !== "ACTIVE") {
+      throw new ConflictError(
+        `STRATEGIC_POOL_NOT_ACTIVE: case is ${record.status}`,
+      );
+    }
+    const updated = await platformStore.updateStrategicPoolCase({
+      tenantId: tenantOf(request),
+      caseId: record.id,
+      patch: {
+        status: "SETTLED",
+        settledAt: new Date().toISOString(),
+      },
+    });
+    countEvent("strategic_pool_settled");
+    return data(updated, request);
+  });
+
+  app.post("/api/v1/clawback-cases/:id/generate-recovery", async (request) => {
+    requireRoles(request, "finance");
+    const body = parse(generateClawbackRecoverySchema, request.body);
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const cases = await platformStore.listClawbackCases(tenantId);
+    const clawback = cases.find((candidate) => candidate.id === idOf(request));
+    if (!clawback) {
+      throw new NotFoundError(`ClawbackCase ${idOf(request)} not found`);
+    }
+    if (clawback.status !== "APPROVED") {
+      throw new ConflictError(
+        `CLAWBACK_NOT_APPROVED: case is ${clawback.status}`,
+      );
+    }
+    // Idempotency: one recovery adjustment per case, ever.
+    const idempotencyKey = `clawback-recovery:${clawback.id}`;
+    const duplicate = (await store.listLedger()).some(
+      (entry) => entry.idempotencyKey === idempotencyKey,
+    );
+    if (duplicate) {
+      throw new ConflictError(
+        "CLAWBACK_RECOVERY_ALREADY_GENERATED: this case already has a recovery adjustment",
+      );
+    }
+    const { entry, record } = await store.adjustLedgerEntry(
+      body.ledgerEntryId,
+      {
+        amount: `-${clawback.amount}`,
+        reasonCode: "CLAWBACK_RECOVERY",
+        explanation: `Clawback case ${clawback.id}: ${clawback.reasonCode}`,
+        approvedBy: clawback.approvedBy ?? request.authContext!.userId,
+        idempotencyKey,
+      },
+    );
+    let batch = null;
+    if (body.createBatch !== false) {
+      batch = await store.createSettlementBatch({
+        cycleId: body.cycleId,
+        kind: "RECOVERY",
+      });
+      const lines = await store.listSettlementLines(batch.id);
+      const affected = [
+        ...new Set(
+          lines
+            .filter((line) => Number(line.amount) < 0)
+            .map((line) => line.personId),
+        ),
+      ];
+      for (const personId of affected) {
+        await notifyBestEffort(store, {
+          recipientPersonId: personId,
+          audience: "PERSON",
+          title: "Clawback recovery requires confirmation",
+          body: `Batch ${batch.batchNo} carries a clawback recovery for case ${clawback.id}; please review and confirm or object.`,
+          sourceType: "SETTLEMENT_BATCH",
+          sourceId: batch.id,
+        });
+      }
+    }
+    countEvent("clawback_recovery_generated");
+    return data(
+      {
+        caseId: clawback.id,
+        adjustmentRecordId: record.id,
+        ledgerEntryId: entry.id,
+        recoveryBatch: batch,
+      },
+      request,
+    );
+  });
+
   app.get("/api/v1/clawback-cases/:id/schedule", async (request) => {
     requireRoles(request, "manager", "finance");
     const tenantId = tenantOf(request);
@@ -9549,12 +9782,24 @@ export function buildApp(
         }
       }
     }
+    const statutoryDeductionTypes = Array.isArray(
+      tenantSettings.statutoryDeductionTypes,
+    )
+      ? (tenantSettings.statutoryDeductionTypes as {
+          type: string;
+          priority: number;
+          requiresCourtOrder?: boolean;
+          requiresConsent?: boolean;
+          capRate?: string;
+        }[])
+      : undefined;
     const calculation = calculatePayroll({
       contracts,
       ledger,
       priorIncentives,
       unacknowledgedNoticesByPerson,
       taxMode,
+      statutoryDeductionTypes,
       priorYtd: taxMode === "STATUTORY_CN" ? priorYtd : undefined,
       cycleId: run.cycleId,
       currency: run.currency,

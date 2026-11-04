@@ -217,6 +217,19 @@
         "kind"
       ]
     },
+    "CreateStrategicPoolCase": {
+      "required": [
+        "capAmount",
+        "currency",
+        "cycleId",
+        "poolAmount",
+        "rationale",
+        "requestedBy"
+      ],
+      "optional": [
+        "budgetPoolId"
+      ]
+    },
     "CreateSubscriptionPlan": {
       "required": [
         "code",
@@ -253,6 +266,15 @@
       "optional": [
         "dueAt",
         "packageType"
+      ]
+    },
+    "GenerateClawbackRecovery": {
+      "required": [
+        "cycleId",
+        "ledgerEntryId"
+      ],
+      "optional": [
+        "createBatch"
       ]
     },
     "PublicSignup": {
@@ -347,6 +369,22 @@
         "cancelReason",
         "trialEndsAt"
       ]
+    },
+    "StrategicPoolCostReview": {
+      "required": [
+        "reviewedBy",
+        "transferPricingRef",
+        "unitStandardCost",
+        "units"
+      ],
+      "optional": []
+    },
+    "StrategicPoolFinanceApprove": {
+      "required": [
+        "approvedBy",
+        "deferredInstallmentMonths"
+      ],
+      "optional": []
     },
     "UpdateFieldAccessPolicies": {
       "required": [

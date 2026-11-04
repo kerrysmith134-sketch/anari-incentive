@@ -527,6 +527,46 @@ export interface ClawbackCase {
 
 export type BreakGlassScope = "PAYROLL_BANK_ACCOUNT";
 
+/**
+ * Strategic / A-class pool case (INC-09): profit-share pool that requires
+ * standard-cost accounting, a transfer-pricing audit reference, a total cap,
+ * explicit finance sign-off and optional deferred payment before activation.
+ */
+export type StrategicPoolStatus =
+  | "DRAFT"
+  | "COST_REVIEWED"
+  | "FINANCE_APPROVED"
+  | "ACTIVE"
+  | "SETTLED"
+  | "REJECTED";
+
+export interface StrategicPoolCase {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  poolAmount: DecimalString;
+  capAmount: DecimalString;
+  currency: string;
+  budgetPoolId?: UUID;
+  rationale: string;
+  requestedBy: string;
+  units?: number;
+  unitStandardCost?: DecimalString;
+  totalStandardCost?: DecimalString;
+  transferPricingRef?: string;
+  costReviewedBy?: string;
+  costReviewedAt?: string;
+  financeApprovedBy?: string;
+  financeApprovedAt?: string;
+  deferredInstallmentMonths: number;
+  status: StrategicPoolStatus;
+  rejectedReason?: string;
+  activatedAt?: string;
+  settledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BreakGlassGrant {
   id: UUID;
   tenantId: UUID;
