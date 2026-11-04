@@ -5,6 +5,10 @@ import type {
   PayrollRun,
 } from "@anari/domain";
 import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
+import {
+  CHINA_IIT_MONTHLY_BASIC_DEDUCTION,
+  calculateCumulativeIit,
+} from "@anari/payroll-tax";
 
 export type PayrollCalculatedLine = Omit<
   PayrollLine,
@@ -26,17 +30,31 @@ export interface PayrollCalculation {
  * entries. This is a declaration-based minimum-wage guard, not a payroll
  * integration: fixed salary and the legal minimum come from the contract.
  */
+export type PayrollTaxMode = "DECLARED" | "STATUTORY_CN";
+
 export function calculatePayroll(input: {
   contracts: EmploymentContract[];
   ledger: AmountLedgerEntry[];
   priorIncentives?: Record<string, string>;
   /** Required notices the person has not acknowledged, by person id. */
   unacknowledgedNoticesByPerson?: Record<string, string[]>;
+  /**
+   * DECLARED keeps the contract rate; STATUTORY_CN switches withholding to
+   * the China resident cumulative method using prior year-to-date amounts.
+   */
+  taxMode?: PayrollTaxMode;
+  /** Year-to-date amounts per person from PAID runs in the same calendar year. */
+  priorYtd?: Record<
+    string,
+    { taxableIncome: string; taxWithheld: string }
+  >;
   cycleId: string;
   currency: string;
   periodStart: string;
   periodEnd: string;
 }): PayrollCalculation {
+  const taxMode: PayrollTaxMode = input.taxMode ?? "DECLARED";
+  const basicDeduction = parseDecimal(CHINA_IIT_MONTHLY_BASIC_DEDUCTION);
   const periodStart = Date.parse(input.periodStart);
   const periodEnd = Date.parse(input.periodEnd);
   const lines: PayrollCalculatedLine[] = [];
@@ -105,11 +123,37 @@ export function calculatePayroll(input: {
     }
     const fixed = parseDecimal(contract.fixedMonthlySalary);
     const gross = fixed + incentive;
-    const tax =
-      (gross * parseDecimal(contract.taxRate || "0")) / 1_000_000n;
     const socialInsurance =
       (gross * parseDecimal(contract.socialInsuranceRate || "0")) /
       1_000_000n;
+    let tax: bigint;
+    let taxCalculationMode: PayrollTaxMode = taxMode;
+    let ytdTaxableIncome: bigint | undefined;
+    let ytdTaxWithheld: bigint | undefined;
+    let iitRatePercent: number | undefined;
+    let iitQuickDeduction: string | undefined;
+    if (taxMode === "STATUTORY_CN") {
+      // Cumulative withholding method for resident comprehensive income:
+      // cumulative taxable = prior YTD + (gross - social insurance - basic).
+      const prior = input.priorYtd?.[contract.personId];
+      const monthlyTaxable = gross - socialInsurance - basicDeduction;
+      const cumulative =
+        parseDecimal(prior?.taxableIncome ?? "0") + monthlyTaxable;
+      const statutory = calculateCumulativeIit({
+        cumulativeTaxableIncome: formatDecimal(cumulative),
+        taxAlreadyWithheld: prior?.taxWithheld,
+      });
+      tax = parseDecimal(statutory.taxForPeriod);
+      ytdTaxableIncome = cumulative;
+      ytdTaxWithheld =
+        parseDecimal(statutory.taxAlreadyWithheld) + tax;
+      iitRatePercent = statutory.ratePercent;
+      iitQuickDeduction = statutory.quickDeduction;
+    } else {
+      taxCalculationMode = "DECLARED";
+      tax =
+        (gross * parseDecimal(contract.taxRate || "0")) / 1_000_000n;
+    }
     const net = gross - deductions - tax - socialInsurance;
     const minimum = parseDecimal(contract.minimumMonthlyWage);
     const deductionCapRate = parseDecimal(
@@ -209,6 +253,17 @@ export function calculatePayroll(input: {
           priority: value.priority,
         })),
       bankAccountRef: contract.bankAccountRef,
+      taxCalculationMode,
+      ytdTaxableIncome:
+        ytdTaxableIncome === undefined
+          ? undefined
+          : formatDecimal(ytdTaxableIncome),
+      ytdTaxWithheld:
+        ytdTaxWithheld === undefined
+          ? undefined
+          : formatDecimal(ytdTaxWithheld),
+      iitRatePercent,
+      iitQuickDeduction,
     });
   }
 
@@ -270,13 +325,103 @@ export function payrollCsv(run: PayrollRun): string {
   return [header, ...rows].join("\n") + "\n";
 }
 
-export function payrollBankFileCsv(run: PayrollRun): string {
+export type BankFileFormat = "GENERIC" | "ICBC" | "CMB";
+
+export function payrollBankFileCsv(
+  run: PayrollRun,
+  format: BankFileFormat = "GENERIC",
+): string {
+  if (format === "ICBC") {
+    // ICBC-style batch sheet: amount in fen, one row per person. Bank branch
+    // templates vary; treat this as the configurable starting point.
+    const header =
+      "seq,person_id,currency,net_amount_fen,bank_account_ref,remark";
+    const rows = (run.lines ?? []).map((line, index) =>
+      [
+        index + 1,
+        line.personId,
+        line.currency,
+        (parseDecimal(line.netAmount) / 10_000n).toString(),
+        line.bankAccountRef,
+        `payroll ${run.id}`,
+      ]
+        .map(csvField)
+        .join(","),
+    );
+    return [header, ...rows].join("\n") + "\n";
+  }
+  if (format === "CMB") {
+    // CMB-style corporate payroll upload: name column retained for the bank,
+    // amount in yuan with two decimals.
+    const header = "person_id,currency,net_amount,bank_account_ref,pay_type";
+    const rows = (run.lines ?? []).map((line) =>
+      [
+        line.personId,
+        line.currency,
+        line.netAmount,
+        line.bankAccountRef,
+        "SALARY",
+      ]
+        .map(csvField)
+        .join(","),
+    );
+    return [header, ...rows].join("\n") + "\n";
+  }
   const header = "run_id,person_id,currency,net_amount,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
     [run.id, line.personId, line.currency, line.netAmount, line.bankAccountRef]
       .map(csvField)
       .join(","),
   );
+  return [header, ...rows].join("\n") + "\n";
+}
+
+/**
+ * China individual income tax filing export (cumulative withholding method).
+ * One row per payroll line with the monthly and year-to-date figures the
+ * declaration front-end requires; DECLARED-mode rows are included with their
+ * mode flagged so finance can reconcile both regimes.
+ */
+export function payrollTaxFilingCsv(run: PayrollRun): string {
+  const header = [
+    "person_id",
+    "currency",
+    "tax_mode",
+    "gross_amount",
+    "social_insurance",
+    "basic_deduction",
+    "monthly_taxable_income",
+    "ytd_taxable_income",
+    "ytd_tax_withheld",
+    "iit_rate_percent",
+    "iit_quick_deduction",
+    "tax_withheld_this_period",
+  ].join(",");
+  const basicDeduction = CHINA_IIT_MONTHLY_BASIC_DEDUCTION;
+  const rows = (run.lines ?? []).map((line) => {
+    const mode = line.taxCalculationMode ?? "DECLARED";
+    const social = parseDecimal(line.socialInsuranceAmount);
+    const gross = parseDecimal(line.grossAmount);
+    const monthlyTaxable = gross - social - parseDecimal(basicDeduction);
+    return [
+      line.personId,
+      line.currency,
+      mode,
+      line.grossAmount,
+      line.socialInsuranceAmount,
+      basicDeduction,
+      mode === "STATUTORY_CN"
+        ? formatDecimal(monthlyTaxable > 0n ? monthlyTaxable : 0n)
+        : "",
+      line.ytdTaxableIncome ?? "",
+      line.ytdTaxWithheld ?? "",
+      line.iitRatePercent ?? "",
+      line.iitQuickDeduction ?? "",
+      line.taxAmount,
+    ]
+      .map(csvField)
+      .join(",");
+  });
   return [header, ...rows].join("\n") + "\n";
 }
 

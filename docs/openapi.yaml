@@ -5524,6 +5524,24 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/payroll-runs/{id}/tax-filing:
+    get:
+      tags: [Payroll]
+      summary: Export China IIT filing CSV (cumulative withholding)
+      description: >
+        One row per payroll line with monthly and year-to-date figures for the
+        tax declaration front-end. STATUTORY_CN rows carry the cumulative
+        method columns; DECLARED rows are flagged for reconciliation. Requires
+        the finance role and follows export approval/DLP controls.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Filing CSV
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/payroll-runs/{id}/bank-file:
     get:
       tags: [Payroll]

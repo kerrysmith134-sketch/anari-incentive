@@ -824,6 +824,20 @@
           "exposed": true
         },
         {
+          "column": "iit_quick_deduction",
+          "field": "iitQuickDeduction",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true
+        },
+        {
+          "column": "iit_rate_percent",
+          "field": "iitRatePercent",
+          "tsType": "number",
+          "optional": true,
+          "exposed": true
+        },
+        {
           "column": "incentive_amount",
           "field": "incentiveAmount",
           "tsType": "DecimalString",
@@ -927,6 +941,13 @@
           "classification": "FINANCIAL"
         },
         {
+          "column": "tax_calculation_mode",
+          "field": "taxCalculationMode",
+          "tsType": "\"DECLARED\" | \"STATUTORY_CN\"",
+          "optional": true,
+          "exposed": true
+        },
+        {
           "column": "tenant_id",
           "field": "tenantId",
           "tsType": "UUID",
@@ -961,6 +982,22 @@
           "tsType": "DecimalString",
           "optional": false,
           "exposed": true
+        },
+        {
+          "column": "ytd_tax_withheld",
+          "field": "ytdTaxWithheld",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "column": "ytd_taxable_income",
+          "field": "ytdTaxableIncome",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true,
+          "classification": "FINANCIAL"
         }
       ]
     },

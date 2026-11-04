@@ -79,6 +79,8 @@ export interface PayrollLinePersisted {
   fixedAmount: DecimalString;
   grossAmount: DecimalString;
   id: UUID;
+  iitQuickDeduction?: DecimalString;
+  iitRatePercent?: number;
   incentiveAmount: DecimalString;
   incentiveChangeRate: DecimalString;
   minimumMonthlyWage: DecimalString;
@@ -93,7 +95,10 @@ export interface PayrollLinePersisted {
   smoothingThresholdRate: DecimalString;
   socialInsuranceAmount: DecimalString;
   taxAmount: DecimalString;
+  taxCalculationMode?: "DECLARED" | "STATUTORY_CN";
   tenantId: UUID;
+  ytdTaxWithheld?: DecimalString;
+  ytdTaxableIncome?: DecimalString;
   variableShareCapAmount: DecimalString;
   variableShareCapRate: DecimalString;
   variableSharePassed: boolean;

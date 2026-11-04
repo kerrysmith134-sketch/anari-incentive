@@ -246,6 +246,7 @@ import { ApiMetrics } from "./metrics.js";
 import {
   calculatePayroll,
   payrollBankFileCsv,
+  payrollTaxFilingCsv,
   payrollCsv,
   payrollPayslipHtml,
 } from "./payroll.js";
@@ -9336,7 +9337,22 @@ export function buildApp(
       tenantOf(request),
       idOf(request),
     );
-    const csv = payrollBankFileCsv(run);
+    const format = (
+      (request.query as { format?: string }).format ?? "GENERIC"
+    ).toUpperCase();
+    if (!["GENERIC", "ICBC", "CMB"].includes(format)) {
+      return reply.status(400).send({
+        ...errorBody(
+          "VALIDATION_ERROR",
+          "format must be one of GENERIC, ICBC, CMB",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const csv = payrollBankFileCsv(
+      run,
+      format as "GENERIC" | "ICBC" | "CMB",
+    );
     await assertExportDlp(
       request,
       csv,
@@ -9349,7 +9365,50 @@ export function buildApp(
       .headers(exportHeaders(request, csv, "RESTRICTED"))
       .header(
         "content-disposition",
-        `attachment; filename="payroll-bank-${run.id}.csv"`,
+        `attachment; filename="payroll-bank-${run.id}-${format.toLowerCase()}.csv"`,
+      )
+      .send(csv);
+  });
+
+  app.get("/api/v1/payroll-runs/:id/tax-filing", async (request, reply) => {
+    requireRoles(request, "finance");
+    assertExportAllowed(request);
+    const query = request.query as {
+      approvalRequestId?: string;
+      dlpApprovalRequestId?: string;
+    };
+    await ensureApproval(
+      request,
+      "PAYROLL_TAX_FILING",
+      query.approvalRequestId,
+    );
+    if (query.approvalRequestId) {
+      await consumeApprovalForAction(request, {
+        approvalRequestId: query.approvalRequestId,
+        actionType: "PAYROLL_TAX_FILING",
+        targetType: "PAYROLL_RUN",
+        targetId: idOf(request),
+      });
+    }
+    const run = await platformStore.getPayrollRun(
+      tenantOf(request),
+      idOf(request),
+    );
+    const csv = payrollTaxFilingCsv(run);
+    await assertExportDlp(
+      request,
+      csv,
+      "PAYROLL_RUN",
+      run.id,
+      query.dlpApprovalRequestId,
+    );
+    countEvent("payroll_tax_filing_exported");
+    return reply
+      .type("text/csv; charset=utf-8")
+      .headers(exportHeaders(request, csv, "RESTRICTED"))
+      .header(
+        "content-disposition",
+        `attachment; filename="payroll-tax-filing-${run.id}.csv"`,
       )
       .send(csv);
   });
@@ -9445,11 +9504,58 @@ export function buildApp(
         }
       }
     }
+    const tenantSettings =
+      (await platformStore.getTenant(tenantId)).settings ?? {};
+    const taxMode =
+      tenantSettings.payrollTaxMode === "STATUTORY_CN"
+        ? ("STATUTORY_CN" as const)
+        : ("DECLARED" as const);
+    const priorYtd: Record<
+      string,
+      { taxableIncome: string; taxWithheld: string }
+    > = {};
+    if (taxMode === "STATUTORY_CN") {
+      // Year-to-date totals from PAID runs in the same calendar year as this
+      // run's period start (cumulative withholding method).
+      const year = run.periodStart.slice(0, 4);
+      const paidRuns = allRuns.filter(
+        (candidate) =>
+          candidate.id !== run.id &&
+          candidate.status === "PAID" &&
+          candidate.periodStart.slice(0, 4) === year,
+      );
+      for (const paidRun of paidRuns) {
+        const detail = await platformStore.getPayrollRun(
+          tenantId,
+          paidRun.id,
+        );
+        for (const line of detail.lines ?? []) {
+          const social = parseDecimal(line.socialInsuranceAmount);
+          const gross = parseDecimal(line.grossAmount);
+          const taxable = gross - social - 5_000_000n;
+          const entry = priorYtd[line.personId] ?? {
+            taxableIncome: "0",
+            taxWithheld: "0",
+          };
+          priorYtd[line.personId] = {
+            taxableIncome: formatDecimal(
+              parseDecimal(entry.taxableIncome) +
+                (taxable > 0n ? taxable : 0n),
+            ),
+            taxWithheld: formatDecimal(
+              parseDecimal(entry.taxWithheld) + parseDecimal(line.taxAmount),
+            ),
+          };
+        }
+      }
+    }
     const calculation = calculatePayroll({
       contracts,
       ledger,
       priorIncentives,
       unacknowledgedNoticesByPerson,
+      taxMode,
+      priorYtd: taxMode === "STATUTORY_CN" ? priorYtd : undefined,
       cycleId: run.cycleId,
       currency: run.currency,
       periodStart: run.periodStart,

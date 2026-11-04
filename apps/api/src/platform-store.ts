@@ -14644,8 +14644,10 @@ export class PgPlatformStore implements PlatformStore {
              deduction_type_cap_passed, deduction_type_cap_breaches,
              prior_incentive_amount, incentive_change_rate,
              smoothing_threshold_rate, smoothing_passed, bank_account_ref,
-             notice_acknowledgement_passed, notice_acknowledgement_missing)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30,$31,$32::jsonb)`,
+             notice_acknowledgement_passed, notice_acknowledgement_missing,
+             tax_calculation_mode, ytd_taxable_income, ytd_tax_withheld,
+             iit_rate_percent, iit_quick_deduction)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30,$31,$32::jsonb,$33,$34,$35,$36,$37)`,
           [
             randomUUID(),
             input.tenantId,
@@ -14679,6 +14681,11 @@ export class PgPlatformStore implements PlatformStore {
             line.bankAccountRef ?? null,
             line.noticeAcknowledgementPassed,
             JSON.stringify(line.noticeAcknowledgementMissing),
+            line.taxCalculationMode ?? null,
+            line.ytdTaxableIncome ?? null,
+            line.ytdTaxWithheld ?? null,
+            line.iitRatePercent ?? null,
+            line.iitQuickDeduction ?? null,
           ],
         );
       }
@@ -16457,6 +16464,22 @@ export class PgPlatformStore implements PlatformStore {
       noticeAcknowledgementMissing:
         (row.notice_acknowledgement_missing as string[] | null) ?? [],
       bankAccountRef: row.bank_account_ref ?? undefined,
+      taxCalculationMode:
+        (row.tax_calculation_mode as PayrollLine["taxCalculationMode"]) ??
+        undefined,
+      ytdTaxableIncome:
+        row.ytd_taxable_income === null || row.ytd_taxable_income === undefined
+          ? undefined
+          : decimalText(String(row.ytd_taxable_income)) ?? "0",
+      ytdTaxWithheld:
+        row.ytd_tax_withheld === null || row.ytd_tax_withheld === undefined
+          ? undefined
+          : decimalText(String(row.ytd_tax_withheld)) ?? "0",
+      iitRatePercent: row.iit_rate_percent ?? undefined,
+      iitQuickDeduction:
+        row.iit_quick_deduction === null || row.iit_quick_deduction === undefined
+          ? undefined
+          : decimalText(String(row.iit_quick_deduction)) ?? "0",
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

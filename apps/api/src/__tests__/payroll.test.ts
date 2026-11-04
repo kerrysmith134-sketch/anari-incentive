@@ -197,3 +197,72 @@ describe("payroll deduction cap", () => {
     expect(result.lines[0]?.netAmount).toBe("5800");
   });
 });
+
+describe("payroll statutory CN tax mode", () => {
+  const statutoryInput = (priorYtd?: {
+    taxableIncome: string;
+    taxWithheld: string;
+  }) =>
+    calculatePayroll({
+      contracts: [{ ...contract, taxRate: "0" }],
+      ledger: [],
+      taxMode: "STATUTORY_CN",
+      priorYtd: priorYtd
+        ? { [contract.personId]: priorYtd }
+        : undefined,
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-11-01T00:00:00.000Z",
+      periodEnd: "2026-11-30T23:59:59.000Z",
+    });
+
+  it("withholds from the first bracket with cumulative bookkeeping", () => {
+    // gross 8000, social 5% = 400, basic deduction 5000 -> taxable 2600.
+    const result = statutoryInput();
+    const line = result.lines[0]!;
+    expect(line.taxCalculationMode).toBe("STATUTORY_CN");
+    expect(line.ytdTaxableIncome).toBe("2600");
+    expect(line.iitRatePercent).toBe(3);
+    // 2600 * 3% = 78
+    expect(line.taxAmount).toBe("78");
+    expect(line.ytdTaxWithheld).toBe("78");
+  });
+
+  it("crosses into a higher bracket using prior year-to-date amounts", () => {
+    // Prior YTD taxable 360000 -> +2600 = 362600 -> 25% bracket,
+    // quick deduction 31920: cumulative due = 362600*25% - 31920 = 58730.
+    // Prior withheld = 360000*25% - 31920 = 58080. Period tax = 650.
+    const result = statutoryInput({
+      taxableIncome: "360000",
+      taxWithheld: "58080",
+    });
+    const line = result.lines[0]!;
+    expect(line.iitRatePercent).toBe(25);
+    expect(line.ytdTaxableIncome).toBe("362600");
+    expect(line.taxAmount).toBe("650");
+    expect(line.ytdTaxWithheld).toBe("58730");
+  });
+
+  it("never withholds negative tax after a large prior withholding", () => {
+    const result = statutoryInput({
+      taxableIncome: "360000",
+      taxWithheld: "60000",
+    });
+    expect(result.lines[0]!.taxAmount).toBe("0");
+  });
+
+  it("keeps DECLARED as the default mode", () => {
+    const result = calculatePayroll({
+      contracts: [contract],
+      ledger: [],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-11-01T00:00:00.000Z",
+      periodEnd: "2026-11-30T23:59:59.000Z",
+    });
+    expect(result.lines[0]!.taxCalculationMode).toBe("DECLARED");
+    expect(result.lines[0]!.ytdTaxableIncome).toBeUndefined();
+    // 8000 * 10% declared rate
+    expect(result.lines[0]!.taxAmount).toBe("800");
+  });
+});
