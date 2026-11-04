@@ -1644,6 +1644,72 @@ export interface PlatformPerson {
   createdAt: string;
 }
 
+/** Catalog entry describing what a tenant can buy and use. */
+export interface SubscriptionPlan {
+  id: UUID;
+  code: string;
+  name: string;
+  description?: string;
+  /** Monthly list price as a decimal string, e.g. "1999.00". */
+  monthlyPrice: string;
+  currency: string;
+  /** Maximum active people; -1 means unlimited. */
+  seatLimit: number;
+  trialDays: number;
+  features: string[];
+  active: boolean;
+  createdAt: string;
+}
+
+export type TenantSubscriptionStatus =
+  | "TRIALING"
+  | "ACTIVE"
+  | "PAST_DUE"
+  | "CANCELED";
+
+export interface TenantSubscription {
+  id: UUID;
+  tenantId: UUID;
+  planId: UUID;
+  planCode: string;
+  planName: string;
+  status: TenantSubscriptionStatus;
+  seats: number;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndsAt?: string;
+  canceledAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TenantInvoiceStatus = "DRAFT" | "ISSUED" | "PAID" | "VOID";
+
+export interface TenantInvoiceLineItem {
+  description: string;
+  quantity: number;
+  unitAmount: string;
+  amount: string;
+}
+
+export interface TenantInvoice {
+  id: UUID;
+  tenantId: UUID;
+  subscriptionId: UUID;
+  number: string;
+  status: TenantInvoiceStatus;
+  currency: string;
+  lineItems: TenantInvoiceLineItem[];
+  totalAmount: string;
+  periodStart?: string;
+  periodEnd?: string;
+  dueDate?: string;
+  issuedAt?: string;
+  paidAt?: string;
+  createdAt: string;
+}
+
 export interface PlatformOrgNode {
   id: UUID;
   tenantId: UUID;

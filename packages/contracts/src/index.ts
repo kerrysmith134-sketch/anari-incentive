@@ -2213,6 +2213,76 @@ export function describeRequestSchema(schema: unknown): RequestSchemaContract {
   return { required: required.sort(), optional: optional.sort() };
 }
 
+// ---------------------------------------------------------------------------
+// Billing: plans, subscriptions, invoices and self-service signup
+// ---------------------------------------------------------------------------
+
+export const createSubscriptionPlanSchema = z.object({
+  code: z.string().min(2),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  monthlyPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  currency: z.string().length(3),
+  /** -1 means unlimited seats. */
+  seatLimit: z.number().int().min(-1),
+  trialDays: z.number().int().min(0).max(365),
+  features: z.array(z.string()).default([]),
+  active: z.boolean().optional(),
+});
+export type CreateSubscriptionPlanBody = z.infer<
+  typeof createSubscriptionPlanSchema
+>;
+
+export const setTenantSubscriptionSchema = z.object({
+  planCode: z.string().min(2),
+  status: z.enum(["TRIALING", "ACTIVE", "PAST_DUE", "CANCELED"]),
+  seats: z.number().int().min(1),
+  currentPeriodStart: z.string().min(4),
+  currentPeriodEnd: z.string().min(4),
+  trialEndsAt: z.string().optional(),
+  cancelReason: z.string().optional(),
+});
+export type SetTenantSubscriptionBody = z.infer<
+  typeof setTenantSubscriptionSchema
+>;
+
+export const tenantInvoiceLineItemSchema = z.object({
+  description: z.string().min(1),
+  quantity: z.number().int().min(1),
+  unitAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+});
+
+export const createTenantInvoiceSchema = z.object({
+  lineItems: z.array(tenantInvoiceLineItemSchema).min(1),
+  periodStart: z.string().optional(),
+  periodEnd: z.string().optional(),
+  dueDate: z.string().optional(),
+});
+export type CreateTenantInvoiceBody = z.infer<
+  typeof createTenantInvoiceSchema
+>;
+
+export const setTenantInvoiceStatusSchema = z.object({
+  status: z.enum(["ISSUED", "PAID", "VOID"]),
+});
+
+export const publicSignupSchema = z.object({
+  companyName: z.string().min(2),
+  slug: z
+    .string()
+    .min(2)
+    .regex(/^[a-z0-9][a-z0-9-]*$/)
+    .optional(),
+  adminDisplayName: z.string().min(1),
+  adminEmail: z.string().email(),
+  planCode: z.string().optional(),
+  acceptTerms: z.literal(true),
+  /** Honeypot; must stay empty. */
+  website: z.string().max(0).optional(),
+});
+export type PublicSignupBody = z.infer<typeof publicSignupSchema>;
+
 /**
  * Single source for documented request bodies. Add a schema here and the
  * generated contract manifest plus OpenAPI drift test pick it up.
@@ -2222,6 +2292,11 @@ export const requestSchemaRegistry = {
   ApprovePayrollRun: approvePayrollRunSchema,
   CreateAiScoreProposal: createAiScoreProposalSchema,
   CreateAppeal: createAppealSchema,
+  CreateSubscriptionPlan: createSubscriptionPlanSchema,
+  CreateTenantInvoice: createTenantInvoiceSchema,
+  PublicSignup: publicSignupSchema,
+  SetTenantInvoiceStatus: setTenantInvoiceStatusSchema,
+  SetTenantSubscription: setTenantSubscriptionSchema,
   CreateApprovalRequest: createApprovalRequestSchema,
   CreateClawbackCase: createClawbackCaseSchema,
   CreateContributionClaim: createContributionClaimSchema,

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
-import { formatDecimal, parseDecimal, sha256 } from "@anari/policy-dsl";
+import {
+  divRound,
+  formatDecimal,
+  parseDecimal,
+  sha256,
+} from "@anari/policy-dsl";
 import type {
   Acceptance,
   AdverseActionCase,
@@ -61,6 +66,12 @@ import type {
   PlatformPerson,
   PlatformTenant,
   PlatformUser,
+  SubscriptionPlan,
+  TenantInvoice,
+  TenantInvoiceLineItem,
+  TenantInvoiceStatus,
+  TenantSubscription,
+  TenantSubscriptionStatus,
   PayrollLine,
   PayrollRun,
   PilotEnrollment,
@@ -89,6 +100,14 @@ import type {
 } from "@anari/domain";
 import { adverseActionTransitions, assertTransition } from "@anari/domain";
 import { ConflictError, NotFoundError } from "./store.js";
+
+/** Format a 1e6-scaled decimal as a fixed 2-decimal money string. */
+const formatInvoiceAmount = (value: bigint): string => {
+  const rounded = divRound(value, 10_000n);
+  const negative = rounded < 0n;
+  const abs = (negative ? -rounded : rounded).toString().padStart(3, "0");
+  return `${negative ? "-" : ""}${abs.slice(0, -2)}.${abs.slice(-2)}`;
+};
 
 export interface PlatformStore {
   createTenant(input: {
@@ -123,6 +142,43 @@ export interface PlatformStore {
     userId?: string;
   }): Promise<PlatformPerson>;
   listPersons(tenantId: string): Promise<PlatformPerson[]>;
+  createSubscriptionPlan(input: {
+    code: string;
+    name: string;
+    description?: string;
+    monthlyPrice: string;
+    currency: string;
+    seatLimit: number;
+    trialDays: number;
+    features: string[];
+    active?: boolean;
+  }): Promise<SubscriptionPlan>;
+  listSubscriptionPlans(activeOnly?: boolean): Promise<SubscriptionPlan[]>;
+  setTenantSubscription(input: {
+    tenantId: string;
+    planCode: string;
+    status: TenantSubscriptionStatus;
+    seats: number;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    trialEndsAt?: string;
+    cancelReason?: string;
+  }): Promise<TenantSubscription>;
+  getTenantSubscription(
+    tenantId: string,
+  ): Promise<TenantSubscription | null>;
+  createInvoice(input: {
+    tenantId: string;
+    lineItems: TenantInvoiceLineItem[];
+    periodStart?: string;
+    periodEnd?: string;
+    dueDate?: string;
+  }): Promise<TenantInvoice>;
+  listInvoices(tenantId: string): Promise<TenantInvoice[]>;
+  setInvoiceStatus(input: {
+    invoiceId: string;
+    status: TenantInvoiceStatus;
+  }): Promise<TenantInvoice>;
   linkPersonUser(input: {
     tenantId: string;
     personId: string;
@@ -1607,6 +1663,9 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly externalIdentities = new Map<string, ExternalIdentity>();
   private readonly webhooks = new Map<string, WebhookInboxMessage>();
   private readonly inboxMessages = new Map<string, InboxMessage>();
+  private readonly subscriptionPlans = new Map<string, SubscriptionPlan>();
+  private readonly tenantSubscriptions = new Map<string, TenantSubscription>();
+  private readonly invoices = new Map<string, TenantInvoice>();
 
   constructor(
     options: {
@@ -1809,6 +1868,165 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.persons.values()]
       .filter((person) => person.tenantId === tenantId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createSubscriptionPlan(input: {
+    code: string;
+    name: string;
+    description?: string;
+    monthlyPrice: string;
+    currency: string;
+    seatLimit: number;
+    trialDays: number;
+    features: string[];
+    active?: boolean;
+  }): Promise<SubscriptionPlan> {
+    if (
+      [...this.subscriptionPlans.values()].some(
+        (plan) => plan.code === input.code,
+      )
+    ) {
+      throw new ConflictError(`plan code ${input.code} already exists`);
+    }
+    const plan: SubscriptionPlan = {
+      id: randomUUID(),
+      code: input.code,
+      name: input.name,
+      description: input.description,
+      monthlyPrice: input.monthlyPrice,
+      currency: input.currency,
+      seatLimit: input.seatLimit,
+      trialDays: input.trialDays,
+      features: input.features,
+      active: input.active ?? true,
+      createdAt: now(),
+    };
+    this.subscriptionPlans.set(plan.id, plan);
+    return plan;
+  }
+
+  async listSubscriptionPlans(
+    activeOnly = false,
+  ): Promise<SubscriptionPlan[]> {
+    return [...this.subscriptionPlans.values()]
+      .filter((plan) => (activeOnly ? plan.active : true))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async setTenantSubscription(input: {
+    tenantId: string;
+    planCode: string;
+    status: TenantSubscriptionStatus;
+    seats: number;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    trialEndsAt?: string;
+    cancelReason?: string;
+  }): Promise<TenantSubscription> {
+    const plan = [...this.subscriptionPlans.values()].find(
+      (candidate) => candidate.code === input.planCode,
+    );
+    if (!plan) notFound("SubscriptionPlan", input.planCode);
+    await this.getTenant(input.tenantId);
+    const existing = [...this.tenantSubscriptions.values()].find(
+      (subscription) => subscription.tenantId === input.tenantId,
+    );
+    const timestamp = now();
+    const record: TenantSubscription = {
+      id: existing?.id ?? randomUUID(),
+      tenantId: input.tenantId,
+      planId: plan.id,
+      planCode: plan.code,
+      planName: plan.name,
+      status: input.status,
+      seats: input.seats,
+      currentPeriodStart: input.currentPeriodStart,
+      currentPeriodEnd: input.currentPeriodEnd,
+      trialEndsAt: input.trialEndsAt,
+      canceledAt:
+        input.status === "CANCELED" ? existing?.canceledAt ?? timestamp : undefined,
+      cancelReason: input.cancelReason,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.tenantSubscriptions.set(record.id, record);
+    return record;
+  }
+
+  async getTenantSubscription(
+    tenantId: string,
+  ): Promise<TenantSubscription | null> {
+    return (
+      [...this.tenantSubscriptions.values()].find(
+        (subscription) => subscription.tenantId === tenantId,
+      ) ?? null
+    );
+  }
+
+  async createInvoice(input: {
+    tenantId: string;
+    lineItems: TenantInvoiceLineItem[];
+    periodStart?: string;
+    periodEnd?: string;
+    dueDate?: string;
+  }): Promise<TenantInvoice> {
+    const subscription = await this.getTenantSubscription(input.tenantId);
+    if (!subscription) notFound("TenantSubscription", input.tenantId);
+    const plan = this.subscriptionPlans.get(subscription.planId);
+    const total = input.lineItems.reduce(
+      (sum, item) => sum + parseDecimal(item.amount),
+      0n,
+    );
+    const invoice: TenantInvoice = {
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      subscriptionId: subscription.id,
+      number: this.nextInvoiceNumber(input.tenantId),
+      status: "DRAFT",
+      currency: plan?.currency ?? "CNY",
+      lineItems: input.lineItems,
+      totalAmount: formatInvoiceAmount(total),
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      dueDate: input.dueDate,
+      createdAt: now(),
+    };
+    this.invoices.set(invoice.id, invoice);
+    return invoice;
+  }
+
+  async listInvoices(tenantId: string): Promise<TenantInvoice[]> {
+    return [...this.invoices.values()]
+      .filter((invoice) => invoice.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async setInvoiceStatus(input: {
+    invoiceId: string;
+    status: TenantInvoiceStatus;
+  }): Promise<TenantInvoice> {
+    const invoice = this.invoices.get(input.invoiceId);
+    if (!invoice) notFound("Invoice", input.invoiceId);
+    const timestamp = now();
+    const updated: TenantInvoice = {
+      ...invoice,
+      status: input.status,
+      issuedAt:
+        input.status === "ISSUED" ? invoice.issuedAt ?? timestamp : invoice.issuedAt,
+      paidAt:
+        input.status === "PAID" ? invoice.paidAt ?? timestamp : invoice.paidAt,
+    };
+    this.invoices.set(invoice.id, updated);
+    return updated;
+  }
+
+  private nextInvoiceNumber(tenantId: string): string {
+    const yearMonth = new Date().toISOString().slice(0, 7).replace("-", "");
+    const count =
+      [...this.invoices.values()].filter(
+        (invoice) => invoice.tenantId === tenantId,
+      ).length + 1;
+    return `INV-${yearMonth}-${String(count).padStart(4, "0")}`;
   }
 
   async linkPersonUser(input: {
@@ -7794,6 +8012,190 @@ export class PgPlatformStore implements PlatformStore {
       [tenantId],
     );
     return rows.map((row) => this.mapPerson(row));
+  }
+
+  async createSubscriptionPlan(input: {
+    code: string;
+    name: string;
+    description?: string;
+    monthlyPrice: string;
+    currency: string;
+    seatLimit: number;
+    trialDays: number;
+    features: string[];
+    active?: boolean;
+  }): Promise<SubscriptionPlan> {
+    const { rows } = await this.pool.query(
+      `INSERT INTO subscription_plans
+         (code, name, description, monthly_price, currency, seat_limit,
+          trial_days, features, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
+       ON CONFLICT (code) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         monthly_price = EXCLUDED.monthly_price,
+         currency = EXCLUDED.currency,
+         seat_limit = EXCLUDED.seat_limit,
+         trial_days = EXCLUDED.trial_days,
+         features = EXCLUDED.features,
+         active = EXCLUDED.active
+       RETURNING *`,
+      [
+        input.code,
+        input.name,
+        input.description ?? null,
+        input.monthlyPrice,
+        input.currency,
+        input.seatLimit,
+        input.trialDays,
+        JSON.stringify(input.features),
+        input.active ?? true,
+      ],
+    );
+    return this.mapSubscriptionPlan(rows[0]);
+  }
+
+  async listSubscriptionPlans(
+    activeOnly = false,
+  ): Promise<SubscriptionPlan[]> {
+    const { rows } = await this.pool.query(
+      activeOnly
+        ? "SELECT * FROM subscription_plans WHERE active ORDER BY created_at"
+        : "SELECT * FROM subscription_plans ORDER BY created_at",
+    );
+    return rows.map((row) => this.mapSubscriptionPlan(row));
+  }
+
+  async setTenantSubscription(input: {
+    tenantId: string;
+    planCode: string;
+    status: TenantSubscriptionStatus;
+    seats: number;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    trialEndsAt?: string;
+    cancelReason?: string;
+  }): Promise<TenantSubscription> {
+    await this.assertTenant(input.tenantId);
+    const plan = await this.pool.query(
+      "SELECT * FROM subscription_plans WHERE code=$1",
+      [input.planCode],
+    );
+    if (plan.rows.length === 0) notFound("SubscriptionPlan", input.planCode);
+    const { rows } = await this.pool.query(
+      `INSERT INTO tenant_subscriptions
+         (tenant_id, plan_id, status, seats, current_period_start,
+          current_period_end, trial_ends_at, canceled_at, cancel_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,
+               CASE WHEN $3 = 'CANCELED' THEN now() END,
+               $8)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         plan_id = EXCLUDED.plan_id,
+         status = EXCLUDED.status,
+         seats = EXCLUDED.seats,
+         current_period_start = EXCLUDED.current_period_start,
+         current_period_end = EXCLUDED.current_period_end,
+         trial_ends_at = EXCLUDED.trial_ends_at,
+         canceled_at =
+           CASE WHEN EXCLUDED.status = 'CANCELED'
+                THEN COALESCE(tenant_subscriptions.canceled_at, now())
+                ELSE NULL END,
+         cancel_reason = EXCLUDED.cancel_reason,
+         updated_at = now()
+       RETURNING *`,
+      [
+        input.tenantId,
+        plan.rows[0].id,
+        input.status,
+        input.seats,
+        input.currentPeriodStart,
+        input.currentPeriodEnd,
+        input.trialEndsAt ?? null,
+        input.cancelReason ?? null,
+      ],
+    );
+    return this.mapTenantSubscription(rows[0], plan.rows[0]);
+  }
+
+  async getTenantSubscription(
+    tenantId: string,
+  ): Promise<TenantSubscription | null> {
+    const { rows } = await this.pool.query(
+      `SELECT s.*, p.code AS plan_code, p.name AS plan_name
+         FROM tenant_subscriptions s
+         JOIN subscription_plans p ON p.id = s.plan_id
+        WHERE s.tenant_id = $1`,
+      [tenantId],
+    );
+    if (rows.length === 0) return null;
+    return this.mapTenantSubscription(rows[0]);
+  }
+
+  async createInvoice(input: {
+    tenantId: string;
+    lineItems: TenantInvoiceLineItem[];
+    periodStart?: string;
+    periodEnd?: string;
+    dueDate?: string;
+  }): Promise<TenantInvoice> {
+    const subscription = await this.getTenantSubscription(input.tenantId);
+    if (!subscription) notFound("TenantSubscription", input.tenantId);
+    const plan = await this.pool.query(
+      "SELECT * FROM subscription_plans WHERE id=$1",
+      [subscription.planId],
+    );
+    const total = input.lineItems.reduce(
+      (sum, item) => sum + parseDecimal(item.amount),
+      0n,
+    );
+    const { rows } = await this.pool.query(
+      `INSERT INTO invoices
+         (tenant_id, subscription_id, number, currency, line_items,
+          total_amount, period_start, period_end, due_date)
+       VALUES ($1,$2,
+               'INV-' || to_char(now(),'YYYYMM') || '-' ||
+               lpad((SELECT count(*)::text FROM invoices WHERE tenant_id=$1) + 1, 4, '0'),
+               $3, $4::jsonb, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        input.tenantId,
+        subscription.id,
+        plan.rows[0]?.currency ?? "CNY",
+        JSON.stringify(input.lineItems),
+        formatInvoiceAmount(total),
+        input.periodStart ?? null,
+        input.periodEnd ?? null,
+        input.dueDate ?? null,
+      ],
+    );
+    return this.mapInvoice(rows[0]);
+  }
+
+  async listInvoices(tenantId: string): Promise<TenantInvoice[]> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM invoices WHERE tenant_id=$1 ORDER BY created_at DESC",
+      [tenantId],
+    );
+    return rows.map((row) => this.mapInvoice(row));
+  }
+
+  async setInvoiceStatus(input: {
+    invoiceId: string;
+    status: TenantInvoiceStatus;
+  }): Promise<TenantInvoice> {
+    const { rows } = await this.pool.query(
+      `UPDATE invoices SET
+         status = $2,
+         issued_at = CASE WHEN $2 = 'ISSUED'
+                          THEN COALESCE(issued_at, now()) ELSE issued_at END,
+         paid_at = CASE WHEN $2 = 'PAID'
+                        THEN COALESCE(paid_at, now()) ELSE paid_at END
+       WHERE id = $1
+       RETURNING *`,
+      [input.invoiceId, input.status],
+    );
+    if (rows.length === 0) notFound("Invoice", input.invoiceId);
+    return this.mapInvoice(rows[0]);
   }
 
   async linkPersonUser(input: {
@@ -14809,6 +15211,63 @@ export class PgPlatformStore implements PlatformStore {
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       userDisplayName: row.user_display_name ?? undefined,
       userEmail: row.user_email ?? undefined,
+    };
+  }
+
+  private mapSubscriptionPlan(row: QueryResultRow): SubscriptionPlan {
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description ?? undefined,
+      monthlyPrice: String(row.monthly_price),
+      currency: row.currency,
+      seatLimit: row.seat_limit,
+      trialDays: row.trial_days,
+      features: Array.isArray(row.features) ? row.features : [],
+      active: row.active,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapTenantSubscription(
+    row: QueryResultRow,
+    plan?: QueryResultRow,
+  ): TenantSubscription {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      planId: row.plan_id,
+      planCode: plan?.code ?? row.plan_code,
+      planName: plan?.name ?? row.plan_name,
+      status: row.status,
+      seats: row.seats,
+      currentPeriodStart: iso(row.current_period_start) ?? "",
+      currentPeriodEnd: iso(row.current_period_end) ?? "",
+      trialEndsAt: iso(row.trial_ends_at) ?? undefined,
+      canceledAt: iso(row.canceled_at) ?? undefined,
+      cancelReason: row.cancel_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapInvoice(row: QueryResultRow): TenantInvoice {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      subscriptionId: row.subscription_id,
+      number: row.number,
+      status: row.status,
+      currency: row.currency,
+      lineItems: Array.isArray(row.line_items) ? row.line_items : [],
+      totalAmount: String(row.total_amount),
+      periodStart: iso(row.period_start) ?? undefined,
+      periodEnd: iso(row.period_end) ?? undefined,
+      dueDate: iso(row.due_date) ?? undefined,
+      issuedAt: iso(row.issued_at) ?? undefined,
+      paidAt: iso(row.paid_at) ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 

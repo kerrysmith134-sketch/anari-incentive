@@ -7661,6 +7661,213 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/public/signup:
+    post:
+      tags: [Platform]
+      summary: Self-service tenant signup
+      description: >
+        Provisions a tenant, an admin user (auth subject = admin email), an
+        admin membership and an admin person, and optionally starts a trial
+        subscription for the requested plan. Rate-limited per IP; disable with
+        publicSignup=false.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicSignup"
+      responses:
+        "201":
+          description: Tenant provisioned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/public/plans:
+    get:
+      tags: [Platform]
+      summary: List active subscription plans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/platform/plans:
+    get:
+      tags: [Platform]
+      summary: List subscription plans (all, including inactive)
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Platform]
+      summary: Create or update a subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionPlan"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/platform/tenants/{id}/subscription:
+    get:
+      tags: [Platform]
+      summary: Read a tenant subscription
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [Platform]
+      summary: Create or replace a tenant subscription
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTenantSubscription"
+      responses:
+        "200":
+          description: Subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/platform/tenants/{id}/invoices:
+    get:
+      tags: [Platform]
+      summary: List tenant invoices
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Platform]
+      summary: Create a tenant invoice from line items
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantInvoice"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/platform/invoices/{id}/status:
+    post:
+      tags: [Platform]
+      summary: Advance an invoice status (ISSUED, PAID, VOID)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTenantInvoiceStatus"
+      responses:
+        "200":
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/me/subscription:
+    get:
+      tags: [Platform]
+      summary: Read the caller tenant's own subscription
+      responses:
+        "200":
+          description: Subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/me/invoices:
+    get:
+      tags: [Platform]
+      summary: List the caller tenant's own invoices
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/v1/platform/tenants:
     get:
       tags: [Platform]
@@ -10872,6 +11079,101 @@ components:
         rubricVersionId:
           $ref: "#/components/schemas/Uuid"
 
+    CreateSubscriptionPlan:
+      type: object
+      required: [code, name, monthlyPrice, currency, seatLimit, trialDays]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        monthlyPrice:
+          type: string
+        currency:
+          type: string
+        seatLimit:
+          type: integer
+          description: -1 means unlimited seats
+        trialDays:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        active:
+          type: boolean
+    SetTenantSubscription:
+      type: object
+      required: [planCode, status, seats, currentPeriodStart, currentPeriodEnd]
+      properties:
+        planCode:
+          type: string
+        status:
+          type: string
+          enum: [TRIALING, ACTIVE, PAST_DUE, CANCELED]
+        seats:
+          type: integer
+        currentPeriodStart:
+          type: string
+        currentPeriodEnd:
+          type: string
+        trialEndsAt:
+          type: string
+        cancelReason:
+          type: string
+    CreateTenantInvoice:
+      type: object
+      required: [lineItems]
+      properties:
+        lineItems:
+          type: array
+          items:
+            type: object
+            required: [description, quantity, unitAmount, amount]
+            properties:
+              description:
+                type: string
+              quantity:
+                type: integer
+              unitAmount:
+                type: string
+              amount:
+                type: string
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        dueDate:
+          type: string
+    SetTenantInvoiceStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ISSUED, PAID, VOID]
+    PublicSignup:
+      type: object
+      required: [companyName, adminDisplayName, adminEmail, acceptTerms]
+      properties:
+        companyName:
+          type: string
+        slug:
+          type: string
+        adminDisplayName:
+          type: string
+        adminEmail:
+          type: string
+          format: email
+        planCode:
+          type: string
+        acceptTerms:
+          type: boolean
+        website:
+          type: string
+          description: Honeypot; must stay empty
     CreatePlatformTenant:
       type: object
       required: [name, slug]

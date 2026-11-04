@@ -138,6 +138,11 @@ import {
   receiveInboxMessageSchema,
   processInboxMessageSchema,
   createPlatformTenantSchema,
+  createSubscriptionPlanSchema,
+  setTenantSubscriptionSchema,
+  createTenantInvoiceSchema,
+  setTenantInvoiceStatusSchema,
+  publicSignupSchema,
   createPlatformUserSchema,
   createEvaluationDraftSchema,
   dataQualityCommandSchema,
@@ -349,6 +354,8 @@ export interface BuildAppOptions {
   };
   /** Maximum request body size in bytes. Defaults to 1 MiB. */
   bodyLimitBytes?: number;
+  /** Enable POST /api/v1/public/signup. Defaults to true. */
+  publicSignup?: boolean;
 }
 
 class TooManyRequestsError extends Error {
@@ -1908,6 +1915,8 @@ export function buildApp(
 
   app.addHook("preHandler", async (request, reply) => {
     if (!request.url.startsWith("/api/v1")) return;
+    // Unauthenticated marketing/onboarding surface; routes apply their own guards.
+    if (request.url.startsWith("/api/v1/public/")) return;
     try {
       request.authContext = await authenticator.authenticate({
         authorization: request.headers.authorization,
@@ -2374,6 +2383,103 @@ export function buildApp(
     );
   });
 
+  const slugify = (input: string): string =>
+    input
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "tenant";
+
+  const signupAttempts = new Map<string, { count: number; resetAt: number }>();
+  const publicSignupLimiter = {
+    check(ip: string): boolean {
+      const nowMs = Date.now();
+      const entry = signupAttempts.get(ip);
+      if (!entry || entry.resetAt <= nowMs) {
+        signupAttempts.set(ip, { count: 1, resetAt: nowMs + 60 * 60 * 1000 });
+        return true;
+      }
+      entry.count += 1;
+      return entry.count <= 10;
+    },
+  };
+
+  app.post("/api/v1/public/signup", async (request, reply) => {
+    if (options.publicSignup === false) {
+      return reply.status(404).send({
+        ...errorBody("NOT_FOUND", "self-service signup is disabled"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (!publicSignupLimiter.check(request.ip)) {
+      return reply.status(429).send({
+        ...errorBody("RATE_LIMITED", "too many signup attempts"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const body = parse(publicSignupSchema, request.body);
+    const tenant = await platformStore.createTenant({
+      name: body.companyName,
+      slug: body.slug ?? slugify(body.companyName),
+    });
+    const user = await platformStore.createUser({
+      authSubject: body.adminEmail,
+      displayName: body.adminDisplayName,
+      email: body.adminEmail,
+    });
+    await platformStore.addMembership({
+      tenantId: tenant.id,
+      userId: user.id,
+      roleCodes: ["admin"],
+    });
+    const person = await platformStore.createPerson({
+      tenantId: tenant.id,
+      employeeCode: "ADMIN-001",
+      displayName: body.adminDisplayName,
+      userId: user.id,
+    });
+    let subscription = null;
+    if (body.planCode) {
+      const plans = await platformStore.listSubscriptionPlans(true);
+      const plan = plans.find((candidate) => candidate.code === body.planCode);
+      if (plan) {
+        const startedAt = new Date();
+        const periodEnd = new Date(
+          startedAt.getTime() + plan.trialDays * 24 * 60 * 60 * 1000,
+        );
+        subscription = await platformStore.setTenantSubscription({
+          tenantId: tenant.id,
+          planCode: plan.code,
+          status: plan.trialDays > 0 ? "TRIALING" : "ACTIVE",
+          seats: plan.seatLimit > 0 ? plan.seatLimit : 1,
+          currentPeriodStart: startedAt.toISOString(),
+          currentPeriodEnd: periodEnd.toISOString(),
+          trialEndsAt:
+            plan.trialDays > 0 ? periodEnd.toISOString() : undefined,
+        });
+      }
+    }
+    countEvent("tenant_signed_up");
+    return reply.status(201).send(
+      data(
+        {
+          tenantId: tenant.id,
+          slug: tenant.slug,
+          userId: user.id,
+          personId: person.id,
+          subscription,
+          nextSteps:
+            "Sign in with your identity provider using the admin email as the auth subject, then complete onboarding in the console.",
+        },
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/public/plans", async (request) => {
+    return data(await platformStore.listSubscriptionPlans(true), request);
+  });
+
   app.post("/api/v1/platform/tenants", async (request, reply) => {
     requireRoles(request, "platform_admin");
     const body = parse(createPlatformTenantSchema, request.body);
@@ -2460,10 +2566,34 @@ export function buildApp(
   app.post("/api/v1/platform/tenants/:id/persons", async (request, reply) => {
     requireRoles(request, "platform_admin");
     const body = parse(createPlatformPersonSchema, request.body);
+    const tenantId = idOf(request);
+    const subscription =
+      await platformStore.getTenantSubscription(tenantId);
+    if (subscription && subscription.status !== "CANCELED") {
+      const plans = await platformStore.listSubscriptionPlans();
+      const plan = plans.find(
+        (candidate) => candidate.code === subscription.planCode,
+      );
+      const consumesSeat = (body.employmentStatus ?? "ACTIVE") === "ACTIVE";
+      if (plan && plan.seatLimit >= 0 && consumesSeat) {
+        const activePeople = (await platformStore.listPersons(tenantId)).filter(
+          (candidate) => candidate.employmentStatus === "ACTIVE",
+        ).length;
+        if (activePeople >= plan.seatLimit) {
+          return reply.status(402).send({
+            ...errorBody(
+              "SEAT_LIMIT_REACHED",
+              `plan ${plan.code} allows ${plan.seatLimit} active people; upgrade the subscription to onboard more`,
+            ),
+            meta: { correlation_id: request.id },
+          });
+        }
+      }
+    }
     return reply.status(201).send(
       data(
         await platformStore.createPerson({
-          tenantId: idOf(request),
+          tenantId,
           employeeCode: body.employeeCode,
           displayName: body.displayName,
           employmentStatus: body.employmentStatus,
@@ -2477,6 +2607,98 @@ export function buildApp(
   app.get("/api/v1/platform/tenants/:id/persons", async (request) => {
     requireRoles(request, "platform_admin");
     return data(await platformStore.listPersons(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/plans", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createSubscriptionPlanSchema, request.body);
+    return reply
+      .status(201)
+      .send(
+        data(
+          await platformStore.createSubscriptionPlan({
+            ...body,
+            features: body.features ?? [],
+          }),
+          request,
+        ),
+      );
+  });
+
+  app.get("/api/v1/platform/plans", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listSubscriptionPlans(false), request);
+  });
+
+  app.get("/api/v1/platform/tenants/:id/subscription", async (request) => {
+    requireRoles(request, "platform_admin");
+    const subscription = await platformStore.getTenantSubscription(
+      idOf(request),
+    );
+    if (!subscription) throw new NotFoundError(`TenantSubscription ${idOf(request)} not found`);
+    return data(subscription, request);
+  });
+
+  app.put("/api/v1/platform/tenants/:id/subscription", async (request) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(setTenantSubscriptionSchema, request.body);
+    return data(
+      await platformStore.setTenantSubscription({
+        tenantId: idOf(request),
+        ...body,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/platform/tenants/:id/invoices", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(createTenantInvoiceSchema, request.body);
+    return reply
+      .status(201)
+      .send(
+        data(
+          await platformStore.createInvoice({
+            tenantId: idOf(request),
+            ...body,
+          }),
+          request,
+        ),
+      );
+  });
+
+  app.get("/api/v1/platform/tenants/:id/invoices", async (request) => {
+    requireRoles(request, "platform_admin");
+    return data(await platformStore.listInvoices(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/invoices/:id/status", async (request) => {
+    requireRoles(request, "platform_admin");
+    const body = parse(setTenantInvoiceStatusSchema, request.body);
+    return data(
+      await platformStore.setInvoiceStatus({
+        invoiceId: idOf(request),
+        status: body.status,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/me/subscription", async (request, reply) => {
+    const subscription = await platformStore.getTenantSubscription(
+      tenantOf(request),
+    );
+    if (!subscription) {
+      return reply.status(404).send({
+        ...errorBody("NOT_FOUND", "no subscription for this tenant"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    return data(subscription, request);
+  });
+
+  app.get("/api/v1/me/invoices", async (request) => {
+    return data(await platformStore.listInvoices(tenantOf(request)), request);
   });
 
   app.post("/api/v1/platform/tenants/:id/org-nodes", async (request, reply) => {

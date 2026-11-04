@@ -392,3 +392,51 @@ export interface MarginalSimulationView {
     targetDelta: string;
   }>;
 }
+
+export interface SubscriptionPlanView {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  monthlyPrice: string;
+  currency: string;
+  seatLimit: number;
+  trialDays: number;
+  features: string[];
+  active: boolean;
+  createdAt: string;
+}
+
+export interface TenantSubscriptionView {
+  id: string;
+  tenantId: string;
+  planCode: string;
+  planName: string;
+  status: "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED";
+  seats: number;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  trialEndsAt?: string;
+  canceledAt?: string;
+  cancelReason?: string;
+}
+
+export interface TenantInvoiceView {
+  id: string;
+  number: string;
+  status: "DRAFT" | "ISSUED" | "PAID" | "VOID";
+  currency: string;
+  totalAmount: string;
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitAmount: string;
+    amount: string;
+  }>;
+  periodStart?: string;
+  periodEnd?: string;
+  dueDate?: string;
+  issuedAt?: string;
+  paidAt?: string;
+  createdAt: string;
+}

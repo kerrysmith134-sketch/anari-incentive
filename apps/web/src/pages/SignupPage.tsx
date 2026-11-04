@@ -1,0 +1,185 @@
+import { useEffect, useState } from "react";
+import {
+  Badge,
+  Button,
+  FormField,
+  InfoNotice,
+  PageHeader,
+  Panel,
+  Select,
+  TextInput,
+} from "../components/ui.js";
+import { ApiError, api } from "../lib/api.js";
+import type { SubscriptionPlanView } from "../lib/ops-types.js";
+import { useDocumentTitle } from "../lib/hooks.js";
+
+interface SignupResult {
+  tenantId: string;
+  slug: string;
+  userId: string;
+  personId: string;
+  subscription: { planCode: string; status: string } | null;
+  nextSteps: string;
+}
+
+export function SignupPage() {
+  useDocumentTitle("Sign up");
+  const [plans, setPlans] = useState<SubscriptionPlanView[]>([]);
+  const [companyName, setCompanyName] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [planCode, setPlanCode] = useState("");
+  const [accepted, setAccepted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<SignupResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api<SubscriptionPlanView[]>("/api/v1/public/plans")
+      .then(setPlans)
+      .catch(() => setPlans([]));
+  }, []);
+
+  async function submit() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const response = await api<SignupResult>("/api/v1/public/signup", {
+        method: "POST",
+        body: {
+          companyName: companyName.trim(),
+          adminDisplayName: adminName.trim(),
+          adminEmail: adminEmail.trim(),
+          planCode: planCode || undefined,
+          acceptTerms: true,
+        },
+      });
+      setResult(response);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? caught.message : "Could not sign up",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <PageHeader
+        title="Create your workspace"
+        description="Provision a tenant, an admin account and an optional trial subscription. No credentials are stored here; sign-in goes through your identity provider."
+      />
+
+      {result ? (
+        <Panel title="Workspace ready">
+          <div className="stat-grid">
+            <div>
+              <div className="stat-label">Tenant</div>
+              <div className="stat-value">{result.slug}</div>
+            </div>
+            <div>
+              <div className="stat-label">Tenant ID</div>
+              <div className="stat-value">
+                <code>{result.tenantId}</code>
+              </div>
+            </div>
+            <div>
+              <div className="stat-label">Subscription</div>
+              <div className="stat-value">
+                {result.subscription
+                  ? `${result.subscription.planCode} · ${result.subscription.status}`
+                  : "None"}
+              </div>
+            </div>
+          </div>
+          <InfoNotice>{result.nextSteps}</InfoNotice>
+        </Panel>
+      ) : (
+        <Panel title="Company details">
+          <div className="form-grid">
+            {error ? (
+              <div className="field--full">
+                <InfoNotice tone="warning">{error}</InfoNotice>
+              </div>
+            ) : null}
+            <FormField label="Company name" htmlFor="signup-company">
+              <TextInput
+                id="signup-company"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Your name" htmlFor="signup-name">
+              <TextInput
+                id="signup-name"
+                value={adminName}
+                onChange={(event) => setAdminName(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Work email" htmlFor="signup-email">
+              <TextInput
+                id="signup-email"
+                type="email"
+                value={adminEmail}
+                onChange={(event) => setAdminEmail(event.target.value)}
+                required
+              />
+            </FormField>
+            <FormField label="Plan" htmlFor="signup-plan">
+              <Select
+                id="signup-plan"
+                value={planCode}
+                onChange={(event) => setPlanCode(event.target.value)}
+              >
+                <option value="">No plan for now</option>
+                {plans.map((plan) => (
+                  <option key={plan.id} value={plan.code}>
+                    {plan.name} · {plan.monthlyPrice} {plan.currency}/mo ·{" "}
+                    {plan.seatLimit < 0 ? "unlimited" : plan.seatLimit} seats ·{" "}
+                    {plan.trialDays}d trial
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            <div className="field--full">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={accepted}
+                  onChange={(event) => setAccepted(event.target.checked)}
+                />{" "}
+                I accept the terms of service and the data-processing
+                agreement.
+              </label>
+            </div>
+            <div className="field--full">
+              <Button
+                variant="primary"
+                disabled={
+                  submitting ||
+                  !accepted ||
+                  !companyName.trim() ||
+                  !adminName.trim() ||
+                  !adminEmail.trim()
+                }
+                onClick={submit}
+              >
+                {submitting ? "Creating…" : "Create workspace"}
+              </Button>
+            </div>
+          </div>
+          {plans.length === 0 ? (
+            <p className="hint">
+              <Badge tone="neutral">No public plans</Badge> The operator has
+              not published plans yet; you can still create the workspace and
+              subscribe later.
+            </p>
+          ) : null}
+        </Panel>
+      )}
+    </div>
+  );
+}

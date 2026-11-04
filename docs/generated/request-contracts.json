@@ -217,6 +217,31 @@
         "kind"
       ]
     },
+    "CreateSubscriptionPlan": {
+      "required": [
+        "code",
+        "currency",
+        "monthlyPrice",
+        "name",
+        "seatLimit",
+        "trialDays"
+      ],
+      "optional": [
+        "active",
+        "description",
+        "features"
+      ]
+    },
+    "CreateTenantInvoice": {
+      "required": [
+        "lineItems"
+      ],
+      "optional": [
+        "dueDate",
+        "periodEnd",
+        "periodStart"
+      ]
+    },
     "CreateWorkPackage": {
       "required": [
         "acceptanceCriteria",
@@ -228,6 +253,19 @@
       "optional": [
         "dueAt",
         "packageType"
+      ]
+    },
+    "PublicSignup": {
+      "required": [
+        "acceptTerms",
+        "adminDisplayName",
+        "adminEmail",
+        "companyName"
+      ],
+      "optional": [
+        "planCode",
+        "slug",
+        "website"
       ]
     },
     "PublishPolicy": {
@@ -290,6 +328,25 @@
         "reviewerPersonId"
       ],
       "optional": []
+    },
+    "SetTenantInvoiceStatus": {
+      "required": [
+        "status"
+      ],
+      "optional": []
+    },
+    "SetTenantSubscription": {
+      "required": [
+        "currentPeriodEnd",
+        "currentPeriodStart",
+        "planCode",
+        "seats",
+        "status"
+      ],
+      "optional": [
+        "cancelReason",
+        "trialEndsAt"
+      ]
     },
     "UpdateFieldAccessPolicies": {
       "required": [

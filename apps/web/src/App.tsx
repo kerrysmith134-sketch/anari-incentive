@@ -17,6 +17,11 @@ import { ThemeProvider } from "./contexts/ThemeContext.js";
 import { ToastProvider } from "./contexts/ToastContext.js";
 import { Button } from "./components/ui.js";
 
+const SignupPage = lazy(() =>
+  import("./pages/SignupPage.js").then((module) => ({
+    default: module.SignupPage,
+  })),
+);
 const DashboardPage = lazy(() =>
   import("./pages/DashboardPage.js").then((module) => ({
     default: module.DashboardPage,
@@ -192,6 +197,7 @@ export function App() {
                 <Suspense fallback={<PageFallback />}>
                   <Routes>
                     <Route path="/" element={<DashboardPage />} />
+                    <Route path="/signup" element={<SignupPage />} />
                     <Route path="/approvals" element={<ApprovalsPage />} />
                     <Route path="/cycles" element={<CyclesPage />} />
                     <Route path="/contribution" element={<ContributionPage />} />

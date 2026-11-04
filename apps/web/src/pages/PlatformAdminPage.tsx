@@ -25,6 +25,11 @@ import type {
   PlatformTenant,
   PlatformUser,
 } from "../lib/types.js";
+import type {
+  SubscriptionPlanView,
+  TenantInvoiceView,
+  TenantSubscriptionView,
+} from "../lib/ops-types.js";
 
 export function PlatformAdminPage() {
   useDocumentTitle("Platform admin");
@@ -72,6 +77,34 @@ export function PlatformAdminPage() {
   const [settingsText, setSettingsText] = useState("{}");
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const plans = useApiQuery<SubscriptionPlanView[]>("/api/v1/platform/plans");
+  const subscription = useApiQuery<TenantSubscriptionView | null>(
+    selectedTenantId
+      ? `/api/v1/platform/tenants/${selectedTenantId}/subscription`
+      : null,
+    selectedTenantId,
+  );
+  const invoices = useApiQuery<TenantInvoiceView[]>(
+    selectedTenantId
+      ? `/api/v1/platform/tenants/${selectedTenantId}/invoices`
+      : null,
+    selectedTenantId,
+  );
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planCode, setPlanCode] = useState("");
+  const [planName, setPlanName] = useState("");
+  const [planPrice, setPlanPrice] = useState("1999.00");
+  const [planSeats, setPlanSeats] = useState("25");
+  const [planTrial, setPlanTrial] = useState("14");
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [subPlanCode, setSubPlanCode] = useState("");
+  const [subStatus, setSubStatus] = useState("ACTIVE");
+  const [subError, setSubError] = useState<string | null>(null);
+  const [subSaving, setSubSaving] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoiceAmount, setInvoiceAmount] = useState("1999.00");
+  const [invoiceDescription, setInvoiceDescription] = useState("");
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedTenantId && tenantList[0]?.id) {
@@ -102,6 +135,105 @@ export function PlatformAdminPage() {
     } catch (caught) {
       setTenantError(
         caught instanceof ApiError ? caught.message : "Could not create tenant",
+      );
+    }
+  }
+
+  async function createPlan() {
+    setPlanError(null);
+    try {
+      await api("/api/v1/platform/plans", {
+        method: "POST",
+        body: {
+          code: planCode.trim(),
+          name: planName.trim(),
+          monthlyPrice: planPrice.trim(),
+          currency: "CNY",
+          seatLimit: Number.parseInt(planSeats, 10) || 25,
+          trialDays: Number.parseInt(planTrial, 10) || 0,
+          features: [],
+        },
+      });
+      toast.success("Plan saved", planCode);
+      setPlanOpen(false);
+      plans.reload();
+    } catch (caught) {
+      setPlanError(
+        caught instanceof ApiError ? caught.message : "Could not save plan",
+      );
+    }
+  }
+
+  async function saveSubscription() {
+    if (!selectedTenantId) return;
+    setSubError(null);
+    setSubSaving(true);
+    try {
+      const now = new Date();
+      const end = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      await api(`/api/v1/platform/tenants/${selectedTenantId}/subscription`, {
+        method: "PUT",
+        body: {
+          planCode: subPlanCode,
+          status: subStatus,
+          seats: Number.parseInt(planSeats, 10) || 25,
+          currentPeriodStart: now.toISOString(),
+          currentPeriodEnd: end.toISOString(),
+        },
+      });
+      toast.success("Subscription saved", subPlanCode);
+      subscription.reload();
+    } catch (caught) {
+      setSubError(
+        caught instanceof ApiError
+          ? caught.message
+          : "Could not save subscription",
+      );
+    } finally {
+      setSubSaving(false);
+    }
+  }
+
+  async function createInvoice() {
+    if (!selectedTenantId) return;
+    setInvoiceError(null);
+    try {
+      await api(`/api/v1/platform/tenants/${selectedTenantId}/invoices`, {
+        method: "POST",
+        body: {
+          lineItems: [
+            {
+              description: invoiceDescription.trim() || "Subscription",
+              quantity: 1,
+              unitAmount: invoiceAmount.trim(),
+              amount: invoiceAmount.trim(),
+            },
+          ],
+        },
+      });
+      toast.success("Invoice created");
+      setInvoiceOpen(false);
+      invoices.reload();
+    } catch (caught) {
+      setInvoiceError(
+        caught instanceof ApiError
+          ? caught.message
+          : "Could not create invoice",
+      );
+    }
+  }
+
+  async function advanceInvoice(invoiceId: string, status: string) {
+    try {
+      await api(`/api/v1/platform/invoices/${invoiceId}/status`, {
+        method: "POST",
+        body: { status },
+      });
+      toast.success("Invoice updated", status);
+      invoices.reload();
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "Could not update invoice",
       );
     }
   }
@@ -263,6 +395,7 @@ export function PlatformAdminPage() {
             count: orgNodes.data?.length ?? 0,
           },
           { id: "settings", label: "Settings" },
+          { id: "billing", label: "Billing", count: invoices.data?.length ?? 0 },
         ]}
         active={tab}
         onChange={setTab}
@@ -627,7 +760,348 @@ export function PlatformAdminPage() {
             )}
           </Panel>
         ) : null}
+        {tab === "billing" ? (
+          <>
+            <Panel
+              title="Subscription plans"
+              action={
+                <Button onClick={() => setPlanOpen(true)}>New plan</Button>
+              }
+            >
+              {plans.loading && plans.data === undefined ? (
+                <LoadingRows rows={4} />
+              ) : (plans.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="layers"
+                  title="No plans yet"
+                  description="Create the first subscription plan to enable self-service signup and seat limits."
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Monthly</th>
+                      <th>Seats</th>
+                      <th>Trial</th>
+                      <th>Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(plans.data ?? []).map((plan) => (
+                      <tr key={plan.id}>
+                        <td>
+                          <code>{plan.code}</code>
+                        </td>
+                        <td>{plan.name}</td>
+                        <td>
+                          {plan.monthlyPrice} {plan.currency}
+                        </td>
+                        <td>
+                          {plan.seatLimit < 0 ? "Unlimited" : plan.seatLimit}
+                        </td>
+                        <td>{plan.trialDays}d</td>
+                        <td>
+                          <Badge
+                            tone={plan.active ? "success" : "neutral"}
+                          >
+                            {plan.active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+            <Panel
+              title={
+                selectedTenant
+                  ? `Subscription · ${selectedTenant.name}`
+                  : "Subscription"
+              }
+            >
+              {subscription.error ? (
+                <InfoNotice>
+                  This tenant has no subscription yet. Assign a plan below to
+                  start billing.
+                </InfoNotice>
+              ) : subscription.data ? (
+                <div className="stat-grid">
+                  <div>
+                    <div className="stat-label">Plan</div>
+                    <div className="stat-value">
+                      {subscription.data.planName} (
+                      {subscription.data.planCode})
+                    </div>
+                  </div>
+                  <div>
+                    <div className="stat-label">Status</div>
+                    <div className="stat-value">
+                      {subscription.data.status}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="stat-label">Seats</div>
+                    <div className="stat-value">
+                      {subscription.data.seats}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="stat-label">Period ends</div>
+                    <div className="stat-value">
+                      {formatDateTime(subscription.data.currentPeriodEnd)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  icon="layers"
+                  title="No subscription"
+                  description="Assign a plan below to start billing this tenant."
+                />
+              )}
+              <div className="form-grid">
+                {subError ? (
+                  <div className="field--full">
+                    <InfoNotice tone="warning">{subError}</InfoNotice>
+                  </div>
+                ) : null}
+                <FormField label="Plan" htmlFor="sub-plan">
+                  <Select
+                    id="sub-plan"
+                    value={subPlanCode}
+                    onChange={(event) => setSubPlanCode(event.target.value)}
+                  >
+                    <option value="">Select plan…</option>
+                    {(plans.data ?? [])
+                      .filter((plan) => plan.active)
+                      .map((plan) => (
+                        <option key={plan.id} value={plan.code}>
+                          {plan.code}
+                        </option>
+                      ))}
+                  </Select>
+                </FormField>
+                <FormField label="Status" htmlFor="sub-status">
+                  <Select
+                    id="sub-status"
+                    value={subStatus}
+                    onChange={(event) => setSubStatus(event.target.value)}
+                  >
+                    {["TRIALING", "ACTIVE", "PAST_DUE", "CANCELED"].map(
+                      (status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </FormField>
+                <div className="field--full">
+                  <Button
+                    variant="primary"
+                    disabled={!subPlanCode || subSaving}
+                    onClick={saveSubscription}
+                  >
+                    Save subscription
+                  </Button>
+                </div>
+              </div>
+            </Panel>
+            <Panel
+              title="Invoices"
+              action={
+                <Button onClick={() => setInvoiceOpen(true)}>
+                  New invoice
+                </Button>
+              }
+            >
+              {(invoices.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="layers"
+                  title="No invoices"
+                  description="Invoices are created per billing period from the subscription."
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Number</th>
+                      <th>Status</th>
+                      <th>Total</th>
+                      <th>Due</th>
+                      <th>Issued</th>
+                      <th>Paid</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(invoices.data ?? []).map((invoice) => (
+                      <tr key={invoice.id}>
+                        <td>
+                          <code>{invoice.number}</code>
+                        </td>
+                        <td>
+                          <Badge
+                            tone={
+                              invoice.status === "PAID"
+                                ? "success"
+                                : invoice.status === "VOID"
+                                  ? "neutral"
+                                  : "info"
+                            }
+                          >
+                            {invoice.status}
+                          </Badge>
+                        </td>
+                        <td>
+                          {invoice.totalAmount} {invoice.currency}
+                        </td>
+                        <td>{invoice.dueDate ?? "—"}</td>
+                        <td>
+                          {invoice.issuedAt
+                            ? formatDateTime(invoice.issuedAt)
+                            : "—"}
+                        </td>
+                        <td>
+                          {invoice.paidAt
+                            ? formatDateTime(invoice.paidAt)
+                            : "—"}
+                        </td>
+                        <td>
+                          {invoice.status === "DRAFT" ? (
+                            <Button
+                              variant="ghost"
+                              onClick={() =>
+                                advanceInvoice(invoice.id, "ISSUED")
+                              }
+                            >
+                              Issue
+                            </Button>
+                          ) : invoice.status === "ISSUED" ? (
+                            <Button
+                              variant="ghost"
+                              onClick={() => advanceInvoice(invoice.id, "PAID")}
+                            >
+                              Mark paid
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+          </>
+        ) : null}
       </div>
+
+      <Modal
+        open={planOpen}
+        title="New subscription plan"
+        onClose={() => setPlanOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPlanOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createPlan}>
+              Save plan
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {planError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{planError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Code" htmlFor="plan-code">
+            <TextInput
+              id="plan-code"
+              value={planCode}
+              onChange={(event) => setPlanCode(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Name" htmlFor="plan-name">
+            <TextInput
+              id="plan-name"
+              value={planName}
+              onChange={(event) => setPlanName(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Monthly price" htmlFor="plan-price">
+            <TextInput
+              id="plan-price"
+              value={planPrice}
+              onChange={(event) => setPlanPrice(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Seat limit (-1 = unlimited)" htmlFor="plan-seats">
+            <TextInput
+              id="plan-seats"
+              value={planSeats}
+              onChange={(event) => setPlanSeats(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Trial days" htmlFor="plan-trial">
+            <TextInput
+              id="plan-trial"
+              value={planTrial}
+              onChange={(event) => setPlanTrial(event.target.value)}
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal
+        open={invoiceOpen}
+        title="New invoice"
+        onClose={() => setInvoiceOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setInvoiceOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={createInvoice}>
+              Create invoice
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {invoiceError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{invoiceError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="Description" htmlFor="invoice-description">
+            <TextInput
+              id="invoice-description"
+              value={invoiceDescription}
+              onChange={(event) =>
+                setInvoiceDescription(event.target.value)
+              }
+            />
+          </FormField>
+          <FormField label="Amount" htmlFor="invoice-amount">
+            <TextInput
+              id="invoice-amount"
+              value={invoiceAmount}
+              onChange={(event) => setInvoiceAmount(event.target.value)}
+              required
+            />
+          </FormField>
+        </div>
+      </Modal>
 
       <Modal
         open={tenantOpen}
