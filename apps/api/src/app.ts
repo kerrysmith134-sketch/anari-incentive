@@ -98,6 +98,7 @@ import {
   submitDeliverableSchema,
   recordDeliverableAcceptanceSchema,
   createAiSuggestionLogSchema,
+  modelSummarySchema,
   acceptAiSuggestionSchema,
   createModelEvaluationRunSchema,
   createModelPromptSchema,
@@ -211,6 +212,8 @@ import {
 } from "@anari/agent-runtime";
 import {
   DEFAULT_THRESHOLDS,
+  HttpModelScoringProvider,
+  ModelProviderError,
   assessAiRisk,
   evaluateGate,
   scoreEvidence,
@@ -362,6 +365,13 @@ export interface BuildAppOptions {
   bodyLimitBytes?: number;
   /** Enable POST /api/v1/public/signup. Defaults to true. */
   publicSignup?: boolean;
+  /** OpenAI-compatible model provider for advisory evidence summaries. */
+  modelScoring?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    fetchImpl?: typeof fetch;
+  };
 }
 
 class TooManyRequestsError extends Error {
@@ -7911,6 +7921,76 @@ export function buildApp(
       ),
       request,
     );
+  });
+
+  app.post("/api/v1/ai/model-summary", async (request, reply) => {
+    requireRoles(request, "manager");
+    if (!options.modelScoring) {
+      return reply.status(501).send({
+        ...errorBody(
+          "MODEL_PROVIDER_NOT_CONFIGURED",
+          "set modelScoring options (MODEL_SCORING_BASE_URL/MODEL_SCORING_API_KEY/MODEL_SCORING_MODEL) to enable model-backed summaries",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const body = parse(modelSummarySchema, request.body);
+    const evidence = await storeFor(request).listEvidence();
+    const selected = body.evidenceRefs
+      .map((ref) => evidence.find((node) => node.id === ref))
+      .filter((node): node is NonNullable<typeof node> => Boolean(node));
+    const missing = body.evidenceRefs.filter(
+      (ref) => !selected.some((node) => node.id === ref),
+    );
+    if (missing.length > 0) {
+      return reply.status(404).send({
+        ...errorBody(
+          "NOT_FOUND",
+          `evidence not found: ${missing.join(", ")}`,
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const provider = new HttpModelScoringProvider({
+      baseUrl: options.modelScoring.baseUrl,
+      apiKey: options.modelScoring.apiKey,
+      model: options.modelScoring.model,
+      fetchImpl: options.modelScoring.fetchImpl,
+    });
+    let summary;
+    try {
+      summary = await provider.summarise({
+        dimensions: body.dimensions,
+        rubric: body.rubric,
+        context: body.context,
+        evidence: selected.map((node) => ({
+          ref: node.id,
+          text: JSON.stringify(node.normalizedPayload),
+          qualityStatus: node.qualityStatus,
+        })),
+      });
+    } catch (caught) {
+      const code =
+        caught instanceof ModelProviderError ? caught.code : "MODEL_PROVIDER_HTTP_ERROR";
+      return reply.status(502).send({
+        ...errorBody(code, (caught as Error).message),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const log = await platformStore.createAiSuggestion({
+      tenantId: tenantOf(request),
+      agentTaskId: "manual-model-summary",
+      targetType: "EVIDENCE_SUMMARY",
+      suggestionType: "MODEL_EVIDENCE_SUMMARY",
+      modelProvider: summary.provider,
+      modelName: summary.model,
+      promptVersion: "model-summary-v1",
+      inputHash: sha256(body),
+      outputJson: summary as unknown as Record<string, unknown>,
+      validationStatus: "VALIDATED",
+    });
+    countEvent("model_summary_generated");
+    return data({ suggestionLogId: log.id, summary }, request);
   });
 
   app.post("/api/v1/ai-suggestion-logs", async (request, reply) => {

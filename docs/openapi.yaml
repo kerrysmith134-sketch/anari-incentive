@@ -5550,6 +5550,33 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "409":
           $ref: "#/components/responses/StateConflict"
+  /api/v1/ai/model-summary:
+    post:
+      tags: [AI]
+      summary: Generate an advisory model-backed evidence summary
+      description: >
+        Calls the configured OpenAI-compatible model to summarise evidence and
+        propose dimension scores 0-5. Advisory only: the output is written to
+        the AI suggestion log and never enters money paths without the
+        evaluation gate and human review. Returns 501 when no provider is
+        configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelSummary"
+      responses:
+        "200":
+          description: Summary generated and logged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "501":
+          description: No model provider configured
+        "502":
+          description: Provider error or invalid model output
   /api/v1/strategic-pool-cases:
     get:
       tags: [Rewards]
@@ -11226,6 +11253,22 @@ components:
         rubricVersionId:
           $ref: "#/components/schemas/Uuid"
 
+    ModelSummary:
+      type: object
+      required: [dimensions, evidenceRefs]
+      properties:
+        dimensions:
+          type: array
+          items:
+            type: string
+        evidenceRefs:
+          type: array
+          items:
+            type: string
+        rubric:
+          type: string
+        context:
+          type: string
     GenerateClawbackRecovery:
       type: object
       required: [cycleId, ledgerEntryId]

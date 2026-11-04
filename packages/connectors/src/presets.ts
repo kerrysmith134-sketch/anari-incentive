@@ -1,3 +1,6 @@
+import type { ColumnMapping } from "./mapping.js";
+import type { HttpJsonConnectorConfig } from "./http-json.js";
+
 export interface FieldMappingPreset {
   code: string;
   provider: string;
@@ -82,3 +85,60 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
     },
   },
 ];
+
+/**
+ * HubSpot CRM search pull preset (POST /crm/v3/objects/{objectType}/search).
+ * Paginates with the `after` cursor inside the request body.
+ */
+export function buildHubspotSearchPullConfig(input: {
+  accessToken: string;
+  objectType: string;
+  properties: string[];
+  columns: ColumnMapping;
+  pageSize?: number;
+  fetchImpl?: typeof fetch;
+}): HttpJsonConnectorConfig {
+  return {
+    sourceSystem: "hubspot",
+    url: `https://api.hubapi.com/crm/v3/objects/${input.objectType}/search`,
+    method: "POST",
+    headers: { authorization: `Bearer ${input.accessToken}` },
+    body: {
+      properties: input.properties,
+      sorts: [],
+      filterGroups: [],
+    },
+    recordsPath: "results",
+    nextCursorPath: "paging.next.after",
+    cursorBodyKey: "after",
+    pageSize: input.pageSize ?? 50,
+    columns: input.columns,
+    fetchImpl: input.fetchImpl,
+  };
+}
+
+/**
+ * Feishu/Lark Bitable records pull preset (GET with page_token pagination).
+ * Records arrive at `data.items`; `data.page_token` drives the next page.
+ */
+export function buildFeishuBitablePullConfig(input: {
+  tenantAccessToken: string;
+  appToken: string;
+  tableId: string;
+  columns: ColumnMapping;
+  pageSize?: number;
+  fetchImpl?: typeof fetch;
+}): HttpJsonConnectorConfig {
+  return {
+    sourceSystem: "feishu",
+    url: `https://open.feishu.cn/open-apis/bitable/v1/apps/${input.appToken}/tables/${input.tableId}/records`,
+    headers: { authorization: `Bearer ${input.tenantAccessToken}` },
+    recordsPath: "data.items",
+    nextCursorPath: "data.page_token",
+    cursorParam: "page_token",
+    pageSizeParam: "page_size",
+    pageSize: input.pageSize ?? 100,
+    columns: input.columns,
+    fetchImpl: input.fetchImpl,
+  };
+}

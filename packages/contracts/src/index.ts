@@ -2301,6 +2301,14 @@ export const strategicPoolFinanceApproveSchema = z.object({
   deferredInstallmentMonths: z.number().int().min(0).max(36),
 });
 
+export const modelSummarySchema = z.object({
+  dimensions: z.array(z.string().min(1)).min(1).max(8),
+  evidenceRefs: z.array(z.string().min(1)).min(1).max(20),
+  rubric: z.string().optional(),
+  context: z.string().optional(),
+});
+export type ModelSummaryBody = z.infer<typeof modelSummarySchema>;
+
 export const publicSignupSchema = z.object({
   companyName: z.string().min(2),
   slug: z
@@ -2332,6 +2340,7 @@ export const requestSchemaRegistry = {
   StrategicPoolCostReview: strategicPoolCostReviewSchema,
   StrategicPoolFinanceApprove: strategicPoolFinanceApproveSchema,
   CreateTenantInvoice: createTenantInvoiceSchema,
+  ModelSummary: modelSummarySchema,
   PublicSignup: publicSignupSchema,
   SetTenantInvoiceStatus: setTenantInvoiceStatusSchema,
   SetTenantSubscription: setTenantSubscriptionSchema,

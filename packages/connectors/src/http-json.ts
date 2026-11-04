@@ -14,6 +14,12 @@ export interface HttpJsonConnectorConfig {
   cursorParam?: string;
   pageSizeParam?: string;
   pageSize?: number;
+  /** HTTP method; POST is used by search-style APIs (e.g. HubSpot CRM search). */
+  method?: "GET" | "POST";
+  /** Static JSON body for POST requests. */
+  body?: Record<string, unknown>;
+  /** For POST requests: body key that carries the cursor (e.g. HubSpot `after`). */
+  cursorBodyKey?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -53,9 +59,29 @@ export class HttpJsonConnector implements Connector {
       );
     }
 
-    const response = await fetchImpl(url, {
+    const method = this.config.method ?? "GET";
+    let requestInit: RequestInit = {
+      method,
       headers: { accept: "application/json", ...this.config.headers },
-    });
+    };
+    if (method === "POST") {
+      const body: Record<string, unknown> = {
+        ...(this.config.body ?? {}),
+        limit: this.config.pageSize ?? 100,
+      };
+      if (cursor && this.config.cursorBodyKey) {
+        body[this.config.cursorBodyKey] = cursor;
+      }
+      requestInit = {
+        ...requestInit,
+        headers: {
+          ...requestInit.headers,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      };
+    }
+    const response = await fetchImpl(url, requestInit);
     const payload = (await response.json().catch(() => ({}))) as unknown;
     if (!response.ok) {
       throw new Error(

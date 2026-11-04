@@ -277,6 +277,16 @@
         "createBatch"
       ]
     },
+    "ModelSummary": {
+      "required": [
+        "dimensions",
+        "evidenceRefs"
+      ],
+      "optional": [
+        "context",
+        "rubric"
+      ]
+    },
     "PublicSignup": {
       "required": [
         "acceptTerms",
