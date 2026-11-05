@@ -1,8 +1,27 @@
 # PRD V4.1 落地核对（2026-11-05 更新）
 
-**核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）  
-**代码基线**：`main` 分支，2026-11-02 工作树；核对后新增的缺口修复见文末“本轮已补”  
-**验证**：`npm run typecheck`、`npm test`（360 个单元/API 测试）、`npm run web:build`、`npm run test:pg`（65 个 PostgreSQL 测试）均通过；关键流程已在浏览器中手工走通。
+**核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）+ README 承诺的全部暂缓项
+**代码基线**：`main` 分支 280e9b6（2026-11-05 定版）
+**验证**：`npm run typecheck` 0 错误、`npm test` 417 单元/API、`npm run test:pg` 65 PostgreSQL、`npm run test:e2e` 18 E2E、`npm run web:build` 全部通过；PRD 逐项代码证据核对 64/64 通过（见下）。
+
+# 2026-11-05 最终核对（定版结论）
+
+对 PRD 全部条目 + README 承诺项做了一次逐项代码证据核对（grep 关键实现物 + 测试文件），**64/64 通过**，覆盖：P0-02 十一项最小闭环、LG-01..10、INC-02..12（含原非目标 INC-09）、ATT-01..09、AI-01..05、DOM-01..03、MON-01..08、DATA-01..05、ORG-01..05、SEC-01..06，以及四条扩张线（商业化、法定薪资、品牌、飞书）与平台加固。核对中发现的两个疑似缺口均为误报（账本表名为 amount_ledger；威胁模型位于 docs/security/threat-model.md）。
+
+在“成熟产品收尾轮”之后又完成了两轮，至此开发项全部收口：
+
+13. **前后端对齐轮（d4ea718）**：审计 console 全部 API 调用与后端 375 条路由的映射，修复 5 个后端有而 console 无入口的端点——个税申报 CSV 与银行 ICBC/CMB 格式下载、clawback 恢复生成弹窗、保留处置批量处理按钮、本租户订阅/发票只读面板、AI 模型摘要页签；动态命令路径（adverse actions / payroll actions / trust surveys / recalc / bounties / strategic pools）人工核实与后端枚举一致。
+14. **品牌与飞书轮（280e9b6）**：
+    - **品牌（anari-design-system）**：tokens.css 重写为提取的品牌令牌（ANARI 蓝 #1877f2 全系 + 炭黑 #342e2c 暖灰中性，暗色逐令牌重映射，旧 --accent* 别名兼容零组件改动）；官方 logo 三版本入 /brand（favicon、侧栏 icon 锁定、登录/注册页竖版），删除违规自绘 SVG；主题 storage key 对齐 anari-theme（兼容旧值）；AI 面板范式（引擎角标 + advisory 徽标 + 2px 置信度条三档着色）。
+    - **飞书（feishu-integration）**：OAuth v2 浏览器登录（一次性 state 300s TTL 取出即删、code 换 user token、user_info 用 user token、首登只建基础 employee 角色、失败人话重定向、未配置 501）；HMAC session JWT + CompositeAuthenticator 与主认证共存；通讯录同步 FeishuDirectoryClient（部门父链、open_department_id 用户列表、open_id 去重、分页上限、code!=0 翻译）→ 部门映射 org 节点（org_nodes.external_id，迁移 069）、成员映射人员、leader 映射汇报线；dryRun 预览（父级可解析）、allowCreate 策略门控（默认关，开时仅基础角色）、职务永不影响角色、重复执行幂等；Integrations 页预览/应用卡片；登录页“Sign in with Feishu”消费 #feishu-token 回跳。
+
+## 最终剩余清单（均为仓库外，代码无法关闭）
+
+1. **部署配置**：飞书/HubSpot/电子签/模型供应商真实账号与密钥；生产 OIDC IdP；`AUDIT_WORM_URI` WORM 存储。
+2. **运维证据**：MON-07 的 WORM/TSA 回执与 90 天恢复演练记录（工具已备：`npm run anchor:export`、durability 报告、backup-restore runbook）。
+3. **法务确认**：LG-06 法定扣款类型映射的内容本身；LG-05 电子签模板；供应商 DPA。
+4. **外部流水线**：AI-02 自动重训/重标（gold-set 刷新工作流已内建）。
+5. **产品红线（永不实现）**：LLM 写金额/批准/结算、T3 自主执行、“绝对客观单一分”、通用 PM/HRIS/招聘/独立 IM。
 
 # 2026-11-05 成熟产品收尾轮
 
