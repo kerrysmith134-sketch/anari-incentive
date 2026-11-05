@@ -2320,6 +2320,19 @@ export type ProcessRetentionDisposalsBody = z.infer<
   typeof processRetentionDisposalsSchema
 >;
 
+export const passwordLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1).max(200),
+  tenantId: z.string().optional(),
+});
+export type PasswordLoginBody = z.infer<typeof passwordLoginSchema>;
+
+export const setPasswordSchema = z.object({
+  userId: uuidSchema,
+  password: z.string().min(8).max(200),
+});
+export type SetPasswordBody = z.infer<typeof setPasswordSchema>;
+
 export const feishuSyncSchema = z.object({
   dryRun: z.boolean().default(true),
   allowCreate: z.boolean().default(false),
@@ -2335,6 +2348,7 @@ export const modelSummarySchema = z.object({
 export type ModelSummaryBody = z.infer<typeof modelSummarySchema>;
 
 export const publicSignupSchema = z.object({
+  password: z.string().min(8).max(200).optional(),
   companyName: z.string().min(2),
   slug: z
     .string()
@@ -2366,6 +2380,8 @@ export const requestSchemaRegistry = {
   StrategicPoolFinanceApprove: strategicPoolFinanceApproveSchema,
   CreateTenantInvoice: createTenantInvoiceSchema,
   FeishuSync: feishuSyncSchema,
+  PasswordLogin: passwordLoginSchema,
+  SetPassword: setPasswordSchema,
   ModelSummary: modelSummarySchema,
   ProcessRetentionDisposals: processRetentionDisposalsSchema,
   PublicSignup: publicSignupSchema,

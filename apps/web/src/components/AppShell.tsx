@@ -24,136 +24,154 @@ interface NavGroup {
 
 const NAV: NavGroup[] = [
   {
-    label: "Workspace",
+    label: "工作台",
     items: [
-      { to: "/", label: "Overview", icon: "overview", end: true },
-      { to: "/my-ai", label: "My AI record", icon: "ai" },
+      { to: "/", label: "总览", icon: "overview", end: true },
+      { to: "/my-ai", label: "我的 AI 记录", icon: "ai" },
       {
         to: "/approvals",
-        label: "Approvals",
+        label: "审批",
         icon: "approvals",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/cycles",
-        label: "Cycles",
+        label: "考核周期",
         icon: "clock",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/contribution",
-        label: "Contribution",
+        label: "贡献认定",
         icon: "layers",
         allowed: ["manager", "finance", "admin"],
       },
     ],
   },
   {
-    label: "Money",
+    label: "核心业务",
     items: [
       {
+        to: "/performance",
+        label: "绩效管理",
+        icon: "policy",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/commission",
+        label: "奖金提成",
+        icon: "payroll",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
         to: "/payroll",
-        label: "Payroll",
+        label: "薪酬发放",
         icon: "payroll",
         allowed: ["finance", "admin"],
       },
       {
-        to: "/rewards",
-        label: "Rewards",
+        to: "/equity",
+        label: "期权股权",
+        icon: "rewards",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
+        to: "/bounty",
+        label: "悬赏任务",
         icon: "rewards",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/settlements",
-        label: "Settlements",
+        label: "结算",
         icon: "wallet",
         allowed: ["finance", "admin"],
       },
       {
         to: "/registries",
-        label: "Registries",
+        label: "登记簿",
         icon: "layers",
         allowed: ["manager", "finance", "admin"],
       },
     ],
   },
   {
-    label: "Governance",
+    label: "治理与合规",
     items: [
       {
         to: "/governance",
-        label: "Governance hub",
+        label: "治理中心",
         icon: "shield",
         allowed: ["admin"],
       },
       {
         to: "/ai",
-        label: "AI assurance",
+        label: "AI 保障",
         icon: "ai",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/agent-ops",
-        label: "Agent ops",
+        label: "Agent 运维",
         icon: "ai",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/policy",
-        label: "Policy",
+        label: "政策",
         icon: "policy",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/exceptions",
-        label: "Exceptions",
+        label: "申诉与例外",
         icon: "alert-circle",
         allowed: ["manager", "finance", "admin"],
       },
       {
         to: "/adverse-actions",
-        label: "Adverse actions",
+        label: "不利决定",
         icon: "user",
         allowed: ["admin"],
       },
       {
         to: "/audit",
-        label: "Audit",
+        label: "审计",
         icon: "shield",
         allowed: ["admin", "finance"],
       },
     ],
   },
   {
-    label: "System",
+    label: "系统",
     items: [
       {
         to: "/integrations",
-        label: "Integrations",
+        label: "集成",
         icon: "integrations",
         allowed: ["admin"],
       },
       {
         to: "/people",
-        label: "People",
+        label: "人员",
         icon: "people",
         allowed: ["admin", "manager"],
       },
       {
         to: "/platform",
-        label: "Platform",
+        label: "平台",
         icon: "layers",
         allowed: ["admin"],
       },
       {
         to: "/settings",
-        label: "Settings",
+        label: "设置",
         icon: "settings",
         allowed: ["admin"],
       },
       {
         to: "/field-access",
-        label: "Field access",
+        label: "字段权限",
         icon: "shield",
         allowed: ["admin"],
       },
@@ -162,22 +180,32 @@ const NAV: NavGroup[] = [
 ];
 
 const TITLES: Record<string, string> = {
-  "/": "Overview",
-  "/approvals": "Approvals",
-  "/cycles": "Cycles",
-  "/contribution": "Contribution",
-  "/payroll": "Payroll",
-  "/rewards": "Rewards",
-  "/settlements": "Settlements",
-  "/ai": "AI assurance",
-  "/policy": "Policy",
-  "/exceptions": "Exceptions",
-  "/adverse-actions": "Adverse actions",
-  "/audit": "Audit",
-  "/integrations": "Integrations",
-  "/people": "People",
-  "/my-ai": "My AI record",
-  "/settings": "Settings",
+  "/": "总览",
+  "/approvals": "审批",
+  "/cycles": "考核周期",
+  "/contribution": "贡献认定",
+  "/payroll": "薪酬发放",
+  "/rewards": "激励",
+  "/settlements": "结算",
+  "/ai": "AI 保障",
+  "/policy": "政策",
+  "/exceptions": "申诉与例外",
+  "/adverse-actions": "不利决定",
+  "/audit": "审计",
+  "/integrations": "集成",
+  "/people": "人员",
+  "/my-ai": "我的 AI 记录",
+  "/settings": "设置",
+  "/performance": "绩效管理",
+  "/commission": "奖金提成",
+  "/equity": "期权股权",
+  "/bounty": "悬赏任务",
+  "/field-access": "字段权限",
+  "/governance": "治理中心",
+  "/agent-ops": "Agent 运维",
+  "/platform": "平台",
+  "/login": "登录",
+  "/signup": "注册",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -265,7 +293,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="env-card__dot" aria-hidden="true" />
             <div>
               <strong>{session.token ? "OIDC token" : "Header auth"}</strong>
-              <span>{session.token ? "Bearer session" : "Development identity"}</span>
+              <span>{session.token ? "Bearer 会话" : "开发身份"}</span>
             </div>
           </div>
           {roles.length === 0 || roles.includes("admin") ? (
@@ -281,8 +309,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLink to="/login" className="user-chip">
             <Avatar name="Session" size={30} />
             <span className="user-chip__copy">
-              <strong>Sign in / switch session</strong>
-              <span>{session.token ? "OIDC bearer" : "Dev headers"}</span>
+              <strong>登录 / 切换会话</strong>
+              <span>{session.token ? "OIDC 令牌" : "开发头"}</span>
             </span>
             <Icon name="chevron-right" size={14} />
           </NavLink>
@@ -299,7 +327,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={() => setSidebarOpen(true)}
             />
             <div className="crumb">
-              <span>Console</span>
+              <span>控制台</span>
               <Icon name="chevron-right" size={13} />
               <strong>{section}</strong>
             </div>

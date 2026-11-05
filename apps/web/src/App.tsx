@@ -22,6 +22,26 @@ const LoginPage = lazy(() =>
     default: module.LoginPage,
   })),
 );
+const PerformancePage = lazy(() =>
+  import("./pages/PerformancePage.js").then((module) => ({
+    default: module.PerformancePage,
+  })),
+);
+const CommissionPage = lazy(() =>
+  import("./pages/CommissionPage.js").then((module) => ({
+    default: module.CommissionPage,
+  })),
+);
+const EquityPage = lazy(() =>
+  import("./pages/EquityPage.js").then((module) => ({
+    default: module.EquityPage,
+  })),
+);
+const BountyPage = lazy(() =>
+  import("./pages/BountyPage.js").then((module) => ({
+    default: module.BountyPage,
+  })),
+);
 const SignupPage = lazy(() =>
   import("./pages/SignupPage.js").then((module) => ({
     default: module.SignupPage,
@@ -207,6 +227,10 @@ export function App() {
                     <Route path="/approvals" element={<ApprovalsPage />} />
                     <Route path="/cycles" element={<CyclesPage />} />
                     <Route path="/contribution" element={<ContributionPage />} />
+                    <Route path="/performance" element={<PerformancePage />} />
+                    <Route path="/commission" element={<CommissionPage />} />
+                    <Route path="/equity" element={<EquityPage />} />
+                    <Route path="/bounty" element={<BountyPage />} />
                     <Route path="/payroll" element={<PayrollPage />} />
                     <Route path="/rewards" element={<RewardsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />

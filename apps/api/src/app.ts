@@ -147,6 +147,8 @@ import {
   createPlatformTenantSchema,
   createSubscriptionPlanSchema,
   feishuSyncSchema,
+  passwordLoginSchema,
+  setPasswordSchema,
   setTenantSubscriptionSchema,
   createTenantInvoiceSchema,
   setTenantInvoiceStatusSchema,
@@ -255,6 +257,7 @@ import {
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
 import { syncFeishuDirectory } from "./feishu-sync.js";
+import { hashPassword, verifyPassword } from "./password.js";
 import { ApiMetrics } from "./metrics.js";
 import {
   calculatePayroll,
@@ -377,6 +380,8 @@ export interface BuildAppOptions {
     model: string;
     fetchImpl?: typeof fetch;
   };
+  /** HMAC secret for locally-issued console session tokens. */
+  sessionSecret?: string;
   /** Feishu OAuth sign-in + session tokens for the console. */
   feishu?: {
     appId: string;
@@ -1261,6 +1266,14 @@ export function buildApp(
       root: consoleDist,
       prefix: "/console/",
       wildcard: false,
+    });
+    // Brand assets live at dist/brand and must be reachable at both
+    // /console/brand/... (in-app references) and /brand/... (favicon).
+    app.register(fastifyStatic, {
+      root: `${consoleDist}/brand`,
+      prefix: "/brand/",
+      wildcard: false,
+      decorateReply: false,
     });
   }
   const metrics = new ApiMetrics();
@@ -2456,11 +2469,19 @@ export function buildApp(
       name: body.companyName,
       slug: body.slug ?? slugify(body.companyName),
     });
-    const user = await platformStore.createUser({
-      authSubject: body.adminEmail,
-      displayName: body.adminDisplayName,
-      email: body.adminEmail,
-    });
+    const existingUser = await platformStore.findUserByAuthSubject(
+      body.adminEmail,
+    );
+    const user = existingUser
+      ? existingUser
+      : await platformStore.createUser({
+          authSubject: body.adminEmail,
+          displayName: body.adminDisplayName,
+          email: body.adminEmail,
+        });
+    if (body.password) {
+      await platformStore.setUserPassword(user.id, hashPassword(body.password));
+    }
     await platformStore.addMembership({
       tenantId: tenant.id,
       userId: user.id,
@@ -2521,6 +2542,102 @@ export function buildApp(
   const feishuRedirectBase = (request: FastifyRequest): string =>
     options.feishu?.consoleBaseUrl ??
     `${request.protocol}://${request.headers.host ?? "localhost:3000"}`;
+
+  const sessionSecret = options.sessionSecret ?? options.feishu?.sessionSecret;
+  const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+  app.post("/api/v1/auth/password/login", async (request, reply) => {
+    if (!sessionSecret) {
+      return reply.status(501).send({
+        ...errorBody(
+          "PASSWORD_LOGIN_NOT_CONFIGURED",
+          "账号登录未启用：需要配置 SESSION_SECRET（服务端环境变量）",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const body = parse(passwordLoginSchema, request.body);
+    const key = request.ip;
+    const nowMs = Date.now();
+    const entry = loginAttempts.get(key);
+    if (entry && entry.resetAt > nowMs && entry.count > 10) {
+      return reply.status(429).send({
+        ...errorBody("RATE_LIMITED", "尝试次数过多，请稍后再试"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    loginAttempts.set(key, {
+      count: (entry?.count ?? 0) + 1,
+      resetAt: entry && entry.resetAt > nowMs ? entry.resetAt : nowMs + 900_000,
+    });
+    const credential = await platformStore.getUserPasswordHashByEmail(
+      body.email,
+    );
+    const stored = credential?.passwordHash;
+    if (!credential || !stored || !verifyPassword(body.password, stored)) {
+      // Uniform response: never reveal whether the account exists.
+      return reply.status(401).send({
+        ...errorBody("INVALID_CREDENTIALS", "邮箱或密码不正确"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const memberships = await platformStore.listMembershipsByUser(
+      credential.userId,
+    );
+    const membership =
+      (body.tenantId
+        ? memberships.find((candidate) => candidate.tenantId === body.tenantId)
+        : undefined) ?? memberships[0];
+    if (!membership) {
+      return reply.status(403).send({
+        ...errorBody("NO_TENANT_MEMBERSHIP", "该账号尚未加入任何企业工作区，请联系管理员"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const jwt = new SessionJwt(sessionSecret);
+    let personId: string | undefined;
+    let roles = membership.roleCodes;
+    try {
+      const identity = await platformStore.resolveIdentity({
+        tenantId: membership.tenantId,
+        userId: credential.userId,
+      });
+      personId = identity.personId;
+      roles = identity.roles.length > 0 ? identity.roles : roles;
+    } catch {
+      personId = undefined;
+    }
+    const token = await jwt.sign({
+      tenantId: membership.tenantId,
+      userId: credential.userId,
+      personId,
+      roles,
+    });
+    countEvent("password_login_completed");
+    return data(
+      {
+        token,
+        tenantId: membership.tenantId,
+        userId: credential.userId,
+        personId: personId ?? null,
+        roles,
+      },
+      request,
+    );
+  });
+
+  app.post("/api/v1/platform/users/set-password", async (request) => {
+    requireRoles(request, "platform_admin", "admin");
+    if (!sessionSecret) {
+      throw new ConflictError(
+        "PASSWORD_LOGIN_NOT_CONFIGURED: set SESSION_SECRET to enable password login",
+      );
+    }
+    const body = parse(setPasswordSchema, request.body);
+    await platformStore.setUserPassword(body.userId, hashPassword(body.password));
+    countEvent("password_set");
+    return data({ ok: true }, request);
+  });
 
   app.get("/api/v1/auth/feishu/authorize", async (request, reply) => {
     if (!options.feishu) {

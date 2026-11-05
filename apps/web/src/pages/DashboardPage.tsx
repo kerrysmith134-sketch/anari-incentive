@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Badge,
@@ -12,6 +13,7 @@ import {
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { api } from "../lib/api.js";
+import { useToast } from "../contexts/ToastContext.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDate,
@@ -143,22 +145,30 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Control room"
-        title="Operations overview"
-        description="Contribution assurance, approval gates and reward settlement in one place. Numbers reflect this tenant's live ledger."
+        eyebrow="指挥室"
+        title="运营总览"
+        description="贡献认定、审批门禁与激励结算一站式总览；数字来自本租户实时账本。"
         actions={
           <>
             <Link className="btn btn--secondary" to="/policy">
               <Icon name="policy" size={16} />
-              <span>Readiness</span>
+              <span>就绪度</span>
             </Link>
             <Link className="btn btn--primary" to="/approvals">
               <Icon name="approvals" size={16} />
-              <span>Approval queue</span>
+              <span>审批队列</span>
             </Link>
           </>
         }
       />
+
+      <Panel
+        title="AI 工作台"
+        subtitle="主动式 Agent 持续观察证据缺口、结算就绪与数据质量"
+        className="section-gap"
+      >
+        <AiWorkbench privileged={privileged} />
+      </Panel>
 
       {attention > 0 ? (
         <div className="attention-bar">
@@ -1129,5 +1139,100 @@ function NotificationsPanel() {
         </div>
       )}
     </Panel>
+  );
+}
+
+
+interface AgentScanFinding {
+  skill: string;
+  severity?: string;
+  summary?: string;
+  detail?: string;
+}
+
+function AiWorkbench({ privileged }: { privileged: boolean }) {
+  const toast = useToast();
+  const [scanning, setScanning] = useState(false);
+  const [findings, setFindings] = useState<AgentScanFinding[] | null>(null);
+
+  async function runScan() {
+    setScanning(true);
+    try {
+      const result = await api<{ findings?: AgentScanFinding[] }>(
+        "/api/v1/agent-tasks/scan",
+        { method: "POST", body: {} },
+      );
+      setFindings(result.findings ?? []);
+      toast.success("智能扫描完成", `共 ${result.findings?.length ?? 0} 条发现`);
+    } catch (caught) {
+      toast.error(
+        caught instanceof Error ? caught.message : "扫描失败，请稍后再试",
+      );
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <div className="row-actions">
+        <span className="hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              background: "var(--brand)",
+              color: "#fff",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 13,
+            }}
+            aria-hidden="true"
+          >
+            ✨
+          </span>
+          AI 仅建议，人工拍板：
+        </span>
+        <Button
+          variant="primary"
+          loading={scanning}
+          onClick={() => void runScan()}
+        >
+          {privileged ? "发起智能扫描" : "查看我的 AI 记录"}
+        </Button>
+        {!privileged ? (
+          <a className="btn btn--secondary" href="/console/my-ai">
+            我的 AI 记录
+          </a>
+        ) : null}
+      </div>
+      {findings ? (
+        findings.length === 0 ? (
+          <InfoNotice>本轮扫描没有发现需要处理的事项。</InfoNotice>
+        ) : (
+          <div className="stat-grid stat-grid--three">
+            {findings.slice(0, 6).map((finding, index) => (
+              <div className="stat-tile" key={index}>
+                <div className="stat-tile__top">
+                  <span className="stat-tile__label">{finding.skill}</span>
+                </div>
+                <div className="stat-tile__value" style={{ fontSize: 18 }}>
+                  {finding.severity ?? "INFO"}
+                </div>
+                <div className="stat-tile__detail">
+                  {finding.summary ?? finding.detail ?? "查看详情"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <InfoNotice>
+          点击「发起智能扫描」，Agent 会检查证据缺口、结算就绪度与数据质量阻塞项，并给出建议；高影响动作始终等待人工批准。
+        </InfoNotice>
+      )}
+    </div>
   );
 }

@@ -128,6 +128,13 @@ export interface PlatformStore {
     displayName: string;
     email?: string;
   }): Promise<PlatformUser>;
+  findUserByAuthSubject(authSubject: string): Promise<PlatformUser | null>;
+  listMembershipsByUser(userId: string): Promise<PlatformMembership[]>;
+  setUserPassword(userId: string, passwordHash: string): Promise<void>;
+  getUserPasswordHash(userId: string): Promise<string | null>;
+  getUserPasswordHashByEmail(email: string): Promise<
+    { userId: string; passwordHash: string | null } | null
+  >;
   listUsers(): Promise<PlatformUser[]>;
   addMembership(input: {
     tenantId: string;
@@ -1685,6 +1692,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly tenantSubscriptions = new Map<string, TenantSubscription>();
   private readonly invoices = new Map<string, TenantInvoice>();
   private readonly strategicPoolCases = new Map<string, StrategicPoolCase>();
+  private readonly userPasswordHashes = new Map<string, string>();
 
   constructor(
     options: {
@@ -1887,6 +1895,46 @@ export class MemoryPlatformStore implements PlatformStore {
     return [...this.persons.values()]
       .filter((person) => person.tenantId === tenantId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async findUserByAuthSubject(authSubject: string): Promise<PlatformUser | null> {
+    return (
+      [...this.users.values()].find(
+        (user) => user.authSubject === authSubject,
+      ) ?? null
+    );
+  }
+
+  async listMembershipsByUser(userId: string): Promise<PlatformMembership[]> {
+    return [...this.memberships.values()]
+      .filter((membership) => membership.userId === userId)
+      .sort((a, b) => (a.joinedAt ?? "").localeCompare(b.joinedAt ?? ""));
+  }
+
+  async setUserPassword(userId: string, passwordHash: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) notFound("User", userId);
+    this.userPasswordHashes.set(userId, passwordHash);
+  }
+
+  async getUserPasswordHash(userId: string): Promise<string | null> {
+    return this.userPasswordHashes.get(userId) ?? null;
+  }
+
+  async getUserPasswordHashByEmail(
+    email: string,
+  ): Promise<{ userId: string; passwordHash: string | null } | null> {
+    const normalized = email.trim().toLowerCase();
+    const user = [...this.users.values()].find(
+      (candidate) =>
+        (candidate.email ?? "").toLowerCase() === normalized ||
+        candidate.authSubject.toLowerCase() === normalized,
+    );
+    if (!user) return null;
+    return {
+      userId: user.id,
+      passwordHash: this.userPasswordHashes.get(user.id) ?? null,
+    };
   }
 
   async createSubscriptionPlan(input: {
@@ -7988,6 +8036,51 @@ export class PgPlatformStore implements PlatformStore {
       }
       throw error;
     }
+  }
+
+  async findUserByAuthSubject(authSubject: string): Promise<PlatformUser | null> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM users WHERE auth_subject=$1",
+      [authSubject],
+    );
+    return rows[0] ? this.mapUser(rows[0]) : null;
+  }
+
+  async listMembershipsByUser(userId: string): Promise<PlatformMembership[]> {
+    const { rows } = await this.pool.query(
+      "SELECT * FROM memberships WHERE user_id=$1 AND status='ACTIVE' ORDER BY joined_at",
+      [userId],
+    );
+    return rows.map((row) => this.mapMembership(row));
+  }
+
+  async setUserPassword(userId: string, passwordHash: string): Promise<void> {
+    const { rowCount } = await this.pool.query(
+      "UPDATE users SET password_hash=$2, updated_at=now() WHERE id=$1",
+      [userId, passwordHash],
+    );
+    if (!rowCount) notFound("User", userId);
+  }
+
+  async getUserPasswordHash(userId: string): Promise<string | null> {
+    const { rows } = await this.pool.query(
+      "SELECT password_hash FROM users WHERE id=$1",
+      [userId],
+    );
+    return rows[0]?.password_hash ?? null;
+  }
+
+  async getUserPasswordHashByEmail(
+    email: string,
+  ): Promise<{ userId: string; passwordHash: string | null } | null> {
+    const { rows } = await this.pool.query(
+      `SELECT id, password_hash FROM users
+        WHERE lower(email) = lower($1) OR lower(auth_subject) = lower($1)
+        ORDER BY created_at LIMIT 1`,
+      [email.trim()],
+    );
+    if (!rows[0]) return null;
+    return { userId: rows[0].id, passwordHash: rows[0].password_hash ?? null };
   }
 
   async listUsers(): Promise<PlatformUser[]> {

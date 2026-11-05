@@ -23,7 +23,7 @@ interface SignupResult {
 }
 
 export function SignupPage() {
-  useDocumentTitle("Sign up");
+  useDocumentTitle("注册");
   const [plans, setPlans] = useState<SubscriptionPlanView[]>([]);
   const [companyName, setCompanyName] = useState("");
   const [adminName, setAdminName] = useState("");
@@ -70,8 +70,8 @@ export function SignupPage() {
         <img src="/brand/logo-vertical.png" alt="anari" width="132" />
       </div>
       <PageHeader
-        title="Create your workspace"
-        description="Provision a tenant, an admin account and an optional trial subscription. No credentials are stored here; sign-in goes through your identity provider."
+        title="创建企业工作区"
+        description="一键开通租户、管理员账号与试用订阅；登录走企业邮箱密码或飞书。"
       />
 
       {result ? (
@@ -99,14 +99,14 @@ export function SignupPage() {
           <InfoNotice>{result.nextSteps}</InfoNotice>
         </Panel>
       ) : (
-        <Panel title="Company details">
+        <Panel title="企业信息">
           <div className="form-grid">
             {error ? (
               <div className="field--full">
                 <InfoNotice tone="warning">{error}</InfoNotice>
               </div>
             ) : null}
-            <FormField label="Company name" htmlFor="signup-company">
+            <FormField label="企业名称" htmlFor="signup-company">
               <TextInput
                 id="signup-company"
                 value={companyName}
@@ -114,7 +114,7 @@ export function SignupPage() {
                 required
               />
             </FormField>
-            <FormField label="Your name" htmlFor="signup-name">
+            <FormField label="你的姓名" htmlFor="signup-name">
               <TextInput
                 id="signup-name"
                 value={adminName}
@@ -122,7 +122,7 @@ export function SignupPage() {
                 required
               />
             </FormField>
-            <FormField label="Work email" htmlFor="signup-email">
+            <FormField label="企业邮箱" htmlFor="signup-email">
               <TextInput
                 id="signup-email"
                 type="email"
@@ -131,13 +131,13 @@ export function SignupPage() {
                 required
               />
             </FormField>
-            <FormField label="Plan" htmlFor="signup-plan">
+            <FormField label="套餐" htmlFor="signup-plan">
               <Select
                 id="signup-plan"
                 value={planCode}
                 onChange={(event) => setPlanCode(event.target.value)}
               >
-                <option value="">No plan for now</option>
+                <option value="">暂不选择套餐</option>
                 {plans.map((plan) => (
                   <option key={plan.id} value={plan.code}>
                     {plan.name} · {plan.monthlyPrice} {plan.currency}/mo ·{" "}
@@ -170,7 +170,7 @@ export function SignupPage() {
                 }
                 onClick={submit}
               >
-                {submitting ? "Creating…" : "Create workspace"}
+                {submitting ? "创建中…" : "创建工作区"}
               </Button>
             </div>
           </div>

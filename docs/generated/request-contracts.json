@@ -294,6 +294,15 @@
         "rubric"
       ]
     },
+    "PasswordLogin": {
+      "required": [
+        "email",
+        "password"
+      ],
+      "optional": [
+        "tenantId"
+      ]
+    },
     "ProcessRetentionDisposals": {
       "required": [
         "actorPersonId"
@@ -308,6 +317,7 @@
         "companyName"
       ],
       "optional": [
+        "password",
         "planCode",
         "slug",
         "website"
@@ -371,6 +381,13 @@
         "rationale",
         "resolution",
         "reviewerPersonId"
+      ],
+      "optional": []
+    },
+    "SetPassword": {
+      "required": [
+        "password",
+        "userId"
       ],
       "optional": []
     },

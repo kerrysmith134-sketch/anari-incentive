@@ -7875,6 +7875,51 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/auth/password/login:
+    post:
+      tags: [Platform]
+      summary: 账号密码登录
+      description: >
+        校验企业邮箱与密码（scrypt），成功后签发本系统会话 JWT（统一 401，
+        不泄露账号是否存在）。需服务端配置 SESSION_SECRET，否则返回 501。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordLogin"
+      responses:
+        "200":
+          description: 会话令牌与身份
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          description: 邮箱或密码不正确
+        "429":
+          description: 尝试次数过多
+        "501":
+          description: 未配置 SESSION_SECRET
+  /api/v1/platform/users/set-password:
+    post:
+      tags: [Platform]
+      summary: 设置用户密码（platform_admin/admin）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPassword"
+      responses:
+        "200":
+          description: 已设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/auth/feishu/authorize:
     get:
       tags: [Platform]
@@ -11378,6 +11423,25 @@ components:
           type: string
         context:
           type: string
+    PasswordLogin:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        tenantId:
+          type: string
+    SetPassword:
+      type: object
+      required: [userId, password]
+      properties:
+        userId:
+          type: string
+        password:
+          type: string
     FeishuSync:
       type: object
       required: []
@@ -11513,6 +11577,9 @@ components:
       type: object
       required: [companyName, adminDisplayName, adminEmail, acceptTerms]
       properties:
+        password:
+          type: string
+          description: 可选；设置后可用邮箱密码登录
         companyName:
           type: string
         slug:

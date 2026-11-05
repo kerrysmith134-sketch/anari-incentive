@@ -197,6 +197,8 @@ const app = buildApp(
     tracer,
     rateLimit,
     bodyLimitBytes: bodyLimit,
+    sessionSecret:
+      process.env.SESSION_SECRET ?? process.env.FEISHU_SESSION_SECRET,
     feishu: feishuConfig,
   },
 );
