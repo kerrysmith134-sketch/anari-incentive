@@ -47,7 +47,7 @@ interface MemberRow {
 }
 
 export function ContributionPage() {
-  useDocumentTitle("Contribution");
+  useDocumentTitle("贡献");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -328,7 +328,7 @@ export function ContributionPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The action failed.",
+            : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -339,7 +339,7 @@ export function ContributionPage() {
     if (claimablePackages.length === 0) {
       toast.error(
         "No accepted work package",
-        "Accept a submitted package before filing a contribution claim.",
+        "发起申报前请先验收已提交的工作包。",
       );
       return;
     }
@@ -416,7 +416,7 @@ export function ContributionPage() {
     } catch (caught) {
       toast.error(
         "Could not withdraw attestation",
-        caught instanceof Error ? caught.message : "The action failed.",
+        caught instanceof Error ? caught.message : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -570,7 +570,7 @@ export function ContributionPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not record the decision.",
+            : "无法记录决策。",
       );
     } finally {
       setSubmitting(false);
@@ -618,7 +618,7 @@ export function ContributionPage() {
         method: "POST",
         body: {},
       });
-      toast.success("Deliverable submitted", deliverable.title);
+      toast.success("交付物已提交", deliverable.title);
       deliverables.reload();
     } catch (caught) {
       toast.error(
@@ -696,7 +696,7 @@ export function ContributionPage() {
     <>
       <PageHeader
         eyebrow="Contribution evidence"
-        title="Contribution"
+        title="贡献"
         description="Work packages freeze a commitment snapshot; claims cite evidence; a non-claimant adjudicator records the attribution decision. Every step is versioned."
         actions={
           <Button
@@ -710,7 +710,7 @@ export function ContributionPage() {
             }}
             loading={packages.loading || claims.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -718,7 +718,7 @@ export function ContributionPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Work packages</span>
+            <span className="stat-tile__label">工作包</span>
           </div>
           <div className="stat-tile__value">{packageList.length}</div>
           <div className="stat-tile__detail">
@@ -728,32 +728,32 @@ export function ContributionPage() {
         </div>
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Claims awaiting attribution</span>
+            <span className="stat-tile__label">待认定申报</span>
           </div>
           <div className="stat-tile__value">{awaitingAdjudication.length}</div>
-          <div className="stat-tile__detail">Submitted or under review</div>
+          <div className="stat-tile__detail">已提交或复核中</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Attribution decisions</span>
+            <span className="stat-tile__label">贡献认定</span>
           </div>
           <div className="stat-tile__value">{decisionList.length}</div>
-          <div className="stat-tile__detail">Versioned, with reviewer identity</div>
+          <div className="stat-tile__detail">版本化并记录复核人</div>
         </div>
       </div>
 
       <Tabs
         items={[
-          { id: "packages", label: "Work packages", count: packageList.length },
-          { id: "claims", label: "Claims", count: claimList.length },
+          { id: "packages", label: "工作包", count: packageList.length },
+          { id: "claims", label: "申报", count: claimList.length },
           {
             id: "attestations",
-            label: "Attestations",
+            label: "贡献证明",
             count: attestationList.length,
           },
           {
             id: "evidence",
-            label: "Evidence",
+            label: "证据",
             count: evidence.data?.length ?? 0,
           },
         ]}
@@ -765,11 +765,11 @@ export function ContributionPage() {
       <div className="tab-panel">
         {tab === "packages" ? (
           <Panel
-            title="Work packages"
+            title="工作包"
             subtitle="Draft → committed → in progress → submitted → accepted"
             action={
               <Button size="sm" variant="primary" icon="plus" onClick={resetCreate}>
-                New package
+                新建工作包
               </Button>
             }
             flush
@@ -785,11 +785,11 @@ export function ContributionPage() {
             ) : packageList.length === 0 ? (
               <EmptyState
                 icon="layers"
-                title="No work package"
-                description="A work package freezes the objective, members, outputs and acceptance criteria at commit time."
+                title="暂无工作包"
+                description="工作包在提交承诺时冻结目标、成员、产出与验收标准。"
                 action={
                   <Button variant="primary" size="sm" icon="plus" onClick={resetCreate}>
-                    Create package
+                    创建工作包
                   </Button>
                 }
               />
@@ -798,12 +798,12 @@ export function ContributionPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Package</th>
-                      <th>Owner</th>
-                      <th>Members</th>
-                      <th>Status</th>
-                      <th>Due</th>
-                      <th>Version</th>
+                      <th>工作包</th>
+                      <th>负责人</th>
+                      <th>成员</th>
+                      <th>状态</th>
+                      <th>截止</th>
+                      <th>版本</th>
                       <th />
                     </tr>
                   </thead>
@@ -833,7 +833,7 @@ export function ContributionPage() {
                               variant="ghost"
                               onClick={() => setSelectedPackage(workPackage)}
                             >
-                              Open
+                              待处理
                             </Button>
                             {workPackage.status === "DRAFT" ? (
                               <Button
@@ -843,7 +843,7 @@ export function ContributionPage() {
                                   openPackageAction("commit", workPackage)
                                 }
                               >
-                                Commit
+                                承诺
                               </Button>
                             ) : null}
                             {workPackage.status === "COMMITTED" ||
@@ -855,7 +855,7 @@ export function ContributionPage() {
                                   openPackageAction("start", workPackage)
                                 }
                               >
-                                Start
+                                开始
                               </Button>
                             ) : null}
                             {workPackage.status === "IN_PROGRESS" ? (
@@ -866,7 +866,7 @@ export function ContributionPage() {
                                   openPackageAction("submit", workPackage)
                                 }
                               >
-                                Submit
+                                提交
                               </Button>
                             ) : null}
                             {workPackage.status === "SUBMITTED" ? (
@@ -877,7 +877,7 @@ export function ContributionPage() {
                                   openPackageAction("review", workPackage)
                                 }
                               >
-                                Review
+                                复核
                               </Button>
                             ) : null}
                           </div>
@@ -901,7 +901,7 @@ export function ContributionPage() {
                 onClick={openClaimForm}
                 disabled={claimablePackages.length === 0}
               >
-                New claim
+                新建申报
               </Button>
             }
             flush
@@ -920,8 +920,8 @@ export function ContributionPage() {
                 title="No contribution claim"
                 description={
                   claimablePackages.length === 0
-                    ? "A claim can only be filed against an accepted work package. Submit and accept a package first."
-                    : "A claim states what the person contributed and which evidence supports it."
+                    ? "申报只能针对已验收的工作包；请先提交并验收工作包。"
+                    : "申报说明本人做了什么贡献、由哪些证据支持。"
                 }
                 action={
                   <Button
@@ -931,7 +931,7 @@ export function ContributionPage() {
                     onClick={openClaimForm}
                     disabled={claimablePackages.length === 0}
                   >
-                    Create claim
+                    新建申报
                   </Button>
                 }
               />
@@ -940,12 +940,12 @@ export function ContributionPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Claim</th>
-                      <th>Package</th>
-                      <th>Claimant</th>
-                      <th>Status</th>
-                      <th>Decision</th>
-                      <th>Updated</th>
+                      <th>认领</th>
+                      <th>工作包</th>
+                      <th>申报人</th>
+                      <th>状态</th>
+                      <th>决策</th>
+                      <th>更新时间</th>
                       <th />
                     </tr>
                   </thead>
@@ -994,7 +994,7 @@ export function ContributionPage() {
                                   onClick={() => void submitClaim(claim)}
                                   loading={submitting}
                                 >
-                                  Submit
+                                  提交
                                 </Button>
                               ) : null}
                               {claim.status === "SUBMITTED" ||
@@ -1004,7 +1004,7 @@ export function ContributionPage() {
                                   variant="primary"
                                   onClick={() => openAdjudicate(claim)}
                                 >
-                                  Adjudicate
+                                  认定
                                 </Button>
                               ) : null}
                             </div>
@@ -1020,7 +1020,7 @@ export function ContributionPage() {
         ) : tab === "attestations" ? (
           <Panel
             title="Peer and manager attestations"
-            subtitle="Independent statements supporting a participant's contribution"
+            subtitle="支持参与人贡献的独立证明"
             action={
               <Button
                 size="sm"
@@ -1029,7 +1029,7 @@ export function ContributionPage() {
                 onClick={openAttestationForm}
                 disabled={packageList.length === 0}
               >
-                New attestation
+                添加证明
               </Button>
             }
             flush
@@ -1049,7 +1049,7 @@ export function ContributionPage() {
               <EmptyState
                 icon="people"
                 title="No attestation"
-                description="Peers and the subject's manager can add a statement supporting a work-package contribution."
+                description="同侪与直属经理可添加支持工作包贡献的证明陈述。"
                 action={
                   <Button
                     variant="primary"
@@ -1058,7 +1058,7 @@ export function ContributionPage() {
                     onClick={openAttestationForm}
                     disabled={packageList.length === 0}
                   >
-                    Create attestation
+                    添加证明
                   </Button>
                 }
               />
@@ -1067,12 +1067,12 @@ export function ContributionPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Package</th>
-                      <th>Subject</th>
-                      <th>Attester</th>
-                      <th>Type</th>
-                      <th>Statement</th>
-                      <th>Status</th>
+                      <th>工作包</th>
+                      <th>主体</th>
+                      <th>证明人</th>
+                      <th>类型</th>
+                      <th>声明</th>
+                      <th>状态</th>
                       <th />
                     </tr>
                   </thead>
@@ -1109,7 +1109,7 @@ export function ContributionPage() {
                                   void withdrawAttestation(attestation)
                                 }
                               >
-                                Withdraw
+                                撤回
                               </Button>
                             ) : null}
                           </td>
@@ -1123,7 +1123,7 @@ export function ContributionPage() {
           </Panel>
         ) : (
           <Panel
-            title="Evidence"
+            title="证据"
             subtitle="Evidence nodes with provenance, payload and quality status"
             flush
             action={
@@ -1133,7 +1133,7 @@ export function ContributionPage() {
                 icon="plus"
                 onClick={openEvidence}
               >
-                Add evidence
+                添加证据
               </Button>
             }
           >
@@ -1149,18 +1149,18 @@ export function ContributionPage() {
               <EmptyState
                 icon="layers"
                 title="No evidence node"
-                description="Evidence must have provenance: source system, subject and payload hash."
+                description="证据必须有出处：来源系统、主体与负载哈希。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Evidence</th>
-                      <th>Subject</th>
-                      <th>Source</th>
-                      <th>Quality</th>
-                      <th>Recorded</th>
+                      <th>证据</th>
+                      <th>主体</th>
+                      <th>来源</th>
+                      <th>质量</th>
+                      <th>已记录</th>
                       <th />
                     </tr>
                   </thead>
@@ -1201,7 +1201,7 @@ export function ContributionPage() {
                             variant="ghost"
                             onClick={() => setViewEvidence(node)}
                           >
-                            Payload
+                            负载
                           </Button>
                         </td>
                       </tr>
@@ -1217,12 +1217,12 @@ export function ContributionPage() {
       <Modal
         open={attestOpen}
         title="New contribution attestation"
-        description="A manager attestation requires the attester to be the subject's current manager."
+        description="经理证明要求证明人是对象当前直属经理。"
         onClose={() => setAttestOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAttestOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1230,7 +1230,7 @@ export function ContributionPage() {
               form="attestation-form"
               loading={submitting}
             >
-              Record attestation
+              记录证明
             </Button>
           </>
         }
@@ -1239,7 +1239,7 @@ export function ContributionPage() {
           {attestError ? (
             <InfoNotice tone="warning">{attestError}</InfoNotice>
           ) : null}
-          <FormField label="Work package" htmlFor="attest-package">
+          <FormField label="工作包" htmlFor="attest-package">
             <Select
               id="attest-package"
               value={attestPackageId}
@@ -1260,21 +1260,21 @@ export function ContributionPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Subject" htmlFor="attest-subject">
+          <FormField label="主体" htmlFor="attest-subject">
             <PersonSelect
               id="attest-subject"
               value={attestSubject}
               onChange={setAttestSubject}
             />
           </FormField>
-          <FormField label="Attester" htmlFor="attest-attester">
+          <FormField label="证明人" htmlFor="attest-attester">
             <PersonSelect
               id="attest-attester"
               value={attestAttester}
               onChange={setAttestAttester}
             />
           </FormField>
-          <FormField label="Type" htmlFor="attest-type">
+          <FormField label="类型" htmlFor="attest-type">
             <Select
               id="attest-type"
               value={attestType}
@@ -1282,12 +1282,12 @@ export function ContributionPage() {
                 setAttestType(event.target.value as "PEER" | "MANAGER")
               }
             >
-              <option value="PEER">Peer</option>
-              <option value="MANAGER">Manager</option>
+              <option value="PEER">同侪</option>
+              <option value="MANAGER">经理</option>
             </Select>
           </FormField>
           <FormField
-            label="Statement"
+            label="声明"
             htmlFor="attest-statement"
             className="field--full"
           >
@@ -1299,7 +1299,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Evidence references (comma separated)"
+            label="证据引用（逗号分隔）"
             htmlFor="attest-evidence"
             className="field--full"
           >
@@ -1315,13 +1315,13 @@ export function ContributionPage() {
       <Modal
         open={createOpen}
         title="New work package"
-        description="Commitment freezes this content as the baseline for later claims."
+        description="承诺将当前内容冻结为后续申报的基线。"
         onClose={() => setCreateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1329,7 +1329,7 @@ export function ContributionPage() {
               form="create-package-form"
               loading={submitting}
             >
-              Create package
+              创建工作包
             </Button>
           </>
         }
@@ -1337,7 +1337,7 @@ export function ContributionPage() {
         <form id="create-package-form" onSubmit={createPackage} className="stack">
           {formError ? <InfoNotice tone="warning">{formError}</InfoNotice> : null}
           <div className="form-grid">
-            <FormField label="Title" htmlFor="package-title" className="field--full">
+            <FormField label="标题" htmlFor="package-title" className="field--full">
               <TextInput
                 id="package-title"
                 value={title}
@@ -1346,7 +1346,7 @@ export function ContributionPage() {
               />
             </FormField>
             <FormField
-              label="Objective"
+              label="目标"
               htmlFor="package-objective"
               className="field--full"
             >
@@ -1357,10 +1357,10 @@ export function ContributionPage() {
                 required
               />
             </FormField>
-            <FormField label="Owner" htmlFor="package-owner">
+            <FormField label="负责人" htmlFor="package-owner">
               <PersonSelect id="package-owner" value={ownerId} onChange={setOwnerId} />
             </FormField>
-            <FormField label="Due date (optional)" htmlFor="package-due">
+            <FormField label="截止日期（可选）" htmlFor="package-due">
               <TextInput
                 id="package-due"
                 type="date"
@@ -1397,7 +1397,7 @@ export function ContributionPage() {
           </div>
 
           <div className="detail-section">
-            <div className="detail-section__title">Members and expected outputs</div>
+            <div className="detail-section__title">成员与预期产出</div>
             <div className="stack">
               {members.map((member, index) => (
                 <div className="form-grid" key={index}>
@@ -1451,7 +1451,7 @@ export function ContributionPage() {
                           )
                         }
                       >
-                        Remove member
+                        移除成员
                       </Button>
                     </div>
                   ) : null}
@@ -1473,7 +1473,7 @@ export function ContributionPage() {
                     ])
                   }
                 >
-                  Add member
+                  添加成员
                 </Button>
               </div>
             </div>
@@ -1483,7 +1483,7 @@ export function ContributionPage() {
 
       <Modal
         open={Boolean(selectedPackage)}
-        title={selectedPackage?.title ?? "Work package"}
+        title={selectedPackage?.title ?? "工作包"}
         description={
           selectedPackage
             ? `${titleCase(selectedPackage.status)} · v${selectedPackage.version}`
@@ -1493,7 +1493,7 @@ export function ContributionPage() {
         wide
         footer={
           <Button variant="secondary" onClick={() => setSelectedPackage(null)}>
-            Close
+            关闭
           </Button>
         }
       >
@@ -1502,11 +1502,11 @@ export function ContributionPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Owner",
+                  label: "负责人",
                   value: displayName(selectedPackage.ownerPersonId, people),
                 },
                 {
-                  label: "Due",
+                  label: "截止",
                   value: selectedPackage.dueAt
                     ? formatDate(selectedPackage.dueAt)
                     : "No due date",
@@ -1520,11 +1520,11 @@ export function ContributionPage() {
               ]}
             />
             <div className="detail-section">
-              <div className="detail-section__title">Objective</div>
+              <div className="detail-section__title">目标</div>
               <div className="reason-box">{selectedPackage.objective}</div>
             </div>
             <div className="detail-section">
-              <div className="detail-section__title">Members</div>
+              <div className="detail-section__title">成员</div>
               <div className="stack" style={{ gap: 8 }}>
                 {selectedPackage.members.map((member) => (
                   <div
@@ -1546,7 +1546,7 @@ export function ContributionPage() {
               </div>
             </div>
             <div className="detail-section">
-              <div className="detail-section__title">Acceptance criteria</div>
+              <div className="detail-section__title">验收标准</div>
               <ul className="stack" style={{ gap: 5 }}>
                 {selectedPackage.acceptanceCriteria.map((criterion) => (
                   <li key={criterion} className="muted">
@@ -1561,10 +1561,10 @@ export function ContributionPage() {
                 style={{ justifyContent: "space-between", width: "100%" }}
               >
                 <div className="detail-section__title" style={{ margin: 0 }}>
-                  Deliverables
+                  交付物
                 </div>
                 <Button size="sm" variant="secondary" icon="plus" onClick={openDeliverable}>
-                  Add
+                  添加
                 </Button>
               </div>
               {deliverables.error ? (
@@ -1575,14 +1575,14 @@ export function ContributionPage() {
               ) : deliverables.loading ? (
                 <LoadingRows rows={2} />
               ) : (deliverables.data?.length ?? 0) === 0 ? (
-                <p className="muted">No deliverable recorded for this package.</p>
+                <p className="muted">该工作包暂无交付物记录。</p>
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Deliverable</th>
-                        <th>Status</th>
+                        <th>交付物</th>
+                        <th>状态</th>
                         <th />
                       </tr>
                     </thead>
@@ -1614,7 +1614,7 @@ export function ContributionPage() {
                                 }
                                 onClick={() => submitDeliverable(deliverable)}
                               >
-                                Submit
+                                提交
                               </Button>
                             ) : null}
                             {deliverable.status === "SUBMITTED" ? (
@@ -1629,7 +1629,7 @@ export function ContributionPage() {
                                   setAcceptError(null);
                                 }}
                               >
-                                Review
+                                复核
                               </Button>
                             ) : null}
                           </td>
@@ -1653,14 +1653,14 @@ export function ContributionPage() {
               : packageAction.kind === "commit"
                 ? "Commit work package"
                 : packageAction.kind === "start"
-                  ? "Start work"
+                  ? "开始"
                   : "Submit work package"
             : ""
         }
         description={
           packageAction
             ? packageAction.kind === "review"
-              ? "Acceptance requires a reviewer. Rejection requires a reason."
+              ? "验收需要复核人；驳回需要理由。"
               : packageAction.workPackage.title
             : undefined
         }
@@ -1668,7 +1668,7 @@ export function ContributionPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPackageAction(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={
@@ -1681,13 +1681,13 @@ export function ContributionPage() {
             >
               {packageAction?.kind === "review"
                 ? reviewDecision === "ACCEPT"
-                  ? "Accept package"
-                  : "Reject package"
+                  ? "验收"
+                  : "驳回"
                 : packageAction?.kind === "commit"
-                  ? "Commit"
+                  ? "承诺"
                   : packageAction?.kind === "start"
-                    ? "Start"
-                    : "Submit"}
+                    ? "开始"
+                    : "提交"}
             </Button>
           </>
         }
@@ -1699,7 +1699,7 @@ export function ContributionPage() {
             ) : null}
             {packageAction.kind === "review" ? (
               <div className="form-grid">
-                <FormField label="Decision" htmlFor="package-decision">
+                <FormField label="决策" htmlFor="package-decision">
                   <Select
                     id="package-decision"
                     value={reviewDecision}
@@ -1709,11 +1709,11 @@ export function ContributionPage() {
                       )
                     }
                   >
-                    <option value="ACCEPT">Accept</option>
-                    <option value="REJECT">Reject</option>
+                    <option value="ACCEPT">验收</option>
+                    <option value="REJECT">驳回</option>
                   </Select>
                 </FormField>
-                <FormField label="Reviewer" htmlFor="package-reviewer">
+                <FormField label="复核人" htmlFor="package-reviewer">
                   <PersonSelect
                     id="package-reviewer"
                     value={reviewer}
@@ -1722,7 +1722,7 @@ export function ContributionPage() {
                 </FormField>
                 {reviewDecision === "REJECT" ? (
                   <FormField
-                    label="Reason"
+                    label="原因"
                     htmlFor="package-reason"
                     className="field--full"
                   >
@@ -1746,21 +1746,21 @@ export function ContributionPage() {
             ) : (
               <InfoNotice>
                 {packageAction.kind === "commit"
-                  ? "Committing freezes the objective, members and acceptance criteria as a snapshot."
+                  ? "提交承诺会把目标、成员与验收标准冻结为快照。"
                   : packageAction.kind === "start"
                     ? "Start execution once the package is committed."
-                    : "Submission makes the package available for owner acceptance."}
+                    : "提交后工作包即可由负责人验收。"}
               </InfoNotice>
             )}
             <DefinitionList
               items={[
-                { label: "Package", value: packageAction.workPackage.title },
+                { label: "工作包", value: packageAction.workPackage.title },
                 {
-                  label: "Version",
+                  label: "版本",
                   value: `v${packageAction.workPackage.version}`,
                 },
                 {
-                  label: "Members",
+                  label: "成员",
                   value: packageAction.workPackage.members.length,
                 },
               ]}
@@ -1778,7 +1778,7 @@ export function ContributionPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setClaimOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1786,7 +1786,7 @@ export function ContributionPage() {
               form="create-claim-form"
               loading={submitting}
             >
-              Create claim
+              新建申报
             </Button>
           </>
         }
@@ -1797,7 +1797,7 @@ export function ContributionPage() {
               <InfoNotice tone="warning">{claimError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Work package" htmlFor="claim-package">
+          <FormField label="工作包" htmlFor="claim-package">
             <Select
               id="claim-package"
               value={claimPackageId}
@@ -1812,14 +1812,14 @@ export function ContributionPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Claimant" htmlFor="claim-claimant">
+          <FormField label="申报人" htmlFor="claim-claimant">
             <PersonSelect
               id="claim-claimant"
               value={claimantId}
               onChange={setClaimantId}
             />
           </FormField>
-          <FormField label="Claim type" htmlFor="claim-type">
+          <FormField label="申报类型" htmlFor="claim-type">
             <TextInput
               id="claim-type"
               value={claimType}
@@ -1841,9 +1841,9 @@ export function ContributionPage() {
                 )
               }
             >
-              <option value="STANDARD">Standard</option>
-              <option value="EXCEPTION">Exception</option>
-              <option value="BACKFILL">Backfill</option>
+              <option value="STANDARD">标准</option>
+              <option value="EXCEPTION">例外</option>
+              <option value="BACKFILL">补录</option>
             </Select>
           </FormField>
           {claimMode !== "STANDARD" ? (
@@ -1862,7 +1862,7 @@ export function ContributionPage() {
             </FormField>
           ) : null}
           <FormField
-            label="Dimensions (comma separated)"
+            label="维度（逗号分隔）"
             htmlFor="claim-dimensions"
           >
             <TextInput
@@ -1885,7 +1885,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Rationale"
+            label="理由"
             htmlFor="claim-rationale"
             className="field--full"
           >
@@ -1897,7 +1897,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Evidence references (comma separated)"
+            label="证据引用（逗号分隔）"
             htmlFor="claim-evidence"
             className="field--full"
             hint="Evidence node UUIDs; optional."
@@ -1914,20 +1914,20 @@ export function ContributionPage() {
       <Modal
         open={Boolean(adjudicateClaim)}
         title="Adjudicate contribution claim"
-        description="The adjudicator cannot be the claimant. The decision supersedes any prior version."
+        description="裁决人不能是申报人；决策会替代之前的版本。"
         onClose={() => setAdjudicateClaim(null)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setAdjudicateClaim(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
               onClick={submitAttribution}
               loading={submitting}
             >
-              Record decision
+              记录决策
             </Button>
           </>
         }
@@ -1955,7 +1955,7 @@ export function ContributionPage() {
               </div>
             </div>
             <div className="form-grid">
-              <FormField label="Decision" htmlFor="attribution-status">
+              <FormField label="决策" htmlFor="attribution-status">
                 <Select
                   id="attribution-status"
                   value={decisionStatus}
@@ -1968,9 +1968,9 @@ export function ContributionPage() {
                     )
                   }
                 >
-                  <option value="CONFIRMED">Confirm</option>
-                  <option value="PARTIALLY_CONFIRMED">Partially confirm</option>
-                  <option value="REJECTED">Reject</option>
+                  <option value="CONFIRMED">确认</option>
+                  <option value="PARTIALLY_CONFIRMED">部分确认</option>
+                  <option value="REJECTED">驳回</option>
                 </Select>
               </FormField>
               <FormField label="Adjudicator" htmlFor="attribution-adjudicator">
@@ -2009,7 +2009,7 @@ export function ContributionPage() {
                 />
               </FormField>
               <FormField
-                label="Rationale"
+                label="理由"
                 htmlFor="attribution-rationale"
                 className="field--full"
               >
@@ -2039,16 +2039,16 @@ export function ContributionPage() {
 
       <Modal
         open={deliverableOpen}
-        title="Add deliverable"
+        title="添加交付物"
         description={selectedPackage?.title}
         onClose={() => setDeliverableOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDeliverableOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createDeliverable}>
-              Add deliverable
+              添加交付物
             </Button>
           </>
         }
@@ -2059,7 +2059,7 @@ export function ContributionPage() {
               <InfoNotice tone="warning">{deliverableError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Title" htmlFor="deliverable-title">
+          <FormField label="标题" htmlFor="deliverable-title">
             <TextInput
               id="deliverable-title"
               value={deliverableTitle}
@@ -2067,7 +2067,7 @@ export function ContributionPage() {
               required
             />
           </FormField>
-          <FormField label="Type" htmlFor="deliverable-type">
+          <FormField label="类型" htmlFor="deliverable-type">
             <TextInput
               id="deliverable-type"
               value={deliverableType}
@@ -2076,7 +2076,7 @@ export function ContributionPage() {
               required
             />
           </FormField>
-          <FormField label="Owner" htmlFor="deliverable-owner">
+          <FormField label="负责人" htmlFor="deliverable-owner">
             <PersonSelect
               id="deliverable-owner"
               value={deliverableOwner}
@@ -2102,10 +2102,10 @@ export function ContributionPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setAcceptTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={acceptDeliverable}>
-              Record decision
+              记录决策
             </Button>
           </>
         }
@@ -2116,7 +2116,7 @@ export function ContributionPage() {
               <InfoNotice tone="warning">{acceptError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Decision" htmlFor="deliverable-decision">
+          <FormField label="决策" htmlFor="deliverable-decision">
             <Select
               id="deliverable-decision"
               value={acceptDecision}
@@ -2129,12 +2129,12 @@ export function ContributionPage() {
                 )
               }
             >
-              <option value="ACCEPT">Accept</option>
-              <option value="ACCEPT_WITH_ISSUES">Accept with issues</option>
-              <option value="REJECT">Reject</option>
+              <option value="ACCEPT">验收</option>
+              <option value="ACCEPT_WITH_ISSUES">有遗留问题验收</option>
+              <option value="REJECT">驳回</option>
             </Select>
           </FormField>
-          <FormField label="Reviewer" htmlFor="deliverable-reviewer">
+          <FormField label="复核人" htmlFor="deliverable-reviewer">
             <PersonSelect
               id="deliverable-reviewer"
               value={acceptReviewer}
@@ -2157,16 +2157,16 @@ export function ContributionPage() {
 
       <Modal
         open={evidenceOpen}
-        title="Add evidence"
+        title="添加证据"
         description="Activity monitoring fields are rejected server-side."
         onClose={() => setEvidenceOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setEvidenceOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitEvidence}>
-              Add evidence
+              添加证据
             </Button>
           </>
         }
@@ -2206,7 +2206,7 @@ export function ContributionPage() {
                 onChange={(event) => setEvidenceSubjectId(event.target.value)}
                 required
               >
-                <option value="">Select a package</option>
+                <option value="">选择工作包…</option>
                 {packageList.map((workPackage) => (
                   <option key={workPackage.id} value={workPackage.id}>
                     {workPackage.title}
@@ -2223,7 +2223,7 @@ export function ContributionPage() {
               />
             )}
           </FormField>
-          <FormField label="Source system" htmlFor="evidence-source">
+          <FormField label="来源系统" htmlFor="evidence-source">
             <TextInput
               id="evidence-source"
               value={evidenceSourceSystem}
@@ -2265,7 +2265,7 @@ export function ContributionPage() {
         wide
         footer={
           <Button variant="secondary" onClick={() => setViewEvidence(null)}>
-            Close
+            关闭
           </Button>
         }
       >

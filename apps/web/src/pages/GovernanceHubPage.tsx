@@ -5,82 +5,82 @@ import { useDocumentTitle } from "../lib/hooks.js";
 const SECTIONS = [
   {
     to: "/approvals",
-    title: "Approvals",
-    description: "T2/T3 human approval queue and one-time consumption.",
+    title: "审批",
+    description: "T2/T3 人工审批队列与一次性消费。",
   },
   {
     to: "/cycles",
     title: "Cycles & calculations",
-    description: "Readiness, formal/shadow runs, approve and lock.",
+    description: "就绪度、正式/影子计算、批准与锁定。",
   },
   {
     to: "/policy",
     title: "Policy governance",
-    description: "Rule changes, notices, consultations and representation.",
+    description: "规则变更、告知、咨询与员工代表。",
   },
   {
     to: "/contribution",
     title: "Contribution & deliverables",
-    description: "Work packages, claims, evidence and acceptance.",
+    description: "工作包、申报、证据与验收。",
   },
   {
     to: "/settlements",
     title: "Settlements & budgets",
-    description: "Batches, ledger, budget pools, cash gates and financial facts.",
+    description: "结算批次、账本、预算池、现金门禁与财务事实。",
   },
   {
     to: "/payroll",
     title: "Payroll & contracts",
-    description: "Runs, exports, contracts, e-sign and tax studio.",
+    description: "批次、导出、合同、电子签与个税工作台。",
   },
   {
     to: "/rewards",
     title: "Equity & bounties",
-    description: "Grants, vesting, exercises and reward-backed bounties.",
+    description: "授予、归属、行权与悬赏。",
   },
   {
     to: "/settings",
     title: "Privacy & assurance",
-    description: "DSAR, DPIA, retention, trust surveys, conflicts and break-glass.",
+    description: "DSAR、DPIA、保留、信任调查、冲突申报与紧急授权。",
   },
   {
     to: "/integrations",
-    title: "Integrations",
-    description: "Connections, mappings, schedules, runs and identities.",
+    title: "集成",
+    description: "连接、映射、计划、同步运行与身份映射。",
   },
   {
     to: "/ai",
-    title: "AI assurance",
-    description: "Evaluation gate, proposals, gold sets, canary and red team.",
+    title: "AI 保障",
+    description: "评测门禁、提案、金标集、金丝雀与红队。",
   },
   {
     to: "/agent-ops",
-    title: "Agent operations",
-    description: "Agent tasks, approval gates, workflows and suggestion logs.",
+    title: "Agent 运维",
+    description: "Agent 任务、审批门禁、工作流与建议日志。",
   },
   {
     to: "/audit",
-    title: "Audit",
-    description: "Hash chain, anchor manifest and durability readiness.",
+    title: "审计",
+    description: "哈希链、锚点清单与耐久性就绪。",
   },
   {
     to: "/field-access",
-    title: "Field access",
-    description: "Role and predicate-based field policies, audited on write.",
+    title: "字段权限",
+    description: "基于角色与谓词的字段策略，写入即审计。",
   },
   {
     to: "/registries",
-    title: "Registries",
+    title: "登记簿",
     description: "Metric definitions and compensation templates.",
   },
 ];
 
 export function GovernanceHubPage() {
-  useDocumentTitle("Governance");
+  useDocumentTitle("治理");
   return (
     <>
       <PageHeader
-        eyebrow="Governance"
+        eyebrow="治理"
         title="Governance console"
         description="Entry point for the governance and money-path modules. Every action is available in its dedicated, role-aware page; this hub replaces the legacy server-rendered governance page."
       />

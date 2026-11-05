@@ -23,7 +23,7 @@ import type {
 } from "../lib/ops-types.js";
 
 export function RegistriesPage() {
-  useDocumentTitle("Registries");
+  useDocumentTitle("登记簿");
   const toast = useToast();
   const metrics = useApiQuery<MetricDefinitionView[]>(
     "/api/v1/metric-definitions",
@@ -88,12 +88,12 @@ export function RegistriesPage() {
           effectiveFrom: metricEffectiveFrom,
         },
       });
-      toast.success("Metric definition created", metricCode);
+      toast.success("指标定义已创建", metricCode);
       setMetricOpen(false);
       metrics.reload();
     } catch (caught) {
       setMetricError(
-        caught instanceof ApiError ? caught.message : "Could not create metric",
+        caught instanceof ApiError ? caught.message : "创建指标失败",
       );
     }
   }
@@ -131,14 +131,14 @@ export function RegistriesPage() {
           smoothingThresholdRate: templateSmoothing,
         },
       });
-      toast.success("Compensation template created", templateCode);
+      toast.success("薪酬模板已创建", templateCode);
       setTemplateOpen(false);
       templates.reload();
     } catch (caught) {
       setTemplateError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not create template",
+          : "创建模板失败",
       );
     }
   }
@@ -154,7 +154,7 @@ export function RegistriesPage() {
         `/api/v1/${kind === "metric" ? "metric-definitions" : "compensation-templates"}/${id}/retire`,
         { method: "POST" },
       );
-      toast.success("Retired", label);
+      toast.success("已退役", label);
       if (kind === "metric") metrics.reload();
       else templates.reload();
     } catch (caught) {
@@ -171,18 +171,18 @@ export function RegistriesPage() {
     <>
       <PageHeader
         eyebrow="Reference data"
-        title="Registries"
+        title="登记簿"
         description="Versioned metric definitions and role compensation templates. Contracts reference a template by code and are validated against its range."
       />
 
       <div className="split-grid">
         <Panel
-          title="Metric definitions"
-          subtitle="Versioned measures with effective dates"
+          title="指标定义"
+          subtitle="带生效日期的版本化度量"
           flush
           action={
             <Button size="sm" variant="primary" icon="plus" onClick={openMetric}>
-              New metric
+              新建指标
             </Button>
           }
         >
@@ -198,17 +198,17 @@ export function RegistriesPage() {
             <EmptyState
               icon="chart"
               title="No metric definition"
-              description="Define what is measured, its unit and effective window."
+              description="定义度量对象、单位与生效窗口。"
             />
           ) : (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Metric</th>
-                    <th>Type</th>
-                    <th>Effective</th>
-                    <th>Status</th>
+                    <th>指标</th>
+                    <th>类型</th>
+                    <th>生效</th>
+                    <th>状态</th>
                     <th />
                   </tr>
                 </thead>
@@ -230,7 +230,7 @@ export function RegistriesPage() {
                       </td>
                       <td>
                         <Badge tone={metric.active ? "success" : "neutral"}>
-                          {metric.active ? "Active" : "Retired"}
+                          {metric.active ? "生效中" : "已退役"}
                         </Badge>
                       </td>
                       <td className="cell-actions">
@@ -243,7 +243,7 @@ export function RegistriesPage() {
                               retire("metric", metric.id, metric.code)
                             }
                           >
-                            Retire
+                            退役
                           </Button>
                         ) : null}
                       </td>
@@ -256,8 +256,8 @@ export function RegistriesPage() {
         </Panel>
 
         <Panel
-          title="Compensation templates"
-          subtitle="Role, employment type and salary band"
+          title="薪酬模板"
+          subtitle="岗位、用工类型与薪资区间"
           flush
           action={
             <Button
@@ -266,7 +266,7 @@ export function RegistriesPage() {
               icon="plus"
               onClick={openTemplate}
             >
-              New template
+              新建模板
             </Button>
           }
         >
@@ -281,18 +281,18 @@ export function RegistriesPage() {
           ) : templateList.length === 0 ? (
             <EmptyState
               icon="payroll"
-              title="No compensation template"
-              description="Templates keep role pay structures consistent across contracts."
+              title="暂无薪酬模板"
+              description="模板保证各合同的岗位薪酬结构一致。"
             />
           ) : (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Template</th>
-                    <th>Role</th>
-                    <th>Band</th>
-                    <th>Status</th>
+                    <th>模板</th>
+                    <th>角色</th>
+                    <th>区间</th>
+                    <th>状态</th>
                     <th />
                   </tr>
                 </thead>
@@ -332,7 +332,7 @@ export function RegistriesPage() {
                               retire("template", template.id, template.code)
                             }
                           >
-                            Retire
+                            退役
                           </Button>
                         ) : null}
                       </td>
@@ -347,15 +347,15 @@ export function RegistriesPage() {
 
       <Modal
         open={metricOpen}
-        title="New metric definition"
+        title="新建指标定义"
         onClose={() => setMetricOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setMetricOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createMetric}>
-              Create metric
+              创建指标
             </Button>
           </>
         }
@@ -366,7 +366,7 @@ export function RegistriesPage() {
               <InfoNotice tone="warning">{metricError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Code" htmlFor="metric-code">
+          <FormField label="编码" htmlFor="metric-code">
             <TextInput
               id="metric-code"
               value={metricCode}
@@ -374,7 +374,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Version" htmlFor="metric-version">
+          <FormField label="版本" htmlFor="metric-version">
             <TextInput
               id="metric-version"
               value={metricVersion}
@@ -382,7 +382,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Name" htmlFor="metric-name">
+          <FormField label="名称" htmlFor="metric-name">
             <TextInput
               id="metric-name"
               value={metricName}
@@ -412,7 +412,7 @@ export function RegistriesPage() {
               onChange={(event) => setMetricAggregation(event.target.value)}
             />
           </FormField>
-          <FormField label="Effective from" htmlFor="metric-effective">
+          <FormField label="生效自" htmlFor="metric-effective">
             <TextInput
               id="metric-effective"
               type="date"
@@ -421,7 +421,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Description" htmlFor="metric-description">
+          <FormField label="说明" htmlFor="metric-description">
             <TextInput
               id="metric-description"
               value={metricDescription}
@@ -433,17 +433,17 @@ export function RegistriesPage() {
 
       <Modal
         open={templateOpen}
-        title="New compensation template"
-        description="Contracts referencing this template must match its type, currency and salary band."
+        title="新建薪酬模板"
+        description="引用该模板的合同必须匹配其用工类型、币种与薪资区间。"
         onClose={() => setTemplateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setTemplateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createTemplate}>
-              Create template
+              创建模板
             </Button>
           </>
         }
@@ -454,7 +454,7 @@ export function RegistriesPage() {
               <InfoNotice tone="warning">{templateError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Code" htmlFor="template-code">
+          <FormField label="编码" htmlFor="template-code">
             <TextInput
               id="template-code"
               value={templateCode}
@@ -462,7 +462,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Name" htmlFor="template-name">
+          <FormField label="名称" htmlFor="template-name">
             <TextInput
               id="template-name"
               value={templateName}
@@ -478,7 +478,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Employment type" htmlFor="template-type">
+          <FormField label="用工类型" htmlFor="template-type">
             <Select
               id="template-type"
               value={templateEmploymentType}
@@ -491,7 +491,7 @@ export function RegistriesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Currency" htmlFor="template-currency">
+          <FormField label="币种" htmlFor="template-currency">
             <TextInput
               id="template-currency"
               value={templateCurrency}

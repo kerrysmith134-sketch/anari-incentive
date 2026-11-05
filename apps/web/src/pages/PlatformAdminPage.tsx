@@ -32,7 +32,7 @@ import type {
 } from "../lib/ops-types.js";
 
 export function PlatformAdminPage() {
-  useDocumentTitle("Platform admin");
+  useDocumentTitle("平台管理");
   const toast = useToast();
   const tenants = useApiQuery<PlatformTenant[]>("/api/v1/platform/tenants");
   const users = useApiQuery<PlatformUser[]>("/api/v1/platform/users");
@@ -129,7 +129,7 @@ export function PlatformAdminPage() {
           defaultCurrency: tenantCurrency.trim().toUpperCase() || undefined,
         },
       });
-      toast.success("Tenant created", tenantSlug);
+      toast.success("租户已创建", tenantSlug);
       setTenantOpen(false);
       tenants.reload();
     } catch (caught) {
@@ -187,7 +187,7 @@ export function PlatformAdminPage() {
       setSubError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not save subscription",
+          : "保存订阅失败",
       );
     } finally {
       setSubSaving(false);
@@ -203,7 +203,7 @@ export function PlatformAdminPage() {
         body: {
           lineItems: [
             {
-              description: invoiceDescription.trim() || "Subscription",
+              description: invoiceDescription.trim() || "订阅",
               quantity: 1,
               unitAmount: invoiceAmount.trim(),
               amount: invoiceAmount.trim(),
@@ -249,7 +249,7 @@ export function PlatformAdminPage() {
           email: userEmail.trim() || undefined,
         },
       });
-      toast.success("User created", displayName);
+      toast.success("用户已创建", displayName);
       setUserOpen(false);
       users.reload();
     } catch (caught) {
@@ -276,7 +276,7 @@ export function PlatformAdminPage() {
           },
         },
       );
-      toast.success("Membership added", membershipUserId);
+      toast.success("成员关系已添加", membershipUserId);
       setMembershipOpen(false);
       memberships.reload();
     } catch (caught) {
@@ -333,7 +333,7 @@ export function PlatformAdminPage() {
     <>
       <PageHeader
         eyebrow="Platform"
-        title="Platform admin"
+        title="平台管理"
         description="Tenants, users, memberships, org structure and tenant settings. Security-sensitive settings such as field access are also auditable from their dedicated pages."
         actions={
           <Button
@@ -345,7 +345,7 @@ export function PlatformAdminPage() {
             }}
             loading={tenants.loading || users.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -353,21 +353,21 @@ export function PlatformAdminPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Tenants</span>
+            <span className="stat-tile__label">租户</span>
           </div>
           <div className="stat-tile__value">{tenantList.length}</div>
-          <div className="stat-tile__detail">Active platform scope</div>
+          <div className="stat-tile__detail">当前平台范围</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Users</span>
+            <span className="stat-tile__label">用户</span>
           </div>
           <div className="stat-tile__value">{users.data?.length ?? 0}</div>
-          <div className="stat-tile__detail">Platform identities</div>
+          <div className="stat-tile__detail">平台身份</div>
         </div>
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Selected tenant</span>
+            <span className="stat-tile__label">所选租户</span>
           </div>
           <div className="stat-tile__value" style={{ fontSize: 20 }}>
             {selectedTenant?.slug ?? "—"}
@@ -375,27 +375,27 @@ export function PlatformAdminPage() {
           <div className="stat-tile__detail">
             {selectedTenant
               ? `${selectedTenant.defaultTimezone} · ${selectedTenant.defaultCurrency}`
-              : "Select a tenant"}
+              : "选择租户…"}
           </div>
         </div>
       </div>
 
       <Tabs
         items={[
-          { id: "tenants", label: "Tenants", count: tenantList.length },
-          { id: "users", label: "Users", count: users.data?.length ?? 0 },
+          { id: "tenants", label: "租户", count: tenantList.length },
+          { id: "users", label: "用户", count: users.data?.length ?? 0 },
           {
             id: "memberships",
-            label: "Memberships",
+            label: "成员关系",
             count: memberships.data?.length ?? 0,
           },
           {
             id: "org",
-            label: "Org structure",
+            label: "组织架构",
             count: orgNodes.data?.length ?? 0,
           },
-          { id: "settings", label: "Settings" },
-          { id: "billing", label: "Billing", count: invoices.data?.length ?? 0 },
+          { id: "settings", label: "设置" },
+          { id: "billing", label: "订阅计费", count: invoices.data?.length ?? 0 },
         ]}
         active={tab}
         onChange={setTab}
@@ -405,8 +405,8 @@ export function PlatformAdminPage() {
       <div className="tab-panel">
         {tab === "tenants" ? (
           <Panel
-            title="Tenants"
-            subtitle="Isolation boundary for people, policies and money paths"
+            title="租户"
+            subtitle="人员、政策与资金路径的隔离边界"
             flush
             action={
               <Button
@@ -422,7 +422,7 @@ export function PlatformAdminPage() {
                   setTenantOpen(true);
                 }}
               >
-                New tenant
+                新建租户
               </Button>
             }
           >
@@ -441,11 +441,11 @@ export function PlatformAdminPage() {
                 <table className="data-table table-clickable">
                   <thead>
                     <tr>
-                      <th>Tenant</th>
-                      <th>Status</th>
-                      <th>Timezone</th>
-                      <th>Currency</th>
-                      <th>Created</th>
+                      <th>租户</th>
+                      <th>状态</th>
+                      <th>时区</th>
+                      <th>币种</th>
+                      <th>创建时间</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -483,7 +483,7 @@ export function PlatformAdminPage() {
         {tab === "users" ? (
           <Panel
             title="Platform users"
-            subtitle="Authentication subjects that can hold memberships"
+            subtitle="可持有成员关系的认证主体"
             flush
             action={
               <Button
@@ -498,7 +498,7 @@ export function PlatformAdminPage() {
                   setUserOpen(true);
                 }}
               >
-                New user
+                新建用户
               </Button>
             }
           >
@@ -517,10 +517,10 @@ export function PlatformAdminPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>User</th>
-                      <th>Auth subject</th>
-                      <th>Status</th>
-                      <th>Created</th>
+                      <th>用户</th>
+                      <th>认证主体</th>
+                      <th>状态</th>
+                      <th>创建时间</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -552,11 +552,11 @@ export function PlatformAdminPage() {
 
         {tab === "memberships" ? (
           <Panel
-            title="Memberships"
+            title="成员关系"
             subtitle={
               selectedTenant
                 ? `Roles for ${selectedTenant.name}`
-                : "Select a tenant first"
+                : "请先选择租户"
             }
             flush
             action={
@@ -572,15 +572,15 @@ export function PlatformAdminPage() {
                   setMembershipOpen(true);
                 }}
               >
-                Add membership
+                添加成员关系
               </Button>
             }
           >
             {!selectedTenantId ? (
               <EmptyState
                 icon="people"
-                title="Select a tenant"
-                description="Memberships are tenant-scoped."
+                title="选择租户…"
+                description="成员关系按租户隔离。"
               />
             ) : memberships.error ? (
               <div style={{ padding: 16 }}>
@@ -600,9 +600,9 @@ export function PlatformAdminPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>User</th>
-                      <th>Roles</th>
-                      <th>Status</th>
+                      <th>用户</th>
+                      <th>角色</th>
+                      <th>状态</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -640,11 +640,11 @@ export function PlatformAdminPage() {
 
         {tab === "org" ? (
           <Panel
-            title="Org structure"
+            title="组织架构"
             subtitle={
               selectedTenant
                 ? `Nodes for ${selectedTenant.name}`
-                : "Select a tenant first"
+                : "请先选择租户"
             }
             flush
             action={
@@ -661,15 +661,15 @@ export function PlatformAdminPage() {
                   setOrgOpen(true);
                 }}
               >
-                New node
+                新建节点
               </Button>
             }
           >
             {!selectedTenantId ? (
               <EmptyState
                 icon="layers"
-                title="Select a tenant"
-                description="Org nodes are tenant-scoped."
+                title="选择租户…"
+                description="组织节点按租户隔离。"
               />
             ) : orgNodes.error ? (
               <div style={{ padding: 16 }}>
@@ -686,10 +686,10 @@ export function PlatformAdminPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Node</th>
-                      <th>Type</th>
-                      <th>Path</th>
-                      <th>Status</th>
+                      <th>节点</th>
+                      <th>类型</th>
+                      <th>路径</th>
+                      <th>状态</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -707,7 +707,7 @@ export function PlatformAdminPage() {
                           <Badge
                             tone={node.active ? "success" : "neutral"}
                           >
-                            {node.active ? "Active" : "Inactive"}
+                            {node.active ? "生效中" : "未启用"}
                           </Badge>
                         </td>
                       </tr>
@@ -725,7 +725,7 @@ export function PlatformAdminPage() {
             subtitle={
               selectedTenant
                 ? `Settings for ${selectedTenant.name}`
-                : "Select a tenant first"
+                : "请先选择租户"
             }
             action={
               <Button
@@ -735,12 +735,12 @@ export function PlatformAdminPage() {
                 disabled={!selectedTenantId}
                 onClick={saveSettings}
               >
-                Save settings
+                保存设置
               </Button>
             }
           >
             {!selectedTenantId ? (
-              <EmptyState icon="settings" title="Select a tenant" />
+              <EmptyState icon="settings" title="选择租户…" />
             ) : (
               <>
                 {settingsError ? (
@@ -763,9 +763,9 @@ export function PlatformAdminPage() {
         {tab === "billing" ? (
           <>
             <Panel
-              title="Subscription plans"
+              title="订阅套餐"
               action={
-                <Button onClick={() => setPlanOpen(true)}>New plan</Button>
+                <Button onClick={() => setPlanOpen(true)}>新建套餐</Button>
               }
             >
               {plans.loading && plans.data === undefined ? (
@@ -774,18 +774,18 @@ export function PlatformAdminPage() {
                 <EmptyState
                   icon="layers"
                   title="No plans yet"
-                  description="Create the first subscription plan to enable self-service signup and seat limits."
+                  description="创建第一个订阅套餐后即可启用自助注册与席位限制。"
                 />
               ) : (
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>Monthly</th>
-                      <th>Seats</th>
-                      <th>Trial</th>
-                      <th>Active</th>
+                      <th>编码</th>
+                      <th>名称</th>
+                      <th>月度</th>
+                      <th>席位</th>
+                      <th>试用</th>
+                      <th>生效中</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -806,7 +806,7 @@ export function PlatformAdminPage() {
                           <Badge
                             tone={plan.active ? "success" : "neutral"}
                           >
-                            {plan.active ? "Active" : "Inactive"}
+                            {plan.active ? "生效中" : "未启用"}
                           </Badge>
                         </td>
                       </tr>
@@ -819,7 +819,7 @@ export function PlatformAdminPage() {
               title={
                 selectedTenant
                   ? `Subscription · ${selectedTenant.name}`
-                  : "Subscription"
+                  : "订阅"
               }
             >
               {subscription.error ? (
@@ -830,26 +830,26 @@ export function PlatformAdminPage() {
               ) : subscription.data ? (
                 <div className="stat-grid">
                   <div>
-                    <div className="stat-label">Plan</div>
+                    <div className="stat-label">套餐</div>
                     <div className="stat-value">
                       {subscription.data.planName} (
                       {subscription.data.planCode})
                     </div>
                   </div>
                   <div>
-                    <div className="stat-label">Status</div>
+                    <div className="stat-label">状态</div>
                     <div className="stat-value">
                       {subscription.data.status}
                     </div>
                   </div>
                   <div>
-                    <div className="stat-label">Seats</div>
+                    <div className="stat-label">席位</div>
                     <div className="stat-value">
                       {subscription.data.seats}
                     </div>
                   </div>
                   <div>
-                    <div className="stat-label">Period ends</div>
+                    <div className="stat-label">周期结束</div>
                     <div className="stat-value">
                       {formatDateTime(subscription.data.currentPeriodEnd)}
                     </div>
@@ -859,7 +859,7 @@ export function PlatformAdminPage() {
                 <EmptyState
                   icon="layers"
                   title="No subscription"
-                  description="Assign a plan below to start billing this tenant."
+                  description="在下方分配套餐以开始计费。"
                 />
               )}
               <div className="form-grid">
@@ -868,7 +868,7 @@ export function PlatformAdminPage() {
                     <InfoNotice tone="warning">{subError}</InfoNotice>
                   </div>
                 ) : null}
-                <FormField label="Plan" htmlFor="sub-plan">
+                <FormField label="套餐" htmlFor="sub-plan">
                   <Select
                     id="sub-plan"
                     value={subPlanCode}
@@ -884,7 +884,7 @@ export function PlatformAdminPage() {
                       ))}
                   </Select>
                 </FormField>
-                <FormField label="Status" htmlFor="sub-status">
+                <FormField label="状态" htmlFor="sub-status">
                   <Select
                     id="sub-status"
                     value={subStatus}
@@ -905,16 +905,16 @@ export function PlatformAdminPage() {
                     disabled={!subPlanCode || subSaving}
                     onClick={saveSubscription}
                   >
-                    Save subscription
+                    保存订阅
                   </Button>
                 </div>
               </div>
             </Panel>
             <Panel
-              title="Invoices"
+              title="发票"
               action={
                 <Button onClick={() => setInvoiceOpen(true)}>
-                  New invoice
+                  新建发票
                 </Button>
               }
             >
@@ -922,18 +922,18 @@ export function PlatformAdminPage() {
                 <EmptyState
                   icon="layers"
                   title="No invoices"
-                  description="Invoices are created per billing period from the subscription."
+                  description="发票按计费周期从订阅生成。"
                 />
               ) : (
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Number</th>
-                      <th>Status</th>
-                      <th>Total</th>
-                      <th>Due</th>
-                      <th>Issued</th>
-                      <th>Paid</th>
+                      <th>编号</th>
+                      <th>状态</th>
+                      <th>合计</th>
+                      <th>截止</th>
+                      <th>已开具</th>
+                      <th>已支付</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -978,14 +978,14 @@ export function PlatformAdminPage() {
                                 advanceInvoice(invoice.id, "ISSUED")
                               }
                             >
-                              Issue
+                              问题
                             </Button>
                           ) : invoice.status === "ISSUED" ? (
                             <Button
                               variant="ghost"
                               onClick={() => advanceInvoice(invoice.id, "PAID")}
                             >
-                              Mark paid
+                              标记已支付
                             </Button>
                           ) : null}
                         </td>
@@ -1006,10 +1006,10 @@ export function PlatformAdminPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPlanOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createPlan}>
-              Save plan
+              保存套餐
             </Button>
           </>
         }
@@ -1020,7 +1020,7 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{planError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Code" htmlFor="plan-code">
+          <FormField label="编码" htmlFor="plan-code">
             <TextInput
               id="plan-code"
               value={planCode}
@@ -1028,7 +1028,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Name" htmlFor="plan-name">
+          <FormField label="名称" htmlFor="plan-name">
             <TextInput
               id="plan-name"
               value={planName}
@@ -1044,7 +1044,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Seat limit (-1 = unlimited)" htmlFor="plan-seats">
+          <FormField label="席位上限（-1 = 不限）" htmlFor="plan-seats">
             <TextInput
               id="plan-seats"
               value={planSeats}
@@ -1064,15 +1064,15 @@ export function PlatformAdminPage() {
 
       <Modal
         open={invoiceOpen}
-        title="New invoice"
+        title="新建发票"
         onClose={() => setInvoiceOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setInvoiceOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createInvoice}>
-              Create invoice
+              创建发票
             </Button>
           </>
         }
@@ -1083,7 +1083,7 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{invoiceError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Description" htmlFor="invoice-description">
+          <FormField label="说明" htmlFor="invoice-description">
             <TextInput
               id="invoice-description"
               value={invoiceDescription}
@@ -1092,7 +1092,7 @@ export function PlatformAdminPage() {
               }
             />
           </FormField>
-          <FormField label="Amount" htmlFor="invoice-amount">
+          <FormField label="金额" htmlFor="invoice-amount">
             <TextInput
               id="invoice-amount"
               value={invoiceAmount}
@@ -1105,15 +1105,15 @@ export function PlatformAdminPage() {
 
       <Modal
         open={tenantOpen}
-        title="New tenant"
+        title="新建租户"
         onClose={() => setTenantOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setTenantOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createTenant}>
-              Create tenant
+              创建租户
             </Button>
           </>
         }
@@ -1124,7 +1124,7 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{tenantError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Name" htmlFor="tenant-name">
+          <FormField label="名称" htmlFor="tenant-name">
             <TextInput
               id="tenant-name"
               value={tenantName}
@@ -1140,14 +1140,14 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Timezone" htmlFor="tenant-timezone">
+          <FormField label="时区" htmlFor="tenant-timezone">
             <TextInput
               id="tenant-timezone"
               value={tenantTimezone}
               onChange={(event) => setTenantTimezone(event.target.value)}
             />
           </FormField>
-          <FormField label="Currency" htmlFor="tenant-currency">
+          <FormField label="币种" htmlFor="tenant-currency">
             <TextInput
               id="tenant-currency"
               value={tenantCurrency}
@@ -1167,10 +1167,10 @@ export function PlatformAdminPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setUserOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createUser}>
-              Create user
+              创建用户
             </Button>
           </>
         }
@@ -1181,7 +1181,7 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{userError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Auth subject" htmlFor="user-subject">
+          <FormField label="认证主体" htmlFor="user-subject">
             <TextInput
               id="user-subject"
               value={authSubject}
@@ -1189,7 +1189,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Display name" htmlFor="user-name">
+          <FormField label="姓名" htmlFor="user-name">
             <TextInput
               id="user-name"
               value={displayName}
@@ -1210,15 +1210,15 @@ export function PlatformAdminPage() {
 
       <Modal
         open={membershipOpen}
-        title="Add membership"
+        title="添加成员关系"
         onClose={() => setMembershipOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setMembershipOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={addMembership}>
-              Add membership
+              添加成员关系
             </Button>
           </>
         }
@@ -1229,14 +1229,14 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{membershipError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="User" htmlFor="membership-user">
+          <FormField label="用户" htmlFor="membership-user">
             <Select
               id="membership-user"
               value={membershipUserId}
               onChange={(event) => setMembershipUserId(event.target.value)}
               required
             >
-              <option value="">Select a user</option>
+              <option value="">选择用户…</option>
               {(users.data ?? []).map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.displayName} · {user.authSubject}
@@ -1262,10 +1262,10 @@ export function PlatformAdminPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOrgOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createOrgNode}>
-              Create node
+              创建节点
             </Button>
           </>
         }
@@ -1276,7 +1276,7 @@ export function PlatformAdminPage() {
               <InfoNotice tone="warning">{orgError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Name" htmlFor="org-name">
+          <FormField label="名称" htmlFor="org-name">
             <TextInput
               id="org-name"
               value={orgName}

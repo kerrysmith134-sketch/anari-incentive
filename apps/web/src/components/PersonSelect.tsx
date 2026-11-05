@@ -27,7 +27,7 @@ export function PersonSelect({
   value,
   onChange,
   required = true,
-  label = "Person",
+  label = "人员",
   id,
 }: {
   value: string;

@@ -1,19 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const PAGES: Array<{ path: string; heading: string }> = [
-  { path: "/console/cycles", heading: "Cycles" },
-  { path: "/console/exceptions", heading: "Exceptions" },
-  { path: "/console/policy", heading: "Policy" },
-  { path: "/console/contribution", heading: "Contribution" },
-  { path: "/console/settlements", heading: "Settlements" },
-  { path: "/console/payroll", heading: "Payroll" },
-  { path: "/console/rewards", heading: "Rewards" },
-  { path: "/console/agent-ops", heading: "Agent operations" },
-  { path: "/console/registries", heading: "Registries" },
-  { path: "/console/field-access", heading: "Field access" },
-  { path: "/console/integrations", heading: "Integrations" },
-  { path: "/console/platform", heading: "Platform admin" },
-  { path: "/console/governance", heading: "Governance console" },
+  { path: "/console/cycles", heading: "考核周期" },
+  { path: "/console/exceptions", heading: "申诉与例外" },
+  { path: "/console/policy", heading: "政策" },
+  { path: "/console/contribution", heading: "贡献认定" },
+  { path: "/console/settlements", heading: "结算" },
+  { path: "/console/payroll", heading: "薪酬发放" },
+  { path: "/console/rewards", heading: "激励" },
+  { path: "/console/agent-ops", heading: "Agent 运维" },
+  { path: "/console/registries", heading: "登记簿" },
+  { path: "/console/field-access", heading: "字段权限" },
+  { path: "/console/integrations", heading: "集成" },
+  { path: "/console/platform", heading: "平台管理" },
+  { path: "/console/governance", heading: "治理中心" },
 ];
 
 async function expectPage(page: Page, path: string, heading: string) {
@@ -26,7 +26,7 @@ async function expectPage(page: Page, path: string, heading: string) {
 
 test("loads the overview shell without a render error", async ({ page }) => {
   await page.goto("/console/");
-  await expect(page.getByRole("link", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "总览" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(page.getByText("Something broke in the console")).toHaveCount(0);
 });
@@ -40,7 +40,7 @@ test.describe("module pages", () => {
 });
 
 test("opens a calculation-run dialog", async ({ page }) => {
-  await expectPage(page, "/console/cycles", "Cycles");
+  await expectPage(page, "/console/cycles", "考核周期");
   await page.getByRole("button", { name: "New run" }).click();
   await expect(
     page.getByRole("dialog", { name: "New calculation run" }),
@@ -69,18 +69,18 @@ test("serves the legacy admin entry points as SPA redirects", async ({ page }) =
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/console\/platform$/);
   await expect(
-    page.getByRole("heading", { level: 1, name: "Platform admin" }),
+    page.getByRole("heading", { level: 1, name: "平台管理" }),
   ).toBeVisible();
 
   await page.goto("/admin/governance");
   await expect(page).toHaveURL(/\/console\/governance$/);
   await expect(
-    page.getByRole("heading", { level: 1, name: "Governance console" }),
+    page.getByRole("heading", { level: 1, name: "治理中心" }),
   ).toBeVisible();
 });
 
 test("exposes the remaining governance surfaces", async ({ page }) => {
-  await expectPage(page, "/console/audit", "Audit");
+  await expectPage(page, "/console/audit", "审计");
   await expect(
     page.getByRole("heading", { name: "External anchor manifest" }),
   ).toBeVisible();
@@ -94,7 +94,7 @@ test("exposes the remaining governance surfaces", async ({ page }) => {
     page.getByRole("heading", { name: "Ledger adjustments" }),
   ).toBeVisible();
 
-  await expectPage(page, "/console/policy", "Policy");
+  await expectPage(page, "/console/policy", "政策");
   await page.getByRole("tab", { name: /Governance/ }).click();
   await expect(
     page.getByRole("heading", { name: "Policy simulation" }),

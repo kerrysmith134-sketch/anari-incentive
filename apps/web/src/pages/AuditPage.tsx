@@ -24,7 +24,7 @@ import {
 import type { AuditEvent } from "../lib/types.js";
 
 export function AuditPage() {
-  useDocumentTitle("Audit");
+  useDocumentTitle("审计");
   const events = useApiQuery<AuditEvent[]>("/api/v1/audit-events?limit=250");
   const verify = useApiQuery<{ valid: boolean }>("/api/v1/audit-events/verify");
   const durability = useApiQuery<{
@@ -80,8 +80,8 @@ export function AuditPage() {
     <>
       <PageHeader
         eyebrow="Append-only trail"
-        title="Audit"
-        description="Every sensitive command writes a hash-chained event. Verification recomputes the chain; exceptions are visible immediately."
+        title="审计"
+        description="每个敏感命令写入哈希链事件；校验会重算整链，异常立即可见。"
         actions={
           <Button
             variant="secondary"
@@ -94,7 +94,7 @@ export function AuditPage() {
             }}
             loading={events.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -102,15 +102,15 @@ export function AuditPage() {
       {durability.data ? (
         <InfoNotice tone={durability.data.ready ? "success" : "warning"}>
           {durability.data.ready
-            ? "External durability configuration is complete."
-            : "External durability is incomplete."}{" "}
+            ? "外部耐久性配置已就绪。"
+            : "外部耐久性配置不完整。"}{" "}
           {durability.data.note}
         </InfoNotice>
       ) : null}
 
       <Panel
-        title="External anchor manifest"
-        subtitle="Submit rootHash to an independent TSA or append-only ledger and archive the receipt"
+        title="外部锚点清单"
+        subtitle="将 rootHash 提交给独立 TSA 或追加式账本，并归档回执"
         action={
           <div className="row-actions">
             <Button
@@ -125,7 +125,7 @@ export function AuditPage() {
                 )
               }
             >
-              Download
+              下载
             </Button>
             <Button
               size="sm"
@@ -134,7 +134,7 @@ export function AuditPage() {
               onClick={anchor.reload}
               loading={anchor.loading}
             >
-              Refresh
+              刷新
             </Button>
           </div>
         }
@@ -149,15 +149,15 @@ export function AuditPage() {
               items={[
                 { label: "Root hash", value: anchor.data.rootHash },
                 {
-                  label: "Sequence window",
+                  label: "序列区间",
                   value: `${anchor.data.window.fromSequence ?? "—"} → ${anchor.data.window.toSequence ?? "—"} (${anchor.data.window.eventCount} events)`,
                 },
                 {
-                  label: "First event hash",
+                  label: "首事件哈希",
                   value: anchor.data.firstEventHash ?? "—",
                 },
                 {
-                  label: "Last event hash",
+                  label: "尾事件哈希",
                   value: anchor.data.lastEventHash ?? "—",
                 },
                 {
@@ -176,54 +176,54 @@ export function AuditPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Recorded events</span>
+            <span className="stat-tile__label">已记录事件</span>
           </div>
           <div className="stat-tile__value">{list.length}</div>
-          <div className="stat-tile__detail">Latest 250 in this tenant</div>
+          <div className="stat-tile__detail">本租户最近 250 条</div>
         </div>
         <div className="stat-tile stat-tile--neutral">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Latest sequence</span>
+            <span className="stat-tile__label">最新序列</span>
           </div>
           <div className="stat-tile__value">
             {list.reduce((max, event) => Math.max(max, event.sequence), 0)}
           </div>
-          <div className="stat-tile__detail">Monotonic per tenant</div>
+          <div className="stat-tile__detail">按租户单调递增</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Chain verification</span>
+            <span className="stat-tile__label">链校验</span>
           </div>
           <div className="stat-tile__value" style={{ fontSize: 22 }}>
             {verify.loading ? (
-              "Checking…"
+              "检查中…"
             ) : verify.data?.valid ? (
-              <Badge tone="success">Verified</Badge>
+              <Badge tone="success">已验证</Badge>
             ) : (
-              <Badge tone="danger">Attention</Badge>
+              <Badge tone="danger">关注</Badge>
             )}
           </div>
-          <div className="stat-tile__detail">Recomputed from stored hashes</div>
+          <div className="stat-tile__detail">基于存储哈希重算</div>
         </div>
       </div>
 
       <Panel
         title="Event log"
-        subtitle="Newest first; select an event to inspect its hashes"
+        subtitle="最新在前；选择事件查看哈希"
         action={
           <div className="toolbar__group">
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search action, actor or object"
+              placeholder="搜索动作、操作人或对象"
             />
             <Select
               value={actionFilter}
               onChange={(event) => setActionFilter(event.target.value)}
-              aria-label="Filter audit action"
+              aria-label="筛选审计动作"
               style={{ width: 190, height: 34 }}
             >
-              <option value="ALL">All actions</option>
+              <option value="ALL">全部动作</option>
               {actions.map((action) => (
                 <option key={action} value={action}>
                   {titleCase(action)}
@@ -245,11 +245,11 @@ export function AuditPage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon="clock"
-            title={list.length === 0 ? "No audit event" : "No match"}
+            title={list.length === 0 ? "No audit event" : "无匹配"}
             description={
               list.length === 0
                 ? "Sensitive commands such as policy publication, legal gates, calculation locks and settlement transitions append events here."
-                : "Try another action or clear the search."
+                : "换个动作或清空搜索试试。"
             }
           />
         ) : (
@@ -258,11 +258,11 @@ export function AuditPage() {
               <thead>
                 <tr>
                   <th>Seq</th>
-                  <th>Action</th>
-                  <th>Object</th>
-                  <th>Actor</th>
-                  <th>Occurred</th>
-                  <th>Hash</th>
+                  <th>操作</th>
+                  <th>对象</th>
+                  <th>操作人</th>
+                  <th>发生时间</th>
+                  <th>哈希</th>
                 </tr>
               </thead>
               <tbody>
@@ -318,7 +318,7 @@ export function AuditPage() {
 
       <Modal
         open={Boolean(selected)}
-        title={selected ? titleCase(selected.action) : "Audit event"}
+        title={selected ? titleCase(selected.action) : "审计事件"}
         description={
           selected
             ? `Sequence ${selected.sequence} · ${formatDateTime(selected.occurredAt)}`
@@ -328,7 +328,7 @@ export function AuditPage() {
         wide
         footer={
           <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
+            关闭
           </Button>
         }
       >

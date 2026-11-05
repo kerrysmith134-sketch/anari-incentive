@@ -59,7 +59,7 @@ const DENY_MODES: Array<"" | "OMIT" | "ZERO" | "REDACT"> = [
 ];
 
 export function FieldAccessPage() {
-  useDocumentTitle("Field access");
+  useDocumentTitle("字段权限");
   const toast = useToast();
   const matrix = useApiQuery<MatrixResponse>("/api/v1/field-access-policies");
   const [rows, setRows] = useState<PolicyEditorRow[]>([]);
@@ -125,7 +125,7 @@ export function FieldAccessPage() {
   function addRow() {
     const key = `${newResource}.${newField.trim()}`;
     if (!isValidPolicyKey(key) || rows.some((row) => row.key === key)) {
-      setError("Enter a unique RESOURCE.field name for the resource.");
+      setError("为资源输入唯一的 RESOURCE.field 名称。");
       return;
     }
     setRows((current) => [
@@ -159,7 +159,7 @@ export function FieldAccessPage() {
       matrix.reload();
     } catch (caught) {
       setError(
-        caught instanceof ApiError ? caught.message : "Could not save the matrix",
+        caught instanceof ApiError ? caught.message : "保存矩阵失败",
       );
     } finally {
       setSaving(false);
@@ -217,12 +217,12 @@ export function FieldAccessPage() {
           reason: withdrawReason.trim(),
         },
       });
-      toast.success("Subgroup label withdrawn", withdrawTarget.dimension);
+      toast.success("标签已撤回", withdrawTarget.dimension);
       setWithdrawTarget(null);
       attributes.reload();
     } catch (caught) {
       setWithdrawError(
-        caught instanceof ApiError ? caught.message : "Could not withdraw label",
+        caught instanceof ApiError ? caught.message : "撤回标签失败",
       );
     }
   }
@@ -231,11 +231,11 @@ export function FieldAccessPage() {
     <>
       <PageHeader
         eyebrow="Security posture"
-        title="Field access"
+        title="字段权限"
         description="Per-field role allow-lists with optional server-side predicates. Conditions only narrow access; admin and self access stay unconditional. Unknown predicates are rejected."
         actions={
           <Button variant="primary" onClick={save} loading={saving}>
-            Save overrides
+            保存覆盖
           </Button>
         }
       />
@@ -244,7 +244,7 @@ export function FieldAccessPage() {
 
       <Panel
         title="Effective matrix"
-        subtitle="Edit a row to create a tenant override; reset to fall back to the system default"
+        subtitle="编辑行可创建租户覆盖；重置则回退系统默认"
         flush
       >
         {matrix.error ? (
@@ -259,19 +259,19 @@ export function FieldAccessPage() {
           <EmptyState
             icon="shield"
             title="No field policy"
-            description="Add a resource field below to start protecting it."
+            description="在下方添加资源字段以开始保护。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Field</th>
-                  <th>Allowed roles</th>
-                  <th>Self</th>
-                  <th>On deny</th>
-                  <th>Predicates</th>
-                  <th>Source</th>
+                  <th>字段</th>
+                  <th>允许角色</th>
+                  <th>本人</th>
+                  <th>拒绝时</th>
+                  <th>谓词</th>
+                  <th>来源</th>
                   <th />
                 </tr>
               </thead>
@@ -341,7 +341,7 @@ export function FieldAccessPage() {
                     </td>
                     <td>
                       <Badge tone={row.overridden ? "warning" : "neutral"}>
-                        {row.overridden ? "Override" : "Default"}
+                        {row.overridden ? "改判" : "Default"}
                       </Badge>
                     </td>
                     <td className="cell-actions">
@@ -351,7 +351,7 @@ export function FieldAccessPage() {
                           variant="ghost"
                           onClick={() => resetRow(row.key)}
                         >
-                          Reset
+                          重置
                         </Button>
                       ) : null}
                     </td>
@@ -363,7 +363,7 @@ export function FieldAccessPage() {
         )}
       </Panel>
 
-      <Panel title="Add protected field" subtitle="Resource.field must match an enforced resource">
+      <Panel title="Add protected field" subtitle="RESOURCE.field 必须匹配受控资源">
         <div className="form-grid">
           <FormField label="Resource" htmlFor="new-resource">
             <Select
@@ -378,7 +378,7 @@ export function FieldAccessPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Field" htmlFor="new-field">
+          <FormField label="字段" htmlFor="new-field">
             <TextInput
               id="new-field"
               value={newField}
@@ -388,15 +388,15 @@ export function FieldAccessPage() {
           </FormField>
           <div className="inline" style={{ alignItems: "end" }}>
             <Button variant="secondary" icon="plus" onClick={addRow}>
-              Add row
+              添加行
             </Button>
           </div>
         </div>
       </Panel>
 
       <Panel
-        title="Consent-backed subgroup labels"
-        subtitle="Optional, separately consented labels used only for aggregate fairness review; never for individual decisions"
+        title="经同意的子群体标签"
+        subtitle="可选的、需单独同意的标签，仅用于群体公平性审查；绝不用于个人决策"
         flush
         action={
           <Button
@@ -405,7 +405,7 @@ export function FieldAccessPage() {
             icon="plus"
             onClick={openAttribute}
           >
-            Record label
+            记录标签
           </Button>
         }
       >
@@ -421,18 +421,18 @@ export function FieldAccessPage() {
           <EmptyState
             icon="shield"
             title="No subgroup label"
-            description="Labels require a separate consent reference and can be withdrawn at any time."
+            description="标签需要单独的同意引用，可随时撤回。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th>Dimension</th>
-                  <th>Value</th>
-                  <th>Consent</th>
-                  <th>Expires</th>
+                  <th>人员</th>
+                  <th>维度</th>
+                  <th>值</th>
+                  <th>同意</th>
+                  <th>过期时间</th>
                   <th />
                 </tr>
               </thead>
@@ -454,7 +454,7 @@ export function FieldAccessPage() {
                           setWithdrawError(null);
                         }}
                       >
-                        Withdraw
+                        撤回
                       </Button>
                     </td>
                   </tr>
@@ -468,15 +468,15 @@ export function FieldAccessPage() {
       <Modal
         open={attributeOpen}
         title="Record subgroup label"
-        description="Requires separate consent; the label is pseudonymous and used only in suppressed aggregates."
+        description="需单独同意；标签为假名化，仅在抑制后的聚合中使用。"
         onClose={() => setAttributeOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAttributeOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={recordAttribute}>
-              Record label
+              记录标签
             </Button>
           </>
         }
@@ -487,7 +487,7 @@ export function FieldAccessPage() {
               <InfoNotice tone="warning">{attributeError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Person id" htmlFor="attribute-person">
+          <FormField label="人员 ID" htmlFor="attribute-person">
             <TextInput
               id="attribute-person"
               value={attributePersonId}
@@ -495,7 +495,7 @@ export function FieldAccessPage() {
               required
             />
           </FormField>
-          <FormField label="Dimension" htmlFor="attribute-dimension">
+          <FormField label="维度" htmlFor="attribute-dimension">
             <Select
               id="attribute-dimension"
               value={attributeDimension}
@@ -514,7 +514,7 @@ export function FieldAccessPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Value" htmlFor="attribute-value">
+          <FormField label="值" htmlFor="attribute-value">
             <TextInput
               id="attribute-value"
               value={attributeValue}
@@ -552,16 +552,16 @@ export function FieldAccessPage() {
 
       <Modal
         open={Boolean(withdrawTarget)}
-        title="Withdraw subgroup label"
-        description="Withdrawal deletes the label; aggregates fall back to unavailable."
+        title="撤回子群体标签"
+        description="撤回即删除标签；聚合回退为不可用。"
         onClose={() => setWithdrawTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setWithdrawTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={withdrawAttribute}>
-              Withdraw
+              撤回
             </Button>
           </>
         }
@@ -573,7 +573,7 @@ export function FieldAccessPage() {
             </div>
           ) : null}
           <FormField
-            label="Reason"
+            label="原因"
             htmlFor="attribute-withdraw-reason"
             className="field--full"
           >

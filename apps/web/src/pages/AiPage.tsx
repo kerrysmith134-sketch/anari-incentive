@@ -41,14 +41,14 @@ import type {
 } from "../lib/types.js";
 
 const TABS = [
-  { id: "PENDING", label: "Pending" },
+  { id: "PENDING", label: "待处理" },
   { id: "ACCEPTED", label: "Accepted" },
-  { id: "REJECTED", label: "Rejected" },
-  { id: "ALL", label: "All" },
+  { id: "REJECTED", label: "已驳回" },
+  { id: "ALL", label: "全部" },
 ];
 
 export function AiPage() {
-  useDocumentTitle("AI assurance");
+  useDocumentTitle("AI 保障");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -143,7 +143,7 @@ export function AiPage() {
   const [redTeamModel, setRedTeamModel] = useState("claude");
   const [redTeamVersion, setRedTeamVersion] = useState("v1");
   const [redTeamScope, setRedTeamScope] = useState(
-    "Prompt injection and data exfiltration",
+    "提示注入与数据外泄",
   );
   const [redTeamTests, setRedTeamTests] = useState("10");
   const [redTeamPassed, setRedTeamPassed] = useState(true);
@@ -231,7 +231,7 @@ export function AiPage() {
       );
     } catch (error) {
       setSummaryError(
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setSummaryBusy(false);
@@ -276,7 +276,7 @@ async function saveRefresh(event: FormEvent) {
     setRedTeamProvider("anthropic");
     setRedTeamModel("claude");
     setRedTeamVersion("v1");
-    setRedTeamScope("Prompt injection and data exfiltration");
+    setRedTeamScope("提示注入与数据外泄");
     setRedTeamTests("10");
     setRedTeamPassed(true);
     setRedTeamFindings("");
@@ -379,7 +379,7 @@ async function saveRefresh(event: FormEvent) {
     } catch (error) {
       toast.error(
         "Could not retire gold set",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     }
   }
@@ -601,7 +601,7 @@ async function saveRefresh(event: FormEvent) {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not record the decision.",
+            : "无法记录决策。",
       );
     } finally {
       setSubmitting(false);
@@ -658,7 +658,7 @@ async function saveRefresh(event: FormEvent) {
     <>
       <PageHeader
         eyebrow="Human-in-the-loop scoring"
-        title="AI assurance"
+        title="AI 保障"
         description="Model output is always a proposal. Numeric scores require a passed evaluation gate, evidence citations and an explicit human decision before they enter a formal evaluation."
         actions={
           <Button
@@ -677,7 +677,7 @@ async function saveRefresh(event: FormEvent) {
               reviewMetrics.loading
             }
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -685,21 +685,21 @@ async function saveRefresh(event: FormEvent) {
       <div className="stat-grid">
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Awaiting review</span>
+            <span className="stat-tile__label">待复核</span>
           </div>
           <div className="stat-tile__value">{pending.length}</div>
-          <div className="stat-tile__detail">Proposals never auto-accept</div>
+          <div className="stat-tile__detail">提案绝不自动采纳</div>
         </div>
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Mean confidence</span>
+            <span className="stat-tile__label">平均置信度</span>
           </div>
           <div className="stat-tile__value">{formatPercent(averageConfidence)}</div>
-          <div className="stat-tile__detail">Across pending proposals</div>
+          <div className="stat-tile__detail">全部待审提案</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Active prompts</span>
+            <span className="stat-tile__label">已激活提示词</span>
           </div>
           <div className="stat-tile__value">
             {promptList.filter((prompt) => prompt.status === "ACTIVE").length}
@@ -717,13 +717,13 @@ async function saveRefresh(event: FormEvent) {
           }`}
         >
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Review oversight</span>
+            <span className="stat-tile__label">复核监督</span>
           </div>
           <div className="stat-tile__value" style={{ fontSize: 22 }}>
             {reviewMetrics.data?.rubberStampAlert ? (
-              <Badge tone="danger">Review needed</Badge>
+              <Badge tone="danger">需要复核</Badge>
             ) : (
-              <Badge tone="success">Within policy</Badge>
+              <Badge tone="success">符合政策</Badge>
             )}
           </div>
           <div className="stat-tile__detail">
@@ -740,31 +740,31 @@ async function saveRefresh(event: FormEvent) {
 
       <Tabs
         items={[
-          { id: "proposals", label: "Score proposals", count: proposalList.length },
-          { id: "prompts", label: "Prompt registry", count: promptList.length },
+          { id: "proposals", label: "评分提案", count: proposalList.length },
+          { id: "prompts", label: "提示词登记簿", count: promptList.length },
           {
             id: "evaluations",
-            label: "Evaluation runs",
+            label: "评测运行",
             count: evaluationList.length,
           },
           {
             id: "audit",
-            label: "Audit queue",
+            label: "审计队列",
             count: reviewMetrics.data?.auditPendingCount ?? 0,
           },
           {
             id: "datasets",
-            label: "Gold sets",
+            label: "金标集",
             count: datasets.data?.length ?? 0,
           },
           {
             id: "canary",
-            label: "Canary",
+            label: "金丝雀对比",
             count: canaries.data?.length ?? 0,
           },
           {
             id: "redteam",
-            label: "Red team",
+            label: "红队",
             count: redTeam.data?.length ?? 0,
           },
         ]}
@@ -776,7 +776,7 @@ async function saveRefresh(event: FormEvent) {
       <div className="tab-panel">
         {tab === "proposals" ? (
           <Panel
-            title="Score proposals"
+            title="评分提案"
             subtitle="Numeric scores stay proposals until a human accepts them"
             action={
               <div className="toolbar__group">
@@ -817,20 +817,20 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="ai"
                 title={statusFilter === "PENDING" ? "No proposal waiting" : "No proposal in this view"}
-                description="Proposals are created only after a model evaluation gate passes. Accepted scores are attributed to the human reviewer."
+                description="提案仅在模型评测通过后创建；采纳的评分归属到人工复核人。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Person</th>
-                      <th>Model</th>
-                      <th className="cell-num">Score</th>
-                      <th className="cell-num">Confidence</th>
-                      <th>Evidence</th>
-                      <th>Created</th>
-                      <th>Status</th>
+                      <th>人员</th>
+                      <th>模型</th>
+                      <th className="cell-num">得分</th>
+                      <th className="cell-num">置信度</th>
+                      <th>证据</th>
+                      <th>创建时间</th>
+                      <th>状态</th>
                       <th />
                     </tr>
                   </thead>
@@ -871,7 +871,7 @@ async function saveRefresh(event: FormEvent) {
                               variant="secondary"
                               onClick={() => openReview(proposal)}
                             >
-                              Review
+                              复核
                             </Button>
                           ) : (
                             <Button
@@ -879,7 +879,7 @@ async function saveRefresh(event: FormEvent) {
                               variant="ghost"
                               onClick={() => openReview(proposal)}
                             >
-                              View
+                              查看
                             </Button>
                           )}
                         </td>
@@ -892,7 +892,7 @@ async function saveRefresh(event: FormEvent) {
           </Panel>
         ) : tab === "prompts" ? (
           <Panel
-            title="Prompt registry"
+            title="提示词登记簿"
             subtitle="Prompts activate only after an evaluation run passes"
             flush
           >
@@ -908,19 +908,19 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="policy"
                 title="No prompt registered"
-                description="Register a prompt version, run its evaluation, then activate it. Score proposals can only cite an active prompt."
+                description="登记提示词版本→运行评测→激活；评分提案只能引用已激活提示词。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Prompt</th>
-                      <th>Purpose</th>
-                      <th>Model</th>
-                      <th>Template hash</th>
-                      <th>Status</th>
-                      <th>Activated</th>
+                      <th>提示词</th>
+                      <th>用途</th>
+                      <th>模型</th>
+                      <th>模板哈希</th>
+                      <th>状态</th>
+                      <th>已激活</th>
                       <th />
                     </tr>
                   </thead>
@@ -955,7 +955,7 @@ async function saveRefresh(event: FormEvent) {
                             variant="ghost"
                             onClick={() => setPromptDetail(prompt)}
                           >
-                            View
+                            查看
                           </Button>
                         </td>
                       </tr>
@@ -968,12 +968,12 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "evaluations" ? (
           <Panel
-            title="Evaluation runs"
-            subtitle="Pass/fail is computed by the gated harness; imported records cannot unlock activation or scoring"
+            title="评测运行"
+            subtitle="通过/失败由受控评测计算；导入记录无法解锁激活或评分"
             flush
             action={
               <Button size="sm" variant="primary" icon="play" onClick={openHarness}>
-                Run harness
+                运行评测
               </Button>
             }
           >
@@ -989,19 +989,19 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="chart"
                 title="No evaluation run"
-                description="Run the harness with a labelled gold set before activating a prompt or using numeric score proposals."
+                description="激活提示词或使用数值评分提案前，用标注金标集运行评测。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Evaluation</th>
-                      <th>Model</th>
-                      <th className="cell-num">Samples</th>
-                      <th>Harness</th>
-                      <th>Result</th>
-                      <th>Evaluated</th>
+                      <th>评测</th>
+                      <th>模型</th>
+                      <th className="cell-num">样本</th>
+                      <th>评测台</th>
+                      <th>结果</th>
+                      <th>已评测</th>
                       <th />
                     </tr>
                   </thead>
@@ -1023,16 +1023,16 @@ async function saveRefresh(event: FormEvent) {
                         <td className="cell-num">{run.sampleSize}</td>
                         <td>
                           {run.metrics.harnessVersion === "ai-gate-v1" ? (
-                            <Badge tone="accent">Verified</Badge>
+                            <Badge tone="accent">已验证</Badge>
                           ) : (
-                            <Badge tone="warning">Imported</Badge>
+                            <Badge tone="warning">已导入</Badge>
                           )}
                         </td>
                         <td>
                           <Badge
                             tone={run.passed ? "success" : "danger"}
                           >
-                            {run.passed ? "Passed" : "Blocked"}
+                            {run.passed ? "通过" : "已阻断"}
                           </Badge>
                         </td>
                         <td className="nowrap">
@@ -1044,7 +1044,7 @@ async function saveRefresh(event: FormEvent) {
                             variant="ghost"
                             onClick={() => setEvaluationDetail(run)}
                           >
-                            View
+                            查看
                           </Button>
                         </td>
                       </tr>
@@ -1058,7 +1058,7 @@ async function saveRefresh(event: FormEvent) {
         {tab === "audit" ? (
           <Panel
             title="Second-review audit queue"
-            subtitle="Every override is sampled, plus a configurable random share of other decisions"
+            subtitle="所有改判必抽，另按可配置比例随机抽样"
             flush
           >
             {reviewMetrics.data ? (
@@ -1094,18 +1094,18 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="shield"
                 title="No pending audit"
-                description="Overrides are always sampled; other decisions enter the queue at the configured audit rate."
+                description="改判必抽样；其他决策按配置比例进入审计队列。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Person</th>
-                      <th>Model score</th>
-                      <th>First decision</th>
-                      <th>First reviewer</th>
-                      <th>Sampled</th>
+                      <th>人员</th>
+                      <th>模型分</th>
+                      <th>初次决策</th>
+                      <th>第一复核人</th>
+                      <th>抽样</th>
                       <th />
                     </tr>
                   </thead>
@@ -1130,7 +1130,7 @@ async function saveRefresh(event: FormEvent) {
                           <Badge status={proposal.status} />
                           {proposal.override ? (
                             <span className="cell-sub">
-                              <Badge tone="warning">Override</Badge>
+                              <Badge tone="warning">改判</Badge>
                             </span>
                           ) : null}
                         </td>
@@ -1150,7 +1150,7 @@ async function saveRefresh(event: FormEvent) {
                             variant="secondary"
                             onClick={() => openAudit(proposal)}
                           >
-                            Audit
+                            审计
                           </Button>
                         </td>
                       </tr>
@@ -1163,7 +1163,7 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "datasets" ? (
           <Panel
-            title="Gold sets"
+            title="金标集"
             subtitle="Versioned evaluation datasets with holdout and refresh tracking"
             action={
               <Button
@@ -1172,7 +1172,7 @@ async function saveRefresh(event: FormEvent) {
                 icon="plus"
                 onClick={openDatasetForm}
               >
-                Register gold set
+                登记金标集
               </Button>
             }
             flush
@@ -1201,19 +1201,19 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="chart"
                 title="No gold set registered"
-                description="Register a labelled dataset with its holdout and quarterly refresh date before enabling registered-gold-set enforcement."
+                description="启用金标集强制前，先登记带留出集与季度刷新日期的标注数据集。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Gold set</th>
-                      <th className="cell-num">Sample</th>
-                      <th className="cell-num">Holdout</th>
-                      <th>Labels</th>
-                      <th>Refresh due</th>
-                      <th>Status</th>
+                      <th>金标集</th>
+                      <th className="cell-num">样本</th>
+                      <th className="cell-num">留出集</th>
+                      <th>标签</th>
+                      <th>待刷新</th>
+                      <th>状态</th>
                       <th />
                     </tr>
                   </thead>
@@ -1237,7 +1237,7 @@ async function saveRefresh(event: FormEvent) {
                           new Date(dataset.nextRefreshDueAt).getTime() <
                             Date.now() ? (
                             <span className="cell-sub">
-                              <Badge tone="warning">Refresh due</Badge>
+                              <Badge tone="warning">待刷新</Badge>
                             </span>
                           ) : null}
                         </td>
@@ -1252,14 +1252,14 @@ async function saveRefresh(event: FormEvent) {
                                 variant="secondary"
                                 onClick={() => openRefresh(dataset)}
                               >
-                                Refresh
+                                刷新
                               </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => void retireDataset(dataset)}
                               >
-                                Retire
+                                退役
                               </Button>
                             </div>
                           ) : null}
@@ -1290,19 +1290,19 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="chart"
                 title="No canary comparison"
-                description="Compare a baseline and candidate evaluation run on the same gold set before promoting a model or provider change."
+                description="升级模型或更换供应商前，在同一金标集上对比基线与候选评测。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Dataset</th>
-                      <th>Baseline</th>
-                      <th>Candidate</th>
-                      <th className="cell-num">Traffic</th>
-                      <th>Result</th>
-                      <th>Blockers</th>
+                      <th>数据集</th>
+                      <th>基线</th>
+                      <th>候选</th>
+                      <th className="cell-num">流量</th>
+                      <th>结果</th>
+                      <th>阻断项</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1322,7 +1322,7 @@ async function saveRefresh(event: FormEvent) {
                           <Badge
                             tone={canary.passed ? "success" : "danger"}
                           >
-                            {canary.passed ? "Passed" : "Blocked"}
+                            {canary.passed ? "通过" : "已阻断"}
                           </Badge>
                         </td>
                         <td>
@@ -1341,7 +1341,7 @@ async function saveRefresh(event: FormEvent) {
         {tab === "summary" ? (
           <Panel
             title="Model-backed evidence summary"
-            subtitle="Advisory only: the configured model summarises evidence and proposes 0-5 dimension scores; results are logged as AI suggestions"
+            subtitle="仅供参考：模型汇总证据并给出 0–5 维度建议分；结果记入 AI 建议日志"
             action={
               <Button
                 variant="primary"
@@ -1351,7 +1351,7 @@ async function saveRefresh(event: FormEvent) {
                   setSummaryError(null);
                 }}
               >
-                New summary
+                新建摘要
               </Button>
             }
           >
@@ -1408,7 +1408,7 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="ai"
                 title="No summary yet"
-                description="Pick evidence references and dimensions to request an advisory model summary."
+                description="选择证据引用与维度，请求一次建议性模型摘要。"
               />
             )}
           </Panel>
@@ -1416,7 +1416,7 @@ async function saveRefresh(event: FormEvent) {
         {tab === "redteam" ? (
           <Panel
             title="Red-team runs"
-            subtitle="Adversarial evidence required before prompt activation when the tenant enables it"
+            subtitle="租户启用后，激活提示词前必须提供对抗测试证据"
             action={
               <Button
                 size="sm"
@@ -1424,7 +1424,7 @@ async function saveRefresh(event: FormEvent) {
                 icon="plus"
                 onClick={openRedTeamForm}
               >
-                Record run
+                记录运行
               </Button>
             }
             flush
@@ -1441,20 +1441,20 @@ async function saveRefresh(event: FormEvent) {
               <EmptyState
                 icon="shield"
                 title="No red-team run"
-                description="Record prompt-injection and exfiltration testing before activating a prompt when enforcement is enabled."
+                description="启用强制时，激活提示词前必须记录注入与外泄测试。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Model</th>
-                      <th>Version</th>
-                      <th>Scope</th>
-                      <th className="cell-num">Tests</th>
-                      <th>Result</th>
-                      <th>Findings</th>
-                      <th>Artifact</th>
+                      <th>模型</th>
+                      <th>版本</th>
+                      <th>范围</th>
+                      <th className="cell-num">测试</th>
+                      <th>结果</th>
+                      <th>发现</th>
+                      <th>产物</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1469,7 +1469,7 @@ async function saveRefresh(event: FormEvent) {
                         <td className="cell-num">{run.testsRun}</td>
                         <td>
                           <Badge tone={run.passed ? "success" : "danger"}>
-                            {run.passed ? "Passed" : "Findings"}
+                            {run.passed ? "通过" : "发现"}
                           </Badge>
                         </td>
                         <td>
@@ -1499,7 +1499,7 @@ async function saveRefresh(event: FormEvent) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRedTeamOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1507,7 +1507,7 @@ async function saveRefresh(event: FormEvent) {
               form="red-team-form"
               loading={redTeamSaving}
             >
-              Record run
+              记录运行
             </Button>
           </>
         }
@@ -1517,7 +1517,7 @@ async function saveRefresh(event: FormEvent) {
             <InfoNotice tone="warning">{redTeamError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Provider" htmlFor="red-team-provider">
+            <FormField label="供应商" htmlFor="red-team-provider">
               <TextInput
                 id="red-team-provider"
                 value={redTeamProvider}
@@ -1525,7 +1525,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Model" htmlFor="red-team-model">
+            <FormField label="模型" htmlFor="red-team-model">
               <TextInput
                 id="red-team-model"
                 value={redTeamModel}
@@ -1533,7 +1533,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Prompt version" htmlFor="red-team-version">
+            <FormField label="提示词版本" htmlFor="red-team-version">
               <TextInput
                 id="red-team-version"
                 value={redTeamVersion}
@@ -1551,7 +1551,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Created by" htmlFor="red-team-creator">
+            <FormField label="创建人" htmlFor="red-team-creator">
               <PersonSelect
                 id="red-team-creator"
                 value={redTeamCreator}
@@ -1566,7 +1566,7 @@ async function saveRefresh(event: FormEvent) {
               />
             </FormField>
           </div>
-          <FormField label="Scope" htmlFor="red-team-scope">
+          <FormField label="范围" htmlFor="red-team-scope">
             <TextInput
               id="red-team-scope"
               value={redTeamScope}
@@ -1580,7 +1580,7 @@ async function saveRefresh(event: FormEvent) {
               checked={redTeamPassed}
               onChange={(event) => setRedTeamPassed(event.target.checked)}
             />
-            <span>The red-team run passed without unresolved findings.</span>
+            <span>红队运行通过，无未解决发现。</span>
           </label>
           <FormField
             label="Findings (one per line)"
@@ -1597,13 +1597,13 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={datasetOpen}
-        title="Register gold set"
+        title="登记金标集"
         description="Holdout must be smaller than the sample. Use a new version for a refresh."
         onClose={() => setDatasetOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDatasetOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1611,7 +1611,7 @@ async function saveRefresh(event: FormEvent) {
               form="dataset-form"
               loading={datasetSaving}
             >
-              Register
+              登记
             </Button>
           </>
         }
@@ -1621,7 +1621,7 @@ async function saveRefresh(event: FormEvent) {
             <InfoNotice tone="warning">{datasetError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Code" htmlFor="dataset-code">
+            <FormField label="编码" htmlFor="dataset-code">
               <TextInput
                 id="dataset-code"
                 value={datasetCode}
@@ -1629,7 +1629,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Version" htmlFor="dataset-version">
+            <FormField label="版本" htmlFor="dataset-version">
               <TextInput
                 id="dataset-version"
                 type="number"
@@ -1640,7 +1640,7 @@ async function saveRefresh(event: FormEvent) {
               />
             </FormField>
             <FormField
-              label="Name"
+              label="名称"
               htmlFor="dataset-name"
               className="field--full"
             >
@@ -1651,7 +1651,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Sample size" htmlFor="dataset-sample">
+            <FormField label="样本量" htmlFor="dataset-sample">
               <TextInput
                 id="dataset-sample"
                 type="number"
@@ -1661,7 +1661,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Holdout size" htmlFor="dataset-holdout">
+            <FormField label="留出集" htmlFor="dataset-holdout">
               <TextInput
                 id="dataset-holdout"
                 type="number"
@@ -1681,7 +1681,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Owner" htmlFor="dataset-owner">
+            <FormField label="负责人" htmlFor="dataset-owner">
               <PersonSelect
                 id="dataset-owner"
                 value={datasetOwner}
@@ -1689,7 +1689,7 @@ async function saveRefresh(event: FormEvent) {
               />
             </FormField>
             <FormField
-              label="Next refresh due"
+              label="下次刷新"
               htmlFor="dataset-refresh"
             >
               <TextInput
@@ -1711,7 +1711,7 @@ async function saveRefresh(event: FormEvent) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRefreshTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1719,7 +1719,7 @@ async function saveRefresh(event: FormEvent) {
               form="refresh-dataset-form"
               loading={refreshSaving}
             >
-              Refresh
+              刷新
             </Button>
           </>
         }
@@ -1733,7 +1733,7 @@ async function saveRefresh(event: FormEvent) {
             <InfoNotice tone="warning">{refreshError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Version" htmlFor="refresh-version">
+            <FormField label="版本" htmlFor="refresh-version">
               <TextInput
                 id="refresh-version"
                 type="number"
@@ -1743,7 +1743,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Sample size" htmlFor="refresh-sample">
+            <FormField label="样本量" htmlFor="refresh-sample">
               <TextInput
                 id="refresh-sample"
                 type="number"
@@ -1753,7 +1753,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Holdout size" htmlFor="refresh-holdout">
+            <FormField label="留出集" htmlFor="refresh-holdout">
               <TextInput
                 id="refresh-holdout"
                 type="number"
@@ -1763,7 +1763,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Next refresh due" htmlFor="refresh-due">
+            <FormField label="下次刷新" htmlFor="refresh-due">
               <TextInput
                 id="refresh-due"
                 type="date"
@@ -1791,11 +1791,11 @@ async function saveRefresh(event: FormEvent) {
           selected?.status === "PENDING" ? (
             <>
               <Button variant="ghost" onClick={() => setSelected(null)}>
-                Cancel
+                取消
               </Button>
               {!revealed ? (
                 <Button variant="primary" onClick={revealAiProposal}>
-                  Reveal AI proposal
+                  揭示 AI 提案
                 </Button>
               ) : (
                 <Button
@@ -1809,7 +1809,7 @@ async function saveRefresh(event: FormEvent) {
             </>
           ) : (
             <Button variant="secondary" onClick={() => setSelected(null)}>
-              Close
+              关闭
             </Button>
           )
         }
@@ -1822,12 +1822,12 @@ async function saveRefresh(event: FormEvent) {
             <DefinitionList
               items={[
                 {
-                  label: "Person",
+                  label: "人员",
                   value: displayName(selected.personId, people),
                 },
-                { label: "Status", value: <Badge status={selected.status} /> },
+                { label: "状态", value: <Badge status={selected.status} /> },
                 {
-                  label: "Evidence",
+                  label: "证据",
                   value: `${selected.evidenceRefs.length} cited references`,
                 },
               ]}
@@ -1836,7 +1836,7 @@ async function saveRefresh(event: FormEvent) {
             {!revealed ? (
               <>
                 <InfoNotice>
-                  <strong>Independent judgment first.</strong> Enter your own
+                  <strong>先独立判断。</strong> Enter your own
                   dimension scores and rationale before the AI proposal is
                   revealed. The backend records the review duration and evidence
                   count, and requires a reason for each override.
@@ -1884,7 +1884,7 @@ async function saveRefresh(event: FormEvent) {
                     Evidence review ({evidenceOpened} opened)
                   </div>
                   {selected.evidenceRefs.length === 0 ? (
-                    <p className="muted">No evidence reference recorded.</p>
+                    <p className="muted">未记录证据引用。</p>
                   ) : (
                     <div className="chip-row">
                       {selected.evidenceRefs.map((reference) => (
@@ -1916,26 +1916,26 @@ async function saveRefresh(event: FormEvent) {
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Overall score</div>
+                    <div className="coverage-cell__label">总分</div>
                     <div className="coverage-cell__value">
                       {selected.overallScore.toFixed(2)} / 5
                     </div>
-                    <div className="coverage-cell__sub">proposal only</div>
+                    <div className="coverage-cell__sub">仅提案</div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Confidence</div>
+                    <div className="coverage-cell__label">置信度</div>
                     <div className="coverage-cell__value">
                       {formatPercent(selected.confidence)}
                     </div>
-                    <div className="coverage-cell__sub">evidence weighting</div>
+                    <div className="coverage-cell__sub">证据加权</div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Evidence opened</div>
+                    <div className="coverage-cell__label">打开证据数</div>
                     <div className="coverage-cell__value">{evidenceOpened}</div>
-                    <div className="coverage-cell__sub">during this review</div>
+                    <div className="coverage-cell__sub">本次复核期间</div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Status</div>
+                    <div className="coverage-cell__label">状态</div>
                     <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                       <Badge status={selected.status} />
                     </div>
@@ -1948,7 +1948,7 @@ async function saveRefresh(event: FormEvent) {
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Dimension scores</div>
+                  <div className="detail-section__title">维度得分</div>
                   <div className="stack" style={{ gap: 4 }}>
                     {Object.entries(selected.scores).map(([dimension, score]) => (
                       <div className="score-row" key={dimension}>
@@ -1973,12 +1973,12 @@ async function saveRefresh(event: FormEvent) {
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">AI rationale</div>
+                  <div className="detail-section__title">AI 理由</div>
                   <div className="reason-box">{selected.rationale}</div>
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Evidence references</div>
+                  <div className="detail-section__title">证据引用</div>
                   <div className="chip-row">
                     {selected.evidenceRefs.map((reference) => (
                       <span className="chip" key={reference}>
@@ -1992,14 +1992,14 @@ async function saveRefresh(event: FormEvent) {
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Gate metrics</div>
+                  <div className="detail-section__title">门禁指标</div>
                   <pre className="code-block">
                     {JSON.stringify(selected.gateMetrics ?? {}, null, 2)}
                   </pre>
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Your independent review</div>
+                  <div className="detail-section__title">你的独立判断</div>
                   <div className="reason-box">
                     {selected.dimensions
                       .map(
@@ -2027,7 +2027,7 @@ async function saveRefresh(event: FormEvent) {
                 {selected.secondReviewRequired ? (
                   <div className="detail-section">
                     <div className="detail-section__title">
-                      High-risk second review
+                      高风险第二复核
                     </div>
                     <InfoNotice tone="warning">
                       This proposal is marked {titleCase(selected.riskTier)} risk.
@@ -2043,7 +2043,7 @@ async function saveRefresh(event: FormEvent) {
                       </p>
                     ) : null}
                     <FormField
-                      label="Second reviewer"
+                      label="第二复核人"
                       htmlFor="ai-second-reviewer"
                     >
                       <PersonSelect
@@ -2077,7 +2077,7 @@ async function saveRefresh(event: FormEvent) {
                       ))}
                     </div>
                     <FormField
-                      label="Second-review rationale"
+                      label="复核理由"
                       htmlFor="second-rationale"
                     >
                       <Textarea
@@ -2093,9 +2093,9 @@ async function saveRefresh(event: FormEvent) {
 
                 {selected.status === "PENDING" ? (
                   <div className="detail-section">
-                    <div className="detail-section__title">Human decision</div>
+                    <div className="detail-section__title">人工决策</div>
                     <div className="form-grid">
-                      <FormField label="Decision" htmlFor="ai-decision">
+                      <FormField label="决策" htmlFor="ai-decision">
                         <Select
                           id="ai-decision"
                           value={decision}
@@ -2105,8 +2105,8 @@ async function saveRefresh(event: FormEvent) {
                             )
                           }
                         >
-                          <option value="ACCEPT">Accept proposal</option>
-                          <option value="REJECT">Reject proposal</option>
+                          <option value="ACCEPT">采纳提案</option>
+                          <option value="REJECT">驳回提案</option>
                         </Select>
                       </FormField>
                       <FormField label="Decided by" htmlFor="ai-decider">
@@ -2151,16 +2151,16 @@ async function saveRefresh(event: FormEvent) {
                   </div>
                 ) : selected.decisionNote || selected.independentRationale ? (
                   <div className="detail-section">
-                    <div className="detail-section__title">Decision record</div>
+                    <div className="detail-section__title">决策记录</div>
                     {selected.independentRationale ? (
                       <div className="reason-box">
-                        <strong>Independent rationale:</strong>{" "}
+                        <strong>独立判断理由：</strong>{" "}
                         {selected.independentRationale}
                       </div>
                     ) : null}
                     {selected.decisionNote ? (
                       <div className="reason-box" style={{ marginTop: 8 }}>
-                        <strong>Decision note:</strong> {selected.decisionNote}
+                        <strong>决策备注：</strong> {selected.decisionNote}
                       </div>
                     ) : null}
                     <p className="subtle" style={{ fontSize: 11.5, marginTop: 6 }}>
@@ -2180,13 +2180,13 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={Boolean(promptDetail)}
-        title={promptDetail ? `Prompt ${promptDetail.promptCode}` : "Prompt"}
+        title={promptDetail ? `Prompt ${promptDetail.promptCode}` : "提示词"}
         description={promptDetail?.purpose}
         onClose={() => setPromptDetail(null)}
         wide
         footer={
           <Button variant="secondary" onClick={() => setPromptDetail(null)}>
-            Close
+            关闭
           </Button>
         }
       >
@@ -2195,19 +2195,19 @@ async function saveRefresh(event: FormEvent) {
             <DefinitionList
               items={[
                 {
-                  label: "Model",
+                  label: "模型",
                   value: `${promptDetail.modelProvider} · ${promptDetail.modelName}`,
                 },
-                { label: "Version", value: `v${promptDetail.version}` },
-                { label: "Status", value: <Badge status={promptDetail.status} /> },
+                { label: "版本", value: `v${promptDetail.version}` },
+                { label: "状态", value: <Badge status={promptDetail.status} /> },
                 {
-                  label: "Template hash",
+                  label: "模板哈希",
                   value: <span className="mono">{promptDetail.templateHash}</span>,
                 },
               ]}
             />
             <div className="detail-section">
-              <div className="detail-section__title">Template</div>
+              <div className="detail-section__title">模板</div>
               <pre className="code-block">{promptDetail.template}</pre>
             </div>
             <InfoNotice>
@@ -2231,7 +2231,7 @@ async function saveRefresh(event: FormEvent) {
         wide
         footer={
           <Button variant="secondary" onClick={() => setEvaluationDetail(null)}>
-            Close
+            关闭
           </Button>
         }
       >
@@ -2240,35 +2240,35 @@ async function saveRefresh(event: FormEvent) {
             <DefinitionList
               items={[
                 {
-                  label: "Harness",
+                  label: "评测台",
                   value:
                     evaluationDetail.metrics.harnessVersion === "ai-gate-v1"
                       ? "Verified (ai-gate-v1)"
                       : "Imported record",
                 },
                 {
-                  label: "Result",
+                  label: "结果",
                   value: (
                     <Badge
                       tone={evaluationDetail.passed ? "success" : "danger"}
                     >
-                      {evaluationDetail.passed ? "Passed" : "Blocked"}
+                      {evaluationDetail.passed ? "通过" : "已阻断"}
                     </Badge>
                   ),
                 },
                 {
-                  label: "Samples",
+                  label: "样本",
                   value: evaluationDetail.sampleSize,
                 },
                 {
-                  label: "Evaluated",
+                  label: "已评测",
                   value: formatDateTime(evaluationDetail.evaluatedAt),
                 },
               ]}
             />
             {evaluationDetail.blockers.length > 0 ? (
               <div className="detail-section">
-                <div className="detail-section__title">Blockers</div>
+                <div className="detail-section__title">阻断项</div>
                 <div className="chip-row">
                   {evaluationDetail.blockers.map((blocker) => (
                     <span className="chip" key={blocker}>
@@ -2279,7 +2279,7 @@ async function saveRefresh(event: FormEvent) {
               </div>
             ) : null}
             <div className="detail-section">
-              <div className="detail-section__title">Metrics</div>
+              <div className="detail-section__title">指标</div>
               <pre className="code-block">
                 {JSON.stringify(evaluationDetail.metrics, null, 2)}
               </pre>
@@ -2297,14 +2297,14 @@ async function saveRefresh(event: FormEvent) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setAuditTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
               onClick={submitAuditReview}
               loading={auditSubmitting}
             >
-              Record audit review
+              记录审计复核
             </Button>
           </>
         }
@@ -2317,22 +2317,22 @@ async function saveRefresh(event: FormEvent) {
             <DefinitionList
               items={[
                 {
-                  label: "Person",
+                  label: "人员",
                   value: displayName(auditTarget.personId, people),
                 },
                 {
-                  label: "First decision",
+                  label: "初次决策",
                   value: <Badge status={auditTarget.status} />,
                 },
                 {
-                  label: "Sampled",
+                  label: "抽样",
                   value: auditTarget.auditSampledAt
                     ? formatDateTime(auditTarget.auditSampledAt)
                     : "—",
                 },
               ]}
             />
-            <FormField label="Second reviewer" htmlFor="audit-reviewer">
+            <FormField label="第二复核人" htmlFor="audit-reviewer">
               <PersonSelect
                 id="audit-reviewer"
                 value={auditReviewer}
@@ -2363,7 +2363,7 @@ async function saveRefresh(event: FormEvent) {
                 </FormField>
               ))}
               <FormField
-                label="Evidence opened"
+                label="打开证据数"
                 htmlFor="audit-evidence"
               >
                 <TextInput
@@ -2378,7 +2378,7 @@ async function saveRefresh(event: FormEvent) {
               </FormField>
             </div>
             <FormField
-              label="Second-review rationale"
+              label="复核理由"
               htmlFor="audit-rationale"
             >
               <Textarea
@@ -2399,20 +2399,20 @@ async function saveRefresh(event: FormEvent) {
       <Modal
         open={harnessOpen}
         title="Run evaluation harness"
-        description="Samples are labelled pairs of human scores plus the model score. Pass/fail and blockers are computed server-side."
+        description="样本为人工打分对与模型分；通过/阻断由服务端计算。"
         onClose={() => setHarnessOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setHarnessOpen(false)}>
-              Close
+              关闭
             </Button>
             <Button
               variant="primary"
               onClick={runHarness}
               loading={harnessRunning}
             >
-              Run harness
+              运行评测
             </Button>
           </>
         }
@@ -2447,7 +2447,7 @@ async function saveRefresh(event: FormEvent) {
               required
             />
           </FormField>
-          <FormField label="Prompt version" htmlFor="harness-prompt">
+          <FormField label="提示词版本" htmlFor="harness-prompt">
             <TextInput
               id="harness-prompt"
               value={harnessPromptVersion}
@@ -2501,7 +2501,7 @@ async function saveRefresh(event: FormEvent) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setSummaryOpen(false)}>
-              Close
+              关闭
             </Button>
             <Button
               variant="primary"
@@ -2512,7 +2512,7 @@ async function saveRefresh(event: FormEvent) {
               }
               onClick={() => void runModelSummary()}
             >
-              Generate summary
+              生成摘要
             </Button>
           </>
         }
@@ -2524,7 +2524,7 @@ async function saveRefresh(event: FormEvent) {
             </div>
           ) : null}
           <FormField
-            label="Dimensions (comma separated)"
+            label="维度（逗号分隔）"
             htmlFor="summary-dimensions"
             hint="Each dimension receives a 0-5 advisory score."
           >
@@ -2535,7 +2535,7 @@ async function saveRefresh(event: FormEvent) {
             />
           </FormField>
           <FormField
-            label="Evidence references"
+            label="证据引用"
             htmlFor="summary-evidence"
             hint="One evidence node id per line (see the Contribution evidence table)."
           >

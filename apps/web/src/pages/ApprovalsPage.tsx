@@ -33,10 +33,10 @@ import type {
 } from "../lib/types.js";
 
 const TABS = [
-  { id: "PENDING", label: "Pending" },
-  { id: "APPROVED", label: "Approved" },
-  { id: "REJECTED", label: "Rejected" },
-  { id: "ALL", label: "All" },
+  { id: "PENDING", label: "待处理" },
+  { id: "APPROVED", label: "已批准" },
+  { id: "REJECTED", label: "已驳回" },
+  { id: "ALL", label: "全部" },
 ];
 
 function riskTone(riskTier: string): "neutral" | "warning" | "danger" {
@@ -47,7 +47,7 @@ function riskTone(riskTier: string): "neutral" | "warning" | "danger" {
 }
 
 export function ApprovalsPage() {
-  useDocumentTitle("Approvals");
+  useDocumentTitle("审批");
   const { session } = useAuth();
   const toast = useToast();
   const approvals = useApiQuery<ApprovalRequest[]>("/api/v1/approval-requests");
@@ -119,7 +119,7 @@ export function ApprovalsPage() {
   async function submitDecision() {
     if (!selected) return;
     if (decision === "REJECT" && !reason.trim()) {
-      setActionError("A reason is required when rejecting a request.");
+      setActionError("驳回时必须填写理由。");
       return;
     }
     setSubmitting(true);
@@ -147,7 +147,7 @@ export function ApprovalsPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not record the decision.",
+            : "无法记录决策。",
       );
     } finally {
       setSubmitting(false);
@@ -172,7 +172,7 @@ export function ApprovalsPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not consume the approval.",
+            : "无法消费审批。",
       );
     } finally {
       setSubmitting(false);
@@ -183,7 +183,7 @@ export function ApprovalsPage() {
     <>
       <PageHeader
         eyebrow="Human gates"
-        title="Approvals"
+        title="审批"
         description="High-risk actions stop here. Review the payload hash, risk tier and approval count before deciding — approvals are append-only and attributed."
         actions={
           <Button
@@ -192,7 +192,7 @@ export function ApprovalsPage() {
             onClick={() => approvals.reload()}
             loading={approvals.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -200,35 +200,35 @@ export function ApprovalsPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Waiting for a decision</span>
+            <span className="stat-tile__label">等待决策</span>
           </div>
           <div className="stat-tile__value">{pending}</div>
-          <div className="stat-tile__detail">Across all action types</div>
+          <div className="stat-tile__detail">跨全部动作类型</div>
         </div>
         <div className="stat-tile stat-tile--critical">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">T2 and above</span>
+            <span className="stat-tile__label">T2 及以上</span>
           </div>
           <div className="stat-tile__value">{highRisk}</div>
-          <div className="stat-tile__detail">Requires senior reviewer</div>
+          <div className="stat-tile__detail">需资深复核人</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Approved</span>
+            <span className="stat-tile__label">已批准</span>
           </div>
           <div className="stat-tile__value">{counts.APPROVED}</div>
-          <div className="stat-tile__detail">Ready to consume or already consumed</div>
+          <div className="stat-tile__detail">可消费或已消费</div>
         </div>
       </div>
 
       <Panel
         title="Request ledger"
-        subtitle="Every gate keeps its target version and payload hash"
+        subtitle="每个门禁保留目标版本与负载哈希"
         action={
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search action, target or id"
+            placeholder="搜索动作、对象或 ID"
           />
         }
       >
@@ -250,11 +250,11 @@ export function ApprovalsPage() {
           ) : visible.length === 0 ? (
             <EmptyState
               icon="approvals"
-              title={tab === "PENDING" ? "Nothing waiting" : "No requests in this view"}
+              title={tab === "PENDING" ? "Nothing waiting" : "当前视图暂无请求"}
               description={
                 tab === "PENDING"
-                  ? "The approval queue is clear. New gated actions will land here automatically."
-                  : "Try another status or clear the search."
+                  ? "审批队列为空。新的受门禁动作会自动进入此处。"
+                  : "换个状态或清空搜索试试。"
               }
             />
           ) : (
@@ -262,12 +262,12 @@ export function ApprovalsPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Action</th>
-                    <th>Target</th>
-                    <th>Risk</th>
-                    <th>Approvals</th>
-                    <th>Requested</th>
-                    <th>Status</th>
+                    <th>操作</th>
+                    <th>对象</th>
+                    <th>风险</th>
+                    <th>审批</th>
+                    <th>已发起</th>
+                    <th>状态</th>
                     <th />
                   </tr>
                 </thead>
@@ -324,7 +324,7 @@ export function ApprovalsPage() {
                             variant="secondary"
                             onClick={() => setSelected(request)}
                           >
-                            Review
+                            复核
                           </Button>
                         ) : request.status === "APPROVED" && !request.consumedAt ? (
                           <Button
@@ -335,7 +335,7 @@ export function ApprovalsPage() {
                               setConsumeTarget(request);
                             }}
                           >
-                            Consume
+                            消费
                           </Button>
                         ) : (
                           <span className="subtle">
@@ -365,14 +365,14 @@ export function ApprovalsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setSelected(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={decision === "REJECT" ? "danger" : "primary"}
               onClick={submitDecision}
               loading={submitting}
             >
-              {decision === "REJECT" ? "Reject request" : "Approve request"}
+              {decision === "REJECT" ? "驳回请求" : "批准请求"}
             </Button>
           </>
         }
@@ -384,9 +384,9 @@ export function ApprovalsPage() {
             ) : null}
             <DefinitionList
               items={[
-                { label: "Action", value: titleCase(selected.actionType) },
+                { label: "操作", value: titleCase(selected.actionType) },
                 {
-                  label: "Target",
+                  label: "对象",
                   value: (
                     <span>
                       {titleCase(selected.targetType)} ·{" "}
@@ -396,22 +396,22 @@ export function ApprovalsPage() {
                   ),
                 },
                 {
-                  label: "Payload hash",
+                  label: "负载哈希",
                   value: <span className="mono">{selected.payloadHash}</span>,
                 },
                 {
-                  label: "Approvals",
+                  label: "审批",
                   value: `${selected.approvedCount} of ${selected.requiredApprovals}`,
                 },
                 {
-                  label: "Requested",
+                  label: "已发起",
                   value: `${formatDateTime(selected.createdAt)} · ${selected.requestedByType}`,
                 },
               ]}
             />
 
             <div className="detail-section">
-              <div className="detail-section__title">Prior decisions</div>
+              <div className="detail-section__title">历史决策</div>
               {decisions.loading ? (
                 <div className="loading-inline">
                   <span className="spinner" /> Loading decisions…
@@ -434,12 +434,12 @@ export function ApprovalsPage() {
                   ))}
                 </div>
               ) : (
-                <p className="muted">No decision recorded yet.</p>
+                <p className="muted">暂无决策记录。</p>
               )}
             </div>
 
             <div className="form-grid">
-              <FormField label="Decision" htmlFor="approval-decision">
+              <FormField label="决策" htmlFor="approval-decision">
                 <Select
                   id="approval-decision"
                   value={decision}
@@ -447,14 +447,14 @@ export function ApprovalsPage() {
                     setDecision(event.target.value as "APPROVE" | "REJECT")
                   }
                 >
-                  <option value="APPROVE">Approve</option>
-                  <option value="REJECT">Reject</option>
+                  <option value="APPROVE">批准</option>
+                  <option value="REJECT">驳回</option>
                 </Select>
               </FormField>
               <FormField
-                label="Approver person"
+                label="审批人"
                 htmlFor="approval-approver"
-                hint="Attribution is recorded against this person."
+                hint="贡献认定将记录到该人员名下。"
               >
                 <PersonSelect
                   id="approval-approver"
@@ -463,7 +463,7 @@ export function ApprovalsPage() {
                 />
               </FormField>
               <FormField
-                label={decision === "REJECT" ? "Reason (required)" : "Reason (optional)"}
+                label={decision === "REJECT" ? "原因（必填）" : "原因（可选）"}
                 htmlFor="approval-reason"
                 className="field--full"
               >
@@ -471,7 +471,7 @@ export function ApprovalsPage() {
                   id="approval-reason"
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="Explain the decision for the audit trail…"
+                  placeholder="为审计留痕填写决策说明…"
                 />
               </FormField>
             </div>
@@ -481,16 +481,16 @@ export function ApprovalsPage() {
 
       <Modal
         open={Boolean(consumeTarget)}
-        title="Consume approval"
-        description="Consumption binds this approval to one action. It cannot be reused."
+        title="消费审批"
+        description="消费会把本审批绑定到一个动作，不可复用。"
         onClose={() => setConsumeTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setConsumeTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={consume} loading={submitting}>
-              Consume approval
+              消费审批
             </Button>
           </>
         }
@@ -502,8 +502,8 @@ export function ApprovalsPage() {
             ) : null}
             <DefinitionList
               items={[
-                { label: "Action", value: titleCase(consumeTarget.actionType) },
-                { label: "Target", value: shortId(consumeTarget.targetId, 16) },
+                { label: "操作", value: titleCase(consumeTarget.actionType) },
+                { label: "对象", value: shortId(consumeTarget.targetId, 16) },
                 {
                   label: "Consumed by",
                   value: <span className="mono">{session.personId}</span>,

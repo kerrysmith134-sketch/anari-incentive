@@ -53,7 +53,7 @@ const BOUNTY_STATUSES = [
 type BountyAction = "claim" | "submit" | "accept" | "cancel";
 
 export function RewardsPage() {
-  useDocumentTitle("Rewards");
+  useDocumentTitle("激励");
   const [tab, setTab] = useState("equity");
   const grants = useApiQuery<EquityGrant[]>("/api/v1/equity-grants");
   const exercises = useApiQuery<EquityExercise[]>("/api/v1/equity-exercises");
@@ -70,8 +70,8 @@ export function RewardsPage() {
     <>
       <PageHeader
         eyebrow="Long-term and spot rewards"
-        title="Rewards"
-        description="Equity vesting with cliff-aware exercises, and a bounty marketplace with review and payment trace. Both paths enforce separation of duties."
+        title="激励"
+        description="股权悬崖归属与行权、悬赏市场验收与支付留痕；两条线都强制职责分离。"
         actions={
           <Button
             variant="secondary"
@@ -83,7 +83,7 @@ export function RewardsPage() {
             }}
             loading={grants.loading || exercises.loading || bounties.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -91,7 +91,7 @@ export function RewardsPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Equity grants</span>
+            <span className="stat-tile__label">股权授予</span>
           </div>
           <div className="stat-tile__value">{grantList.length}</div>
           <div className="stat-tile__detail">
@@ -100,16 +100,16 @@ export function RewardsPage() {
         </div>
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Exercises in review</span>
+            <span className="stat-tile__label">行权审批中</span>
           </div>
           <div className="stat-tile__value">
             {exerciseList.filter((exercise) => exercise.status === "PENDING").length}
           </div>
-          <div className="stat-tile__detail">Pending approval or settlement</div>
+          <div className="stat-tile__detail">待批准或交割</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Open bounties</span>
+            <span className="stat-tile__label">进行中悬赏</span>
           </div>
           <div className="stat-tile__value">{openBounties.length}</div>
           <div className="stat-tile__detail">
@@ -265,7 +265,7 @@ function StrategicPoolsTab() {
     <>
       <Panel
         title="Strategic / A-class pools"
-        action={<Button onClick={() => setOpen(true)}>New case</Button>}
+        action={<Button onClick={() => setOpen(true)}>新建案例</Button>}
       >
         {cases.loading && cases.data === undefined ? (
           <LoadingRows rows={4} />
@@ -279,11 +279,11 @@ function StrategicPoolsTab() {
           <table className="table">
             <thead>
               <tr>
-                <th>Cycle</th>
-                <th>Pool / cap</th>
-                <th>Standard cost</th>
-                <th>Transfer pricing</th>
-                <th>Status</th>
+                <th>周期</th>
+                <th>资金池 / 上限</th>
+                <th>标准成本</th>
+                <th>转移定价</th>
+                <th>状态</th>
                 <th></th>
               </tr>
             </thead>
@@ -321,28 +321,28 @@ function StrategicPoolsTab() {
                         variant="ghost"
                         onClick={() => advance(record, "cost-review")}
                       >
-                        Cost review
+                        成本核算
                       </Button>
                     ) : record.status === "COST_REVIEWED" ? (
                       <Button
                         variant="ghost"
                         onClick={() => advance(record, "finance-approve")}
                       >
-                        Finance approve
+                        财务批准
                       </Button>
                     ) : record.status === "FINANCE_APPROVED" ? (
                       <Button
                         variant="ghost"
                         onClick={() => advance(record, "activate")}
                       >
-                        Activate
+                        激活
                       </Button>
                     ) : record.status === "ACTIVE" ? (
                       <Button
                         variant="ghost"
                         onClick={() => advance(record, "settle")}
                       >
-                        Settle
+                        交割
                       </Button>
                     ) : null}
                   </td>
@@ -360,10 +360,10 @@ function StrategicPoolsTab() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" disabled={busy} onClick={createCase}>
-              Create case
+              新建案例
             </Button>
           </>
         }
@@ -398,7 +398,7 @@ function StrategicPoolsTab() {
               required
             />
           </FormField>
-          <FormField label="Rationale" htmlFor="sp-rationale">
+          <FormField label="理由" htmlFor="sp-rationale">
             <TextInput
               id="sp-rationale"
               value={rationale}
@@ -513,7 +513,7 @@ function EquityTab({
       reloadGrants();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the grant.",
+        caught instanceof Error ? caught.message : "创建授予失败。",
       );
     } finally {
       setSubmitting(false);
@@ -582,7 +582,7 @@ function EquityTab({
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The action failed.",
+            : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -592,11 +592,11 @@ function EquityTab({
   return (
     <>
       <Panel
-        title="Equity grants"
-        subtitle="Cliff and monthly vesting with request → approve → settle separation"
+        title="股权授予"
+        subtitle="悬崖 + 按月归属，申请→批准→交割三段分离"
         action={
           <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
-            New grant
+            新建授予
           </Button>
         }
         flush
@@ -613,10 +613,10 @@ function EquityTab({
           <EmptyState
             icon="rewards"
             title="No equity grant"
-            description="Create a grant with a vesting schedule to begin tracking cliff and exercisable units."
+            description="创建带归属计划的授予，开始跟踪悬崖与可行使数量。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                Create grant
+                新建授予
               </Button>
             }
           />
@@ -625,13 +625,13 @@ function EquityTab({
             <table className="data-table table-clickable">
               <thead>
                 <tr>
-                  <th>Grant</th>
-                  <th>Person</th>
-                  <th>Type</th>
-                  <th className="cell-num">Units</th>
-                  <th className="cell-num">Strike</th>
-                  <th>Vesting</th>
-                  <th>Status</th>
+                  <th>授予</th>
+                  <th>人员</th>
+                  <th>类型</th>
+                  <th className="cell-num">数量</th>
+                  <th className="cell-num">行权价</th>
+                  <th>归属中</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -670,7 +670,7 @@ function EquityTab({
                           openGrant(grant);
                         }}
                       >
-                        Open
+                        待处理
                       </Button>
                     </td>
                   </tr>
@@ -683,7 +683,7 @@ function EquityTab({
 
       <Panel
         title="Exercises"
-        subtitle="Requests cannot be approved by their requester"
+        subtitle="行权申请不能由申请人本人批准"
         className="section-gap"
         flush
       >
@@ -699,19 +699,19 @@ function EquityTab({
           <EmptyState
             icon="layers"
             title="No exercise requested"
-            description="Open a grant to request units once the cliff has been reached."
+            description="悬崖期满后，打开授予发起行权数量申请。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Grant</th>
-                  <th>Person</th>
-                  <th className="cell-num">Units</th>
-                  <th className="cell-num">Cost</th>
-                  <th>Requested</th>
-                  <th>Status</th>
+                  <th>授予</th>
+                  <th>人员</th>
+                  <th className="cell-num">数量</th>
+                  <th className="cell-num">成本</th>
+                  <th>已发起</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -752,7 +752,7 @@ function EquityTab({
                               setExerciseAction({ kind: "approve", exercise });
                             }}
                           >
-                            Approve
+                            批准
                           </Button>
                         ) : exercise.status === "APPROVED" ? (
                           <Button
@@ -763,10 +763,10 @@ function EquityTab({
                               setExerciseAction({ kind: "settle", exercise });
                             }}
                           >
-                            Settle
+                            交割
                           </Button>
                         ) : (
-                          <span className="subtle">Settled</span>
+                          <span className="subtle">已交割</span>
                         )}
                       </td>
                     </tr>
@@ -781,13 +781,13 @@ function EquityTab({
       <Modal
         open={createOpen}
         title="New equity grant"
-        description="The vesting clock starts on the vesting start date, not the grant date."
+        description="归属计时从归属起始日开始，而非授予日。"
         onClose={() => setCreateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -795,7 +795,7 @@ function EquityTab({
               form="create-grant-form"
               loading={submitting}
             >
-              Create grant
+              新建授予
             </Button>
           </>
         }
@@ -806,7 +806,7 @@ function EquityTab({
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Person" htmlFor="grant-person">
+          <FormField label="人员" htmlFor="grant-person">
             <PersonSelect id="grant-person" value={personId} onChange={setPersonId} />
           </FormField>
           <FormField label="Grant code" htmlFor="grant-code">
@@ -831,7 +831,7 @@ function EquityTab({
               ))}
             </Select>
           </FormField>
-          <FormField label="Total units" htmlFor="grant-units">
+          <FormField label="总量" htmlFor="grant-units">
             <TextInput
               id="grant-units"
               type="number"
@@ -842,7 +842,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Strike price" htmlFor="grant-strike">
+          <FormField label="行权价" htmlFor="grant-strike">
             <TextInput
               id="grant-strike"
               type="number"
@@ -853,7 +853,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="grant-currency">
+          <FormField label="币种" htmlFor="grant-currency">
             <TextInput
               id="grant-currency"
               value={currency}
@@ -862,7 +862,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Grant date" htmlFor="grant-date">
+          <FormField label="授予日" htmlFor="grant-date">
             <TextInput
               id="grant-date"
               type="date"
@@ -871,7 +871,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Vesting start" htmlFor="grant-vesting">
+          <FormField label="归属起始" htmlFor="grant-vesting">
             <TextInput
               id="grant-vesting"
               type="date"
@@ -928,14 +928,14 @@ function EquityTab({
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Available</div>
+                    <div className="coverage-cell__label">可行使</div>
                     <div className="coverage-cell__value">
                       {Number(vesting.data.availableUnits).toLocaleString("en-US")}
                     </div>
-                    <div className="coverage-cell__sub">exercisable now</div>
+                    <div className="coverage-cell__sub">当前可行使</div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Vested</div>
+                    <div className="coverage-cell__label">已归属</div>
                     <div className="coverage-cell__value">
                       {Number(vesting.data.vestedUnits).toLocaleString("en-US")}
                     </div>
@@ -944,7 +944,7 @@ function EquityTab({
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Unvested</div>
+                    <div className="coverage-cell__label">未归属</div>
                     <div className="coverage-cell__value">
                       {Number(vesting.data.unvestedUnits).toLocaleString("en-US")}
                     </div>
@@ -953,7 +953,7 @@ function EquityTab({
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Next vest</div>
+                    <div className="coverage-cell__label">下次归属</div>
                     <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                       {vesting.data.nextVestAt
                         ? formatDate(vesting.data.nextVestAt)
@@ -971,14 +971,14 @@ function EquityTab({
             )}
 
             <div className="detail-section">
-              <div className="detail-section__title">Request an exercise</div>
+              <div className="detail-section__title">发起行权</div>
               <form onSubmit={createExercise} className="form-grid">
                 {exerciseError ? (
                   <div className="field--full">
                     <InfoNotice tone="warning">{exerciseError}</InfoNotice>
                   </div>
                 ) : null}
-                <FormField label="Units" htmlFor="exercise-units">
+                <FormField label="数量" htmlFor="exercise-units">
                   <TextInput
                     id="exercise-units"
                     type="number"
@@ -990,7 +990,7 @@ function EquityTab({
                     required
                   />
                 </FormField>
-                <FormField label="Requested by" htmlFor="exercise-requester">
+                <FormField label="发起人" htmlFor="exercise-requester">
                   <PersonSelect
                     id="exercise-requester"
                     value={requestedBy}
@@ -999,28 +999,28 @@ function EquityTab({
                 </FormField>
                 <div className="field--full form-actions">
                   <Button type="submit" variant="primary" loading={exerciseSubmitting}>
-                    Request exercise
+                    发起行权
                   </Button>
                 </div>
               </form>
             </div>
 
             <div className="detail-section">
-              <div className="detail-section__title">Grant terms</div>
+              <div className="detail-section__title">授予条款</div>
               <DefinitionList
                 items={[
-                  { label: "Total units", value: Number(selectedGrant.totalUnits).toLocaleString("en-US") },
+                  { label: "总量", value: Number(selectedGrant.totalUnits).toLocaleString("en-US") },
                   {
-                    label: "Strike price",
+                    label: "行权价",
                     value: formatMoney(selectedGrant.strikePrice, selectedGrant.currency),
                   },
-                  { label: "Grant date", value: formatDate(selectedGrant.grantDate) },
+                  { label: "授予日", value: formatDate(selectedGrant.grantDate) },
                   {
-                    label: "Vesting start",
+                    label: "归属起始",
                     value: formatDate(selectedGrant.vestingStart),
                   },
-                  { label: "Status", value: <Badge status={selectedGrant.status} /> },
-                  { label: "Created", value: formatDateTime(selectedGrant.createdAt) },
+                  { label: "状态", value: <Badge status={selectedGrant.status} /> },
+                  { label: "创建时间", value: formatDateTime(selectedGrant.createdAt) },
                 ]}
               />
             </div>
@@ -1037,21 +1037,21 @@ function EquityTab({
         }
         description={
           exerciseAction?.kind === "approve"
-            ? "The requester cannot approve their own exercise."
-            : "Settlement marks the exercise complete. Confirm the payment/cost has been handled."
+            ? "申请人不能批准自己的行权。"
+            : "交割即行权完成；请确认款项/成本已处理。"
         }
         onClose={() => setExerciseAction(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setExerciseAction(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
               onClick={executeExerciseAction}
               loading={submitting}
             >
-              {exerciseAction?.kind === "approve" ? "Approve" : "Settle"}
+              {exerciseAction?.kind === "approve" ? "批准" : "交割"}
             </Button>
           </>
         }
@@ -1065,7 +1065,7 @@ function EquityTab({
               items={[
                 { label: "Exercise", value: shortId(exerciseAction.exercise.id, 14) },
                 {
-                  label: "Units",
+                  label: "数量",
                   value: Number(exerciseAction.exercise.units).toLocaleString("en-US"),
                 },
                 {
@@ -1076,13 +1076,13 @@ function EquityTab({
                   ),
                 },
                 {
-                  label: "Requested by",
+                  label: "发起人",
                   value: displayName(exerciseAction.exercise.requestedBy, people),
                 },
               ]}
             />
             {exerciseAction.kind === "approve" ? (
-              <FormField label="Approved by" htmlFor="exercise-approver">
+              <FormField label="批准人" htmlFor="exercise-approver">
                 <PersonSelect
                   id="exercise-approver"
                   value={approvedBy}
@@ -1234,7 +1234,7 @@ function BountiesTab({
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The action failed.",
+            : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -1247,7 +1247,7 @@ function BountiesTab({
         <Tabs
           items={BOUNTY_STATUSES.map((status) => ({
             id: status,
-            label: status === "ALL" ? "All" : titleCase(status),
+            label: status === "ALL" ? "全部" : titleCase(status),
             count:
               status === "ALL"
                 ? bounties.length
@@ -1258,7 +1258,7 @@ function BountiesTab({
           label="Bounty status"
         />
         <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
-          New bounty
+          新建悬赏
         </Button>
       </div>
 
@@ -1273,15 +1273,15 @@ function BountiesTab({
           <EmptyState
             icon="rewards"
             title={filter === "ALL" ? "No bounty yet" : "No bounty in this status"}
-            description="Publish a scoped task with a reward. Claim, submission, acceptance and payment reference are all traced."
+            description="发布带奖金的定向任务；认领、提交、验收与支付引用全程留痕。"
             action={
               filter === "ALL" ? (
                 <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                  Publish bounty
+                  发布悬赏
                 </Button>
               ) : (
                 <Button variant="secondary" size="sm" onClick={() => setFilter("ALL")}>
-                  Show all
+                  显示全部
                 </Button>
               )
             }
@@ -1320,7 +1320,7 @@ function BountiesTab({
               </p>
               <div className="definition-list">
                 <div className="definition-list__row">
-                  <dt>Assignee</dt>
+                  <dt>承办人</dt>
                   <dd>
                     {bounty.assigneePersonId
                       ? displayName(bounty.assigneePersonId, people)
@@ -1328,11 +1328,11 @@ function BountiesTab({
                   </dd>
                 </div>
                 <div className="definition-list__row">
-                  <dt>Due</dt>
+                  <dt>截止</dt>
                   <dd>{bounty.dueAt ? formatDate(bounty.dueAt) : "—"}</dd>
                 </div>
                 <div className="definition-list__row">
-                  <dt>Created</dt>
+                  <dt>创建时间</dt>
                   <dd>{formatRelative(bounty.createdAt)}</dd>
                 </div>
               </div>
@@ -1343,7 +1343,7 @@ function BountiesTab({
                     variant="primary"
                     onClick={() => openAction("claim", bounty)}
                   >
-                    Claim
+                    认领
                   </Button>
                 ) : null}
                 {bounty.status === "CLAIMED" ? (
@@ -1352,7 +1352,7 @@ function BountiesTab({
                     variant="primary"
                     onClick={() => openAction("submit", bounty)}
                   >
-                    Submit
+                    提交
                   </Button>
                 ) : null}
                 {bounty.status === "SUBMITTED" ? (
@@ -1361,7 +1361,7 @@ function BountiesTab({
                     variant="primary"
                     onClick={() => openAction("accept", bounty)}
                   >
-                    Accept
+                    验收
                   </Button>
                 ) : null}
                 {!["ACCEPTED", "CANCELLED"].includes(bounty.status) ? (
@@ -1370,7 +1370,7 @@ function BountiesTab({
                     variant="ghost"
                     onClick={() => openAction("cancel", bounty)}
                   >
-                    Cancel
+                    取消
                   </Button>
                 ) : null}
                 {bounty.status === "ACCEPTED" ? (
@@ -1387,13 +1387,13 @@ function BountiesTab({
       <Modal
         open={createOpen}
         title="Publish a bounty"
-        description="Scope the outcome, amount and due date. The creator can be any registered person."
+        description="明确成果、金额与截止日；发布人可以是任意已登记人员。"
         onClose={() => setCreateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1401,7 +1401,7 @@ function BountiesTab({
               form="create-bounty-form"
               loading={submitting}
             >
-              Publish bounty
+              发布悬赏
             </Button>
           </>
         }
@@ -1412,7 +1412,7 @@ function BountiesTab({
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Title" htmlFor="bounty-title" className="field--full">
+          <FormField label="标题" htmlFor="bounty-title" className="field--full">
             <TextInput
               id="bounty-title"
               value={title}
@@ -1422,7 +1422,7 @@ function BountiesTab({
             />
           </FormField>
           <FormField
-            label="Description"
+            label="说明"
             htmlFor="bounty-description"
             className="field--full"
           >
@@ -1445,7 +1445,7 @@ function BountiesTab({
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="bounty-currency">
+          <FormField label="币种" htmlFor="bounty-currency">
             <TextInput
               id="bounty-currency"
               value={currency}
@@ -1454,14 +1454,14 @@ function BountiesTab({
               required
             />
           </FormField>
-          <FormField label="Created by" htmlFor="bounty-creator">
+          <FormField label="创建人" htmlFor="bounty-creator">
             <PersonSelect
               id="bounty-creator"
               value={createdBy}
               onChange={setCreatedBy}
             />
           </FormField>
-          <FormField label="Due date (optional)" htmlFor="bounty-due">
+          <FormField label="截止日期（可选）" htmlFor="bounty-due">
             <TextInput
               id="bounty-due"
               type="date"
@@ -1482,21 +1482,21 @@ function BountiesTab({
                 ? "Submit bounty"
                 : action.kind === "accept"
                   ? "Accept bounty"
-                  : "Cancel bounty"
+                  : "取消悬赏"
             : ""
         }
         description={
           action?.kind === "accept"
-            ? "Acceptance records the payment reference and closes the bounty."
+            ? "验收记录支付引用并关闭悬赏。"
             : action?.kind === "cancel"
-              ? "Cancellation is final and cannot be applied to an accepted bounty."
+              ? "取消不可逆；已验收的悬赏不能取消。"
               : action?.bounty.title
         }
         onClose={() => setAction(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAction(null)}>
-              Close
+              关闭
             </Button>
             <Button
               variant={action?.kind === "cancel" ? "danger" : "primary"}
@@ -1504,12 +1504,12 @@ function BountiesTab({
               loading={submitting}
             >
               {action?.kind === "claim"
-                ? "Claim"
+                ? "认领"
                 : action?.kind === "submit"
-                  ? "Submit"
+                  ? "提交"
                   : action?.kind === "accept"
-                    ? "Accept"
-                    : "Cancel bounty"}
+                    ? "验收"
+                    : "取消悬赏"}
             </Button>
           </>
         }
@@ -1520,7 +1520,7 @@ function BountiesTab({
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             ) : null}
             {action.kind === "claim" || action.kind === "submit" ? (
-              <FormField label="Person" htmlFor="bounty-person">
+              <FormField label="人员" htmlFor="bounty-person">
                 <PersonSelect
                   id="bounty-person"
                   value={actionPerson}
@@ -1545,7 +1545,7 @@ function BountiesTab({
             ) : null}
             {action.kind === "accept" ? (
               <>
-                <FormField label="Reviewer" htmlFor="bounty-reviewer">
+                <FormField label="复核人" htmlFor="bounty-reviewer">
                   <PersonSelect
                     id="bounty-reviewer"
                     value={reviewer}
@@ -1567,7 +1567,7 @@ function BountiesTab({
             ) : null}
             {action.kind === "cancel" ? (
               <InfoNotice tone="warning">
-                This will cancel <strong>{action.bounty.title}</strong>. The action
+                此操作将取消 <strong>{action.bounty.title}</strong>. The action
                 is recorded in the audit trail.
               </InfoNotice>
             ) : null}

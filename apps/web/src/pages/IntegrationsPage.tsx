@@ -35,7 +35,7 @@ import type {
 import type { ExternalIdentityView } from "../lib/ops-types.js";
 
 export function IntegrationsPage() {
-  useDocumentTitle("Integrations");
+  useDocumentTitle("集成");
   const toast = useToast();
   const connections = useApiQuery<IntegrationConnection[]>(
     "/api/v1/integration-connections",
@@ -117,7 +117,7 @@ export function IntegrationsPage() {
           },
         },
       );
-      toast.success("Connection created", connectionName);
+      toast.success("连接已创建", connectionName);
       setCreateOpen(false);
       setSelectedId(created.id);
       connections.reload();
@@ -161,7 +161,7 @@ export function IntegrationsPage() {
         method: "POST",
         body: { status: "QUEUED" },
       });
-      toast.success("Sync queued", connection.connectionName);
+      toast.success("同步已排队", connection.connectionName);
       syncRuns.reload();
     } catch (caught) {
       setActionError(
@@ -176,7 +176,7 @@ export function IntegrationsPage() {
     <>
       <PageHeader
         eyebrow="Payload plumbing"
-        title="Integrations"
+        title="集成"
         description="Connections, versioned field mappings and due-schedule claiming. Credentials stay behind references; mapping edits create a new version."
         actions={
           <>
@@ -186,10 +186,10 @@ export function IntegrationsPage() {
               onClick={() => connections.reload()}
               loading={connections.loading}
             >
-              Refresh
+              刷新
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
-              Connection
+              连接
             </Button>
           </>
         }
@@ -202,8 +202,8 @@ export function IntegrationsPage() {
       ) : null}
 
       <Panel
-        title="Feishu directory sync"
-        subtitle="Departments → org nodes, members → people, leaders → reporting lines; job titles never influence roles"
+        title="飞书通讯录同步"
+        subtitle="部门→组织节点、成员→人员、负责人→汇报线；职务从不影响角色"
       >
         <FeishuSyncPanel />
       </Panel>
@@ -211,7 +211,7 @@ export function IntegrationsPage() {
       {connections.error ? (
         <ErrorNotice error={connections.error} onRetry={connections.reload} />
       ) : connections.loading ? (
-        <Panel title="Connections">
+        <Panel title="连接">
           <LoadingRows rows={3} />
         </Panel>
       ) : list.length === 0 ? (
@@ -219,10 +219,10 @@ export function IntegrationsPage() {
           <EmptyState
             icon="integrations"
             title="No integration connection"
-            description="Add a provider connection, then attach a versioned mapping and a sync schedule."
+            description="先添加供应商连接，再挂接版本化映射与同步计划。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                Create connection
+                创建连接
               </Button>
             }
           />
@@ -287,7 +287,7 @@ export function IntegrationsPage() {
                     },
                     {
                       id: "runs",
-                      label: "Sync runs",
+                      label: "同步运行",
                       count: syncRuns.data?.length ?? 0,
                     },
                     { id: "identities", label: "Identities" },
@@ -344,24 +344,24 @@ export function IntegrationsPage() {
               </Panel>
 
               <div className="stack">
-                <Panel title="Connection">
+                <Panel title="连接">
                   <DefinitionList
                     items={[
-                      { label: "Provider", value: selected.provider },
+                      { label: "供应商", value: selected.provider },
                       {
-                        label: "Credential ref",
+                        label: "凭据引用",
                         value: (
                           <span className="mono">{selected.credentialRef}</span>
                         ),
                       },
                       {
-                        label: "Last sync",
+                        label: "最近同步",
                         value: selected.lastSyncAt
                           ? formatDateTime(selected.lastSyncAt)
-                          : "Never",
+                          : "从未",
                       },
                       {
-                        label: "Created",
+                        label: "创建时间",
                         value: formatDateTime(selected.createdAt),
                       },
                     ]}
@@ -379,7 +379,7 @@ export function IntegrationsPage() {
                     >
                       {selected.status.toUpperCase() === "ACTIVE"
                         ? "Disconnect"
-                        : "Activate"}
+                        : "激活"}
                     </Button>
                     <Button
                       size="sm"
@@ -388,7 +388,7 @@ export function IntegrationsPage() {
                       loading={statusBusy}
                       onClick={() => void queueSync(selected)}
                     >
-                      Queue sync
+                      排队同步
                     </Button>
                   </div>
                 </Panel>
@@ -407,12 +407,12 @@ export function IntegrationsPage() {
       <Modal
         open={createOpen}
         title="New integration connection"
-        description="Store only a credential reference — never the secret itself."
+        description="只保存凭据引用——绝不保存密钥本体。"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -420,7 +420,7 @@ export function IntegrationsPage() {
               form="create-connection-form"
               loading={submitting}
             >
-              Create connection
+              创建连接
             </Button>
           </>
         }
@@ -431,7 +431,7 @@ export function IntegrationsPage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Provider" htmlFor="connection-provider">
+          <FormField label="供应商" htmlFor="connection-provider">
             <TextInput
               id="connection-provider"
               value={provider}
@@ -453,7 +453,7 @@ export function IntegrationsPage() {
             label="Credential reference"
             htmlFor="connection-credential"
             className="field--full"
-            hint="A vault path or secret name, not the credential value."
+            hint="保管库路径或密钥名，不是凭据值本身。"
           >
             <TextInput
               id="connection-credential"
@@ -464,10 +464,10 @@ export function IntegrationsPage() {
             />
           </FormField>
           <FormField
-            label="Config JSON"
+            label="配置 JSON"
             htmlFor="connection-config"
             className="field--full"
-            hint="Optional non-secret settings, e.g. base URL or portal id."
+            hint="可选的非敏感配置，如 base URL 或 portal id。"
           >
             <Textarea
               id="connection-config"
@@ -555,7 +555,7 @@ function MappingsSection({
       Array.isArray(parsedFieldMap) ||
       Object.values(parsedFieldMap).some((value) => typeof value !== "string")
     ) {
-      setFormError("Field map must be a JSON object whose values are strings.");
+      setFormError("字段映射必须是 JSON 对象且值为字符串。");
       return;
     }
     setSubmitting(true);
@@ -572,7 +572,7 @@ function MappingsSection({
           version: 1,
         },
       });
-      toast.success("Mapping created", name);
+      toast.success("映射已创建", name);
       setOpen(false);
       reload();
     } catch (caught) {
@@ -612,7 +612,7 @@ function MappingsSection({
           mapping{mappings.filter((mapping) => mapping.status === "ACTIVE").length === 1 ? "" : "s"}
         </span>
         <Button size="sm" variant="primary" icon="plus" onClick={() => openForm()}>
-          New mapping
+          新建映射
         </Button>
       </div>
 
@@ -624,10 +624,10 @@ function MappingsSection({
         <EmptyState
           icon="layers"
           title="No field mapping"
-          description="Map source fields to the evidence contract. Presets cover HubSpot deals, Feishu Bitable and ERP orders."
+          description="将来源字段映射到证据契约。预设覆盖 HubSpot 交易、飞书多维表格与 ERP 订单。"
           action={
             <Button variant="primary" size="sm" onClick={() => openForm()}>
-              New mapping
+              新建映射
             </Button>
           }
         />
@@ -636,12 +636,12 @@ function MappingsSection({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Mapping</th>
-                <th>Type</th>
+                <th>映射</th>
+                <th>类型</th>
                 <th>Source → target</th>
-                <th>Fields</th>
-                <th>Version</th>
-                <th>Status</th>
+                <th>字段</th>
+                <th>版本</th>
+                <th>状态</th>
                 <th />
               </tr>
             </thead>
@@ -671,7 +671,7 @@ function MappingsSection({
                           setRetireTarget(mapping);
                         }}
                       >
-                        Retire
+                        退役
                       </Button>
                     ) : (
                       <span className="subtle">—</span>
@@ -687,13 +687,13 @@ function MappingsSection({
       <Modal
         open={open}
         title="New field mapping"
-        description="Preset values are a starting point — review every field before creating the version."
+        description="预设只是起点——创建版本前请逐项核对。"
         onClose={() => setOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -701,7 +701,7 @@ function MappingsSection({
               form="create-mapping-form"
               loading={submitting}
             >
-              Create mapping
+              创建映射
             </Button>
           </>
         }
@@ -710,7 +710,7 @@ function MappingsSection({
           {formError ? <InfoNotice tone="warning">{formError}</InfoNotice> : null}
           {availablePresets.length > 0 ? (
             <div>
-              <div className="form-section__title">Provider presets</div>
+              <div className="form-section__title">供应商预设</div>
               <div className="preset-grid">
                 {availablePresets.map((preset) => (
                   <button
@@ -729,7 +729,7 @@ function MappingsSection({
             </div>
           ) : null}
           <div className="form-grid">
-            <FormField label="Name" htmlFor="mapping-name">
+            <FormField label="名称" htmlFor="mapping-name">
               <TextInput
                 id="mapping-name"
                 value={name}
@@ -747,7 +747,7 @@ function MappingsSection({
                 <option value="CSV">CSV</option>
               </Select>
             </FormField>
-            <FormField label="Source system" htmlFor="mapping-source">
+            <FormField label="来源系统" htmlFor="mapping-source">
               <TextInput
                 id="mapping-source"
                 value={sourceSystem}
@@ -755,7 +755,7 @@ function MappingsSection({
                 required
               />
             </FormField>
-            <FormField label="Target type" htmlFor="mapping-target">
+            <FormField label="对象类型" htmlFor="mapping-target">
               <TextInput
                 id="mapping-target"
                 value={targetType}
@@ -767,7 +767,7 @@ function MappingsSection({
               label="Field map (JSON)"
               htmlFor="mapping-fields"
               className="field--full"
-              hint="Keys are target fields; values are source paths."
+              hint="键为目标字段；值为来源路径。"
             >
               <Textarea
                 id="mapping-fields"
@@ -796,16 +796,16 @@ function MappingsSection({
 
       <Modal
         open={Boolean(retireTarget)}
-        title="Retire mapping"
-        description="Retired mappings stay readable for audit but stop accepting new sync work."
+        title="退役映射"
+        description="退役映射保留可读供审计，但不再接受新同步。"
         onClose={() => setRetireTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setRetireTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="danger" onClick={retire} loading={submitting}>
-              Retire mapping
+              退役映射
             </Button>
           </>
         }
@@ -817,9 +817,9 @@ function MappingsSection({
             ) : null}
             <DefinitionList
               items={[
-                { label: "Mapping", value: retireTarget.name },
-                { label: "Version", value: `v${retireTarget.version}` },
-                { label: "Source", value: retireTarget.sourceSystem },
+                { label: "映射", value: retireTarget.name },
+                { label: "版本", value: `v${retireTarget.version}` },
+                { label: "来源", value: retireTarget.sourceSystem },
               ]}
             />
           </div>
@@ -874,7 +874,7 @@ function SchedulesSection({
           startAt: startAt ? new Date(startAt).toISOString() : undefined,
         },
       });
-      toast.success("Schedule created", name);
+      toast.success("计划已创建", name);
       setOpen(false);
       reload();
     } catch (caught) {
@@ -912,10 +912,10 @@ function SchedulesSection({
     <>
       <div className="toolbar">
         <span className="muted" style={{ fontSize: 12 }}>
-          The sync runner claims due schedules atomically.
+          同步执行器原子认领到期计划。
         </span>
         <Button size="sm" variant="primary" icon="plus" onClick={openForm}>
-          New schedule
+          新建计划
         </Button>
       </div>
 
@@ -927,10 +927,10 @@ function SchedulesSection({
         <EmptyState
           icon="clock"
           title="No sync schedule"
-          description="Create a recurring interval so the runner can claim and queue sync work."
+          description="设置重复间隔，执行器才能认领并排队同步。"
           action={
             <Button variant="primary" size="sm" onClick={openForm}>
-              New schedule
+              新建计划
             </Button>
           }
         />
@@ -939,11 +939,11 @@ function SchedulesSection({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Schedule</th>
-                <th>Interval</th>
-                <th>Next run</th>
-                <th>Last run</th>
-                <th>State</th>
+                <th>计划</th>
+                <th>间隔</th>
+                <th>下次运行</th>
+                <th>最近运行</th>
+                <th>状态</th>
                 <th />
               </tr>
             </thead>
@@ -956,7 +956,7 @@ function SchedulesSection({
                   </td>
                   <td>{schedule.intervalMinutes} min</td>
                   <td>{formatDateTime(schedule.nextRunAt)}</td>
-                  <td>{schedule.lastRunAt ? formatRelative(schedule.lastRunAt) : "Never"}</td>
+                  <td>{schedule.lastRunAt ? formatRelative(schedule.lastRunAt) : "从未"}</td>
                   <td>
                     <Badge
                       tone={schedule.enabled ? "success" : "warning"}
@@ -984,12 +984,12 @@ function SchedulesSection({
       <Modal
         open={open}
         title="New sync schedule"
-        description="Intervals are minutes; the schedule is claimed by the sync runner when due."
+        description="间隔单位为分钟；到期后由同步执行器认领。"
         onClose={() => setOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -997,7 +997,7 @@ function SchedulesSection({
               form="create-schedule-form"
               loading={submitting}
             >
-              Create schedule
+              创建计划
             </Button>
           </>
         }
@@ -1008,7 +1008,7 @@ function SchedulesSection({
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Name" htmlFor="schedule-name" className="field--full">
+          <FormField label="名称" htmlFor="schedule-name" className="field--full">
             <TextInput
               id="schedule-name"
               value={name}
@@ -1068,7 +1068,7 @@ function RunsSection({
         </span>
         <div className="row-actions">
           <Button size="sm" variant="secondary" icon="refresh" onClick={reload}>
-            Refresh
+            刷新
           </Button>
           <Button
             size="sm"
@@ -1077,7 +1077,7 @@ function RunsSection({
             loading={busy}
             onClick={onQueue}
           >
-            Queue sync
+            排队同步
           </Button>
         </div>
       </div>
@@ -1090,19 +1090,19 @@ function RunsSection({
         <EmptyState
           icon="server"
           title="No sync run"
-          description="Queue a run manually, or let the runner claim a due schedule."
+          description="可手动排队一次同步，或由执行器认领到期计划。"
         />
       ) : (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Run</th>
-                <th>Status</th>
-                <th className="cell-num">Seen</th>
-                <th className="cell-num">Upserted</th>
-                <th>Created</th>
-                <th>Finished</th>
+                <th>运行</th>
+                <th>状态</th>
+                <th className="cell-num">已见</th>
+                <th className="cell-num">已写入</th>
+                <th>创建时间</th>
+                <th>已完成</th>
               </tr>
             </thead>
             <tbody>
@@ -1190,10 +1190,10 @@ function IdentitiesSection() {
         style={{ justifyContent: "space-between", width: "100%", marginBottom: 10 }}
       >
         <span className="muted">
-          Source-system identifiers mapped to internal people.
+          来源系统标识映射到内部人员。
         </span>
         <Button size="sm" variant="secondary" icon="plus" onClick={openForm}>
-          Map identity
+          映射身份
         </Button>
       </div>
       {identities.error ? (
@@ -1201,16 +1201,16 @@ function IdentitiesSection() {
       ) : identities.loading ? (
         <LoadingRows rows={3} />
       ) : (identities.data?.length ?? 0) === 0 ? (
-        <p className="muted">No external identity mapped yet.</p>
+        <p className="muted">尚无外部身份映射。</p>
       ) : (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Source</th>
-                <th>External id</th>
-                <th>Object</th>
-                <th>Person</th>
+                <th>来源</th>
+                <th>外部 ID</th>
+                <th>对象</th>
+                <th>人员</th>
               </tr>
             </thead>
             <tbody>
@@ -1238,7 +1238,7 @@ function IdentitiesSection() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1246,7 +1246,7 @@ function IdentitiesSection() {
               form="identity-form"
               loading={busy}
             >
-              Map identity
+              映射身份
             </Button>
           </>
         }
@@ -1257,7 +1257,7 @@ function IdentitiesSection() {
               <InfoNotice tone="warning">{error}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Source system" htmlFor="identity-source">
+          <FormField label="来源系统" htmlFor="identity-source">
             <TextInput
               id="identity-source"
               value={sourceSystem}
@@ -1265,7 +1265,7 @@ function IdentitiesSection() {
               required
             />
           </FormField>
-          <FormField label="External id" htmlFor="identity-external">
+          <FormField label="外部 ID" htmlFor="identity-external">
             <TextInput
               id="identity-external"
               value={externalId}
@@ -1360,14 +1360,14 @@ function FeishuSyncPanel() {
           loading={busy}
           onClick={() => void runSync(true)}
         >
-          Preview (dry run)
+          预览（dry run）
         </Button>
         <Button
           variant="primary"
           loading={busy}
           onClick={() => void runSync(false)}
         >
-          Apply sync
+          执行同步
         </Button>
         <label className="checkbox">
           <input
@@ -1382,14 +1382,14 @@ function FeishuSyncPanel() {
         <div className="stack">
           <div className="stat-grid stat-grid--three">
             <div>
-              <div className="stat-label">Departments</div>
+              <div className="stat-label">部门</div>
               <div className="stat-value">
                 {result.departments.filter((d) => d.action === "CREATE").length}{" "}
                 new / {result.departments.length}
               </div>
             </div>
             <div>
-              <div className="stat-label">People</div>
+              <div className="stat-label">人员</div>
               <div className="stat-value">
                 {
                   result.users.filter((u) => u.action === "PROVISION" || u.action === "LINK_PERSON")
@@ -1399,7 +1399,7 @@ function FeishuSyncPanel() {
               </div>
             </div>
             <div>
-              <div className="stat-label">Reporting lines</div>
+              <div className="stat-label">汇报线</div>
               <div className="stat-value">{result.managersLinked}</div>
             </div>
           </div>
@@ -1412,9 +1412,9 @@ function FeishuSyncPanel() {
           <table className="table">
             <thead>
               <tr>
-                <th>Person</th>
-                <th>Title</th>
-                <th>Action</th>
+                <th>人员</th>
+                <th>标题</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>

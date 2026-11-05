@@ -57,7 +57,7 @@ export function SignupPage() {
       setResult(response);
     } catch (caught) {
       setError(
-        caught instanceof ApiError ? caught.message : "Could not sign up",
+        caught instanceof ApiError ? caught.message : "注册失败",
       );
     } finally {
       setSubmitting(false);
@@ -75,24 +75,24 @@ export function SignupPage() {
       />
 
       {result ? (
-        <Panel title="Workspace ready">
+        <Panel title="工作区已就绪">
           <div className="stat-grid">
             <div>
-              <div className="stat-label">Tenant</div>
+              <div className="stat-label">租户</div>
               <div className="stat-value">{result.slug}</div>
             </div>
             <div>
-              <div className="stat-label">Tenant ID</div>
+              <div className="stat-label">租户 ID</div>
               <div className="stat-value">
                 <code>{result.tenantId}</code>
               </div>
             </div>
             <div>
-              <div className="stat-label">Subscription</div>
+              <div className="stat-label">订阅</div>
               <div className="stat-value">
                 {result.subscription
                   ? `${result.subscription.planCode} · ${result.subscription.status}`
-                  : "None"}
+                  : "无"}
               </div>
             </div>
           </div>
@@ -176,7 +176,7 @@ export function SignupPage() {
           </div>
           {plans.length === 0 ? (
             <p className="hint">
-              <Badge tone="neutral">No public plans</Badge> The operator has
+              <Badge tone="neutral">暂无公开套餐</Badge> The operator has
               not published plans yet; you can still create the workspace and
               subscribe later.
             </p>

@@ -491,7 +491,7 @@ export function ErrorNotice({
       </div>
       {onRetry ? (
         <Button variant="quiet" size="sm" icon="refresh" onClick={onRetry}>
-          Retry
+          重试
         </Button>
       ) : null}
     </div>

@@ -45,7 +45,7 @@ const ACTION_TYPES: AdverseActionType[] = [
 type ActionKind = "review" | "approve" | "activate" | "complete" | "cancel";
 
 export function AdverseActionsPage() {
-  useDocumentTitle("Adverse actions");
+  useDocumentTitle("不利决定");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -108,12 +108,12 @@ export function AdverseActionsPage() {
           requestedBy,
         },
       });
-      toast.success("Adverse-action case opened", actionType);
+      toast.success("不利决定案件已发起", actionType);
       setCreateOpen(false);
       actions.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not open the case.",
+        caught instanceof Error ? caught.message : "无法发起案件。",
       );
     } finally {
       setSubmitting(false);
@@ -170,7 +170,7 @@ export function AdverseActionsPage() {
             : kind === "activate"
               ? "Case activated"
               : kind === "complete"
-                ? "Case completed"
+                ? "案件已完结"
                 : "Case cancelled",
         shortId(record.id),
       );
@@ -178,7 +178,7 @@ export function AdverseActionsPage() {
       actions.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "The action failed.",
+        caught instanceof Error ? caught.message : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -188,8 +188,8 @@ export function AdverseActionsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Human-only HR safeguard"
-        title="Adverse actions"
+        eyebrow="仅人工的 HR 保障流程"
+        title="不利决定"
         description="PIP, training/reassignment, demotion, pay reduction and termination are opened and decided by people, never auto-triggered by a score. Legal review and approval must be performed by different people."
         actions={
           <>
@@ -199,10 +199,10 @@ export function AdverseActionsPage() {
               onClick={actions.reload}
               loading={actions.loading}
             >
-              Refresh
+              刷新
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
-              Open case
+              发起案件
             </Button>
           </>
         }
@@ -210,7 +210,7 @@ export function AdverseActionsPage() {
 
       <div className="notice notice--warning" style={{ marginBottom: 18 }}>
         <div>
-          <strong>No automated pipeline writes to this module.</strong>
+          <strong>没有任何自动化流水线写入本模块。</strong>
           <p>
             There is no evaluation-to-adverse-action automation. Opening a case
             requires a manager; legal review and approval each require a different
@@ -219,7 +219,7 @@ export function AdverseActionsPage() {
         </div>
       </div>
 
-      <Panel title="PIP / adverse-action cases" flush>
+      <Panel title="PIP / 不利决定案件" flush>
         {actions.error ? (
           <div style={{ padding: 16 }}>
             <ErrorNotice error={actions.error} onRetry={actions.reload} />
@@ -232,10 +232,10 @@ export function AdverseActionsPage() {
           <EmptyState
             icon="shield"
             title="No adverse-action case"
-            description="Low scores never open this workflow automatically. A manager must explicitly open a case with a documented performance basis."
+            description="低分绝不会自动打开本流程；必须由经理基于书面绩效依据显式发起。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                Open case
+                发起案件
               </Button>
             }
           />
@@ -244,12 +244,12 @@ export function AdverseActionsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th>Action</th>
-                  <th>Status</th>
-                  <th>Requester</th>
-                  <th>Legal review</th>
-                  <th>Updated</th>
+                  <th>人员</th>
+                  <th>操作</th>
+                  <th>状态</th>
+                  <th>发起人</th>
+                  <th>法律复核</th>
+                  <th>更新时间</th>
                   <th />
                 </tr>
               </thead>
@@ -291,7 +291,7 @@ export function AdverseActionsPage() {
                           variant="ghost"
                           onClick={() => setSelected(record)}
                         >
-                          Open
+                          待处理
                         </Button>
                         {record.status === "DRAFT" ? (
                           <Button
@@ -299,7 +299,7 @@ export function AdverseActionsPage() {
                             variant="secondary"
                             onClick={() => openAction("review", record)}
                           >
-                            Legal review
+                            法律复核
                           </Button>
                         ) : null}
                         {record.status === "LEGAL_REVIEW" ? (
@@ -308,7 +308,7 @@ export function AdverseActionsPage() {
                             variant="primary"
                             onClick={() => openAction("approve", record)}
                           >
-                            Approve
+                            批准
                           </Button>
                         ) : null}
                         {record.status === "APPROVED" ? (
@@ -317,7 +317,7 @@ export function AdverseActionsPage() {
                             variant="primary"
                             onClick={() => openAction("activate", record)}
                           >
-                            Activate
+                            激活
                           </Button>
                         ) : null}
                         {record.status === "ACTIVE" ? (
@@ -326,7 +326,7 @@ export function AdverseActionsPage() {
                             variant="secondary"
                             onClick={() => openAction("complete", record)}
                           >
-                            Complete
+                            完成
                           </Button>
                         ) : null}
                         {["DRAFT", "LEGAL_REVIEW", "APPROVED", "ACTIVE"].includes(
@@ -337,7 +337,7 @@ export function AdverseActionsPage() {
                             variant="ghost"
                             onClick={() => openAction("cancel", record)}
                           >
-                            Cancel
+                            取消
                           </Button>
                         ) : null}
                       </div>
@@ -352,14 +352,14 @@ export function AdverseActionsPage() {
 
       <Modal
         open={createOpen}
-        title="Open adverse-action case"
-        description="This is a human/HR/legal process. The system records it; evaluation scores do not trigger it."
+        title="发起不利决定案件"
+        description="这是人工/HR/法务流程；系统仅作记录，评分不会自动触发。"
         onClose={() => setCreateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -367,7 +367,7 @@ export function AdverseActionsPage() {
               form="create-adverse-action-form"
               loading={submitting}
             >
-              Open case
+              发起案件
             </Button>
           </>
         }
@@ -378,7 +378,7 @@ export function AdverseActionsPage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Person" htmlFor="adverse-person">
+          <FormField label="人员" htmlFor="adverse-person">
             <PersonSelect
               id="adverse-person"
               value={personId}
@@ -401,7 +401,7 @@ export function AdverseActionsPage() {
             </Select>
           </FormField>
           <FormField
-            label="Reason"
+            label="原因"
             htmlFor="adverse-reason"
             className="field--full"
           >
@@ -413,10 +413,10 @@ export function AdverseActionsPage() {
             />
           </FormField>
           <FormField
-            label="Performance basis"
+            label="绩效依据"
             htmlFor="adverse-basis"
             className="field--full"
-            hint="Prior review, coaching or documented facts; not a raw score alone."
+            hint="依据：事先复核、辅导或有记录的事实；绝不只凭原始分数。"
           >
             <Textarea
               id="adverse-basis"
@@ -426,7 +426,7 @@ export function AdverseActionsPage() {
             />
           </FormField>
           <FormField
-            label="Evidence refs (comma separated)"
+            label="证据引用（逗号分隔）"
             htmlFor="adverse-evidence"
             className="field--full"
           >
@@ -436,7 +436,7 @@ export function AdverseActionsPage() {
               onChange={(event) => setEvidenceRefs(event.target.value)}
             />
           </FormField>
-          <FormField label="Requested by" htmlFor="adverse-requester">
+          <FormField label="发起人" htmlFor="adverse-requester">
             <PersonSelect
               id="adverse-requester"
               value={requestedBy}
@@ -458,7 +458,7 @@ export function AdverseActionsPage() {
         wide
         footer={
           <Button variant="secondary" onClick={() => setSelected(null)}>
-            Close
+            关闭
           </Button>
         }
       >
@@ -467,23 +467,23 @@ export function AdverseActionsPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Requested by",
+                  label: "发起人",
                   value: displayName(selected.requestedBy, people),
                 },
                 {
-                  label: "Legal reviewer",
+                  label: "法律复核人",
                   value: selected.legalReviewerId
                     ? displayName(selected.legalReviewerId, people)
-                    : "Pending",
+                    : "待处理",
                 },
                 {
-                  label: "Approved by",
+                  label: "批准人",
                   value: selected.approvedBy
                     ? displayName(selected.approvedBy, people)
-                    : "Pending",
+                    : "待处理",
                 },
                 {
-                  label: "Effective",
+                  label: "生效",
                   value: selected.effectiveFrom
                     ? formatDate(selected.effectiveFrom)
                     : "Not active",
@@ -491,16 +491,16 @@ export function AdverseActionsPage() {
               ]}
             />
             <div className="detail-section">
-              <div className="detail-section__title">Reason</div>
+              <div className="detail-section__title">原因</div>
               <div className="reason-box">{selected.reason}</div>
             </div>
             <div className="detail-section">
-              <div className="detail-section__title">Performance basis</div>
+              <div className="detail-section__title">绩效依据</div>
               <div className="reason-box">{selected.performanceBasis}</div>
             </div>
             {selected.cancelReason ? (
               <div className="detail-section">
-                <div className="detail-section__title">Cancellation reason</div>
+                <div className="detail-section__title">取消原因</div>
                 <div className="reason-box">{selected.cancelReason}</div>
               </div>
             ) : null}
@@ -513,13 +513,13 @@ export function AdverseActionsPage() {
         title={
           action
             ? action.kind === "review"
-              ? "Legal review"
+              ? "法律复核"
               : action.kind === "approve"
-                ? "Approve adverse action"
+                ? "批准不利决定"
                 : action.kind === "activate"
-                  ? "Activate adverse action"
+                  ? "激活不利决定"
                   : action.kind === "complete"
-                    ? "Complete adverse action"
+                    ? "完结不利决定"
                     : "Cancel adverse action"
             : ""
         }
@@ -532,14 +532,14 @@ export function AdverseActionsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setAction(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={action?.kind === "cancel" ? "danger" : "primary"}
               onClick={executeAction}
               loading={submitting}
             >
-              Confirm
+              确认
             </Button>
           </>
         }
@@ -551,7 +551,7 @@ export function AdverseActionsPage() {
             ) : null}
             {action.kind === "review" ? (
               <div className="form-grid">
-                <FormField label="Decision" htmlFor="adverse-review-decision">
+                <FormField label="决策" htmlFor="adverse-review-decision">
                   <Select
                     id="adverse-review-decision"
                     value={reviewDecision}
@@ -561,11 +561,11 @@ export function AdverseActionsPage() {
                       )
                     }
                   >
-                    <option value="APPROVE">Pass legal review</option>
-                    <option value="REJECT">Reject at legal review</option>
+                    <option value="APPROVE">法律复核通过</option>
+                    <option value="REJECT">法律复核驳回</option>
                   </Select>
                 </FormField>
-                <FormField label="Legal reviewer" htmlFor="adverse-reviewer">
+                <FormField label="法律复核人" htmlFor="adverse-reviewer">
                   <PersonSelect
                     id="adverse-reviewer"
                     value={legalReviewer}
@@ -587,7 +587,7 @@ export function AdverseActionsPage() {
               </div>
             ) : null}
             {action.kind === "approve" ? (
-              <FormField label="Approved by" htmlFor="adverse-approver">
+              <FormField label="批准人" htmlFor="adverse-approver">
                 <PersonSelect
                   id="adverse-approver"
                   value={approver}
@@ -596,7 +596,7 @@ export function AdverseActionsPage() {
               </FormField>
             ) : null}
             {action.kind === "activate" ? (
-              <FormField label="Effective date" htmlFor="adverse-effective">
+              <FormField label="生效日期" htmlFor="adverse-effective">
                 <TextInput
                   id="adverse-effective"
                   type="date"
@@ -607,7 +607,7 @@ export function AdverseActionsPage() {
               </FormField>
             ) : null}
             {action.kind === "cancel" ? (
-              <FormField label="Cancellation reason" htmlFor="adverse-cancel">
+              <FormField label="取消原因" htmlFor="adverse-cancel">
                 <Textarea
                   id="adverse-cancel"
                   value={cancelReason}
@@ -618,7 +618,7 @@ export function AdverseActionsPage() {
             ) : null}
             {action.kind === "complete" ? (
               <InfoNotice>
-                Completion closes the case. No new action is taken automatically.
+                完结即关闭案件；不会自动采取任何新动作。
               </InfoNotice>
             ) : null}
           </div>

@@ -28,7 +28,7 @@ import {
 import type { PlatformPerson } from "../lib/types.js";
 
 export function PeoplePage() {
-  useDocumentTitle("People");
+  useDocumentTitle("人员");
   const { session } = useAuth();
   const toast = useToast();
   const people = useApiQuery<PlatformPerson[]>(
@@ -87,7 +87,7 @@ export function PeoplePage() {
       people.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the person.",
+        caught instanceof Error ? caught.message : "创建人员失败。",
       );
     } finally {
       setSubmitting(false);
@@ -114,7 +114,7 @@ export function PeoplePage() {
       people.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "Could not link the user.",
+        caught instanceof Error ? caught.message : "关联用户失败。",
       );
     } finally {
       setSubmitting(false);
@@ -144,7 +144,7 @@ export function PeoplePage() {
       people.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "Could not update the manager.",
+        caught instanceof Error ? caught.message : "更新汇报关系失败。",
       );
     } finally {
       setSubmitting(false);
@@ -155,7 +155,7 @@ export function PeoplePage() {
     <>
       <PageHeader
         eyebrow="Identity directory"
-        title="People"
+        title="人员"
         description="The person record anchors payroll, equity, evidence attribution and approval decisions. Link a platform user and reporting line here."
         actions={
           <>
@@ -165,10 +165,10 @@ export function PeoplePage() {
               onClick={people.reload}
               loading={people.loading}
             >
-              Refresh
+              刷新
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
-              Person
+              人员
             </Button>
           </>
         }
@@ -177,30 +177,30 @@ export function PeoplePage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Headcount</span>
+            <span className="stat-tile__label">人数</span>
           </div>
           <div className="stat-tile__value">{list.length}</div>
-          <div className="stat-tile__detail">Person records in this tenant</div>
+          <div className="stat-tile__detail">本租户人员记录</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Linked users</span>
+            <span className="stat-tile__label">已关联用户</span>
           </div>
           <div className="stat-tile__value">{linked}</div>
-          <div className="stat-tile__detail">Can authenticate to the console</div>
+          <div className="stat-tile__detail">可登录控制台</div>
         </div>
         <div className="stat-tile stat-tile--neutral">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Reporting lines</span>
+            <span className="stat-tile__label">汇报线</span>
           </div>
           <div className="stat-tile__value">{withManager}</div>
-          <div className="stat-tile__detail">People with an assigned manager</div>
+          <div className="stat-tile__detail">已设汇报人</div>
         </div>
       </div>
 
       <Panel
         title="Directory"
-        subtitle="Use the employee code as the stable external identifier"
+        subtitle="工号作为稳定的外部标识"
         action={
           <SearchInput
             value={search}
@@ -212,7 +212,7 @@ export function PeoplePage() {
       >
         <div className="toolbar" style={{ padding: "14px 20px 0" }}>
           <span className="muted" style={{ fontSize: 12 }}>
-            Tenant <span className="mono">{session.tenantId}</span>
+            租户 <span className="mono">{session.tenantId}</span>
           </span>
           <CopyButton value={session.tenantId} label="Copy tenant id" />
         </div>
@@ -228,16 +228,16 @@ export function PeoplePage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon="people"
-            title={list.length === 0 ? "No person record" : "No match"}
+            title={list.length === 0 ? "No person record" : "无匹配"}
             description={
               list.length === 0
-                ? "Create a person before assigning a contract, grant or bounty."
-                : "Clear the search to see the full directory."
+                ? "请先创建人员，再分配合同、授予或悬赏。"
+                : "清空搜索查看完整通讯录。"
             }
             action={
               list.length === 0 ? (
                 <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                  Create person
+                  新建人员
                 </Button>
               ) : undefined
             }
@@ -247,12 +247,12 @@ export function PeoplePage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th>Employee code</th>
-                  <th>Status</th>
-                  <th>User</th>
-                  <th>Manager</th>
-                  <th>Created</th>
+                  <th>人员</th>
+                  <th>工号</th>
+                  <th>状态</th>
+                  <th>用户</th>
+                  <th>经理</th>
+                  <th>创建时间</th>
                   <th />
                 </tr>
               </thead>
@@ -282,7 +282,7 @@ export function PeoplePage() {
                       {person.userId ? (
                         <span className="mono">{shortId(person.userId, 12)}</span>
                       ) : (
-                        <span className="subtle">Not linked</span>
+                        <span className="subtle">未绑定</span>
                       )}
                     </td>
                     <td>
@@ -298,14 +298,14 @@ export function PeoplePage() {
                           variant="ghost"
                           onClick={() => openLink(person)}
                         >
-                          User
+                          用户
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => openManager(person)}
                         >
-                          Manager
+                          经理
                         </Button>
                       </div>
                     </td>
@@ -320,12 +320,12 @@ export function PeoplePage() {
       <Modal
         open={createOpen}
         title="New person"
-        description="The person id is generated by the platform and is used across every module."
+        description="人员 ID 由平台生成，全模块通用。"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -333,7 +333,7 @@ export function PeoplePage() {
               form="create-person-form"
               loading={submitting}
             >
-              Create person
+              新建人员
             </Button>
           </>
         }
@@ -344,7 +344,7 @@ export function PeoplePage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Employee code" htmlFor="person-code">
+          <FormField label="工号" htmlFor="person-code">
             <TextInput
               id="person-code"
               value={employeeCode}
@@ -353,7 +353,7 @@ export function PeoplePage() {
               required
             />
           </FormField>
-          <FormField label="Display name" htmlFor="person-name">
+          <FormField label="姓名" htmlFor="person-name">
             <TextInput
               id="person-name"
               value={displayNameValue}
@@ -368,9 +368,9 @@ export function PeoplePage() {
               value={employmentStatus}
               onChange={(event) => setEmploymentStatus(event.target.value)}
             >
-              <option value="ACTIVE">Active</option>
-              <option value="ON_LEAVE">On leave</option>
-              <option value="ENDED">Ended</option>
+              <option value="ACTIVE">生效中</option>
+              <option value="ON_LEAVE">休假中</option>
+              <option value="ENDED">已结束</option>
             </Select>
           </FormField>
         </form>
@@ -379,15 +379,15 @@ export function PeoplePage() {
       <Modal
         open={Boolean(linkTarget)}
         title="Link platform user"
-        description="A linked user lets this person authenticate and receive person-scoped views."
+        description="关联用户后，本人即可登录并看到个人范围的视图。"
         onClose={() => setLinkTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setLinkTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={linkUser} loading={submitting}>
-              Link user
+              关联用户
             </Button>
           </>
         }
@@ -398,7 +398,7 @@ export function PeoplePage() {
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             ) : null}
             <InfoNotice>
-              Linking <strong>{linkTarget.displayName}</strong> (
+              关联中 <strong>{linkTarget.displayName}</strong> (
               {linkTarget.employeeCode}) to a platform user id.
             </InfoNotice>
             <FormField label="Platform user id" htmlFor="link-user-id">
@@ -417,15 +417,15 @@ export function PeoplePage() {
       <Modal
         open={Boolean(managerTarget)}
         title="Set reporting manager"
-        description="The manager relationship feeds escalation and approval routing."
+        description="汇报关系用于升级与审批路由。"
         onClose={() => setManagerTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setManagerTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={saveManager} loading={submitting}>
-              Save manager
+              保存汇报人
             </Button>
           </>
         }
@@ -435,13 +435,13 @@ export function PeoplePage() {
             {actionError ? (
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             ) : null}
-            <FormField label="Person" htmlFor="manager-person">
+            <FormField label="人员" htmlFor="manager-person">
               <Select
                 id="manager-person"
                 value={managerId}
                 onChange={(event) => setManagerId(event.target.value)}
               >
-                <option value="">No manager</option>
+                <option value="">无汇报人</option>
                 {list
                   .filter((person) => person.id !== managerTarget.id)
                   .map((person) => (

@@ -61,26 +61,26 @@ const COMMANDS_BY_STATUS: Record<
   Array<{ command: Command; label: string; variant?: "primary" | "secondary" | "danger" }>
 > = {
   DRAFT: [
-    { command: "RECONCILE", label: "Reconcile", variant: "primary" },
-    { command: "CANCEL", label: "Cancel", variant: "danger" },
+    { command: "RECONCILE", label: "对账", variant: "primary" },
+    { command: "CANCEL", label: "取消", variant: "danger" },
   ],
   RECONCILING: [
-    { command: "SUBMIT", label: "Submit for approval", variant: "primary" },
-    { command: "REQUIRE_ADJUSTMENT", label: "Require adjustment", variant: "danger" },
-    { command: "CANCEL", label: "Cancel", variant: "danger" },
+    { command: "SUBMIT", label: "提交审批", variant: "primary" },
+    { command: "REQUIRE_ADJUSTMENT", label: "需调整", variant: "danger" },
+    { command: "CANCEL", label: "取消", variant: "danger" },
   ],
   PENDING_APPROVAL: [
-    { command: "APPROVE", label: "Approve", variant: "primary" },
-    { command: "CANCEL", label: "Cancel", variant: "danger" },
+    { command: "APPROVE", label: "批准", variant: "primary" },
+    { command: "CANCEL", label: "取消", variant: "danger" },
   ],
   APPROVED: [{ command: "LOCK", label: "Lock batch", variant: "primary" }],
-  LOCKED: [{ command: "EXPORT", label: "Export CSV", variant: "primary" }],
+  LOCKED: [{ command: "EXPORT", label: "导出 CSV", variant: "primary" }],
   EXPORTED: [
-    { command: "ACKNOWLEDGE", label: "Acknowledge", variant: "primary" },
-    { command: "REQUIRE_ADJUSTMENT", label: "Require adjustment", variant: "danger" },
+    { command: "ACKNOWLEDGE", label: "签收", variant: "primary" },
+    { command: "REQUIRE_ADJUSTMENT", label: "需调整", variant: "danger" },
   ],
   ACKNOWLEDGED: [
-    { command: "REQUIRE_ADJUSTMENT", label: "Require adjustment", variant: "danger" },
+    { command: "REQUIRE_ADJUSTMENT", label: "需调整", variant: "danger" },
   ],
   ADJUSTMENT_REQUIRED: [
     { command: "RECONCILE", label: "Reconcile again", variant: "primary" },
@@ -90,15 +90,15 @@ const COMMANDS_BY_STATUS: Record<
 const COMMAND_COPY: Record<Command, { title: string; description: string }> = {
   RECONCILE: {
     title: "Reconcile settlement batch",
-    description: "Verifies every line against the locked ledger before approval.",
+    description: "批准前逐行核对锁定账本。",
   },
   SUBMIT: {
-    title: "Submit for approval",
+    title: "提交审批",
     description: "Moves the reconciled batch into the approval queue.",
   },
   APPROVE: {
     title: "Approve settlement batch",
-    description: "Records approval; if configured, provide the matching approval request.",
+    description: "记录批准；如已配置，需提供对应审批请求。",
   },
   LOCK: {
     title: "Lock settlement batch",
@@ -109,21 +109,21 @@ const COMMAND_COPY: Record<Command, { title: string; description: string }> = {
     description: "Generates the settlement CSV and records export evidence.",
   },
   ACKNOWLEDGE: {
-    title: "Acknowledge settlement export",
-    description: "Records the external receipt reference for the exported file.",
+    title: "确认结算导出",
+    description: "记录导出文件的外部回执引用。",
   },
   REQUIRE_ADJUSTMENT: {
-    title: "Require adjustment",
-    description: "Marks the batch as needing correction and records the reason.",
+    title: "需调整",
+    description: "将批次标记为需更正并记录原因。",
   },
   CANCEL: {
     title: "Cancel settlement batch",
-    description: "Deactivates the batch lines. Accepted or locked money is not deleted.",
+    description: "将批次行置为失效；已验收或锁定的资金不会被删除。",
   },
 };
 
 export function SettlementsPage() {
-  useDocumentTitle("Settlements");
+  useDocumentTitle("结算");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -339,7 +339,7 @@ export function SettlementsPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The command failed.",
+            : "命令执行失败。",
       );
     } finally {
       setSubmitting(false);
@@ -399,7 +399,7 @@ export function SettlementsPage() {
       pools.reload();
     } catch (caught) {
       toast.error(
-        "Approval failed",
+        "审批失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -413,7 +413,7 @@ export function SettlementsPage() {
       await api(`/api/v1/budget-allocations/${allocation.id}/release`, {
         method: "POST",
       });
-      toast.success("Allocation released", shortId(allocation.id));
+      toast.success("分配已释放", shortId(allocation.id));
       allocations.reload();
       pools.reload();
     } catch (caught) {
@@ -522,7 +522,7 @@ export function SettlementsPage() {
     <>
       <PageHeader
         eyebrow="Money path"
-        title="Settlements"
+        title="结算"
         description="Reconcile, approve, lock and export batches from locked ledger entries. The ledger hash chain and budget commitments stay visible beside the workflow."
         actions={
           <Button
@@ -536,7 +536,7 @@ export function SettlementsPage() {
             }}
             loading={batches.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -544,7 +544,7 @@ export function SettlementsPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Settlement batches</span>
+            <span className="stat-tile__label">结算批次</span>
           </div>
           <div className="stat-tile__value">{batchList.length}</div>
           <div className="stat-tile__detail">
@@ -554,7 +554,7 @@ export function SettlementsPage() {
         </div>
         <div className="stat-tile stat-tile--neutral">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Locked ledger total</span>
+            <span className="stat-tile__label">锁定账本合计</span>
           </div>
           <div className="stat-tile__value">
             {formatMoney(lockedTotal, ledgerEntries[0]?.currency ?? "CNY", {
@@ -568,15 +568,15 @@ export function SettlementsPage() {
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Ledger chain</span>
+            <span className="stat-tile__label">账本链</span>
           </div>
           <div className="stat-tile__value" style={{ fontSize: 22 }}>
             {ledgerVerify.loading ? (
-              "Checking…"
+              "检查中…"
             ) : ledgerVerify.data?.valid ? (
-              <Badge tone="success">Verified</Badge>
+              <Badge tone="success">已验证</Badge>
             ) : (
-              <Badge tone="danger">Attention</Badge>
+              <Badge tone="danger">关注</Badge>
             )}
           </div>
           <div className="stat-tile__detail">
@@ -588,8 +588,8 @@ export function SettlementsPage() {
       <Tabs
         items={[
           { id: "batches", label: "Batches", count: batchList.length },
-          { id: "ledger", label: "Ledger", count: ledgerEntries.length },
-          { id: "budgets", label: "Budgets", count: poolList.length },
+          { id: "ledger", label: "账本", count: ledgerEntries.length },
+          { id: "budgets", label: "预算", count: poolList.length },
           {
             id: "cash",
             label: "Cash & facts",
@@ -610,11 +610,11 @@ export function SettlementsPage() {
         {tab === "batches" ? (
           <div className="payroll-detail-grid">
             <Panel
-              title="Settlement batches"
+              title="结算批次"
               subtitle="Select a batch to run the money-path workflow"
               action={
                 <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
-                  New batch
+                  新建批次
                 </Button>
               }
               flush
@@ -634,7 +634,7 @@ export function SettlementsPage() {
                   description="Create a batch from a cycle with locked ledger entries."
                   action={
                     <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                      Create batch
+                      创建批次
                     </Button>
                   }
                 />
@@ -643,11 +643,11 @@ export function SettlementsPage() {
                   <table className="data-table table-clickable">
                     <thead>
                       <tr>
-                        <th>Batch</th>
-                        <th>Status</th>
-                        <th className="cell-num">Total</th>
-                        <th className="cell-num">Lines</th>
-                        <th>Updated</th>
+                        <th>批次</th>
+                        <th>状态</th>
+                        <th className="cell-num">合计</th>
+                        <th className="cell-num">明细行</th>
+                        <th>更新时间</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -683,7 +683,7 @@ export function SettlementsPage() {
 
             <div className="stack">
               {!selectedBatch ? (
-                <Panel title="Batch detail">
+                <Panel title="批次详情">
                   <EmptyState
                     icon="layers"
                     title="Select a batch"
@@ -691,11 +691,11 @@ export function SettlementsPage() {
                   />
                 </Panel>
               ) : detail.error ? (
-                <Panel title="Batch detail">
+                <Panel title="批次详情">
                   <ErrorNotice error={detail.error} onRetry={detail.reload} />
                 </Panel>
               ) : detail.loading || !detail.data ? (
-                <Panel title="Batch detail">
+                <Panel title="批次详情">
                   <LoadingRows rows={4} />
                 </Panel>
               ) : (
@@ -706,37 +706,37 @@ export function SettlementsPage() {
                 >
                   <div className="coverage-grid">
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Total</div>
+                      <div className="coverage-cell__label">合计</div>
                       <div className="coverage-cell__value">
                         {formatMoney(detail.data.totalAmount, detail.data.currency)}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Lines</div>
+                      <div className="coverage-cell__label">明细行</div>
                       <div className="coverage-cell__value">
                         {detail.data.lineCount}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Exported</div>
+                      <div className="coverage-cell__label">已导出</div>
                       <div className="coverage-cell__value" style={{ fontSize: 14 }}>
                         {detail.data.exportedAt
                           ? formatRelative(detail.data.exportedAt)
-                          : "Not yet"}
+                          : "尚未"}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Acknowledged</div>
+                      <div className="coverage-cell__label">已签收</div>
                       <div className="coverage-cell__value" style={{ fontSize: 14 }}>
                         {detail.data.acknowledgedAt
                           ? formatRelative(detail.data.acknowledgedAt)
-                          : "Not yet"}
+                          : "尚未"}
                       </div>
                     </div>
                   </div>
 
                   <div className="detail-section">
-                    <div className="detail-section__title">Commands</div>
+                    <div className="detail-section__title">命令</div>
                     <div className="row-actions" style={{ flexWrap: "wrap" }}>
                       {(COMMANDS_BY_STATUS[detail.data.status] ?? []).map((item) => (
                         <Button
@@ -752,18 +752,18 @@ export function SettlementsPage() {
                   </div>
 
                   <div className="detail-section">
-                    <div className="detail-section__title">Lines</div>
+                    <div className="detail-section__title">明细行</div>
                     {(detail.data.lines?.length ?? 0) === 0 ? (
-                      <p className="muted">No lines in this batch.</p>
+                      <p className="muted">本批次暂无明细。</p>
                     ) : (
                       <div className="table-wrap">
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>Person</th>
-                              <th className="cell-num">Amount</th>
-                              <th>Status</th>
-                              <th>Ledger</th>
+                              <th>人员</th>
+                              <th className="cell-num">金额</th>
+                              <th>状态</th>
+                              <th>账本</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -785,7 +785,7 @@ export function SettlementsPage() {
                                   <Badge
                                     tone={line.active ? "success" : "neutral"}
                                   >
-                                    {line.active ? line.status : "Inactive"}
+                                    {line.active ? line.status : "未启用"}
                                   </Badge>
                                 </td>
                                 <td className="cell-mono">
@@ -806,7 +806,7 @@ export function SettlementsPage() {
 
         {tab === "ledger" ? (
           <Panel
-            title="Ledger entries"
+            title="账本条目"
             subtitle="Append-only; locked entries cannot be edited"
             action={
               <div className="toolbar__group">
@@ -845,19 +845,19 @@ export function SettlementsPage() {
               <EmptyState
                 icon="wallet"
                 title="No ledger entry"
-                description="Entries appear after a calculation run is approved and locked."
+                description="账本条目在计算批次批准并锁定后出现。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Entry</th>
-                      <th>Person</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th className="cell-num">Amount</th>
-                      <th>Created</th>
+                      <th>条目</th>
+                      <th>人员</th>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th className="cell-num">金额</th>
+                      <th>创建时间</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -896,11 +896,11 @@ export function SettlementsPage() {
         {tab === "budgets" ? (
           <div className="split-grid">
             <Panel
-              title="Budget pools"
+              title="预算池"
               subtitle="Approved pools fund formal calculations"
               action={
                 <Button size="sm" variant="primary" icon="plus" onClick={openPoolCreate}>
-                  New pool
+                  新建资金池
                 </Button>
               }
               flush
@@ -916,11 +916,11 @@ export function SettlementsPage() {
               ) : poolList.length === 0 ? (
                 <EmptyState
                   icon="chart"
-                  title="No budget pool"
-                  description="Create and approve a pool before budgeting formal incentives."
+                  title="暂无预算池"
+                  description="预算正式激励前请先创建并批准资金池。"
                   action={
                     <Button variant="primary" size="sm" icon="plus" onClick={openPoolCreate}>
-                      Create pool
+                      创建资金池
                     </Button>
                   }
                 />
@@ -929,10 +929,10 @@ export function SettlementsPage() {
                   <table className="data-table table-clickable">
                     <thead>
                       <tr>
-                        <th>Pool</th>
-                        <th>Status</th>
-                        <th className="cell-num">Approved</th>
-                        <th className="cell-num">Committed</th>
+                        <th>资金池</th>
+                        <th>状态</th>
+                        <th className="cell-num">已批准</th>
+                        <th className="cell-num">已承诺</th>
                         <th />
                       </tr>
                     </thead>
@@ -969,7 +969,7 @@ export function SettlementsPage() {
                                   setApproveTarget(pool);
                                 }}
                               >
-                                Approve
+                                批准
                               </Button>
                             ) : null}
                           </td>
@@ -994,13 +994,13 @@ export function SettlementsPage() {
                 <EmptyState
                   icon="chart"
                   title="No pool selected"
-                  description="Open a pool to see committed allocations and release them when needed."
+                  description="打开资金池查看已占用分配，必要时释放。"
                 />
               ) : (
                 <>
                   <div className="coverage-grid">
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Approved</div>
+                      <div className="coverage-cell__label">已批准</div>
                       <div className="coverage-cell__value">
                         {formatMoney(
                           selectedPool.approvedAmount,
@@ -1009,7 +1009,7 @@ export function SettlementsPage() {
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Committed</div>
+                      <div className="coverage-cell__label">已承诺</div>
                       <div className="coverage-cell__value">
                         {formatMoney(
                           selectedPool.committedAmount,
@@ -1019,7 +1019,7 @@ export function SettlementsPage() {
                     </div>
                   </div>
                   <div className="detail-section">
-                    <div className="detail-section__title">Allocations</div>
+                    <div className="detail-section__title">分配</div>
                     {allocations.error ? (
                       <ErrorNotice
                         error={allocations.error}
@@ -1028,7 +1028,7 @@ export function SettlementsPage() {
                     ) : allocations.loading ? (
                       <LoadingRows rows={3} />
                     ) : (allocations.data?.length ?? 0) === 0 ? (
-                      <p className="muted">No allocation recorded.</p>
+                      <p className="muted">暂无分配记录。</p>
                     ) : (
                       <div className="stack" style={{ gap: 8 }}>
                         {allocations.data?.map((allocation) => (
@@ -1054,10 +1054,10 @@ export function SettlementsPage() {
                                 loading={allocationBusy === allocation.id}
                                 onClick={() => void releaseAllocation(allocation)}
                               >
-                                Release
+                                释放
                               </Button>
                             ) : (
-                              <Badge tone="neutral">Released</Badge>
+                              <Badge tone="neutral">已释放</Badge>
                             )}
                           </div>
                         ))}
@@ -1073,7 +1073,7 @@ export function SettlementsPage() {
             <div className="split-grid">
               <Panel
                 title="Cash-gate inputs"
-                subtitle="Safety reserve and 13-week forecast evidence per cycle date"
+                subtitle="按周期日期的安全准备金与 13 周预测证据"
                 flush
                 action={
                   <Button
@@ -1082,7 +1082,7 @@ export function SettlementsPage() {
                     icon="plus"
                     onClick={openCashGate}
                   >
-                    Record input
+                    记录输入
                   </Button>
                 }
               >
@@ -1101,7 +1101,7 @@ export function SettlementsPage() {
                   <EmptyState
                     icon="chart"
                     title="No cash-gate input"
-                    description="Record whether the cycle passed the cash gate and the forecast it relied on."
+                    description="记录周期是否通过现金门禁及其依赖的预测。"
                   />
                 ) : (
                   <div className="table-wrap">
@@ -1109,10 +1109,10 @@ export function SettlementsPage() {
                       <thead>
                         <tr>
                           <th>As of</th>
-                          <th>Reserve</th>
-                          <th>Forecast</th>
-                          <th>Gate</th>
-                          <th>Approved by</th>
+                          <th>准备金</th>
+                          <th>预测</th>
+                          <th>门禁</th>
+                          <th>批准人</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1138,7 +1138,7 @@ export function SettlementsPage() {
               </Panel>
 
               <Panel
-                title="Financial facts"
+                title="财务事实"
                 subtitle="Ingested facts with quality status and period"
                 flush
                 action={
@@ -1148,7 +1148,7 @@ export function SettlementsPage() {
                     icon="plus"
                     onClick={openFinancialFact}
                   >
-                    Add fact
+                    添加财务事实
                   </Button>
                 }
               >
@@ -1174,10 +1174,10 @@ export function SettlementsPage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fact</th>
-                          <th>Period</th>
-                          <th>Amount</th>
-                          <th>Quality</th>
+                          <th>事实</th>
+                          <th>周期</th>
+                          <th>金额</th>
+                          <th>质量</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1236,9 +1236,9 @@ export function SettlementsPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Export</th>
-                        <th>Batch</th>
-                        <th>Acknowledged</th>
+                        <th>导出</th>
+                        <th>批次</th>
+                        <th>已签收</th>
                         <th />
                       </tr>
                     </thead>
@@ -1257,7 +1257,7 @@ export function SettlementsPage() {
                           <td>
                             {record.acknowledgedAt
                               ? `${formatDateTime(record.acknowledgedAt)} · ${record.acknowledgementRef ?? ""}`
-                              : "Pending"}
+                              : "待处理"}
                           </td>
                           <td className="cell-actions">
                             {record.acknowledgedAt ? null : (
@@ -1270,7 +1270,7 @@ export function SettlementsPage() {
                                   setAckError(null);
                                 }}
                               >
-                                Acknowledge
+                                签收
                               </Button>
                             )}
                           </td>
@@ -1302,17 +1302,17 @@ export function SettlementsPage() {
                 <EmptyState
                   icon="clock"
                   title="No adjustment"
-                  description="Adjustments append a correction entry; the original ledger row is never mutated."
+                  description="调整以追加更正条目实现；原账本行永不被修改。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Original</th>
-                        <th>Adjustment</th>
-                        <th>Reason</th>
-                        <th>Approved</th>
+                        <th>原值</th>
+                        <th>调整</th>
+                        <th>原因</th>
+                        <th>已批准</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1352,7 +1352,7 @@ export function SettlementsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1360,7 +1360,7 @@ export function SettlementsPage() {
               form="create-batch-form"
               loading={submitting}
             >
-              Create batch
+              创建批次
             </Button>
           </>
         }
@@ -1371,7 +1371,7 @@ export function SettlementsPage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Cycle" htmlFor="batch-cycle" className="field--full">
+          <FormField label="周期" htmlFor="batch-cycle" className="field--full">
             <Select
               id="batch-cycle"
               value={cycleId}
@@ -1394,11 +1394,11 @@ export function SettlementsPage() {
                 setKind(event.target.value as "STANDARD" | "RECOVERY")
               }
             >
-              <option value="STANDARD">Standard</option>
-              <option value="RECOVERY">Recovery</option>
+              <option value="STANDARD">标准</option>
+              <option value="RECOVERY">追回</option>
             </Select>
           </FormField>
-          <FormField label="Currency" htmlFor="batch-currency">
+          <FormField label="币种" htmlFor="batch-currency">
             <TextInput
               id="batch-currency"
               value={currency}
@@ -1424,7 +1424,7 @@ export function SettlementsPage() {
       <Modal
         open={Boolean(commandTarget)}
         title={
-          commandTarget ? COMMAND_COPY[commandTarget.command].title : "Command"
+          commandTarget ? COMMAND_COPY[commandTarget.command].title : "命令"
         }
         description={
           commandTarget ? COMMAND_COPY[commandTarget.command].description : undefined
@@ -1433,7 +1433,7 @@ export function SettlementsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setCommandTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={
@@ -1457,23 +1457,23 @@ export function SettlementsPage() {
             ) : null}
             <DefinitionList
               items={[
-                { label: "Batch", value: commandTarget.batch.batchNo },
+                { label: "批次", value: commandTarget.batch.batchNo },
                 {
-                  label: "Total",
+                  label: "合计",
                   value: formatMoney(
                     commandTarget.batch.totalAmount,
                     commandTarget.batch.currency,
                   ),
                 },
                 {
-                  label: "Status",
+                  label: "状态",
                   value: <Badge status={commandTarget.batch.status} />,
                 },
               ]}
             />
             {commandTarget.command === "ACKNOWLEDGE" ? (
               <FormField
-                label="External reference"
+                label="外部引用"
                 htmlFor="command-reference"
                 hint="Bank or payment-provider receipt."
               >
@@ -1491,8 +1491,8 @@ export function SettlementsPage() {
               <FormField
                 label={
                   commandTarget.command === "REQUIRE_ADJUSTMENT"
-                    ? "Reason (required)"
-                    : "Reason (optional)"
+                    ? "原因（必填）"
+                    : "原因（可选）"
                 }
                 htmlFor="command-reason"
               >
@@ -1505,7 +1505,7 @@ export function SettlementsPage() {
             ) : null}
             {["APPROVE", "LOCK"].includes(commandTarget.command) ? (
               <FormField
-                label="Approval request id (optional)"
+                label="审批请求 ID（可选）"
                 htmlFor="command-approval"
                 hint="Required only when this action is configured for approval."
               >
@@ -1532,12 +1532,12 @@ export function SettlementsPage() {
       <Modal
         open={poolCreateOpen}
         title="New budget pool"
-        description="A pool becomes available to formal calculations after approval."
+        description="资金池批准后才可用于正式计算。"
         onClose={() => setPoolCreateOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setPoolCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1545,7 +1545,7 @@ export function SettlementsPage() {
               form="create-pool-form"
               loading={submitting}
             >
-              Create pool
+              创建资金池
             </Button>
           </>
         }
@@ -1556,7 +1556,7 @@ export function SettlementsPage() {
               <InfoNotice tone="warning">{poolError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Cycle" htmlFor="pool-cycle" className="field--full">
+          <FormField label="周期" htmlFor="pool-cycle" className="field--full">
             <Select
               id="pool-cycle"
               value={poolCycleId}
@@ -1571,7 +1571,7 @@ export function SettlementsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Code" htmlFor="pool-code">
+          <FormField label="编码" htmlFor="pool-code">
             <TextInput
               id="pool-code"
               value={poolCode}
@@ -1579,7 +1579,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Name" htmlFor="pool-name">
+          <FormField label="名称" htmlFor="pool-name">
             <TextInput
               id="pool-name"
               value={poolName}
@@ -1595,7 +1595,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="pool-currency">
+          <FormField label="币种" htmlFor="pool-currency">
             <TextInput
               id="pool-currency"
               value={poolCurrency}
@@ -1626,10 +1626,10 @@ export function SettlementsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setApproveTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={approvePool} loading={submitting}>
-              Approve pool
+              批准资金池
             </Button>
           </>
         }
@@ -1638,10 +1638,10 @@ export function SettlementsPage() {
           <div className="stack">
             <DefinitionList
               items={[
-                { label: "Pool", value: approveTarget.name },
-                { label: "Code", value: approveTarget.code },
+                { label: "资金池", value: approveTarget.name },
+                { label: "编码", value: approveTarget.code },
                 {
-                  label: "Amount",
+                  label: "金额",
                   value: formatMoney(
                     approveTarget.approvedAmount,
                     approveTarget.currency,
@@ -1649,7 +1649,7 @@ export function SettlementsPage() {
                 },
               ]}
             />
-            <FormField label="Approved by" htmlFor="pool-approver">
+            <FormField label="批准人" htmlFor="pool-approver">
               <PersonSelect
                 id="pool-approver"
                 value={approvedBy}
@@ -1663,15 +1663,15 @@ export function SettlementsPage() {
       <Modal
         open={cashOpen}
         title="Record cash-gate input"
-        description="The cash gate is evidence that the cycle can fund the approved incentives."
+        description="现金门禁是周期足以支付已批激励的证据。"
         onClose={() => setCashOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setCashOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitCashGate}>
-              Record
+              记录
             </Button>
           </>
         }
@@ -1682,14 +1682,14 @@ export function SettlementsPage() {
               <InfoNotice tone="warning">{cashError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Cycle" htmlFor="cash-cycle">
+          <FormField label="周期" htmlFor="cash-cycle">
             <Select
               id="cash-cycle"
               value={cashCycleId}
               onChange={(event) => setCashCycleId(event.target.value)}
               required
             >
-              <option value="">Select a cycle</option>
+              <option value="">选择周期…</option>
               {(cycles.data ?? []).map((cycle) => (
                 <option key={cycle.id} value={cycle.id}>
                   {cycle.name}
@@ -1728,9 +1728,9 @@ export function SettlementsPage() {
               checked={cashPassesGate}
               onChange={(event) => setCashPassesGate(event.target.checked)}
             />
-            <span>The cycle passes the cash gate.</span>
+            <span>周期通过现金门禁。</span>
           </label>
-          <FormField label="Approved by" htmlFor="cash-approver">
+          <FormField label="批准人" htmlFor="cash-approver">
             <PersonSelect
               id="cash-approver"
               value={cashApprovedBy}
@@ -1748,10 +1748,10 @@ export function SettlementsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setFactOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitFinancialFact}>
-              Add fact
+              添加财务事实
             </Button>
           </>
         }
@@ -1762,7 +1762,7 @@ export function SettlementsPage() {
               <InfoNotice tone="warning">{factError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Source system" htmlFor="fact-source">
+          <FormField label="来源系统" htmlFor="fact-source">
             <TextInput
               id="fact-source"
               value={factSourceSystem}
@@ -1787,7 +1787,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Amount" htmlFor="fact-amount">
+          <FormField label="金额" htmlFor="fact-amount">
             <TextInput
               id="fact-amount"
               value={factAmount}
@@ -1795,7 +1795,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="fact-currency">
+          <FormField label="币种" htmlFor="fact-currency">
             <TextInput
               id="fact-currency"
               value={factCurrency}
@@ -1806,7 +1806,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Quality" htmlFor="fact-quality">
+          <FormField label="质量" htmlFor="fact-quality">
             <Select
               id="fact-quality"
               value={factQuality}
@@ -1847,16 +1847,16 @@ export function SettlementsPage() {
 
       <Modal
         open={Boolean(ackTarget)}
-        title="Acknowledge settlement export"
+        title="确认结算导出"
         description={ackTarget?.exportRef}
         onClose={() => setAckTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setAckTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={acknowledgeExport}>
-              Acknowledge
+              签收
             </Button>
           </>
         }
@@ -1868,7 +1868,7 @@ export function SettlementsPage() {
             </div>
           ) : null}
           <FormField
-            label="External reference"
+            label="外部引用"
             htmlFor="ack-reference"
             className="field--full"
             hint="Bank or finance receipt reference for this export."

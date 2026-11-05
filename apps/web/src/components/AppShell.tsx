@@ -233,7 +233,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <button
         type="button"
         className="nav-scrim"
-        aria-label="Close navigation"
+        aria-label="关闭导航"
         onClick={() => setSidebarOpen(false)}
       />
       <aside className="sidebar" aria-label="Primary navigation">
@@ -247,12 +247,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
           <div className="sidebar__brand-copy">
             <strong>anari</strong>
-            <span>N-Perform console</span>
+            <span>N-Perform 控制台</span>
           </div>
           <button
             type="button"
             className="sidebar__close"
-            aria-label="Close navigation"
+            aria-label="关闭导航"
             onClick={() => setSidebarOpen(false)}
           >
             <Icon name="close" size={18} />

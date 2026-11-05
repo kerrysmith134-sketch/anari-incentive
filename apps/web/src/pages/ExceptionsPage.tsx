@@ -52,14 +52,14 @@ const DQ_COMMANDS: Record<string, DqCommand[]> = {
 const DQ_COMMAND_COPY: Record<DqCommand, string> = {
   ASSIGN: "Assign owner",
   START: "Start remediation",
-  RESOLVE: "Resolve issue",
+  RESOLVE: "解决问题",
   WAIVE: "Waive with approval",
   REOPEN: "Reopen issue",
   ESCALATE: "Escalate",
 };
 
 export function ExceptionsPage() {
-  useDocumentTitle("Exceptions");
+  useDocumentTitle("申诉与例外");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -158,8 +158,8 @@ export function ExceptionsPage() {
       recalculations.reload();
     } catch (caught) {
       toast.error(
-        command === "approve" ? "Approval failed" : "Rejection failed",
-        caught instanceof ApiError ? caught.message : "Request failed",
+        command === "approve" ? "审批失败" : "Rejection failed",
+        caught instanceof ApiError ? caught.message : "请求失败",
       );
     } finally {
       setRecalcBusy(null);
@@ -200,7 +200,7 @@ export function ExceptionsPage() {
   async function executeDq() {
     if (!dqTarget) return;
     if (dqCommand === "WAIVE" && (!dqActor || !dqReason.trim())) {
-      setDqError("Waiving requires an approver and a reason.");
+      setDqError("豁免需要审批人与理由。");
       return;
     }
     setSubmitting(true);
@@ -224,7 +224,7 @@ export function ExceptionsPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The command failed.",
+            : "命令执行失败。",
       );
     } finally {
       setSubmitting(false);
@@ -255,7 +255,7 @@ export function ExceptionsPage() {
             disclosedBy: reviewer,
             method: "PORTAL",
             evidenceRefs: appealTarget.evidenceRefs,
-            note: "Evidence set made available to the appellant before resolution",
+            note: "裁决前向申诉人公开证据集",
           },
         },
       );
@@ -291,7 +291,7 @@ export function ExceptionsPage() {
         toast.success("Appeal moved to review", shortId(appealTarget.id));
       } else if (appealTarget.status === "UNDER_REVIEW") {
         if (appealRationale.trim().length < 3) {
-          setAppealError("A resolution rationale is required.");
+          setAppealError("必须填写裁决理由。");
           setSubmitting(false);
           return;
         }
@@ -303,7 +303,7 @@ export function ExceptionsPage() {
             rationale: appealRationale.trim(),
           },
         });
-        toast.success("Appeal resolved", `${resolution}`);
+        toast.success("申诉已裁决", `${resolution}`);
       }
       setAppealTarget(null);
       appeals.reload();
@@ -324,7 +324,7 @@ export function ExceptionsPage() {
     <>
       <PageHeader
         eyebrow="Remediation and appeals"
-        title="Exceptions"
+        title="申诉与例外"
         description="Blocking data-quality issues stop formal calculations; appeals challenge attribution or evaluation with a reviewer separate from the appellant."
         actions={
           <Button
@@ -336,7 +336,7 @@ export function ExceptionsPage() {
             }}
             loading={issues.loading || appeals.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
@@ -344,14 +344,14 @@ export function ExceptionsPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Open data issues</span>
+            <span className="stat-tile__label">未结数据问题</span>
           </div>
           <div className="stat-tile__value">{openIssues.length}</div>
           <div className="stat-tile__detail">{blocking.length} blocking</div>
         </div>
         <div className="stat-tile stat-tile--critical">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Overdue remediation</span>
+            <span className="stat-tile__label">逾期整改</span>
           </div>
           <div className="stat-tile__value">
             {
@@ -361,11 +361,11 @@ export function ExceptionsPage() {
               ).length
             }
           </div>
-          <div className="stat-tile__detail">Past the declared due date</div>
+          <div className="stat-tile__detail">超过申报截止日</div>
         </div>
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Open appeals</span>
+            <span className="stat-tile__label">未结申诉</span>
           </div>
           <div className="stat-tile__value">{openAppeals.length}</div>
           <div className="stat-tile__detail">
@@ -377,8 +377,8 @@ export function ExceptionsPage() {
 
       <Tabs
         items={[
-          { id: "quality", label: "Data quality", count: issueList.length },
-          { id: "appeals", label: "Appeals", count: appealList.length },
+          { id: "quality", label: "数据质量", count: issueList.length },
+          { id: "appeals", label: "申诉", count: appealList.length },
           {
             id: "recalculation",
             label: "Recalculation",
@@ -393,8 +393,8 @@ export function ExceptionsPage() {
       <div className="tab-panel">
         {tab === "quality" ? (
           <Panel
-            title="Data-quality issues"
-            subtitle="Blocking issues gate formal calculations until resolved or waived"
+            title="数据质量问题"
+            subtitle="阻断级问题在解决或豁免前阻止正式计算"
             flush
           >
             {issues.error ? (
@@ -409,19 +409,19 @@ export function ExceptionsPage() {
               <EmptyState
                 icon="shield"
                 title="No data-quality issue"
-                description="Issues are raised by ingestion, validations or the data-quality agent."
+                description="问题由摄取、校验或数据质量 Agent 提出。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Issue</th>
-                      <th>Object</th>
-                      <th>Severity</th>
-                      <th>Status</th>
-                      <th>Due</th>
-                      <th>Assignee</th>
+                      <th>问题</th>
+                      <th>对象</th>
+                      <th>严重度</th>
+                      <th>状态</th>
+                      <th>截止</th>
+                      <th>承办人</th>
                       <th />
                     </tr>
                   </thead>
@@ -462,7 +462,7 @@ export function ExceptionsPage() {
                           <td>
                             <Badge status={issue.status} />
                             {issue.escalatedAt ? (
-                              <span className="cell-sub text-danger">Escalated</span>
+                              <span className="cell-sub text-danger">已升级</span>
                             ) : null}
                           </td>
                           <td className={overdue ? "text-danger nowrap" : "nowrap"}>
@@ -480,7 +480,7 @@ export function ExceptionsPage() {
                               onClick={() => openDq(issue)}
                               disabled={!DQ_COMMANDS[issue.status]}
                             >
-                              Command
+                              命令
                             </Button>
                           </td>
                         </tr>
@@ -493,8 +493,8 @@ export function ExceptionsPage() {
           </Panel>
         ) : tab === "appeals" ? (
           <Panel
-            title="Appeals"
-            subtitle="Open → triaged → under review → decided"
+            title="申诉"
+            subtitle="待处理 → 已分诊 → 复核中 → 已裁决"
             flush
           >
             {appeals.error ? (
@@ -508,20 +508,20 @@ export function ExceptionsPage() {
             ) : appealList.length === 0 ? (
               <EmptyState
                 icon="approvals"
-                title="No appeal"
-                description="Employees can challenge attribution, evaluation or ledger outcomes."
+                title="暂无申诉"
+                description="员工可对认定、评价或账本结果发起申诉。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Appeal</th>
-                      <th>Appellant</th>
-                      <th>Target</th>
-                      <th>Status</th>
-                      <th>Due</th>
-                      <th>Reviewer</th>
+                      <th>申诉</th>
+                      <th>申诉人</th>
+                      <th>对象</th>
+                      <th>状态</th>
+                      <th>截止</th>
+                      <th>复核人</th>
                       <th />
                     </tr>
                   </thead>
@@ -575,10 +575,10 @@ export function ExceptionsPage() {
                               onClick={() => openAppeal(appeal)}
                             >
                               {appeal.status === "OPEN"
-                                ? "Triage"
+                                ? "分诊"
                                 : appeal.status === "TRIAGED"
-                                  ? "Review"
-                                  : "Resolve"}
+                                  ? "复核"
+                                  : "裁决"}
                             </Button>
                           ) : (
                             <span className="subtle">
@@ -596,7 +596,7 @@ export function ExceptionsPage() {
         ) : (
           <Panel
             title="Recalculation requests"
-            subtitle="Corrections for evidence, attribution, evaluation or ledger outcomes"
+            subtitle="针对证据/认定/评价/账本结果的更正"
             flush
             action={
               <Button
@@ -605,7 +605,7 @@ export function ExceptionsPage() {
                 icon="plus"
                 onClick={openRecalc}
               >
-                New request
+                新建请求
               </Button>
             }
           >
@@ -624,18 +624,18 @@ export function ExceptionsPage() {
               <EmptyState
                 icon="refresh"
                 title="No recalculation request"
-                description="Raise a request when evidence or an attribution decision was wrong; completion records the new calculation run."
+                description="当证据或认定有误时发起重算；完成时记录新的计算批次。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Request</th>
-                      <th>Target</th>
-                      <th>Reason</th>
-                      <th>Status</th>
-                      <th>Created</th>
+                      <th>请求</th>
+                      <th>对象</th>
+                      <th>原因</th>
+                      <th>状态</th>
+                      <th>创建时间</th>
                       <th />
                     </tr>
                   </thead>
@@ -677,7 +677,7 @@ export function ExceptionsPage() {
                                   recalcCommand(request, "approve")
                                 }
                               >
-                                Approve
+                                批准
                               </Button>
                               <Button
                                 size="sm"
@@ -685,7 +685,7 @@ export function ExceptionsPage() {
                                 loading={recalcBusy === `reject:${request.id}`}
                                 onClick={() => recalcCommand(request, "reject")}
                               >
-                                Reject
+                                驳回
                               </Button>
                             </>
                           ) : null}
@@ -699,7 +699,7 @@ export function ExceptionsPage() {
                                 setCompleteError(null);
                               }}
                             >
-                              Complete
+                              完成
                             </Button>
                           ) : null}
                           {request.status === "COMPLETED" ? (
@@ -730,7 +730,7 @@ export function ExceptionsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setDqTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={dqCommand === "WAIVE" ? "danger" : "primary"}
@@ -749,17 +749,17 @@ export function ExceptionsPage() {
             ) : null}
             <DefinitionList
               items={[
-                { label: "Object", value: `${titleCase(dqTarget.objectType)} ${shortId(dqTarget.objectId, 12)}` },
-                { label: "Severity", value: dqTarget.severity },
-                { label: "Status", value: <Badge status={dqTarget.status} /> },
+                { label: "对象", value: `${titleCase(dqTarget.objectType)} ${shortId(dqTarget.objectId, 12)}` },
+                { label: "严重度", value: dqTarget.severity },
+                { label: "状态", value: <Badge status={dqTarget.status} /> },
                 {
-                  label: "Due",
+                  label: "截止",
                   value: dqTarget.dueAt ? formatDateTime(dqTarget.dueAt) : "—",
                 },
               ]}
             />
             <div className="form-grid">
-              <FormField label="Command" htmlFor="dq-command">
+              <FormField label="命令" htmlFor="dq-command">
                 <Select
                   id="dq-command"
                   value={dqCommand}
@@ -785,7 +785,7 @@ export function ExceptionsPage() {
               ) : null}
               {["WAIVE", "ESCALATE", "REOPEN"].includes(dqCommand) ? (
                 <>
-                  <FormField label="Actor" htmlFor="dq-actor">
+                  <FormField label="操作人" htmlFor="dq-actor">
                     <PersonSelect
                       id="dq-actor"
                       value={dqActor}
@@ -794,7 +794,7 @@ export function ExceptionsPage() {
                   </FormField>
                   <FormField
                     label={
-                      dqCommand === "WAIVE" ? "Reason (required)" : "Reason"
+                      dqCommand === "WAIVE" ? "原因（必填）" : "原因"
                     }
                     htmlFor="dq-reason"
                     className="field--full"
@@ -810,7 +810,7 @@ export function ExceptionsPage() {
             </div>
             {dqTarget.details && Object.keys(dqTarget.details).length > 0 ? (
               <div className="detail-section">
-                <div className="detail-section__title">Details</div>
+                <div className="detail-section__title">详情</div>
                 <pre className="code-block">
                   {JSON.stringify(dqTarget.details, null, 2)}
                 </pre>
@@ -828,23 +828,23 @@ export function ExceptionsPage() {
               ? "Triage appeal"
               : appealTarget.status === "TRIAGED"
                 ? "Start appeal review"
-                : "Resolve appeal"
+                : "裁决申诉"
             : ""
         }
-        description="The reviewer must be independent of the appellant."
+        description="复核人必须独立于申诉人。"
         onClose={() => setAppealTarget(null)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setAppealTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={executeAppeal} loading={submitting}>
               {appealTarget?.status === "OPEN"
-                ? "Triage"
+                ? "分诊"
                 : appealTarget?.status === "TRIAGED"
-                  ? "Start review"
-                  : "Resolve"}
+                  ? "开始复核"
+                  : "裁决"}
             </Button>
           </>
         }
@@ -858,14 +858,14 @@ export function ExceptionsPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Appellant",
+                  label: "申诉人",
                   value: displayName(appealTarget.appellantPersonId, people),
                 },
                 {
-                  label: "Target",
+                  label: "对象",
                   value: `${titleCase(appealTarget.targetType)} ${shortId(appealTarget.targetId, 12)}`,
                 },
-                { label: "Status", value: <Badge status={appealTarget.status} /> },
+                { label: "状态", value: <Badge status={appealTarget.status} /> },
                 {
                   label: "SLA due",
                   value: appealTarget.dueAt
@@ -896,14 +896,14 @@ export function ExceptionsPage() {
                       onClick={() => void discloseEvidence()}
                       loading={disclosing}
                     >
-                      Record evidence disclosure
+                      记录证据公开
                     </Button>
                   </>
                 ) : null}
               </div>
             ) : null}
             {appealTarget.status !== "TRIAGED" ? (
-              <FormField label="Reviewer" htmlFor="appeal-reviewer">
+              <FormField label="复核人" htmlFor="appeal-reviewer">
                 <PersonSelect
                   id="appeal-reviewer"
                   value={reviewer}
@@ -929,13 +929,13 @@ export function ExceptionsPage() {
                       )
                     }
                   >
-                    <option value="UPHOLD">Uphold the original decision</option>
-                    <option value="CHANGE">Change the decision</option>
-                    <option value="REJECT">Reject the appeal</option>
+                    <option value="UPHOLD">维持原决策</option>
+                    <option value="CHANGE">改判</option>
+                    <option value="REJECT">驳回申诉</option>
                   </Select>
                 </FormField>
                 <FormField
-                  label="Rationale"
+                  label="理由"
                   htmlFor="appeal-rationale"
                   className="field--full"
                 >
@@ -955,15 +955,15 @@ export function ExceptionsPage() {
       <Modal
         open={recalcOpen}
         title="New recalculation request"
-        description="Point at the evidence, attribution decision, evaluation or ledger entry that needs correction."
+        description="指出需要更正的证据、认定、评价或账本条目。"
         onClose={() => setRecalcOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setRecalcOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitRecalc}>
-              Request recalculation
+              请求重算
             </Button>
           </>
         }
@@ -974,7 +974,7 @@ export function ExceptionsPage() {
               <InfoNotice tone="warning">{recalcError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Target type" htmlFor="recalc-target-type">
+          <FormField label="对象类型" htmlFor="recalc-target-type">
             <Select
               id="recalc-target-type"
               value={recalcTargetType}
@@ -1002,7 +1002,7 @@ export function ExceptionsPage() {
               required
             />
           </FormField>
-          <FormField label="Reason code" htmlFor="recalc-reason">
+          <FormField label="原因码" htmlFor="recalc-reason">
             <TextInput
               id="recalc-reason"
               value={recalcReasonCode}
@@ -1012,7 +1012,7 @@ export function ExceptionsPage() {
             />
           </FormField>
           <FormField
-            label="Explanation"
+            label="说明"
             htmlFor="recalc-explanation"
             className="field--full"
           >
@@ -1029,15 +1029,15 @@ export function ExceptionsPage() {
       <Modal
         open={Boolean(completeTarget)}
         title="Complete recalculation"
-        description="Record the calculation run produced by the correction."
+        description="记录更正产生的计算批次。"
         onClose={() => setCompleteTarget(null)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setCompleteTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={completeRecalc}>
-              Complete
+              完成
             </Button>
           </>
         }

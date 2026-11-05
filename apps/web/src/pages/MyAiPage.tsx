@@ -73,7 +73,7 @@ interface MyAiRecord {
 }
 
 export function MyAiPage() {
-  useDocumentTitle("My AI record");
+  useDocumentTitle("我的 AI 记录");
   const { session } = useAuth();
   const record = useApiQuery<MyAiRecord>(
     `/api/v1/me/ai-explanations?personId=${encodeURIComponent(session.personId)}`,
@@ -83,8 +83,8 @@ export function MyAiPage() {
     <>
       <PageHeader
         eyebrow="Employee transparency"
-        title="My AI record"
-        description="What AI contributed to decisions about you, which human reviewed it, and how to challenge it. This endpoint returns only your own record."
+        title="我的 AI 记录"
+        description="AI 在关于你的决策中参与了什么、由哪位人工复核、如何申诉——这里只返回你本人的记录。"
       />
 
       {record.error ? (
@@ -98,17 +98,17 @@ export function MyAiPage() {
           <div className="stat-grid stat-grid--three">
             <StatTile
               label="AI participation"
-              value={record.data.aiUsed ? "Used" : "None"}
+              value={record.data.aiUsed ? "Used" : "无"}
               detail={
                 record.data.aiUsed
-                  ? "Advisory only; a human made the decision"
-                  : "No AI-assisted record for you"
+                  ? "仅供参考；决策由人工作出"
+                  : "暂无涉及你的 AI 记录"
               }
               icon="ai"
               tone={record.data.aiUsed ? "accent" : "neutral"}
             />
             <StatTile
-              label="Advisory score proposals"
+              label="建议性评分提案"
               value={record.data.aiScoreProposals.length}
               detail={`${record.data.models.length} model/provider pair(s)`}
               icon="chart"
@@ -117,7 +117,7 @@ export function MyAiPage() {
             <StatTile
               label="Human decisions"
               value={record.data.evaluationDecisions.length}
-              detail="Reviewer-attributed and appealable"
+              detail="归属复核人、可申诉"
               icon="approvals"
               tone="good"
             />
@@ -136,12 +136,12 @@ export function MyAiPage() {
           </div>
 
           <div className="split-grid">
-            <Panel title="AI-use notices" subtitle="Disclosure and acknowledgement state">
+            <Panel title="AI 使用告知" subtitle="告知与签收状态">
               {record.data.notices.length === 0 ? (
                 <EmptyState
                   icon="policy"
                   title="No AI-use notice"
-                  description="Your employer has not linked an AI-use notice to your record yet."
+                  description="公司尚未将 AI 使用告知关联到你的记录。"
                 />
               ) : (
                 <div className="stack">
@@ -159,7 +159,7 @@ export function MyAiPage() {
                           }
                         >
                           {myAcknowledgement?.acknowledgedAt
-                            ? "Acknowledged"
+                            ? "已签收"
                             : myAcknowledgement?.declinedAt
                               ? "Declined"
                               : "Not acknowledged"}
@@ -175,12 +175,12 @@ export function MyAiPage() {
               )}
             </Panel>
 
-            <Panel title="How AI was used" subtitle="Advisory proposals and human decisions">
+            <Panel title="AI 参与方式" subtitle="建议性提案与人工决策">
               <div className="stack">
                 {record.data.evaluationDrafts.map((draft) => (
                   <div key={draft.id} className="reason-box">
                     <div className="inline" style={{ justifyContent: "space-between" }}>
-                      <strong>Evaluation draft</strong>
+                      <strong>评价草稿</strong>
                       <Badge status={draft.status} />
                     </div>
                     <p>
@@ -196,7 +196,7 @@ export function MyAiPage() {
                 {record.data.aiScoreProposals.map((proposal) => (
                   <div key={proposal.id} className="reason-box">
                     <div className="inline" style={{ justifyContent: "space-between" }}>
-                      <strong>Advisory score proposal</strong>
+                      <strong>建议性评分提案</strong>
                       <Badge status={proposal.status} />
                     </div>
                     <p>
@@ -221,31 +221,31 @@ export function MyAiPage() {
                 record.data.aiScoreProposals.length === 0 ? (
                   <EmptyState
                     icon="ai"
-                    title="No AI output about you"
-                    description="No AI draft or score proposal currently references your person record."
+                    title="暂无关于你的 AI 输出"
+                    description="当前没有 AI 草稿或评分提案关联到你。"
                   />
                 ) : null}
               </div>
             </Panel>
           </div>
 
-          <Panel title="Formal evaluation decisions" className="section-gap">
+          <Panel title="正式评价决策" className="section-gap">
             {record.data.evaluationDecisions.length === 0 ? (
               <EmptyState
                 icon="approvals"
                 title="No formal decision"
-                description="An AI draft does not become a decision until a human reviewer records one."
+                description="AI 草稿在人工复核记录决策之前不构成决策。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Decision</th>
-                      <th>Version</th>
-                      <th>Status</th>
-                      <th>Reviewer</th>
-                      <th>Approved</th>
+                      <th>决策</th>
+                      <th>版本</th>
+                      <th>状态</th>
+                      <th>复核人</th>
+                      <th>已批准</th>
                     </tr>
                   </thead>
                   <tbody>

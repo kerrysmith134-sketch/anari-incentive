@@ -63,7 +63,7 @@ import type {
 } from "../lib/types.js";
 
 export function SettingsPage() {
-  useDocumentTitle("Settings");
+  useDocumentTitle("设置");
   const { session, updateSession } = useAuth();
   const { preference, setPreference } = useTheme();
   const toast = useToast();
@@ -173,7 +173,7 @@ export function SettingsPage() {
   const [surveyCode, setSurveyCode] = useState("TRUST_QUARTERLY");
   const [surveyPeriod, setSurveyPeriod] = useState("2026-Q4");
   const [surveyTitle, setSurveyTitle] = useState(
-    "Quarterly trust and procedural fairness",
+    "季度信任与程序公平调查",
   );
   const [surveyQuestions, setSurveyQuestions] = useState<
     Array<{ code: string; prompt: string; dimension: string }>
@@ -208,7 +208,7 @@ export function SettingsPage() {
   const [trainingPerson, setTrainingPerson] = useState(session.personId);
   const [trainingCode, setTrainingCode] = useState("FAIRNESS_101");
   const [trainingTitle, setTrainingTitle] = useState(
-    "Fair incentive conversations",
+    "公平激励沟通",
   );
   const [trainingCompletedAt, setTrainingCompletedAt] = useState(
     new Date().toISOString().slice(0, 10),
@@ -222,7 +222,7 @@ export function SettingsPage() {
   );
   const [calibrationCode, setCalibrationCode] = useState("CAL-2026-Q4");
   const [calibrationTitle, setCalibrationTitle] = useState(
-    "Rating calibration",
+    "评级校准",
   );
   const [calibrationHeldAt, setCalibrationHeldAt] = useState(
     new Date().toISOString().slice(0, 10),
@@ -334,8 +334,8 @@ export function SettingsPage() {
       token: token.trim(),
     });
     toast.success(
-      "Session updated",
-      "Reloading to apply the tenant and person context.",
+      "会话已更新",
+      "正在刷新以应用租户与人员上下文。",
     );
     window.setTimeout(() => window.location.reload(), 450);
   }
@@ -346,7 +346,7 @@ export function SettingsPage() {
     setUserId(DEFAULT_SESSION.userId);
     setPersonId(DEFAULT_SESSION.personId);
     setToken("");
-    toast.success("Session reset", "Restored the development defaults.");
+    toast.success("会话已重置", "已恢复开发默认值。");
     window.setTimeout(() => window.location.reload(), 450);
   }
 
@@ -414,18 +414,18 @@ export function SettingsPage() {
     try {
       const parsed = JSON.parse(fieldPolicyJson) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("Policies must be a JSON object.");
+        throw new Error("策略必须是 JSON 对象。");
       }
       await api("/api/v1/field-access-policies", {
         method: "PUT",
         body: { policies: parsed },
       });
-      toast.success("Field access matrix updated");
+      toast.success("字段权限矩阵已更新");
       setFieldPolicyOpen(false);
       fieldPolicies.reload();
     } catch (caught) {
       setFieldPolicyError(
-        caught instanceof Error ? caught.message : "The action failed.",
+        caught instanceof Error ? caught.message : "操作失败。",
       );
     } finally {
       setFieldPolicySaving(false);
@@ -446,13 +446,13 @@ export function SettingsPage() {
           legalHold: false,
         },
       });
-      toast.success("Retention policy created");
+      toast.success("保留策略已创建");
       setRetentionOpen(false);
       retention.reload();
       retentionRecommendations.reload();
     } catch (caught) {
       setRetentionError(
-        caught instanceof Error ? caught.message : "The action failed.",
+        caught instanceof Error ? caught.message : "操作失败。",
       );
     } finally {
       setRetentionSaving(false);
@@ -530,7 +530,7 @@ export function SettingsPage() {
         },
       });
       toast.success(
-        "Commitment published",
+        "承诺已发布",
         "The prior version is retained as superseded.",
       );
       setCommitmentOpen(false);
@@ -549,7 +549,7 @@ export function SettingsPage() {
   function openSurveyForm() {
     setSurveyCode("TRUST_QUARTERLY");
     setSurveyPeriod("2026-Q4");
-    setSurveyTitle("Quarterly trust and procedural fairness");
+    setSurveyTitle("季度信任与程序公平调查");
     setSurveyQuestions([{ code: "FAIRNESS", prompt: "", dimension: "FAIRNESS" }]);
     setSurveyError(null);
     setSurveyOpen(true);
@@ -610,7 +610,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         action === "open" ? "Could not open survey" : "Could not close survey",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     }
   }
@@ -726,7 +726,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         "Could not approve disposal",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setDisposalSaving(false);
@@ -824,7 +824,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         "Could not retire policy",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setPolicySaving(false);
@@ -834,7 +834,7 @@ export function SettingsPage() {
   async function openPoolReviewForm() {
     const poolList = pools.data ?? [];
     if (poolList.length === 0) {
-      toast.error("No budget pool", "Create a pool before reviewing it.");
+      toast.error("暂无预算池", "Create a pool before reviewing it.");
       return;
     }
     setPoolReviewPool(poolList[0]?.id ?? "");
@@ -957,7 +957,7 @@ export function SettingsPage() {
       clawbacks.reload();
     } catch (error) {
       setRecoveryError(
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setRecoveryBusy(false);
@@ -986,7 +986,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         "Could not process disposals",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setDisposalProcessing(false);
@@ -1000,12 +1000,12 @@ export function SettingsPage() {
         method: "POST",
         body: { approvedBy: session.personId },
       });
-      toast.success("Clawback approved");
+      toast.success("追回已批准");
       clawbacks.reload();
     } catch (error) {
       toast.error(
         "Could not approve clawback",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setClawbackSaving(false);
@@ -1025,7 +1025,7 @@ export function SettingsPage() {
       );
     } catch (error) {
       setScheduleError(
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setScheduleLoading(false);
@@ -1044,14 +1044,14 @@ export function SettingsPage() {
           actorPersonId: session.personId,
         },
       });
-      toast.success("Clawback waived");
+      toast.success("追回已豁免");
       setWaiveTarget(null);
       setWaiveReason("");
       clawbacks.reload();
     } catch (error) {
       toast.error(
         "Could not waive clawback",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setClawbackSaving(false);
@@ -1091,7 +1091,7 @@ export function SettingsPage() {
       setGrantError(
         error instanceof Error
           ? error.message
-          : "Could not create the grant.",
+          : "创建授予失败。",
       );
     } finally {
       setGrantSaving(false);
@@ -1109,7 +1109,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         "Could not revoke grant",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setGrantSaving(false);
@@ -1168,7 +1168,7 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         "Could not withdraw enrollment",
-        error instanceof Error ? error.message : "The action failed.",
+        error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
       setPilotSaving(false);
@@ -1178,7 +1178,7 @@ export function SettingsPage() {
   function openTrainingForm() {
     setTrainingPerson(session.personId);
     setTrainingCode("FAIRNESS_101");
-    setTrainingTitle("Fair incentive conversations");
+    setTrainingTitle("公平激励沟通");
     setTrainingCompletedAt(new Date().toISOString().slice(0, 10));
     setTrainingExpiresAt("");
     setTrainingEvidence("");
@@ -1204,7 +1204,7 @@ export function SettingsPage() {
           evidenceRef: trainingEvidence.trim() || undefined,
         },
       });
-      toast.success("Training recorded");
+      toast.success("培训已记录");
       setTrainingOpen(false);
       training.reload();
     } catch (error) {
@@ -1220,7 +1220,7 @@ export function SettingsPage() {
 
   function openCalibrationForm() {
     setCalibrationCode("CAL-2026-Q4");
-    setCalibrationTitle("Rating calibration");
+    setCalibrationTitle("评级校准");
     setCalibrationHeldAt(new Date().toISOString().slice(0, 10));
     setCalibrationFacilitator(session.personId);
     setCalibrationAttendees([]);
@@ -1283,7 +1283,7 @@ export function SettingsPage() {
         },
       });
       toast.success(
-        "Conflict declared",
+        "冲突已申报",
         "Adjudication involving this pair is now blocked.",
       );
       setConflictOpen(false);
@@ -1331,7 +1331,7 @@ export function SettingsPage() {
     <>
       <PageHeader
         eyebrow="Workspace"
-        title="Settings"
+        title="设置"
         description="Session identity, appearance and the assurance registers that govern this tenant's data."
       />
 
@@ -1362,7 +1362,7 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="Person id"
+              label="人员 ID"
               htmlFor="session-person"
               hint="Used for approval attribution, payroll separation of duties and person-scoped requests."
             >
@@ -1384,27 +1384,27 @@ export function SettingsPage() {
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
                 placeholder="eyJhbGciOi…"
-                autoComplete="off"
+                autoComplete="关"
                 spellCheck={false}
               />
             </FormField>
             <div className="form-actions">
               <Button variant="ghost" onClick={resetSession}>
-                Reset defaults
+                重置默认
               </Button>
               <Button variant="primary" type="submit" icon="check">
-                Save session
+                保存会话
               </Button>
             </div>
           </form>
           <InfoNotice tone="warning">
-            <strong>Header authentication is for development.</strong> In OIDC
+            <strong>请求头认证仅用于开发环境。</strong> In OIDC
             mode the server ignores these headers and derives identity from the
             signed token.
           </InfoNotice>
           <Link className="btn btn--secondary" to="/my-ai">
             <Icon name="ai" size={16} />
-            <span>Open my AI record</span>
+            <span>打开我的 AI 记录</span>
           </Link>
         </Panel>
 
@@ -1442,13 +1442,13 @@ export function SettingsPage() {
             ) : identity.data ? (
               <DefinitionList
                 items={[
-                  { label: "User", value: <span className="mono">{identity.data.userId}</span> },
+                  { label: "用户", value: <span className="mono">{identity.data.userId}</span> },
                   {
                     label: "Linked person",
                     value: identity.data.personId ? (
                       <span className="mono">{identity.data.personId}</span>
                     ) : (
-                      "Not linked"
+                      "未绑定"
                     ),
                   },
                   {
@@ -1473,9 +1473,9 @@ export function SettingsPage() {
                 {
                   label: "API health",
                   value: health.loading ? (
-                    "Checking…"
+                    "检查中…"
                   ) : health.error ? (
-                    <Badge tone="danger">Unreachable</Badge>
+                    <Badge tone="danger">不可达</Badge>
                   ) : (
                     <Badge tone="success">
                       {titleCase(health.data?.status ?? "ok")}
@@ -1485,11 +1485,11 @@ export function SettingsPage() {
                 {
                   label: "Audit chain",
                   value: auditChain.loading ? (
-                    "Checking…"
+                    "检查中…"
                   ) : auditChain.data?.valid ? (
-                    <Badge tone="success">Verified</Badge>
+                    <Badge tone="success">已验证</Badge>
                   ) : (
-                    <Badge tone="danger">Needs attention</Badge>
+                    <Badge tone="danger">需要关注</Badge>
                   ),
                 },
                 {
@@ -1544,10 +1544,10 @@ export function SettingsPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Type</th>
-                    <th>Scope</th>
-                    <th>Status</th>
-                    <th>Approved</th>
+                    <th>类型</th>
+                    <th>范围</th>
+                    <th>状态</th>
+                    <th>已批准</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1603,10 +1603,10 @@ export function SettingsPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Type</th>
-                    <th>Person</th>
-                    <th>Status</th>
-                    <th>Due</th>
+                    <th>类型</th>
+                    <th>人员</th>
+                    <th>状态</th>
+                    <th>截止</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1641,7 +1641,7 @@ export function SettingsPage() {
       </div>
 
       <Panel
-        title="Subscription"
+        title="订阅"
         subtitle="This tenant's plan, seats and invoices (read-only; managed by the platform operator)"
         className="section-gap"
       >
@@ -1658,13 +1658,13 @@ export function SettingsPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Plan",
+                  label: "套餐",
                   value: `${subscription.data.planName} (${subscription.data.planCode})`,
                 },
-                { label: "Status", value: subscription.data.status },
-                { label: "Seats", value: String(subscription.data.seats) },
+                { label: "状态", value: subscription.data.status },
+                { label: "席位", value: String(subscription.data.seats) },
                 {
-                  label: "Period ends",
+                  label: "周期结束",
                   value: formatDateTime(subscription.data.currentPeriodEnd),
                 },
               ]}
@@ -1673,10 +1673,10 @@ export function SettingsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Invoice</th>
-                    <th>Status</th>
-                    <th>Total</th>
-                    <th>Due</th>
+                    <th>发票</th>
+                    <th>状态</th>
+                    <th>合计</th>
+                    <th>截止</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1695,7 +1695,7 @@ export function SettingsPage() {
                 </tbody>
               </table>
             ) : (
-              <p className="hint">No invoices yet.</p>
+              <p className="hint">暂无发票</p>
             )}
           </div>
         ) : (
@@ -1716,7 +1716,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={() => openRetentionForm()}
           >
-            Add policy
+            新增策略
           </Button>
         }
         flush
@@ -1733,20 +1733,20 @@ export function SettingsPage() {
           <EmptyState
             icon="clock"
             title="No retention policy"
-            description="Define retention months and a legal basis per data category. Automated deletion is intentionally not wired."
+            description="按数据类别定义保留月数与法律依据；自动删除被有意关闭。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Data category</th>
-                  <th className="cell-num">Retention</th>
-                  <th>Legal basis</th>
-                  <th>Legal hold</th>
-                  <th>Cutoff</th>
-                  <th>Disposal</th>
-                  <th>Created</th>
+                  <th>数据类别</th>
+                  <th className="cell-num">保留</th>
+                  <th>法律依据</th>
+                  <th>法务保留</th>
+                  <th>截止日</th>
+                  <th>处置</th>
+                  <th>创建时间</th>
                 </tr>
               </thead>
               <tbody>
@@ -1770,7 +1770,7 @@ export function SettingsPage() {
                       <td>{policy.legalBasis}</td>
                       <td>
                         <Badge tone={policy.legalHold ? "warning" : "neutral"}>
-                          {policy.legalHold ? "Held" : "None"}
+                          {policy.legalHold ? "Held" : "无"}
                         </Badge>
                       </td>
                       <td className="nowrap">{report?.cutoffDate ?? "—"}</td>
@@ -1783,7 +1783,7 @@ export function SettingsPage() {
                           >
                             {report.eligibleForDisposal
                               ? "Eligible"
-                              : "Blocked"}
+                              : "已阻断"}
                           </Badge>
                         ) : (
                           "—"
@@ -1799,7 +1799,7 @@ export function SettingsPage() {
         )}
         {retentionRecommendations.data ? (
           <div style={{ padding: "14px 16px 18px" }}>
-            <div className="detail-section__title">System recommendations</div>
+            <div className="detail-section__title">系统推荐</div>
             <p className="muted" style={{ marginTop: 4 }}>
               {retentionRecommendations.data.note}
             </p>
@@ -1827,12 +1827,12 @@ export function SettingsPage() {
       <Modal
         open={retentionOpen}
         title="Add retention policy"
-        description="Conservative system default. Confirm the legal basis for your jurisdiction; legal hold always wins."
+        description="保守的系统默认；请确认你所在法域的法律依据，法务保留始终优先。"
         onClose={() => setRetentionOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setRetentionOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1840,7 +1840,7 @@ export function SettingsPage() {
               form="retention-form"
               loading={retentionSaving}
             >
-              Create policy
+              创建策略
             </Button>
           </>
         }
@@ -1867,7 +1867,7 @@ export function SettingsPage() {
                 }
               }}
             >
-              <option value="">Custom category</option>
+              <option value="">自定义类别</option>
               {retentionRecommendations.data?.recommendations.map(
                 (recommendation) => (
                   <option
@@ -1881,7 +1881,7 @@ export function SettingsPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Data category" htmlFor="retention-category">
+          <FormField label="数据类别" htmlFor="retention-category">
             <TextInput
               id="retention-category"
               value={retentionCategory}
@@ -1890,7 +1890,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Retention months" htmlFor="retention-months">
+          <FormField label="保留月数" htmlFor="retention-months">
             <TextInput
               id="retention-months"
               type="number"
@@ -1900,7 +1900,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Legal basis" htmlFor="retention-basis">
+          <FormField label="法律依据" htmlFor="retention-basis">
             <Textarea
               id="retention-basis"
               value={retentionBasis}
@@ -1925,7 +1925,7 @@ export function SettingsPage() {
               setSourceOpen(true);
             }}
           >
-            Register source
+            登记数据源
           </Button>
         }
         flush
@@ -1942,13 +1942,13 @@ export function SettingsPage() {
           <EmptyState
             icon="server"
             title="No data source registered"
-            description="Register each system that supplies evidence, its accountable owner and the fields it contributes."
+            description="登记每个供证系统、责任人与其贡献的字段。"
           />
         ) : (
           <>
             <div className="coverage-grid" style={{ padding: 16 }}>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Active sources</div>
+                <div className="coverage-cell__label">活跃数据源</div>
                 <div className="coverage-cell__value">
                   {dataMap.data.summary.activeSources}
                 </div>
@@ -1957,7 +1957,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Personal-data sources</div>
+                <div className="coverage-cell__label">个人数据源</div>
                 <div className="coverage-cell__value">
                   {dataMap.data.summary.personalSources}
                 </div>
@@ -1969,7 +1969,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Cross-border</div>
+                <div className="coverage-cell__label">跨境</div>
                 <div className="coverage-cell__value">
                   {dataMap.data.summary.crossBorderSources}
                 </div>
@@ -1978,12 +1978,12 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Overdue reviews</div>
+                <div className="coverage-cell__label">逾期复核</div>
                 <div className="coverage-cell__value">
                   {dataMap.data.summary.overdueReviews}
                 </div>
                 <div className="coverage-cell__sub">
-                  review cadence 90 days
+                  复核周期 90 天
                 </div>
               </div>
             </div>
@@ -1991,13 +1991,13 @@ export function SettingsPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Source</th>
-                    <th>Owner</th>
+                    <th>来源</th>
+                    <th>负责人</th>
                     <th className="cell-num">SLA</th>
-                    <th>Criticality</th>
-                    <th>Fields</th>
-                    <th>Review</th>
-                    <th>Status</th>
+                    <th>关键级</th>
+                    <th>字段</th>
+                    <th>复核</th>
+                    <th>状态</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2025,12 +2025,12 @@ export function SettingsPage() {
                       <td>
                         {source.fields.length}
                         {source.containsPersonalData ? (
-                          <span className="cell-sub">personal data</span>
+                          <span className="cell-sub">个人数据</span>
                         ) : null}
                       </td>
                       <td>
                         {source.reviewOverdue ? (
-                          <Badge tone="danger">Overdue</Badge>
+                          <Badge tone="danger">已逾期</Badge>
                         ) : (
                           <span className="nowrap">
                             {formatDate(source.reviewDueAt)}
@@ -2058,7 +2058,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setSourceOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -2067,7 +2067,7 @@ export function SettingsPage() {
               icon="check"
               loading={sourceSaving}
             >
-              Register source
+              登记数据源
             </Button>
           </>
         }
@@ -2078,7 +2078,7 @@ export function SettingsPage() {
           onSubmit={saveDataSource}
         >
           <div className="form-grid">
-            <FormField label="Code" htmlFor="source-code">
+            <FormField label="编码" htmlFor="source-code">
               <TextInput
                 id="source-code"
                 value={sourceCode}
@@ -2086,7 +2086,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Name" htmlFor="source-name">
+            <FormField label="名称" htmlFor="source-name">
               <TextInput
                 id="source-name"
                 value={sourceName}
@@ -2094,7 +2094,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Category" htmlFor="source-category">
+            <FormField label="类别" htmlFor="source-category">
               <TextInput
                 id="source-category"
                 value={sourceCategory}
@@ -2102,7 +2102,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Owner" htmlFor="source-owner">
+            <FormField label="负责人" htmlFor="source-owner">
               <PersonSelect
                 id="source-owner"
                 value={sourceOwner}
@@ -2120,7 +2120,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Criticality" htmlFor="source-criticality">
+            <FormField label="关键级" htmlFor="source-criticality">
               <Select
                 id="source-criticality"
                 value={sourceCriticality}
@@ -2135,9 +2135,9 @@ export function SettingsPage() {
                 }
               >
                 <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-                <option value="CRITICAL">Critical</option>
+                <option value="MEDIUM">中</option>
+                <option value="HIGH">高</option>
+                <option value="CRITICAL">严重</option>
               </Select>
             </FormField>
             <FormField label="Storage region" htmlFor="source-region">
@@ -2166,7 +2166,7 @@ export function SettingsPage() {
               checked={sourcePersonal}
               onChange={(event) => setSourcePersonal(event.target.checked)}
             />
-            <span>This source contains personal data.</span>
+            <span>该数据源包含个人数据。</span>
           </label>
           <label className="checkbox">
             <input
@@ -2174,14 +2174,14 @@ export function SettingsPage() {
               checked={sourceCrossBorder}
               onChange={(event) => setSourceCrossBorder(event.target.checked)}
             />
-            <span>Data is transferred outside mainland China.</span>
+            <span>数据出境（中国大陆以外）。</span>
           </label>
           <div className="detail-section">
-            <div className="detail-section__title">Field map</div>
+            <div className="detail-section__title">字段映射</div>
             <div className="stack">
               {sourceFields.map((field, index) => (
                 <div className="form-grid" key={index}>
-                  <FormField label="Field" htmlFor={`source-field-${index}`}>
+                  <FormField label="字段" htmlFor={`source-field-${index}`}>
                     <TextInput
                       id={`source-field-${index}`}
                       value={field.fieldName}
@@ -2221,15 +2221,15 @@ export function SettingsPage() {
                         )
                       }
                     >
-                      <option value="PUBLIC">Public</option>
-                      <option value="INTERNAL">Internal</option>
-                      <option value="CONFIDENTIAL">Confidential</option>
-                      <option value="PERSONAL">Personal</option>
-                      <option value="SENSITIVE">Sensitive</option>
+                      <option value="PUBLIC">公开</option>
+                      <option value="INTERNAL">内部</option>
+                      <option value="CONFIDENTIAL">内部保密</option>
+                      <option value="PERSONAL">个人</option>
+                      <option value="SENSITIVE">敏感</option>
                     </Select>
                   </FormField>
                   <FormField
-                    label="Purpose"
+                    label="用途"
                     htmlFor={`source-purpose-${index}`}
                   >
                     <TextInput
@@ -2248,7 +2248,7 @@ export function SettingsPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Retention months"
+                    label="保留月数"
                     htmlFor={`source-retention-${index}`}
                     hint="Required for PERSONAL/SENSITIVE fields."
                   >
@@ -2282,7 +2282,7 @@ export function SettingsPage() {
                       )
                     }
                   >
-                    Remove
+                    移除
                   </Button>
                 </div>
               ))}
@@ -2304,7 +2304,7 @@ export function SettingsPage() {
                 ])
               }
             >
-              Add field
+              添加字段
             </Button>
           </div>
           {sourcePersonal ? (
@@ -2330,7 +2330,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openConflictForm}
           >
-            Declare conflict
+            申报冲突
           </Button>
         }
         flush
@@ -2347,17 +2347,17 @@ export function SettingsPage() {
           <EmptyState
             icon="people"
             title="No conflict declared"
-            description="Declare close personal or financial relationships that should prevent one person adjudicating another's contribution."
+            description="申报应回避认定对方贡献的近亲属或财务关系。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>People</th>
-                  <th>Relationship</th>
-                  <th>Status</th>
-                  <th>Declared</th>
+                  <th>人员</th>
+                  <th>关系</th>
+                  <th>状态</th>
+                  <th>已申报</th>
                   <th />
                 </tr>
               </thead>
@@ -2391,7 +2391,7 @@ export function SettingsPage() {
                             setConflictError(null);
                           }}
                         >
-                          Revoke
+                          撤销
                         </Button>
                       ) : null}
                     </td>
@@ -2411,7 +2411,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setConflictOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -2419,7 +2419,7 @@ export function SettingsPage() {
               form="conflict-form"
               loading={conflictSaving}
             >
-              Declare
+              申报
             </Button>
           </>
         }
@@ -2442,7 +2442,7 @@ export function SettingsPage() {
               onChange={setConflictRelated}
             />
           </FormField>
-          <FormField label="Relationship" htmlFor="conflict-type">
+          <FormField label="关系" htmlFor="conflict-type">
             <TextInput
               id="conflict-type"
               value={conflictType}
@@ -2451,7 +2451,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Description" htmlFor="conflict-description">
+          <FormField label="说明" htmlFor="conflict-description">
             <TextInput
               id="conflict-description"
               value={conflictDescription}
@@ -2471,7 +2471,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRevokeTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="danger"
@@ -2479,7 +2479,7 @@ export function SettingsPage() {
               form="revoke-conflict-form"
               loading={conflictSaving}
             >
-              Revoke
+              撤销
             </Button>
           </>
         }
@@ -2514,7 +2514,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openSurveyForm}
           >
-            Create survey
+            创建调查
           </Button>
         }
         flush
@@ -2534,18 +2534,18 @@ export function SettingsPage() {
           <EmptyState
             icon="people"
             title="No trust survey"
-            description="Create a survey, open it for responses, then close it to compare the dimension averages with the prior period."
+            description="创建调查→开放作答→关闭后与上期对比维度均值。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Survey</th>
-                  <th>Period</th>
-                  <th>Status</th>
-                  <th className="cell-num">Questions</th>
-                  <th>Window</th>
+                  <th>调查</th>
+                  <th>周期</th>
+                  <th>状态</th>
+                  <th className="cell-num">题目</th>
+                  <th>窗口</th>
                   <th />
                 </tr>
               </thead>
@@ -2577,7 +2577,7 @@ export function SettingsPage() {
                             variant="secondary"
                             onClick={() => void changeSurveyStatus(survey, "open")}
                           >
-                            Open
+                            待处理
                           </Button>
                         ) : null}
                         {survey.status === "OPEN" ? (
@@ -2587,7 +2587,7 @@ export function SettingsPage() {
                               variant="primary"
                               onClick={() => openRespond(survey)}
                             >
-                              Respond
+                              作答
                             </Button>
                             <Button
                               size="sm"
@@ -2596,7 +2596,7 @@ export function SettingsPage() {
                                 void changeSurveyStatus(survey, "close")
                               }
                             >
-                              Close
+                              关闭
                             </Button>
                           </>
                         ) : null}
@@ -2605,7 +2605,7 @@ export function SettingsPage() {
                           variant="ghost"
                           onClick={() => setReportTarget(survey)}
                         >
-                          Report
+                          报告
                         </Button>
                       </div>
                     </td>
@@ -2626,7 +2626,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setSurveyOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -2634,7 +2634,7 @@ export function SettingsPage() {
               form="survey-form"
               loading={surveySaving}
             >
-              Create survey
+              创建调查
             </Button>
           </>
         }
@@ -2644,7 +2644,7 @@ export function SettingsPage() {
             <InfoNotice tone="warning">{surveyError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Code" htmlFor="survey-code">
+            <FormField label="编码" htmlFor="survey-code">
               <TextInput
                 id="survey-code"
                 value={surveyCode}
@@ -2652,7 +2652,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Period" htmlFor="survey-period">
+            <FormField label="周期" htmlFor="survey-period">
               <TextInput
                 id="survey-period"
                 value={surveyPeriod}
@@ -2661,7 +2661,7 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="Title"
+              label="标题"
               htmlFor="survey-title"
               className="field--full"
             >
@@ -2674,12 +2674,12 @@ export function SettingsPage() {
             </FormField>
           </div>
           <div className="detail-section">
-            <div className="detail-section__title">Questions</div>
+            <div className="detail-section__title">题目</div>
             <div className="stack">
               {surveyQuestions.map((question, index) => (
                 <div className="form-grid" key={index}>
                   <FormField
-                    label="Code"
+                    label="编码"
                     htmlFor={`survey-question-code-${index}`}
                   >
                     <TextInput
@@ -2698,7 +2698,7 @@ export function SettingsPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Prompt"
+                    label="提示词"
                     htmlFor={`survey-question-prompt-${index}`}
                   >
                     <TextInput
@@ -2720,7 +2720,7 @@ export function SettingsPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Dimension"
+                    label="维度"
                     htmlFor={`survey-question-dimension-${index}`}
                   >
                     <TextInput
@@ -2752,7 +2752,7 @@ export function SettingsPage() {
                       )
                     }
                   >
-                    Remove
+                    移除
                   </Button>
                 </div>
               ))}
@@ -2769,7 +2769,7 @@ export function SettingsPage() {
                 ])
               }
             >
-              Add question
+              添加题目
             </Button>
           </div>
         </form>
@@ -2782,7 +2782,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRespondTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -2790,7 +2790,7 @@ export function SettingsPage() {
               form="survey-response-form"
               loading={surveySaving}
             >
-              Submit response
+              提交作答
             </Button>
           </>
         }
@@ -2806,8 +2806,8 @@ export function SettingsPage() {
             ) : null}
             <DefinitionList
               items={[
-                { label: "Survey", value: respondTarget.title },
-                { label: "Period", value: respondTarget.period },
+                { label: "调查", value: respondTarget.title },
+                { label: "周期", value: respondTarget.period },
                 {
                   label: "Anonymity",
                   value: "Only a pseudonymous hash is stored with scores.",
@@ -2865,19 +2865,19 @@ export function SettingsPage() {
           <div className="stack">
             <DefinitionList
               items={[
-                { label: "Period", value: report.data.survey.period },
+                { label: "周期", value: report.data.survey.period },
                 {
                   label: "Responses",
                   value: report.data.responseCount,
                 },
                 {
-                  label: "Status",
+                  label: "状态",
                   value: <Badge status={report.data.survey.status} />,
                 },
               ]}
             />
             <div className="detail-section">
-              <div className="detail-section__title">Dimension averages</div>
+              <div className="detail-section__title">维度均值</div>
               <div className="stack" style={{ gap: 6 }}>
                 {Object.entries(report.data.dimensions).map(
                   ([dimension, score]) => {
@@ -2903,7 +2903,7 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="detail-section">
-              <div className="detail-section__title">Question averages</div>
+              <div className="detail-section__title">题目均值</div>
               <div className="stack" style={{ gap: 6 }}>
                 {report.data.survey.questions.map((question) => (
                   <div
@@ -2939,7 +2939,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openCommitmentForm}
           >
-            Publish commitment
+            发布承诺
           </Button>
         }
         flush
@@ -2963,11 +2963,11 @@ export function SettingsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Version</th>
-                  <th>Statement</th>
-                  <th>Channels</th>
-                  <th>Status</th>
-                  <th>Published</th>
+                  <th>版本</th>
+                  <th>声明</th>
+                  <th>渠道</th>
+                  <th>状态</th>
+                  <th>已发布</th>
                 </tr>
               </thead>
               <tbody>
@@ -3003,7 +3003,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setCommitmentOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3011,7 +3011,7 @@ export function SettingsPage() {
               form="commitment-form"
               loading={commitmentSaving}
             >
-              Publish
+              发布
             </Button>
           </>
         }
@@ -3020,7 +3020,7 @@ export function SettingsPage() {
           {commitmentError ? (
             <InfoNotice tone="warning">{commitmentError}</InfoNotice>
           ) : null}
-          <FormField label="Statement" htmlFor="commitment-statement">
+          <FormField label="声明" htmlFor="commitment-statement">
             <Textarea
               id="commitment-statement"
               value={commitmentStatement}
@@ -3028,7 +3028,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Owner" htmlFor="commitment-owner">
+          <FormField label="负责人" htmlFor="commitment-owner">
             <PersonSelect
               id="commitment-owner"
               value={commitmentOwner}
@@ -3057,14 +3057,14 @@ export function SettingsPage() {
         <div className="split-grid" style={{ padding: 16 }}>
           <div className="detail-section" style={{ marginTop: 0 }}>
             <div className="detail-section__title">
-              Training records
+              培训记录
               <Button
                 size="sm"
                 variant="secondary"
                 icon="plus"
                 onClick={openTrainingForm}
               >
-                Record
+                记录
               </Button>
             </div>
             {training.error ? (
@@ -3072,7 +3072,7 @@ export function SettingsPage() {
             ) : training.loading ? (
               <LoadingRows rows={2} />
             ) : (training.data?.length ?? 0) === 0 ? (
-              <p className="muted">No manager training recorded.</p>
+              <p className="muted">暂无经理培训记录。</p>
             ) : (
               <div className="stack" style={{ gap: 6 }}>
                 {training.data?.map((record) => (
@@ -3101,14 +3101,14 @@ export function SettingsPage() {
           </div>
           <div className="detail-section" style={{ marginTop: 0 }}>
             <div className="detail-section__title">
-              Calibration sessions
+              校准会
               <Button
                 size="sm"
                 variant="secondary"
                 icon="plus"
                 onClick={openCalibrationForm}
               >
-                Record
+                记录
               </Button>
             </div>
             {calibrations.error ? (
@@ -3119,7 +3119,7 @@ export function SettingsPage() {
             ) : calibrations.loading ? (
               <LoadingRows rows={2} />
             ) : (calibrations.data?.length ?? 0) === 0 ? (
-              <p className="muted">No calibration session recorded.</p>
+              <p className="muted">暂无校准会记录。</p>
             ) : (
               <div className="stack" style={{ gap: 6 }}>
                 {calibrations.data?.map((session) => (
@@ -3153,7 +3153,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setTrainingOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3161,7 +3161,7 @@ export function SettingsPage() {
               form="training-form"
               loading={trainingSaving}
             >
-              Record
+              记录
             </Button>
           </>
         }
@@ -3170,7 +3170,7 @@ export function SettingsPage() {
           {trainingError ? (
             <InfoNotice tone="warning">{trainingError}</InfoNotice>
           ) : null}
-          <FormField label="Person" htmlFor="training-person">
+          <FormField label="人员" htmlFor="training-person">
             <PersonSelect
               id="training-person"
               value={trainingPerson}
@@ -3186,7 +3186,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Title" htmlFor="training-title">
+            <FormField label="标题" htmlFor="training-title">
               <TextInput
                 id="training-title"
                 value={trainingTitle}
@@ -3235,7 +3235,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setCalibrationOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3243,7 +3243,7 @@ export function SettingsPage() {
               form="calibration-form"
               loading={calibrationSaving}
             >
-              Record
+              记录
             </Button>
           </>
         }
@@ -3257,7 +3257,7 @@ export function SettingsPage() {
             <InfoNotice tone="warning">{calibrationError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Code" htmlFor="calibration-code">
+            <FormField label="编码" htmlFor="calibration-code">
               <TextInput
                 id="calibration-code"
                 value={calibrationCode}
@@ -3265,7 +3265,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Title" htmlFor="calibration-title">
+            <FormField label="标题" htmlFor="calibration-title">
               <TextInput
                 id="calibration-title"
                 value={calibrationTitle}
@@ -3291,7 +3291,7 @@ export function SettingsPage() {
             </FormField>
           </div>
           <div className="detail-section">
-            <div className="detail-section__title">Attendees</div>
+            <div className="detail-section__title">参加人</div>
             <div className="stack">
               {people.map((person) => (
                 <label className="checkbox" key={person.id}>
@@ -3332,7 +3332,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openPilotForm}
           >
-            Enroll
+            加入试点
           </Button>
         }
         flush
@@ -3356,11 +3356,11 @@ export function SettingsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th>Pilot</th>
-                  <th>Scope</th>
-                  <th>Consent</th>
-                  <th>Status</th>
+                  <th>人员</th>
+                  <th>试点</th>
+                  <th>范围</th>
+                  <th>同意</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -3384,7 +3384,7 @@ export function SettingsPage() {
                           onClick={() => void withdrawPilot(enrollment)}
                           loading={pilotSaving}
                         >
-                          Withdraw
+                          撤回
                         </Button>
                       ) : null}
                     </td>
@@ -3404,7 +3404,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPilotOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3412,7 +3412,7 @@ export function SettingsPage() {
               form="pilot-form"
               loading={pilotSaving}
             >
-              Enroll
+              加入试点
             </Button>
           </>
         }
@@ -3421,7 +3421,7 @@ export function SettingsPage() {
           {pilotError ? (
             <InfoNotice tone="warning">{pilotError}</InfoNotice>
           ) : null}
-          <FormField label="Person" htmlFor="pilot-person">
+          <FormField label="人员" htmlFor="pilot-person">
             <PersonSelect
               id="pilot-person"
               value={pilotPerson}
@@ -3436,7 +3436,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Scope" htmlFor="pilot-scope">
+          <FormField label="范围" htmlFor="pilot-scope">
             <TextInput
               id="pilot-scope"
               value={pilotScope}
@@ -3445,7 +3445,7 @@ export function SettingsPage() {
             />
           </FormField>
           <FormField
-            label="Consent / e-signature reference"
+            label="同意/电子签引用"
             htmlFor="pilot-consent"
           >
             <TextInput
@@ -3469,7 +3469,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openGrantForm}
           >
-            Grant access
+            授予访问
           </Button>
         }
         flush
@@ -3486,18 +3486,18 @@ export function SettingsPage() {
           <EmptyState
             icon="lock"
             title="No break-glass grant"
-            description="Sensitive payroll fields stay redacted for non-finance viewers unless an admin grants time-bound access."
+            description="非财务角色默认看不到敏感薪酬字段，除非管理员授予限时访问。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Grantee</th>
-                  <th>Scope</th>
-                  <th>Reason</th>
-                  <th>Expires</th>
-                  <th>Status</th>
+                  <th>被授权人</th>
+                  <th>范围</th>
+                  <th>原因</th>
+                  <th>过期时间</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -3519,7 +3519,7 @@ export function SettingsPage() {
                           onClick={() => void revokeGrant(grant)}
                           loading={grantSaving}
                         >
-                          Revoke
+                          撤销
                         </Button>
                       ) : null}
                     </td>
@@ -3539,7 +3539,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setGrantOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3547,7 +3547,7 @@ export function SettingsPage() {
               form="grant-form"
               loading={grantSaving}
             >
-              Grant
+              授予
             </Button>
           </>
         }
@@ -3556,7 +3556,7 @@ export function SettingsPage() {
           {grantError ? (
             <InfoNotice tone="warning">{grantError}</InfoNotice>
           ) : null}
-          <FormField label="Grantee" htmlFor="grant-grantee">
+          <FormField label="被授权人" htmlFor="grant-grantee">
             <PersonSelect
               id="grant-grantee"
               value={granteeId}
@@ -3570,7 +3570,7 @@ export function SettingsPage() {
               onChange={setGrantedById}
             />
           </FormField>
-          <FormField label="Reason" htmlFor="grant-reason">
+          <FormField label="原因" htmlFor="grant-reason">
             <TextInput
               id="grant-reason"
               value={grantReason}
@@ -3603,7 +3603,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openClawbackForm}
           >
-            Record clawback
+            记录追回
           </Button>
         }
         flush
@@ -3627,11 +3627,11 @@ export function SettingsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Person</th>
-                  <th className="cell-num">Amount</th>
-                  <th>Reason</th>
-                  <th className="cell-num">Installments</th>
-                  <th>Status</th>
+                  <th>人员</th>
+                  <th className="cell-num">金额</th>
+                  <th>原因</th>
+                  <th className="cell-num">分期</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -3659,7 +3659,7 @@ export function SettingsPage() {
                             onClick={() => void approveClawback(clawback)}
                             loading={clawbackSaving}
                           >
-                            Approve
+                            批准
                           </Button>
                         ) : null}
                         {clawback.status === "APPROVED" ? (
@@ -3669,7 +3669,7 @@ export function SettingsPage() {
                               variant="ghost"
                               onClick={() => void openSchedule(clawback)}
                             >
-                              Schedule
+                              计划
                             </Button>
                             <Button
                               size="sm"
@@ -3682,7 +3682,7 @@ export function SettingsPage() {
                                 setRecoveryError(null);
                               }}
                             >
-                              Generate recovery
+                              生成追回
                             </Button>
                           </>
                         ) : null}
@@ -3696,7 +3696,7 @@ export function SettingsPage() {
                               setWaiveReason("");
                             }}
                           >
-                            Waive
+                            豁免
                           </Button>
                         ) : null}
                       </div>
@@ -3717,7 +3717,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setClawbackOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -3725,7 +3725,7 @@ export function SettingsPage() {
               form="clawback-form"
               loading={clawbackSaving}
             >
-              Record
+              记录
             </Button>
           </>
         }
@@ -3734,7 +3734,7 @@ export function SettingsPage() {
           {clawbackError ? (
             <InfoNotice tone="warning">{clawbackError}</InfoNotice>
           ) : null}
-          <FormField label="Person" htmlFor="clawback-person">
+          <FormField label="人员" htmlFor="clawback-person">
             <PersonSelect
               id="clawback-person"
               value={clawbackPerson}
@@ -3753,7 +3753,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Reason code" htmlFor="clawback-reason-code">
+            <FormField label="原因码" htmlFor="clawback-reason-code">
               <TextInput
                 id="clawback-reason-code"
                 value={clawbackReasonCode}
@@ -3779,7 +3779,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Requester" htmlFor="clawback-requester">
+            <FormField label="发起人" htmlFor="clawback-requester">
               <PersonSelect
                 id="clawback-requester"
                 value={clawbackRequester}
@@ -3787,7 +3787,7 @@ export function SettingsPage() {
               />
             </FormField>
           </div>
-          <FormField label="Explanation" htmlFor="clawback-explanation">
+          <FormField label="说明" htmlFor="clawback-explanation">
             <Textarea
               id="clawback-explanation"
               value={clawbackExplanation}
@@ -3796,7 +3796,7 @@ export function SettingsPage() {
             />
           </FormField>
           <FormField
-            label="Consent / e-signature reference"
+            label="同意/电子签引用"
             htmlFor="clawback-consent"
           >
             <TextInput
@@ -3812,7 +3812,7 @@ export function SettingsPage() {
               checked={clawbackHardship}
               onChange={(event) => setClawbackHardship(event.target.checked)}
             />
-            <span>Apply a hardship waiver</span>
+            <span>困难豁免</span>
           </label>
           {clawbackHardship ? (
             <FormField
@@ -3839,7 +3839,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setWaiveTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="danger"
@@ -3847,7 +3847,7 @@ export function SettingsPage() {
               form="waive-form"
               loading={clawbackSaving}
             >
-              Waive
+              豁免
             </Button>
           </>
         }
@@ -3883,7 +3883,7 @@ export function SettingsPage() {
               setScheduleError(null);
             }}
           >
-            Close
+            关闭
           </Button>
         }
       >
@@ -3929,10 +3929,10 @@ export function SettingsPage() {
                 <thead>
                   <tr>
                     <th className="cell-num">#</th>
-                    <th>Due</th>
-                    <th className="cell-num">Amount</th>
-                    <th className="cell-num">Remaining wage</th>
-                    <th>Checks</th>
+                    <th>截止</th>
+                    <th className="cell-num">金额</th>
+                    <th className="cell-num">剩余工资</th>
+                    <th>检查</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3987,7 +3987,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={() => void openPoolReviewForm()}
           >
-            Record review
+            记录复核
           </Button>
         }
         flush
@@ -4007,18 +4007,18 @@ export function SettingsPage() {
           <EmptyState
             icon="wallet"
             title="No discretionary review"
-            description="Record the committee, employee observer and selection criteria used for a discretionary pool."
+            description="记录机动池的评审委员会、员工观察员与评选标准。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Pool</th>
-                  <th>Committee</th>
-                  <th>Observer</th>
-                  <th>Criteria</th>
-                  <th>Reviewed</th>
+                  <th>资金池</th>
+                  <th>评审委员会</th>
+                  <th>员工观察员</th>
+                  <th>评选标准</th>
+                  <th>已复核</th>
                 </tr>
               </thead>
               <tbody>
@@ -4043,7 +4043,7 @@ export function SettingsPage() {
                               review.employeeObserverPersonId,
                               people,
                             )
-                          : "None"}
+                          : "无"}
                       </td>
                       <td>{review.selectionCriteria}</td>
                       <td className="nowrap">
@@ -4067,7 +4067,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPoolReviewOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -4075,7 +4075,7 @@ export function SettingsPage() {
               form="pool-review-form"
               loading={poolReviewSaving}
             >
-              Record review
+              记录复核
             </Button>
           </>
         }
@@ -4105,7 +4105,7 @@ export function SettingsPage() {
           </FormField>
           <div className="detail-section">
             <div className="detail-section__title">
-              Committee (select at least two)
+              评审委员会（至少选两人）
             </div>
             <div className="stack">
               {people.map((person) => (
@@ -4135,7 +4135,7 @@ export function SettingsPage() {
               value={poolReviewObserver}
               onChange={(event) => setPoolReviewObserver(event.target.value)}
             >
-              <option value="">No observer</option>
+              <option value="">无观察员</option>
               {people.map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.displayName}
@@ -4183,7 +4183,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openPolicyForm}
           >
-            Record policy
+            记录策略
           </Button>
         }
         flush
@@ -4203,19 +4203,19 @@ export function SettingsPage() {
           <EmptyState
             icon="ai"
             title="No provider policy"
-            description="Record zero-retention confirmation, DPA reference, region and egress allowlist before enabling provider-policy enforcement."
+            description="启用供应商策略强制前，登记零留存确认、DPA 引用、区域与出口白名单。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Provider</th>
-                  <th>Zero retention</th>
+                  <th>供应商</th>
+                  <th>零留存</th>
                   <th>DPA</th>
-                  <th>Region</th>
-                  <th>Egress</th>
-                  <th>Status</th>
+                  <th>推理区域</th>
+                  <th>出口白名单</th>
+                  <th>状态</th>
                   <th />
                 </tr>
               </thead>
@@ -4229,7 +4229,7 @@ export function SettingsPage() {
                           policy.zeroRetentionConfirmed ? "success" : "danger"
                         }
                       >
-                        {policy.zeroRetentionConfirmed ? "Confirmed" : "Missing"}
+                        {policy.zeroRetentionConfirmed ? "Confirmed" : "缺失"}
                       </Badge>
                     </td>
                     <td className="mono">{policy.dpaRef}</td>
@@ -4246,7 +4246,7 @@ export function SettingsPage() {
                           onClick={() => void retirePolicy(policy)}
                           loading={policySaving}
                         >
-                          Retire
+                          退役
                         </Button>
                       ) : null}
                     </td>
@@ -4266,7 +4266,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPolicyOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -4274,7 +4274,7 @@ export function SettingsPage() {
               form="provider-policy-form"
               loading={policySaving}
             >
-              Record policy
+              记录策略
             </Button>
           </>
         }
@@ -4288,7 +4288,7 @@ export function SettingsPage() {
             <InfoNotice tone="warning">{policyError}</InfoNotice>
           ) : null}
           <div className="form-grid">
-            <FormField label="Provider" htmlFor="policy-provider">
+            <FormField label="供应商" htmlFor="policy-provider">
               <TextInput
                 id="policy-provider"
                 value={policyProvider}
@@ -4312,7 +4312,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Approver" htmlFor="policy-approver">
+            <FormField label="审批人" htmlFor="policy-approver">
               <PersonSelect
                 id="policy-approver"
                 value={policyApprover}
@@ -4339,7 +4339,7 @@ export function SettingsPage() {
                 setPolicyZeroRetention(event.target.checked)
               }
             />
-            <span>Provider contract confirms zero retention.</span>
+            <span>供应商合同确认零留存。</span>
           </label>
         </form>
       </Modal>
@@ -4355,7 +4355,7 @@ export function SettingsPage() {
             icon="plus"
             onClick={openRedactionForm}
           >
-            Redact event
+            脱敏事件
           </Button>
         }
         flush
@@ -4379,11 +4379,11 @@ export function SettingsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Audit event</th>
-                  <th>Replacement</th>
-                  <th>Reason</th>
-                  <th>Requested / approved</th>
-                  <th>Created</th>
+                  <th>审计事件</th>
+                  <th>替换文本</th>
+                  <th>原因</th>
+                  <th>申请 / 批准</th>
+                  <th>创建时间</th>
                 </tr>
               </thead>
               <tbody>
@@ -4417,7 +4417,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRedactionOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -4425,7 +4425,7 @@ export function SettingsPage() {
               form="redaction-form"
               loading={redactionSaving}
             >
-              Redact
+              脱敏
             </Button>
           </>
         }
@@ -4442,7 +4442,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Reason" htmlFor="redaction-reason">
+          <FormField label="原因" htmlFor="redaction-reason">
             <TextInput
               id="redaction-reason"
               value={redactionReason}
@@ -4450,14 +4450,14 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Requested by" htmlFor="redaction-requester">
+          <FormField label="发起人" htmlFor="redaction-requester">
             <PersonSelect
               id="redaction-requester"
               value={redactionRequester}
               onChange={setRedactionRequester}
             />
           </FormField>
-          <FormField label="Approved by" htmlFor="redaction-approver">
+          <FormField label="批准人" htmlFor="redaction-approver">
             <PersonSelect
               id="redaction-approver"
               value={redactionApprover}
@@ -4474,7 +4474,7 @@ export function SettingsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRecoveryTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -4485,7 +4485,7 @@ export function SettingsPage() {
                 !recoveryCycleId.trim() || !recoveryLedgerId.trim()
               }
             >
-              Generate recovery
+              生成追回
             </Button>
           </>
         }
@@ -4499,13 +4499,13 @@ export function SettingsPage() {
           <DefinitionList
             items={[
               {
-                label: "Case",
+                label: "案件",
                 value: `${recoveryTarget?.amount ?? ""} ${recoveryTarget?.currency ?? ""} · ${recoveryTarget?.reasonCode ?? ""}`,
               },
               {
                 label: "Effect",
                 value:
-                  "Appends one locked negative ledger adjustment (idempotent per case). Already-acknowledged settlement cycles refuse retroactive adjustments.",
+                  "追加一笔锁定负向账本调整（按案例幂等）。已确认的结算周期拒绝追溯调整。",
               },
             ]}
           />
@@ -4557,7 +4557,7 @@ export function SettingsPage() {
               loading={disposalProcessing}
               onClick={() => void processDueDisposals()}
             >
-              Process due disposals
+              处理到期处置
             </Button>
             <Button
               size="sm"
@@ -4565,7 +4565,7 @@ export function SettingsPage() {
               icon="plus"
               onClick={openDisposalForm}
             >
-              Request disposal
+              申请处置
             </Button>
           </div>
         }
@@ -4583,17 +4583,17 @@ export function SettingsPage() {
           <EmptyState
             icon="clock"
             title="No disposal request"
-            description="Disposal requires a non-held retention policy, a reason, a second approver and a future grace date."
+            description="处置需要无保留的策略、理由、第二审批人与未来的宽限期。"
           />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Category</th>
-                  <th>Reason</th>
-                  <th>Status</th>
-                  <th>Scheduled</th>
+                  <th>类别</th>
+                  <th>原因</th>
+                  <th>状态</th>
+                  <th>已排期</th>
                   <th />
                 </tr>
               </thead>
@@ -4616,7 +4616,7 @@ export function SettingsPage() {
                           onClick={() => void approveDisposal(request)}
                           loading={disposalSaving}
                         >
-                          Approve
+                          批准
                         </Button>
                       ) : null}
                     </td>
@@ -4631,12 +4631,12 @@ export function SettingsPage() {
       <Modal
         open={disposalOpen}
         title="Request retention disposal"
-        description="A different person must approve; the request cannot complete before its scheduled grace date."
+        description="必须由另一人批准；未到宽限日期不可完成。"
         onClose={() => setDisposalOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDisposalOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -4644,7 +4644,7 @@ export function SettingsPage() {
               form="disposal-form"
               loading={disposalSaving}
             >
-              Request
+              请求
             </Button>
           </>
         }
@@ -4670,14 +4670,14 @@ export function SettingsPage() {
                 ))}
             </Select>
           </FormField>
-          <FormField label="Requested by" htmlFor="disposal-requester">
+          <FormField label="发起人" htmlFor="disposal-requester">
             <PersonSelect
               id="disposal-requester"
               value={disposalRequester}
               onChange={setDisposalRequester}
             />
           </FormField>
-          <FormField label="Reason" htmlFor="disposal-reason">
+          <FormField label="原因" htmlFor="disposal-reason">
             <Textarea
               id="disposal-reason"
               value={disposalReason}
@@ -4698,7 +4698,7 @@ export function SettingsPage() {
             variant="secondary"
             onClick={openFieldPolicies}
           >
-            Edit matrix
+            编辑矩阵
           </Button>
         }
         flush
@@ -4719,9 +4719,9 @@ export function SettingsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Resource.field</th>
-                  <th>Allowed roles</th>
-                  <th>Source</th>
+                  <th>RESOURCE.field</th>
+                  <th>允许角色</th>
+                  <th>来源</th>
                 </tr>
               </thead>
               <tbody>
@@ -4750,20 +4750,20 @@ export function SettingsPage() {
       <Modal
         open={fieldPolicyOpen}
         title="Edit field access matrix"
-        description="JSON object mapping RESOURCE.field to allowed roles. Missing entries use the system default."
+        description="JSON 对象，将 RESOURCE.field 映射到允许角色；缺失项使用系统默认。"
         onClose={() => setFieldPolicyOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setFieldPolicyOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
               onClick={() => void saveFieldPolicies()}
               loading={fieldPolicySaving}
             >
-              Save matrix
+              保存矩阵
             </Button>
           </>
         }

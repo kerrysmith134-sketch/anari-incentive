@@ -42,7 +42,7 @@ const AGENT_TYPES = [
 const TRIGGER_TYPES = ["MANUAL", "EVENT", "SCHEDULE", "THRESHOLD"];
 
 export function AgentOpsPage() {
-  useDocumentTitle("Agent operations");
+  useDocumentTitle("Agent 运维");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -175,7 +175,7 @@ export function AgentOpsPage() {
       tasks.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof ApiError ? caught.message : "Could not record decision",
+        caught instanceof ApiError ? caught.message : "无法记录决策",
       );
     }
   }
@@ -198,7 +198,7 @@ export function AgentOpsPage() {
       workflows.reload();
     } catch (caught) {
       setWorkflowError(
-        caught instanceof Error ? caught.message : "Could not record workflow",
+        caught instanceof Error ? caught.message : "无法记录工作流",
       );
     }
   }
@@ -214,7 +214,7 @@ export function AgentOpsPage() {
       workflows.reload();
     } catch (caught) {
       toast.error(
-        "Could not finish workflow",
+        "无法完成工作流",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {
@@ -259,7 +259,7 @@ export function AgentOpsPage() {
       suggestions.reload();
     } catch (caught) {
       toast.error(
-        "Could not accept suggestion",
+        "无法采纳建议",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {
@@ -279,7 +279,7 @@ export function AgentOpsPage() {
     <>
       <PageHeader
         eyebrow="Bounded automation"
-        title="Agent operations"
+        title="Agent 运维"
         description="Proactive agent tasks, their approval gates, workflow runs and suggestion logs. T2/T3 actions require a human; every step is audited."
         actions={
           <>
@@ -289,7 +289,7 @@ export function AgentOpsPage() {
               loading={busy === "scan"}
               onClick={scan}
             >
-              Run scan
+              运行扫描
             </Button>
             <Button
               variant="primary"
@@ -303,7 +303,7 @@ export function AgentOpsPage() {
                 setEnqueueOpen(true);
               }}
             >
-              Enqueue task
+              排队任务
             </Button>
           </>
         }
@@ -311,17 +311,17 @@ export function AgentOpsPage() {
 
       <Tabs
         items={[
-          { id: "tasks", label: "Agent tasks", count: taskList.length },
+          { id: "tasks", label: "Agent 任务", count: taskList.length },
           {
             id: "approvals",
             label: "Pending actions",
             count: pendingActions.length,
           },
-          { id: "workflows", label: "Workflow runs", count: workflowList.length },
-          { id: "metrics", label: "Acceptance metrics" },
+          { id: "workflows", label: "工作流运行", count: workflowList.length },
+          { id: "metrics", label: "验收指标" },
           {
             id: "suggestions",
-            label: "Suggestion logs",
+            label: "建议日志",
             count: suggestionList.length,
           },
         ]}
@@ -332,7 +332,7 @@ export function AgentOpsPage() {
 
       <div className="tab-panel">
         {tab === "tasks" ? (
-          <Panel title="Agent tasks" flush>
+          <Panel title="Agent 任务" flush>
             {tasks.error ? (
               <div style={{ padding: 16 }}>
                 <ErrorNotice error={tasks.error} onRetry={tasks.reload} />
@@ -345,19 +345,19 @@ export function AgentOpsPage() {
               <EmptyState
                 icon="ai"
                 title="No agent task"
-                description="Queue a task manually or run a scan to let the agent observe evidence gaps and settlement readiness."
+                description="可手动排队任务或运行扫描，让 Agent 观察证据缺口与结算就绪度。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Task</th>
-                      <th>Agent</th>
-                      <th>Status</th>
-                      <th>Risk</th>
-                      <th>Findings</th>
-                      <th>Updated</th>
+                      <th>任务</th>
+                      <th>智能体</th>
+                      <th>状态</th>
+                      <th>风险</th>
+                      <th>发现</th>
+                      <th>更新时间</th>
                       <th />
                     </tr>
                   </thead>
@@ -393,7 +393,7 @@ export function AgentOpsPage() {
                             loading={busy === `run:${task.id}`}
                             onClick={() => runTask(task)}
                           >
-                            Run
+                            运行
                           </Button>
                         </td>
                       </tr>
@@ -406,14 +406,14 @@ export function AgentOpsPage() {
         ) : tab === "approvals" ? (
           <Panel
             title="Pending agent actions"
-            subtitle="Approving executes the action; T3 policy publication stays admin-only"
+            subtitle="批准即执行动作；T3 政策发布仅管理员"
             flush
           >
             {pendingActions.length === 0 ? (
               <EmptyState
                 icon="approvals"
                 title="Nothing awaiting approval"
-                description="T0/T1 actions run automatically; higher-risk actions appear here."
+                description="T0/T1 自动执行；更高风险动作在此等待。"
               />
             ) : (
               <div className="stack" style={{ padding: 16, gap: 12 }}>
@@ -422,12 +422,12 @@ export function AgentOpsPage() {
                     <DefinitionList
                       items={[
                         {
-                          label: "Task",
+                          label: "任务",
                           value: `${titleCase(task.agentType)} · ${shortId(task.id, 10)}`,
                         },
                         { label: "Tool", value: action.tool },
-                        { label: "Risk", value: action.riskTier },
-                        { label: "Target", value: `${action.targetType} ${shortId(action.targetId, 10)}` },
+                        { label: "风险", value: action.riskTier },
+                        { label: "对象", value: `${action.targetType} ${shortId(action.targetId, 10)}` },
                       ]}
                     />
                     <p className="muted">{action.description}</p>
@@ -443,7 +443,7 @@ export function AgentOpsPage() {
                           setActionError(null);
                         }}
                       >
-                        Approve
+                        批准
                       </Button>
                       <Button
                         size="sm"
@@ -456,7 +456,7 @@ export function AgentOpsPage() {
                           setActionError(null);
                         }}
                       >
-                        Reject
+                        驳回
                       </Button>
                     </div>
                   </div>
@@ -466,8 +466,8 @@ export function AgentOpsPage() {
           </Panel>
         ) : tab === "workflows" ? (
           <Panel
-            title="Workflow runs"
-            subtitle="Task-linked workflow executions"
+            title="工作流运行"
+            subtitle="与任务关联的工作流执行"
             flush
             action={
               <Button
@@ -483,7 +483,7 @@ export function AgentOpsPage() {
                   setWorkflowOpen(true);
                 }}
               >
-                New run
+                新建计算
               </Button>
             }
           >
@@ -499,17 +499,17 @@ export function AgentOpsPage() {
               <EmptyState
                 icon="clock"
                 title="No workflow run"
-                description="Workflow runs record multi-step agent executions and their current step."
+                description="工作流运行记录 Agent 多步执行及当前步骤。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Workflow</th>
-                      <th>Task</th>
-                      <th>Status</th>
-                      <th>Started</th>
+                      <th>工作流</th>
+                      <th>任务</th>
+                      <th>状态</th>
+                      <th>已开始</th>
                       <th />
                     </tr>
                   </thead>
@@ -539,7 +539,7 @@ export function AgentOpsPage() {
                               loading={busy === `finish:${run.id}`}
                               onClick={() => finishWorkflow(run)}
                             >
-                              Finish
+                              完成
                             </Button>
                           ) : (
                             <span className="subtle">
@@ -559,7 +559,7 @@ export function AgentOpsPage() {
         ) : tab === "suggestions" ? (
           <Panel
             title="AI suggestion logs"
-            subtitle="Model outputs linked to an agent task; acceptance is attributed"
+            subtitle="与 Agent 任务关联的模型输出；采纳归属到人"
             flush
             action={
               <Button
@@ -577,7 +577,7 @@ export function AgentOpsPage() {
                   setSuggestionOpen(true);
                 }}
               >
-                Log suggestion
+                记录建议
               </Button>
             }
           >
@@ -596,17 +596,17 @@ export function AgentOpsPage() {
               <EmptyState
                 icon="ai"
                 title="No suggestion log"
-                description="Suggestions are non-scoring model outputs reviewed by a human."
+                description="建议是非评分类模型输出，须人工复核。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Suggestion</th>
-                      <th>Target</th>
-                      <th>Validation</th>
-                      <th>Created</th>
+                      <th>建议</th>
+                      <th>对象</th>
+                      <th>校验</th>
+                      <th>创建时间</th>
                       <th />
                     </tr>
                   </thead>
@@ -649,7 +649,7 @@ export function AgentOpsPage() {
                               loading={busy === `accept:${suggestion.id}`}
                               onClick={() => acceptSuggestion(suggestion)}
                             >
-                              Accept
+                              验收
                             </Button>
                           )}
                         </td>
@@ -662,8 +662,8 @@ export function AgentOpsPage() {
           </Panel>
         ) : (
           <Panel
-            title="Acceptance metrics"
-            subtitle="Operational loop metrics; false positives, cost and the AI-off floor need external data"
+            title="验收指标"
+            subtitle="运营闭环指标；误报率/成本/AI 关闭兜底率需要外部数据"
           >
             {agentMetrics.error ? (
               <ErrorNotice
@@ -676,7 +676,7 @@ export function AgentOpsPage() {
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Closed tasks</div>
+                    <div className="coverage-cell__label">已关闭任务</div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.closedTasks}/
                       {agentMetrics.data.totalTasks}
@@ -684,7 +684,7 @@ export function AgentOpsPage() {
                   </div>
                   <div className="coverage-cell">
                     <div className="coverage-cell__label">
-                      Median close time
+                      关闭耗时中位数
                     </div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.medianCloseHours ?? "—"}h
@@ -692,7 +692,7 @@ export function AgentOpsPage() {
                   </div>
                   <div className="coverage-cell">
                     <div className="coverage-cell__label">
-                      Auto-resolved rate
+                      自动解决率
                     </div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.autoResolvedRate === null
@@ -703,7 +703,7 @@ export function AgentOpsPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Escalation rate</div>
+                    <div className="coverage-cell__label">升级率</div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.escalationRate === null
                         ? "—"
@@ -711,7 +711,7 @@ export function AgentOpsPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Human override</div>
+                    <div className="coverage-cell__label">人工改判</div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.humanOverrideRate === null
                         ? "—"
@@ -720,7 +720,7 @@ export function AgentOpsPage() {
                   </div>
                   <div className="coverage-cell">
                     <div className="coverage-cell__label">
-                      Average attempts
+                      平均尝试次数
                     </div>
                     <div className="coverage-cell__value">
                       {agentMetrics.data.averageAttempts ?? "—"}
@@ -739,15 +739,15 @@ export function AgentOpsPage() {
       <Modal
         open={enqueueOpen}
         title="Enqueue agent task"
-        description="The idempotency key prevents duplicate work."
+        description="幂等键防止重复执行。"
         onClose={() => setEnqueueOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setEnqueueOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={enqueueTask}>
-              Enqueue
+              排队
             </Button>
           </>
         }
@@ -784,7 +784,7 @@ export function AgentOpsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Idempotency key" htmlFor="agent-key">
+          <FormField label="幂等键" htmlFor="agent-key">
             <TextInput
               id="agent-key"
               value={idempotencyKey}
@@ -810,10 +810,10 @@ export function AgentOpsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setActionTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={decideAction}>
-              {actionDecision === "approve" ? "Approve" : "Reject"}
+              {actionDecision === "approve" ? "批准" : "驳回"}
             </Button>
           </>
         }
@@ -824,7 +824,7 @@ export function AgentOpsPage() {
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Approver" htmlFor="agent-approver">
+          <FormField label="审批人" htmlFor="agent-approver">
             <PersonSelect
               id="agent-approver"
               value={approver}
@@ -833,7 +833,7 @@ export function AgentOpsPage() {
           </FormField>
           {actionDecision === "reject" ? (
             <FormField
-              label="Reason"
+              label="原因"
               htmlFor="agent-reject-reason"
               className="field--full"
             >
@@ -855,10 +855,10 @@ export function AgentOpsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setWorkflowOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createWorkflow}>
-              Record run
+              记录运行
             </Button>
           </>
         }
@@ -869,14 +869,14 @@ export function AgentOpsPage() {
               <InfoNotice tone="warning">{workflowError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Agent task" htmlFor="workflow-task">
+          <FormField label="Agent 任务" htmlFor="workflow-task">
             <Select
               id="workflow-task"
               value={workflowTaskId}
               onChange={(event) => setWorkflowTaskId(event.target.value)}
               required
             >
-              <option value="">Select a task</option>
+              <option value="">选择任务…</option>
               {taskList.map((task) => (
                 <option key={task.id} value={task.id}>
                   {titleCase(task.agentType)} · {shortId(task.id, 8)}
@@ -892,7 +892,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Version" htmlFor="workflow-version">
+          <FormField label="版本" htmlFor="workflow-version">
             <TextInput
               id="workflow-version"
               value={workflowVersion}
@@ -900,7 +900,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Current step" htmlFor="workflow-step">
+          <FormField label="当前步骤" htmlFor="workflow-step">
             <TextInput
               id="workflow-step"
               value={workflowStep}
@@ -917,10 +917,10 @@ export function AgentOpsPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setSuggestionOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createSuggestion}>
-              Log suggestion
+              记录建议
             </Button>
           </>
         }
@@ -931,14 +931,14 @@ export function AgentOpsPage() {
               <InfoNotice tone="warning">{suggestionError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Agent task" htmlFor="suggestion-task">
+          <FormField label="Agent 任务" htmlFor="suggestion-task">
             <Select
               id="suggestion-task"
               value={suggestionTaskId}
               onChange={(event) => setSuggestionTaskId(event.target.value)}
               required
             >
-              <option value="">Select a task</option>
+              <option value="">选择任务…</option>
               {taskList.map((task) => (
                 <option key={task.id} value={task.id}>
                   {titleCase(task.agentType)} · {shortId(task.id, 8)}
@@ -946,7 +946,7 @@ export function AgentOpsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Target type" htmlFor="suggestion-target">
+          <FormField label="对象类型" htmlFor="suggestion-target">
             <TextInput
               id="suggestion-target"
               value={suggestionTargetType}
@@ -964,7 +964,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Prompt version" htmlFor="suggestion-prompt">
+          <FormField label="提示词版本" htmlFor="suggestion-prompt">
             <TextInput
               id="suggestion-prompt"
               value={suggestionPromptVersion}

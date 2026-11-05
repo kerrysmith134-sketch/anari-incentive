@@ -1,3 +1,5 @@
+import { zhStatus } from "./zh.js";
+
 const SYMBOLS: Record<string, string> = {
   CNY: "¥",
   USD: "$",
@@ -100,6 +102,9 @@ export function formatRelative(value?: string | null): string {
 
 export function titleCase(value?: string | null): string {
   if (!value) return "—";
+  // 已知枚举直接走中文词典（如 ACTIVE → 生效中）。
+  const zh = zhStatus(value.trim().toUpperCase());
+  if (zh !== value.trim().toUpperCase()) return zh;
   return value
     .toLowerCase()
     .replace(/[_-]+/g, " ")

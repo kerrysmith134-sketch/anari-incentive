@@ -53,20 +53,20 @@ const ACTION_COPY: Record<
   calculate: {
     title: "Calculate payroll run",
     description:
-      "Recalculate from active contracts and locked ledger entries. Existing lines for this run are replaced.",
+      "从生效合同与锁定账本重新计算；本批次已有明细会被替换。",
     confirm: "Calculate run",
   },
   approve: {
     title: "Approve payroll run",
     description:
-      "Approval locks the calculated totals. The preparer cannot approve their own run.",
+      "批准会锁定计算结果；编制人不能批准自己的批次。",
     confirm: "Approve run",
   },
   pay: {
     title: "Mark payroll paid",
     description:
-      "Mark this run paid after the bank file has been executed. Reversal remains possible afterwards.",
-    confirm: "Mark paid",
+      "银行代发执行后再标记已支付；之后仍可冲销。",
+    confirm: "标记已支付",
     danger: true,
   },
   reverse: {
@@ -86,7 +86,7 @@ const ACTION_COPY: Record<
 };
 
 export function PayrollPage() {
-  useDocumentTitle("Payroll");
+  useDocumentTitle("薪酬");
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") ?? "runs";
   const setTab = (next: string) => {
@@ -107,7 +107,7 @@ export function PayrollPage() {
     <>
       <PageHeader
         eyebrow="Reward settlement"
-        title="Payroll"
+        title="薪酬"
         description="Declared contracts, minimum-wage gates, tax withholding and bank-ready settlement — with a statutory IIT calculator for China."
         actions={
           <Button
@@ -119,16 +119,16 @@ export function PayrollPage() {
             }}
             loading={runs.loading || contracts.loading}
           >
-            Refresh
+            刷新
           </Button>
         }
       />
 
       <Tabs
         items={[
-          { id: "runs", label: "Payroll runs", count: runList.length },
-          { id: "contracts", label: "Contracts", count: contractList.length },
-          { id: "tax", label: "Tax studio" },
+          { id: "runs", label: "薪酬批次", count: runList.length },
+          { id: "contracts", label: "合同", count: contractList.length },
+          { id: "tax", label: "个税工作台" },
         ]}
         active={tab}
         onChange={setTab}
@@ -300,7 +300,7 @@ function RunsTab({
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The action failed.",
+            : "操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -360,7 +360,7 @@ function RunsTab({
           subtitle="Draft → calculated → approved → paid. Blocked runs require remediation."
           action={
             <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
-              New run
+              新建计算
             </Button>
           }
           flush
@@ -376,11 +376,11 @@ function RunsTab({
           ) : runs.length === 0 ? (
             <EmptyState
               icon="wallet"
-              title="No payroll run yet"
-              description="Create a draft run, then calculate it against active contracts and locked ledger entries."
+              title="暂无薪酬批次"
+              description="先创建草稿批次，再基于生效合同与锁定账本计算。"
               action={
                 <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                  Create first run
+                  创建首个批次
                 </Button>
               }
             />
@@ -389,11 +389,11 @@ function RunsTab({
               <table className="data-table table-clickable">
                 <thead>
                   <tr>
-                    <th>Period</th>
-                    <th>Status</th>
-                    <th className="cell-num">Gross</th>
-                    <th className="cell-num">Net</th>
-                    <th>Updated</th>
+                    <th>周期</th>
+                    <th>状态</th>
+                    <th className="cell-num">税前</th>
+                    <th className="cell-num">税后</th>
+                    <th>更新时间</th>
                     <th />
                   </tr>
                 </thead>
@@ -439,7 +439,7 @@ function RunsTab({
                               onSelect(run.id);
                             }}
                           >
-                            Open
+                            待处理
                           </Button>
                         </td>
                       </tr>
@@ -452,49 +452,49 @@ function RunsTab({
 
         <div className="stack">
           {!selectedRunId ? (
-            <Panel title="Run detail">
+            <Panel title="批次明细">
               <EmptyState
                 icon="approvals"
                 title="Select a run"
-                description="Open a payroll run to inspect lines, apply workflow actions and export settlement files."
+                description="打开薪酬批次查看明细、执行流转并导出结算文件。"
               />
             </Panel>
           ) : detail.error ? (
-            <Panel title="Run detail">
+            <Panel title="批次明细">
               <ErrorNotice error={detail.error} onRetry={detail.reload} />
             </Panel>
           ) : detail.loading || !selected ? (
-            <Panel title="Run detail">
+            <Panel title="批次明细">
               <LoadingRows rows={4} />
             </Panel>
           ) : (
             <>
               <Panel
-                title="Run detail"
+                title="批次明细"
                 subtitle={`${formatDate(selected.periodStart)} – ${formatDate(selected.periodEnd)} · ${shortId(selected.id)}`}
                 action={<Badge status={selected.status} />}
               >
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Gross</div>
+                    <div className="coverage-cell__label">税前</div>
                     <div className="coverage-cell__value">
                       {formatMoney(selected.totalGross, selected.currency)}
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Net</div>
+                    <div className="coverage-cell__label">税后</div>
                     <div className="coverage-cell__value">
                       {formatMoney(selected.totalNet, selected.currency)}
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Withholding</div>
+                    <div className="coverage-cell__label">代扣</div>
                     <div className="coverage-cell__value">
                       {formatMoney(selected.totalTax, selected.currency)}
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Social insurance</div>
+                    <div className="coverage-cell__label">社保</div>
                     <div className="coverage-cell__value">
                       {formatMoney(
                         selected.totalSocialInsurance,
@@ -507,11 +507,11 @@ function RunsTab({
                 <DefinitionList
                   items={[
                     {
-                      label: "Prepared by",
+                      label: "编制人",
                       value: displayName(selected.preparedBy, people),
                     },
                     {
-                      label: "Approved by",
+                      label: "批准人",
                       value: selected.approvedBy
                         ? displayName(selected.approvedBy, people)
                         : "—",
@@ -532,12 +532,12 @@ function RunsTab({
                           label: "Reversal reason",
                           value: selected.reversalReason,
                         }
-                      : { label: "Version", value: `v${selected.version}` },
+                      : { label: "版本", value: `v${selected.version}` },
                   ]}
                 />
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Workflow</div>
+                  <div className="detail-section__title">工作流</div>
                   <div className="row-actions" style={{ flexWrap: "wrap" }}>
                     {["DRAFT", "CALCULATED", "BLOCKED"].includes(selected.status) ? (
                       <Button
@@ -546,7 +546,7 @@ function RunsTab({
                         icon="play"
                         onClick={() => openAction("calculate", selected)}
                       >
-                        Calculate
+                        计算
                       </Button>
                     ) : null}
                     {selected.status === "CALCULATED" ? (
@@ -556,7 +556,7 @@ function RunsTab({
                         icon="check"
                         onClick={() => openAction("approve", selected)}
                       >
-                        Approve
+                        批准
                       </Button>
                     ) : null}
                     {selected.status === "APPROVED" ? (
@@ -566,7 +566,7 @@ function RunsTab({
                         icon="wallet"
                         onClick={() => openAction("pay", selected)}
                       >
-                        Mark paid
+                        标记已支付
                       </Button>
                     ) : null}
                     {["APPROVED", "PAID"].includes(selected.status) ? (
@@ -576,7 +576,7 @@ function RunsTab({
                         icon="undo"
                         onClick={() => openAction("reverse", selected)}
                       >
-                        Reverse
+                        冲销
                       </Button>
                     ) : null}
                     {!["PAID", "REVERSED", "CANCELLED"].includes(selected.status) ? (
@@ -585,7 +585,7 @@ function RunsTab({
                         variant="ghost"
                         onClick={() => openAction("cancel", selected)}
                       >
-                        Cancel
+                        取消
                       </Button>
                     ) : null}
                   </div>
@@ -599,7 +599,7 @@ function RunsTab({
                 </div>
 
                 <div className="detail-section">
-                  <div className="detail-section__title">Exports</div>
+                  <div className="detail-section__title">导出</div>
                   <div className="row-actions" style={{ flexWrap: "wrap" }}>
                     <Button
                       size="sm"
@@ -608,7 +608,7 @@ function RunsTab({
                       loading={downloading === `${selected.id}:export`}
                       onClick={() => void exportRun(selected, "export")}
                     >
-                      Payroll CSV
+                      薪酬 CSV
                     </Button>
                     <Button
                       size="sm"
@@ -617,7 +617,7 @@ function RunsTab({
                       loading={downloading === `${selected.id}:bank-file`}
                       onClick={() => void exportRun(selected, "bank-file")}
                     >
-                      Bank file
+                      银行代发文件
                     </Button>
                     <Button
                       size="sm"
@@ -626,7 +626,7 @@ function RunsTab({
                       loading={downloading === `${selected.id}:bank-fileICBC`}
                       onClick={() => void exportRun(selected, "bank-file", "ICBC")}
                     >
-                      Bank · ICBC
+                      银行 · 工行
                     </Button>
                     <Button
                       size="sm"
@@ -635,7 +635,7 @@ function RunsTab({
                       loading={downloading === `${selected.id}:bank-fileCMB`}
                       onClick={() => void exportRun(selected, "bank-file", "CMB")}
                     >
-                      Bank · CMB
+                      银行 · 招行
                     </Button>
                     <Button
                       size="sm"
@@ -644,14 +644,14 @@ function RunsTab({
                       loading={downloading === `${selected.id}:tax-filing`}
                       onClick={() => void exportRun(selected, "tax-filing")}
                     >
-                      Tax filing CSV
+                      个税申报 CSV
                     </Button>
                   </div>
                 </div>
               </Panel>
 
               <Panel
-                title="Lines"
+                title="明细行"
                 subtitle={`${selected.lines?.length ?? 0} employee lines`}
                 flush
               >
@@ -659,7 +659,7 @@ function RunsTab({
                   <EmptyState
                     icon="layers"
                     title="No lines calculated"
-                    description="Run calculation to pull active contracts and locked ledger entries into this period."
+                    description="运行计算，把生效合同与锁定账本纳入本期。"
                     action={
                       <Button
                         size="sm"
@@ -667,7 +667,7 @@ function RunsTab({
                         icon="play"
                         onClick={() => openAction("calculate", selected)}
                       >
-                        Calculate now
+                        立即计算
                       </Button>
                     }
                   />
@@ -676,11 +676,11 @@ function RunsTab({
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Person</th>
-                          <th className="cell-num">Gross</th>
-                          <th className="cell-num">Tax</th>
-                          <th className="cell-num">Net</th>
-                          <th>Gate</th>
+                          <th>人员</th>
+                          <th className="cell-num">税前</th>
+                          <th className="cell-num">个税</th>
+                          <th className="cell-num">税后</th>
+                          <th>门禁</th>
                           <th />
                         </tr>
                       </thead>
@@ -697,17 +697,17 @@ function RunsTab({
                             </td>
                             <td className="cell-num">
                               {line.redactedFields?.includes("grossAmount")
-                                ? "Redacted"
+                                ? "已脱敏"
                                 : formatMoney(line.grossAmount, line.currency)}
                             </td>
                             <td className="cell-num">
                               {line.redactedFields?.includes("taxAmount")
-                                ? "Redacted"
+                                ? "已脱敏"
                                 : formatMoney(line.taxAmount, line.currency)}
                             </td>
                             <td className="cell-num">
                               {line.redactedFields?.includes("netAmount")
-                                ? "Redacted"
+                                ? "已脱敏"
                                 : formatMoney(line.netAmount, line.currency)}
                             </td>
                             <td>
@@ -722,7 +722,7 @@ function RunsTab({
                                   tone={line.minimumWagePassed ? "success" : "danger"}
                                 >
                                   {line.minimumWagePassed
-                                    ? "Minimum wage"
+                                    ? "最低工资"
                                     : "Below minimum"}
                                 </Badge>
                                 <Badge
@@ -794,7 +794,7 @@ function RunsTab({
                                   void downloadPayslip(selected.id, line.personId)
                                 }
                               >
-                                Payslip
+                                工资条
                               </Button>
                             </td>
                           </tr>
@@ -817,7 +817,7 @@ function RunsTab({
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -825,7 +825,7 @@ function RunsTab({
               form="create-run-form"
               loading={submitting}
             >
-              Create draft
+              创建草稿批次
             </Button>
           </>
         }
@@ -894,7 +894,7 @@ function RunsTab({
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="run-currency">
+          <FormField label="币种" htmlFor="run-currency">
             <TextInput
               id="run-currency"
               value={currency}
@@ -904,7 +904,7 @@ function RunsTab({
             />
           </FormField>
           <FormField
-            label="Prepared by"
+            label="编制人"
             htmlFor="run-preparer"
             hint="The preparer cannot approve this run."
           >
@@ -927,7 +927,7 @@ function RunsTab({
         footer={
           <>
             <Button variant="ghost" onClick={() => setPendingAction(null)}>
-              Close
+              关闭
             </Button>
             <Button
               variant={
@@ -938,7 +938,7 @@ function RunsTab({
               onClick={executeAction}
               loading={submitting}
             >
-              {pendingAction ? ACTION_COPY[pendingAction.kind].confirm : "Confirm"}
+              {pendingAction ? ACTION_COPY[pendingAction.kind].confirm : "确认"}
             </Button>
           </>
         }
@@ -951,11 +951,11 @@ function RunsTab({
             <DefinitionList
               items={[
                 {
-                  label: "Run",
+                  label: "运行",
                   value: `${shortId(pendingAction.run.id, 14)} · v${pendingAction.run.version}`,
                 },
                 {
-                  label: "Period",
+                  label: "周期",
                   value: `${formatDate(pendingAction.run.periodStart)} – ${formatDate(pendingAction.run.periodEnd)}`,
                 },
                 {
@@ -966,12 +966,12 @@ function RunsTab({
             />
             {pendingAction.kind === "approve" ? (
               <FormField
-                label="Approver person"
+                label="审批人"
                 htmlFor="run-approver"
                 hint={
                   pendingAction.run.preparedBy === approvedBy
                     ? "This is the preparer — separation of duties will reject it."
-                    : "Attribution is recorded against this person."
+                    : "贡献认定将记录到该人员名下。"
                 }
               >
                 <PersonSelect
@@ -991,7 +991,7 @@ function RunsTab({
                   />
                 </FormField>
                 <FormField
-                  label="Reason (required)"
+                  label="原因（必填）"
                   htmlFor="run-reason"
                   hint="Retained permanently against the run."
                 >
@@ -1190,7 +1190,7 @@ function ContractsTab({
           consentSignatureRef: consentSignatureRef.trim(),
         },
       });
-      toast.success("Contract created", contractCode);
+      toast.success("合同已创建", contractCode);
       setOpen(false);
       reload();
     } catch (caught) {
@@ -1276,7 +1276,7 @@ function ContractsTab({
   return (
     <Panel
       title="Employment contracts"
-      subtitle="Declared fixed salary, minimum wage and withholding rates. Statutory calculation is available in Tax studio."
+      subtitle="申报的固定薪、最低工资与扣缴率；法定计算见「个税工作台」。"
       action={
         <div className="row-actions">
           <Button
@@ -1302,10 +1302,10 @@ function ContractsTab({
               }
             }}
           >
-            Apply due
+            应用到期修订
           </Button>
           <Button size="sm" variant="primary" icon="plus" onClick={openForm}>
-            New contract
+            新建合同
           </Button>
         </div>
       }
@@ -1323,10 +1323,10 @@ function ContractsTab({
         <EmptyState
           icon="people"
           title="No declared contract"
-          description="Payroll only sees active contracts. Create one to include a person in the next calculation."
+          description="薪酬只读取生效合同；请先创建合同，人员才会进入下次计算。"
           action={
             <Button variant="primary" size="sm" icon="plus" onClick={openForm}>
-              Create contract
+              创建合同
             </Button>
           }
         />
@@ -1335,14 +1335,14 @@ function ContractsTab({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Contract</th>
-                <th>Person</th>
-                <th>Type</th>
-                <th className="cell-num">Fixed salary</th>
-                <th className="cell-num">Minimum wage</th>
-                <th className="cell-num">Tax</th>
-                <th className="cell-num">Social</th>
-                <th>Status</th>
+                <th>合同</th>
+                <th>人员</th>
+                <th>类型</th>
+                <th className="cell-num">固定薪</th>
+                <th className="cell-num">最低工资</th>
+                <th className="cell-num">个税</th>
+                <th className="cell-num">社保</th>
+                <th>状态</th>
                 <th />
               </tr>
             </thead>
@@ -1388,7 +1388,7 @@ function ContractsTab({
                         variant="secondary"
                         onClick={() => openAmend(contract)}
                       >
-                        Amend
+                        修订
                       </Button>
                     ) : null}
                   </td>
@@ -1405,10 +1405,10 @@ function ContractsTab({
           style={{ justifyContent: "space-between", width: "100%" }}
         >
           <div className="detail-section__title" style={{ margin: 0 }}>
-            E-sign envelopes
+            电子签信封
           </div>
           <Button size="sm" variant="secondary" icon="plus" onClick={openEsign}>
-            Register envelope
+            登记信封
           </Button>
         </div>
         {envelopes.error ? (
@@ -1425,11 +1425,11 @@ function ContractsTab({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Contract</th>
-                  <th>Provider</th>
-                  <th>Envelope</th>
-                  <th>Status</th>
-                  <th>Signer</th>
+                  <th>合同</th>
+                  <th>供应商</th>
+                  <th>信封</th>
+                  <th>状态</th>
+                  <th>签署人</th>
                 </tr>
               </thead>
               <tbody>
@@ -1463,7 +1463,7 @@ function ContractsTab({
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1471,7 +1471,7 @@ function ContractsTab({
               form="create-contract-form"
               loading={submitting}
             >
-              Create contract
+              创建合同
             </Button>
           </>
         }
@@ -1482,7 +1482,7 @@ function ContractsTab({
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Person" htmlFor="contract-person">
+          <FormField label="人员" htmlFor="contract-person">
             <PersonSelect
               id="contract-person"
               value={personId}
@@ -1498,7 +1498,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Employment type" htmlFor="contract-type">
+          <FormField label="用工类型" htmlFor="contract-type">
             <Select
               id="contract-type"
               value={employmentType}
@@ -1521,7 +1521,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Legal entity (optional)"
+            label="法人实体（可选）"
             htmlFor="contract-legal-entity"
           >
             <TextInput
@@ -1548,7 +1548,7 @@ function ContractsTab({
               onChange={(event) => setEndDate(event.target.value)}
             />
           </FormField>
-          <FormField label="Currency" htmlFor="contract-currency">
+          <FormField label="币种" htmlFor="contract-currency">
             <TextInput
               id="contract-currency"
               value={currency}
@@ -1557,7 +1557,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Fixed monthly salary" htmlFor="contract-salary">
+          <FormField label="固定月薪" htmlFor="contract-salary">
             <TextInput
               id="contract-salary"
               type="number"
@@ -1570,7 +1570,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Minimum monthly wage"
+            label="最低月薪"
             htmlFor="contract-minimum"
             hint="The calculation blocks any line whose net falls below this."
           >
@@ -1600,7 +1600,7 @@ function ContractsTab({
               onChange={(event) => setTaxRatePercent(event.target.value)}
             />
           </FormField>
-          <FormField label="Social insurance rate (%)" htmlFor="contract-social">
+          <FormField label="社保比例 (%)" htmlFor="contract-social">
             <TextInput
               id="contract-social"
               type="number"
@@ -1629,7 +1629,7 @@ function ContractsTab({
           <FormField
             label="Variable-share cap (% of gross)"
             htmlFor="contract-variable-cap"
-            hint="Incentive above this share of gross pay blocks the payroll line. Default 100%."
+            hint="激励超过税前工资该比例将阻断薪酬行。默认 100%。"
           >
             <TextInput
               id="contract-variable-cap"
@@ -1642,7 +1642,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Deduction order"
+            label="扣款顺序"
             htmlFor="contract-deduction-order"
             hint="Comma-separated types; payroll groups deductions in this order."
           >
@@ -1653,7 +1653,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Deduction type caps"
+            label="分类型扣款上限"
             htmlFor="contract-deduction-type-caps"
             hint="Optional: TYPE=rate of gross, e.g. RECOVERY=0.1. Breaches block the line."
           >
@@ -1683,7 +1683,7 @@ function ContractsTab({
           <FormField
             label="Compensation template code (optional)"
             htmlFor="contract-template"
-            hint="When set, the active template validates employment type, currency and salary range."
+            hint="设置后，生效模板会校验用工类型、币种与薪资区间。"
           >
             <TextInput
               id="contract-template"
@@ -1700,7 +1700,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Consent / e-signature reference"
+            label="同意/电子签引用"
             htmlFor="contract-consent"
             hint="Required evidence that the employee agreed to the pay plan."
           >
@@ -1722,13 +1722,13 @@ function ContractsTab({
             ? `Amend ${amendTarget.contractCode}`
             : "Amend employment contract"
         }
-        description="A new pay-plan version requires employee consent evidence and is recorded in the amendment history."
+        description="新的薪酬方案版本需要员工同意凭证，并记入修订历史。"
         onClose={() => setAmendTarget(null)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setAmendTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1736,7 +1736,7 @@ function ContractsTab({
               form="amend-contract-form"
               loading={submitting}
             >
-              Record amendment
+              记录修订
             </Button>
           </>
         }
@@ -1747,7 +1747,7 @@ function ContractsTab({
               <InfoNotice tone="warning">{amendError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Fixed monthly salary" htmlFor="amend-salary">
+          <FormField label="固定月薪" htmlFor="amend-salary">
             <TextInput
               id="amend-salary"
               type="number"
@@ -1758,7 +1758,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Minimum monthly wage" htmlFor="amend-minimum">
+          <FormField label="最低月薪" htmlFor="amend-minimum">
             <TextInput
               id="amend-minimum"
               type="number"
@@ -1780,7 +1780,7 @@ function ContractsTab({
               onChange={(event) => setAmendTax(event.target.value)}
             />
           </FormField>
-          <FormField label="Social insurance rate (%)" htmlFor="amend-social">
+          <FormField label="社保比例 (%)" htmlFor="amend-social">
             <TextInput
               id="amend-social"
               type="number"
@@ -1814,7 +1814,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Deduction order"
+            label="扣款顺序"
             htmlFor="amend-deduction-order"
           >
             <TextInput
@@ -1826,7 +1826,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Deduction type caps"
+            label="分类型扣款上限"
             htmlFor="amend-deduction-type-caps"
           >
             <TextInput
@@ -1862,7 +1862,7 @@ function ContractsTab({
               }
             />
           </FormField>
-          <FormField label="Effective date" htmlFor="amend-effective">
+          <FormField label="生效日期" htmlFor="amend-effective">
             <TextInput
               id="amend-effective"
               type="date"
@@ -1872,7 +1872,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Consent / e-signature reference"
+            label="同意/电子签引用"
             htmlFor="amend-consent"
             className="field--full"
             hint="The server rejects a missing consent reference and future effective dates."
@@ -1884,7 +1884,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Approved by" htmlFor="amend-approver">
+          <FormField label="批准人" htmlFor="amend-approver">
             <PersonSelect
               id="amend-approver"
               value={amendApprover}
@@ -1897,15 +1897,15 @@ function ContractsTab({
       <Modal
         open={esignOpen}
         title="Register e-sign envelope"
-        description="The provider callback writes the signed consent reference back to the contract."
+        description="供应商回调会把已签署同意引用写回合同。"
         onClose={() => setEsignOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setEsignOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={createEsign}>
-              Register
+              登记
             </Button>
           </>
         }
@@ -1916,14 +1916,14 @@ function ContractsTab({
               <InfoNotice tone="warning">{esignError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Contract" htmlFor="esign-contract">
+          <FormField label="合同" htmlFor="esign-contract">
             <Select
               id="esign-contract"
               value={esignContractId}
               onChange={(event) => setEsignContractId(event.target.value)}
               required
             >
-              <option value="">Select a contract</option>
+              <option value="">选择合同…</option>
               {contracts.map((contract) => (
                 <option key={contract.id} value={contract.id}>
                   {contract.contractCode}
@@ -1931,7 +1931,7 @@ function ContractsTab({
               ))}
             </Select>
           </FormField>
-          <FormField label="Provider" htmlFor="esign-provider">
+          <FormField label="供应商" htmlFor="esign-provider">
             <TextInput
               id="esign-provider"
               value={esignProvider}
@@ -1957,7 +1957,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Signer" htmlFor="esign-signer">
+          <FormField label="签署人" htmlFor="esign-signer">
             <PersonSelect
               id="esign-signer"
               value={esignSigner}
@@ -2049,7 +2049,7 @@ function TaxStudio() {
   return (
     <div className="stack">
       <InfoNotice>
-        <strong>Statutory estimate, not tax advice.</strong> This applies the
+        <strong>法定口径估算，不构成税务意见。</strong> This applies the
         public annual cumulative withholding brackets for China resident
         comprehensive income (3%–45%) to a steady monthly taxable base. Actual
         filings depend on cumulative income, special additional deductions and
@@ -2150,13 +2150,13 @@ function TaxStudio() {
 
             <div className="coverage-grid">
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Monthly taxable</div>
+                <div className="coverage-cell__label">当月应纳税所得</div>
                 <div className="coverage-cell__value">
                   {formatMoney(monthlyTaxable, "CNY")}
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Cumulative taxable</div>
+                <div className="coverage-cell__label">累计应纳税所得</div>
                 <div className="coverage-cell__value">
                   {formatMoney(cumulative, "CNY")}
                 </div>
@@ -2172,7 +2172,7 @@ function TaxStudio() {
                 icon="chart"
                 loading={loading}
               >
-                Calculate withholding
+                计算预扣
               </Button>
             </div>
           </form>
@@ -2193,13 +2193,13 @@ function TaxStudio() {
             <div className="stack">
               <div className="calculator-result">
                 <div className="calculator-result__label">
-                  Tax due this period
+                  本期应纳税
                 </div>
                 <div className="calculator-result__value">
                   {formatMoney(result.taxForPeriod, "CNY", { decimals: 2 })}
                 </div>
                 <div className="calculator-result__row">
-                  <span>Cumulative taxable income</span>
+                  <span>累计应纳税所得额</span>
                   <strong>
                     {formatMoney(result.cumulativeTaxableIncome, "CNY", {
                       decimals: 2,
@@ -2207,13 +2207,13 @@ function TaxStudio() {
                   </strong>
                 </div>
                 <div className="calculator-result__row">
-                  <span>Annual tax due at bracket</span>
+                  <span>按档年度应纳税</span>
                   <strong>
                     {formatMoney(result.annualTaxDue, "CNY", { decimals: 2 })}
                   </strong>
                 </div>
                 <div className="calculator-result__row">
-                  <span>Already withheld</span>
+                  <span>已预扣</span>
                   <strong>
                     {formatMoney(result.taxAlreadyWithheld, "CNY", {
                       decimals: 2,
@@ -2221,7 +2221,7 @@ function TaxStudio() {
                   </strong>
                 </div>
                 <div className="calculator-result__row">
-                  <span>Effective annual rate</span>
+                  <span>等效年税率</span>
                   <strong>{formatPercent(effectiveRate, 1)}</strong>
                 </div>
               </div>
@@ -2234,17 +2234,17 @@ function TaxStudio() {
             <EmptyState
               icon="chart"
               title="No estimate yet"
-              description="Enter income and deductions, then calculate to see the bracket and period withholding."
+              description="录入收入与扣除后计算，即可看到税率档与本期预扣。"
             />
           )}
 
           <div className="detail-section section-gap">
-            <div className="detail-section__title">Annual cumulative brackets</div>
+            <div className="detail-section__title">年度累计税率表</div>
             <div className="bracket-list">
               <div className="bracket-row bracket-row--head">
-                <span className="bracket-row__rate">Rate</span>
-                <span className="bracket-row__range">Annual taxable income</span>
-                <span className="bracket-row__deduction">Quick deduction</span>
+                <span className="bracket-row__rate">税率</span>
+                <span className="bracket-row__range">年度应纳税所得</span>
+                <span className="bracket-row__deduction">速算扣除</span>
               </div>
               {IIT_BRACKETS.map((bracket) => (
                 <div

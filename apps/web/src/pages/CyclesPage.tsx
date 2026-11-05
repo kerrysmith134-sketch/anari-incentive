@@ -51,7 +51,7 @@ const TIMEZONES = [
 ];
 
 export function CyclesPage() {
-  useDocumentTitle("Cycles");
+  useDocumentTitle("考核周期");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
@@ -206,8 +206,8 @@ export function CyclesPage() {
       readiness.reload();
     } catch (caught) {
       toast.error(
-        command === "approve" ? "Approval failed" : "Lock failed",
-        caught instanceof ApiError ? caught.message : "Request failed",
+        command === "approve" ? "审批失败" : "Lock failed",
+        caught instanceof ApiError ? caught.message : "请求失败",
       );
     } finally {
       setBusy(null);
@@ -262,7 +262,7 @@ export function CyclesPage() {
           rubricVersionId: rubricVersionId || undefined,
         },
       });
-      toast.success("Cycle created", name);
+      toast.success("周期已创建", name);
       setCreateOpen(false);
       setSelectedId(created.id);
       cycles.reload();
@@ -291,7 +291,7 @@ export function CyclesPage() {
       );
       toast.success(
         "Evidence package downloaded",
-        "Includes legal gates, decisions, settlements, ledger and audit events.",
+        "包含法律门禁、决策、结算、账本与审计事件。",
       );
     } catch (caught) {
       toast.error(
@@ -347,7 +347,7 @@ export function CyclesPage() {
           (value) => typeof value !== "number" || value < 0 || value > 5,
         )
       ) {
-        throw new Error("scores must be an object of numbers between 0 and 5");
+        throw new Error("得分必须是 0–5 的数字对象");
       }
       scores = parsed as Record<string, number>;
     } catch (caught) {
@@ -361,7 +361,7 @@ export function CyclesPage() {
       return;
     }
     if (rationale.trim().length < 3) {
-      setReviewError("A rationale of at least 3 characters is required.");
+      setReviewError("必须填写至少 3 个字符的理由。");
       return;
     }
     setSubmitting(true);
@@ -391,7 +391,7 @@ export function CyclesPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not record the decision.",
+            : "无法记录决策。",
       );
     } finally {
       setSubmitting(false);
@@ -407,7 +407,7 @@ export function CyclesPage() {
     <>
       <PageHeader
         eyebrow="Evaluation operations"
-        title="Cycles"
+        title="考核周期"
         description="Run evaluation periods, review evidence-bound drafts and issue human decisions. Drafts never become formal decisions without a reviewer."
         actions={
           <>
@@ -422,7 +422,7 @@ export function CyclesPage() {
               }}
               loading={cycles.loading}
             >
-              Refresh
+              刷新
             </Button>
             <Button
               variant="secondary"
@@ -431,10 +431,10 @@ export function CyclesPage() {
               loading={exporting}
               disabled={!selectedId}
             >
-              Evidence pack
+              证据包
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
-              New cycle
+              新建周期
             </Button>
           </>
         }
@@ -443,7 +443,7 @@ export function CyclesPage() {
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--accent">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Cycles</span>
+            <span className="stat-tile__label">考核周期</span>
           </div>
           <div className="stat-tile__value">{cycleList.length}</div>
           <div className="stat-tile__detail">
@@ -454,24 +454,24 @@ export function CyclesPage() {
         </div>
         <div className="stat-tile stat-tile--warning">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Drafts in review</span>
+            <span className="stat-tile__label">复核中草稿</span>
           </div>
           <div className="stat-tile__value">{pendingDrafts.length}</div>
-          <div className="stat-tile__detail">Submitted, awaiting a decision</div>
+          <div className="stat-tile__detail">已提交，等待决策</div>
         </div>
         <div className="stat-tile stat-tile--good">
           <div className="stat-tile__top">
-            <span className="stat-tile__label">Approved decisions</span>
+            <span className="stat-tile__label">已批决策</span>
           </div>
           <div className="stat-tile__value">{approvedDecisions.length}</div>
-          <div className="stat-tile__detail">Versioned and reviewer-attributed</div>
+          <div className="stat-tile__detail">版本化并归属复核人</div>
         </div>
       </div>
 
       {cycles.error ? (
         <ErrorNotice error={cycles.error} onRetry={cycles.reload} />
       ) : cycles.loading ? (
-        <Panel title="Cycles">
+        <Panel title="考核周期">
           <LoadingRows rows={4} />
         </Panel>
       ) : cycleList.length === 0 ? (
@@ -479,10 +479,10 @@ export function CyclesPage() {
           <EmptyState
             icon="layers"
             title="No evaluation cycle"
-            description="Create a cycle to bind evaluation drafts, policy versions and settlement."
+            description="创建周期以绑定评价草稿、政策版本与结算。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                Create cycle
+                新建周期
               </Button>
             }
           />
@@ -490,13 +490,13 @@ export function CyclesPage() {
       ) : (
         <>
           <div className="split-grid">
-            <Panel title="Evaluation cycles" subtitle="Select a cycle to inspect its evidence" flush>
+            <Panel title="考核周期" subtitle="Select a cycle to inspect its evidence" flush>
               <div className="table-wrap">
                 <table className="data-table table-clickable">
                   <thead>
                     <tr>
-                      <th>Cycle</th>
-                      <th>Status</th>
+                      <th>周期</th>
+                      <th>状态</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -540,7 +540,7 @@ export function CyclesPage() {
                     tone={readiness.data.readyForSettlement ? "success" : "danger"}
                   >
                     {readiness.data.readyForSettlement
-                      ? "Settlement ready"
+                      ? "结算就绪"
                       : "Not ready"}
                   </Badge>
                 ) : null
@@ -554,7 +554,7 @@ export function CyclesPage() {
                 <>
                   <div className="coverage-grid">
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Calculations</div>
+                      <div className="coverage-cell__label">计算</div>
                       <div className="coverage-cell__value">
                         {readiness.data.calculations.total}
                       </div>
@@ -563,7 +563,7 @@ export function CyclesPage() {
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Legal gates</div>
+                      <div className="coverage-cell__label">法律门禁</div>
                       <div className="coverage-cell__value">
                         {
                           readiness.data.legalGates.filter((gate) => gate.recorded)
@@ -574,7 +574,7 @@ export function CyclesPage() {
                       <div className="coverage-cell__sub">recorded</div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Settlement</div>
+                      <div className="coverage-cell__label">结算</div>
                       <div className="coverage-cell__value">
                         {readiness.data.settlement.total}
                       </div>
@@ -583,12 +583,12 @@ export function CyclesPage() {
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Budgets</div>
+                      <div className="coverage-cell__label">预算</div>
                       <div className="coverage-cell__value">
                         {readiness.data.budgets.approved}/
                         {readiness.data.budgets.pools}
                       </div>
-                      <div className="coverage-cell__sub">approved pools</div>
+                      <div className="coverage-cell__sub">已批准资金池</div>
                     </div>
                   </div>
                   {readiness.data.blockers.length > 0 ? (
@@ -609,7 +609,7 @@ export function CyclesPage() {
                     <div className="notice notice--success section-gap">
                       <Icon name="check-circle" size={18} />
                       <div>
-                        <strong>Settlement ready</strong>
+                        <strong>结算就绪</strong>
                         <p>
                           A formal locked calculation satisfies the recorded
                           readiness checks.
@@ -620,7 +620,7 @@ export function CyclesPage() {
                     <div className="notice notice--warning section-gap">
                       <Icon name="alert-circle" size={18} />
                       <div>
-                        <strong>Not settlement ready</strong>
+                        <strong>未就绪</strong>
                         <p>
                           No explicit blocker is recorded, but the cycle still
                           needs a formal locked calculation and its downstream
@@ -636,7 +636,7 @@ export function CyclesPage() {
 
           <div className="split-grid section-gap">
             <Panel
-              title="Evaluation drafts"
+              title="评价草稿"
               subtitle={selected ? `For ${selected.name}` : undefined}
               flush
             >
@@ -652,17 +652,17 @@ export function CyclesPage() {
                 <EmptyState
                   icon="policy"
                   title="No draft for this cycle"
-                  description="Drafts are contributed by people or agents and must cite an evidence snapshot."
+                  description="草稿由人工或 Agent 生成，必须引用证据快照。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Person</th>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Updated</th>
+                        <th>人员</th>
+                        <th>来源</th>
+                        <th>状态</th>
+                        <th>更新时间</th>
                         <th />
                       </tr>
                     </thead>
@@ -697,7 +697,7 @@ export function CyclesPage() {
                               variant="ghost"
                               onClick={() => setDetailDraft(draft)}
                             >
-                              Open
+                              待处理
                             </Button>
                             {draft.status === "SUBMITTED" ? (
                               <Button
@@ -705,7 +705,7 @@ export function CyclesPage() {
                                 variant="primary"
                                 onClick={() => openReview(draft)}
                               >
-                                Review
+                                复核
                               </Button>
                             ) : null}
                           </td>
@@ -717,7 +717,7 @@ export function CyclesPage() {
               )}
             </Panel>
 
-            <Panel title="Approved decisions" subtitle="Human decisions only" flush>
+            <Panel title="已批决策" subtitle="Human decisions only" flush>
               {decisions.error ? (
                 <div style={{ padding: 16 }}>
                   <ErrorNotice error={decisions.error} onRetry={decisions.reload} />
@@ -730,17 +730,17 @@ export function CyclesPage() {
                 <EmptyState
                   icon="approvals"
                   title="No decision for this cycle"
-                  description="Approving a submitted draft creates a versioned decision attributed to the reviewer."
+                  description="批准已提交草稿会生成归属复核人的版本化决策。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Person</th>
-                        <th>Version</th>
-                        <th>Status</th>
-                        <th>Approved</th>
+                        <th>人员</th>
+                        <th>版本</th>
+                        <th>状态</th>
+                        <th>已批准</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -778,7 +778,7 @@ export function CyclesPage() {
             flush
             action={
               <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
-                New run
+                新建计算
               </Button>
             }
           >
@@ -794,10 +794,10 @@ export function CyclesPage() {
               <EmptyState
                 icon="clock"
                 title="No calculation run for this cycle"
-                description="Create a shadow or formal run once claims are decided and the legal gate is recorded."
+                description="申报完成认定并记录法律门禁后，即可发起影子或正式计算。"
                 action={
                   <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
-                    Create run
+                    新建计算
                   </Button>
                 }
               />
@@ -806,12 +806,12 @@ export function CyclesPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Run</th>
-                      <th>Mode</th>
-                      <th>Status</th>
-                      <th>Lines</th>
-                      <th>Blockers</th>
-                      <th>Created</th>
+                      <th>运行</th>
+                      <th>模式</th>
+                      <th>状态</th>
+                      <th>明细行</th>
+                      <th>阻断项</th>
+                      <th>创建时间</th>
                       <th />
                     </tr>
                   </thead>
@@ -850,7 +850,7 @@ export function CyclesPage() {
                                 )
                               }
                             >
-                              {expandedRunId === run.id ? "Hide" : "Details"}
+                              {expandedRunId === run.id ? "隐藏" : "详情"}
                             </Button>
                             {run.status === "CALCULATED" ? (
                               <Button
@@ -859,7 +859,7 @@ export function CyclesPage() {
                                 loading={busy === `approve:${run.id}`}
                                 onClick={() => runCommand(run.id, "approve")}
                               >
-                                Approve
+                                批准
                               </Button>
                             ) : null}
                             {run.status === "APPROVED" ? (
@@ -869,7 +869,7 @@ export function CyclesPage() {
                                 loading={busy === `lock:${run.id}`}
                                 onClick={() => runCommand(run.id, "lock")}
                               >
-                                Lock
+                                锁定
                               </Button>
                             ) : null}
                           </td>
@@ -919,10 +919,10 @@ export function CyclesPage() {
                                     <table className="data-table">
                                       <thead>
                                         <tr>
-                                          <th>Person</th>
-                                          <th>Line</th>
+                                          <th>人员</th>
+                                          <th>行</th>
                                           <th>Raw</th>
-                                          <th>Rounded</th>
+                                          <th>舍入后</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -962,14 +962,14 @@ export function CyclesPage() {
 
       <Modal
         open={createOpen}
-        title="New evaluation cycle"
-        description="A cycle binds a policy version, rubric, evaluation drafts and settlement period."
+        title="新建考核周期"
+        description="周期绑定政策版本、评分标准、评价草稿与结算区间。"
         onClose={() => setCreateOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -977,7 +977,7 @@ export function CyclesPage() {
               form="create-cycle-form"
               loading={submitting}
             >
-              Create cycle
+              新建周期
             </Button>
           </>
         }
@@ -988,7 +988,7 @@ export function CyclesPage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Name" htmlFor="cycle-name" className="field--full">
+          <FormField label="名称" htmlFor="cycle-name" className="field--full">
             <TextInput
               id="cycle-name"
               value={name}
@@ -1010,7 +1010,7 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Timezone" htmlFor="cycle-timezone">
+          <FormField label="时区" htmlFor="cycle-timezone">
             <Select
               id="cycle-timezone"
               value={timezone}
@@ -1041,13 +1041,13 @@ export function CyclesPage() {
               required
             />
           </FormField>
-          <FormField label="Policy version" htmlFor="cycle-policy">
+          <FormField label="政策版本" htmlFor="cycle-policy">
             <Select
               id="cycle-policy"
               value={policyVersionId}
               onChange={(event) => setPolicyVersionId(event.target.value)}
             >
-              <option value="">Not bound yet</option>
+              <option value="">尚未绑定</option>
               {(policies.data ?? []).map((policy) => (
                 <option key={policy.policyVersionId} value={policy.policyVersionId}>
                   {policy.code} v{policy.version} · {policy.status}
@@ -1055,13 +1055,13 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Rubric version" htmlFor="cycle-rubric">
+          <FormField label="评分标准版本" htmlFor="cycle-rubric">
             <Select
               id="cycle-rubric"
               value={rubricVersionId}
               onChange={(event) => setRubricVersionId(event.target.value)}
             >
-              <option value="">Not bound yet</option>
+              <option value="">尚未绑定</option>
               {(rubrics.data ?? []).map((rubric) => (
                 <option key={rubric.id} value={rubric.id}>
                   {rubric.code} v{rubric.version} · {rubric.name}
@@ -1075,12 +1075,12 @@ export function CyclesPage() {
       <Modal
         open={exportScopeOpen}
         title="Evidence package scope"
-        description="Optionally scope the package to a legal entity and jurisdiction. Leave blank for the full cycle."
+        description="可将工作包限定到法人实体与法域；留空表示整个周期。"
         onClose={() => setExportScopeOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setExportScopeOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1091,13 +1091,13 @@ export function CyclesPage() {
                 setExportScopeOpen(false);
               }}
             >
-              Download
+              下载
             </Button>
           </>
         }
       >
         <div className="form-grid">
-          <FormField label="Legal entity (optional)" htmlFor="export-entity">
+          <FormField label="法人实体（可选）" htmlFor="export-entity">
             <TextInput
               id="export-entity"
               value={exportLegalEntity}
@@ -1121,13 +1121,13 @@ export function CyclesPage() {
       <Modal
         open={runOpen}
         title="New calculation run"
-        description="A legal gate must be recorded before a formal run. Participants must have decided claims."
+        description="正式计算前必须记录法律门禁；参与人的申报须已完成认定。"
         onClose={() => setRunOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setRunOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
@@ -1135,7 +1135,7 @@ export function CyclesPage() {
               form="create-run-form"
               loading={runSubmitting}
             >
-              Create run
+              新建计算
             </Button>
           </>
         }
@@ -1146,7 +1146,7 @@ export function CyclesPage() {
               <InfoNotice tone="warning">{runError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Mode" htmlFor="run-mode">
+          <FormField label="模式" htmlFor="run-mode">
             <Select
               id="run-mode"
               value={runMode}
@@ -1154,18 +1154,18 @@ export function CyclesPage() {
                 setRunMode(event.target.value as "SHADOW" | "FORMAL")
               }
             >
-              <option value="FORMAL">Formal</option>
+              <option value="FORMAL">正式</option>
               <option value="SHADOW">Shadow</option>
             </Select>
           </FormField>
-          <FormField label="Policy version" htmlFor="run-policy">
+          <FormField label="政策版本" htmlFor="run-policy">
             <Select
               id="run-policy"
               value={runPolicyVersionId}
               onChange={(event) => setRunPolicyVersionId(event.target.value)}
               required
             >
-              <option value="">Select a policy version</option>
+              <option value="">选择政策版本…</option>
               {(policies.data ?? []).map((policy) => (
                 <option key={policy.policyVersionId} value={policy.policyVersionId}>
                   {policy.code} v{policy.version}
@@ -1189,7 +1189,7 @@ export function CyclesPage() {
               required
             />
           </FormField>
-          <FormField label="Currency" htmlFor="run-order-currency">
+          <FormField label="币种" htmlFor="run-order-currency">
             <TextInput
               id="run-order-currency"
               value={orderCurrency}
@@ -1202,7 +1202,7 @@ export function CyclesPage() {
           </FormField>
           <div className="field--full">
             <div className="inline" style={{ justifyContent: "space-between" }}>
-              <strong>Participants</strong>
+              <strong>参与人</strong>
               <Button
                 type="button"
                 size="sm"
@@ -1220,7 +1220,7 @@ export function CyclesPage() {
                   ])
                 }
               >
-                Add participant
+                添加参与人
               </Button>
             </div>
           </div>
@@ -1241,7 +1241,7 @@ export function CyclesPage() {
                     }
                   />
                 </FormField>
-                <FormField label="Work package">
+                <FormField label="工作包">
                   <Select
                     value={participant.workPackageId}
                     onChange={(event) =>
@@ -1255,7 +1255,7 @@ export function CyclesPage() {
                     }
                     required
                   >
-                    <option value="">Select a package</option>
+                    <option value="">选择工作包…</option>
                     {(workPackages.data ?? []).map((workPackage) => (
                       <option key={workPackage.id} value={workPackage.id}>
                         {workPackage.title}
@@ -1281,7 +1281,7 @@ export function CyclesPage() {
                     required
                   />
                 </FormField>
-                <FormField label="Role">
+                <FormField label="角色">
                   <TextInput
                     value={participant.role}
                     onChange={(event) =>
@@ -1308,7 +1308,7 @@ export function CyclesPage() {
                       )
                     }
                   >
-                    Remove
+                    移除
                   </Button>
                 </div>
               </div>
@@ -1319,7 +1319,7 @@ export function CyclesPage() {
 
       <Modal
         open={Boolean(detailDraft)}
-        title="Evaluation draft"
+        title="评价草稿"
         description={
           detailDraft
             ? `${displayName(detailDraft.personId, people)} · ${titleCase(detailDraft.status)}`
@@ -1331,7 +1331,7 @@ export function CyclesPage() {
           detailDraft ? (
             <>
               <Button variant="ghost" onClick={() => setDetailDraft(null)}>
-                Close
+                关闭
               </Button>
               {detailDraft.status === "DRAFT" ? (
                 <Button
@@ -1339,11 +1339,11 @@ export function CyclesPage() {
                   onClick={() => submitDraft(detailDraft)}
                   loading={busy === detailDraft.id}
                 >
-                  Submit for review
+                  提交复核
                 </Button>
               ) : detailDraft.status === "SUBMITTED" ? (
                 <Button variant="primary" onClick={() => openReview(detailDraft)}>
-                  Review draft
+                  复核草稿
                 </Button>
               ) : null}
             </>
@@ -1355,7 +1355,7 @@ export function CyclesPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Source",
+                  label: "来源",
                   value: `${detailDraft.generatedByType}${
                     detailDraft.modelName
                       ? ` · ${detailDraft.modelProvider} ${detailDraft.modelName}`
@@ -1370,16 +1370,16 @@ export function CyclesPage() {
                     </span>
                   ),
                 },
-                { label: "Status", value: <Badge status={detailDraft.status} /> },
+                { label: "状态", value: <Badge status={detailDraft.status} /> },
                 {
-                  label: "Updated",
+                  label: "更新时间",
                   value: formatDateTime(detailDraft.updatedAt),
                 },
               ]}
             />
             {detailDraft.strengths.length > 0 ? (
               <div className="detail-section">
-                <div className="detail-section__title">Strengths</div>
+                <div className="detail-section__title">优势</div>
                 <ul className="stack" style={{ gap: 4 }}>
                   {detailDraft.strengths.map((item) => (
                     <li key={item} className="muted">
@@ -1391,7 +1391,7 @@ export function CyclesPage() {
             ) : null}
             {detailDraft.counterEvidence.length > 0 ? (
               <div className="detail-section">
-                <div className="detail-section__title">Counter-evidence</div>
+                <div className="detail-section__title">反证</div>
                 <ul className="stack" style={{ gap: 4 }}>
                   {detailDraft.counterEvidence.map((item) => (
                     <li key={item} className="muted">
@@ -1403,7 +1403,7 @@ export function CyclesPage() {
             ) : null}
             {detailDraft.missingInformation.length > 0 ? (
               <div className="detail-section">
-                <div className="detail-section__title">Missing information</div>
+                <div className="detail-section__title">缺失信息</div>
                 <div className="chip-row">
                   {detailDraft.missingInformation.map((item) => (
                     <span className="chip" key={item}>
@@ -1414,13 +1414,13 @@ export function CyclesPage() {
               </div>
             ) : null}
             <div className="detail-section">
-              <div className="detail-section__title">Draft payload</div>
+              <div className="detail-section__title">草稿内容</div>
               <pre className="code-block">
                 {JSON.stringify(detailDraft.draftPayload, null, 2)}
               </pre>
             </div>
             <div className="detail-section">
-              <div className="detail-section__title">Uncertainty</div>
+              <div className="detail-section__title">不确定性</div>
               <pre className="code-block">
                 {JSON.stringify(detailDraft.uncertainty ?? {}, null, 2)}
               </pre>
@@ -1432,13 +1432,13 @@ export function CyclesPage() {
       <Modal
         open={Boolean(reviewDraft)}
         title="Review evaluation draft"
-        description="Approving writes a versioned decision. The reviewer must not be the draft subject."
+        description="批准会写入版本化决策；复核人不得是草稿对象本人。"
         onClose={() => setReviewDraft(null)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setReviewDraft(null)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant={decision === "REJECT" ? "danger" : "primary"}
@@ -1458,11 +1458,11 @@ export function CyclesPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Person",
+                  label: "人员",
                   value: displayName(reviewDraft.personId, people),
                 },
                 {
-                  label: "Evidence",
+                  label: "证据",
                   value: (
                     <span className="mono">
                       {shortId(reviewDraft.evidenceSnapshotHash, 20)}
@@ -1476,7 +1476,7 @@ export function CyclesPage() {
               ]}
             />
             <div className="form-grid">
-              <FormField label="Decision" htmlFor="draft-decision">
+              <FormField label="决策" htmlFor="draft-decision">
                 <Select
                   id="draft-decision"
                   value={decision}
@@ -1484,11 +1484,11 @@ export function CyclesPage() {
                     setDecision(event.target.value as "APPROVE" | "REJECT")
                   }
                 >
-                  <option value="APPROVE">Approve</option>
-                  <option value="REJECT">Reject</option>
+                  <option value="APPROVE">批准</option>
+                  <option value="REJECT">驳回</option>
                 </Select>
               </FormField>
-              <FormField label="Reviewer" htmlFor="draft-reviewer">
+              <FormField label="复核人" htmlFor="draft-reviewer">
                 <PersonSelect
                   id="draft-reviewer"
                   value={reviewer}
@@ -1496,10 +1496,10 @@ export function CyclesPage() {
                 />
               </FormField>
               <FormField
-                label="Rubric version"
+                label="评分标准版本"
                 htmlFor="draft-rubric"
                 className="field--full"
-                hint="The decision records this exact rubric version."
+                hint="决策会记录所用的评分标准版本。"
               >
                 {activeRubrics.length > 0 ? (
                   <Select
@@ -1540,10 +1540,10 @@ export function CyclesPage() {
                 />
               </FormField>
               <FormField
-                label="Rationale"
+                label="理由"
                 htmlFor="draft-rationale"
                 className="field--full"
-                hint="At least 3 characters; retained with the decision."
+                hint="至少 3 个字符；随决策一并留存。"
               >
                 <Textarea
                   id="draft-rationale"

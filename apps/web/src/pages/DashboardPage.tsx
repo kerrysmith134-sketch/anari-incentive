@@ -182,10 +182,10 @@ export function DashboardPage() {
             </strong>
             {blockedRuns.length > 0
               ? ` · ${blockedRuns.length} payroll run${blockedRuns.length === 1 ? "" : "s"} blocked by the minimum-wage gate`
-              : " · high-risk actions stay gated until a human decides"}
+              : " · 高风险动作在人工决策前保持门禁"}
           </span>
           <Link className="btn btn--secondary btn--sm" to="/approvals">
-            Review queue
+            处理队列
             <Icon name="chevron-right" size={14} />
           </Link>
         </div>
@@ -193,7 +193,7 @@ export function DashboardPage() {
 
       <div className="stat-grid">
         <StatTile
-          label="Active cycles"
+          label="进行中周期"
           value={cycles.loading ? "…" : activeCycles.length}
           detail={
             cycles.loading
@@ -236,14 +236,14 @@ export function DashboardPage() {
                 <span>{formatDate(latestRun.periodEnd)}</span>
               </>
             ) : (
-              "No payroll run yet"
+              "暂无薪酬批次"
             )
           }
           icon="wallet"
           tone={blockedRuns.length > 0 ? "critical" : "neutral"}
         />
         <StatTile
-          label="Open bounties"
+          label="进行中悬赏"
           value={bounties.loading ? "…" : openBounties.length}
           detail={
             openBounties.length > 0
@@ -265,11 +265,11 @@ export function DashboardPage() {
       <div className="dashboard-grid">
         <div className="stack">
           <Panel
-            title="Approval queue"
-            subtitle="Gated actions waiting for a human decision"
+            title="审批队列"
+            subtitle="等待人工决策的受门禁动作"
             action={
               <Link className="btn btn--quiet btn--sm" to="/approvals">
-                View all
+                查看全部
                 <Icon name="chevron-right" size={13} />
               </Link>
             }
@@ -295,7 +295,7 @@ export function DashboardPage() {
               <EmptyState
                 icon="check-circle"
                 title="Queue is clear"
-                description="No action is waiting for approval. New T2/T3 requests will appear here."
+                description="没有等待审批的动作；新的 T2/T3 请求会出现在这里。"
               />
             ) : (
               <div className="approval-list">
@@ -330,11 +330,11 @@ export function DashboardPage() {
           </Panel>
 
           <Panel
-            title="Payroll runs"
+            title="薪酬批次"
             subtitle="Most recent settlement periods"
             action={
               <Link className="btn btn--quiet btn--sm" to="/payroll">
-                Open payroll
+                打开薪酬
                 <Icon name="chevron-right" size={13} />
               </Link>
             }
@@ -351,11 +351,11 @@ export function DashboardPage() {
             ) : sortedRuns.length === 0 ? (
               <EmptyState
                 icon="wallet"
-                title="No payroll run yet"
-                description="Create a draft run from declared employment contracts to begin a settlement period."
+                title="暂无薪酬批次"
+                description="从已申报合同创建影子计算，开启一个结算周期。"
                 action={
                   <Link className="btn btn--primary btn--sm" to="/payroll">
-                    Go to payroll
+                    前往薪酬
                   </Link>
                 }
               />
@@ -364,11 +364,11 @@ export function DashboardPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Period</th>
-                      <th>Status</th>
-                      <th className="cell-num">Gross</th>
-                      <th className="cell-num">Net</th>
-                      <th>Updated</th>
+                      <th>周期</th>
+                      <th>状态</th>
+                      <th className="cell-num">税前</th>
+                      <th className="cell-num">税后</th>
+                      <th>更新时间</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -401,17 +401,17 @@ export function DashboardPage() {
           </Panel>
 
           <div className="split-grid">
-            <Panel title="Rewards" subtitle="Equity and open work">
+            <Panel title="激励" subtitle="Equity and open work">
               <div className="coverage-grid">
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Active grants</div>
+                  <div className="coverage-cell__label">生效授予</div>
                   <div className="coverage-cell__value">{activeGrants.length}</div>
                   <div className="coverage-cell__sub">
                     {grants.data?.length ?? 0} total
                   </div>
                 </div>
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Open bounties</div>
+                  <div className="coverage-cell__label">进行中悬赏</div>
                   <div className="coverage-cell__value">{openBounties.length}</div>
                   <div className="coverage-cell__sub">
                     {bounties.data?.length ?? 0} total
@@ -420,7 +420,7 @@ export function DashboardPage() {
               </div>
               <div className="detail-section">
                 {openBounties.length === 0 ? (
-                  <p className="muted">No bounty is open right now.</p>
+                  <p className="muted">当前没有进行中的悬赏。</p>
                 ) : (
                   <div className="approval-list" style={{ margin: "0 -20px -20px" }}>
                     {openBounties.slice(0, 3).map((bounty) => (
@@ -439,26 +439,26 @@ export function DashboardPage() {
                 )}
               </div>
               <Link className="btn btn--quiet btn--sm section-gap" to="/rewards">
-                Open rewards
+                打开激励
                 <Icon name="chevron-right" size={13} />
               </Link>
             </Panel>
 
-            <Panel title="Integrations" subtitle="Payload movement">
+            <Panel title="集成" subtitle="Payload movement">
               <div className="two-col">
                 <div className="coverage-cell" style={{ border: "1px solid var(--line-soft)", borderRadius: 10 }}>
-                  <div className="coverage-cell__label">Connected</div>
+                  <div className="coverage-cell__label">已连通</div>
                   <div className="coverage-cell__value">{activeConnections.length}</div>
                   <div className="coverage-cell__sub">
                     of {connections.data?.length ?? 0} configured
                   </div>
                 </div>
                 <div className="coverage-cell" style={{ border: "1px solid var(--line-soft)", borderRadius: 10 }}>
-                  <div className="coverage-cell__label">Last sync</div>
+                  <div className="coverage-cell__label">最近同步</div>
                   <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                     {lastSync ? formatRelative(lastSync) : "—"}
                   </div>
-                  <div className="coverage-cell__sub">across providers</div>
+                  <div className="coverage-cell__sub">跨供应商</div>
                 </div>
               </div>
               <div className="detail-section">
@@ -467,7 +467,7 @@ export function DashboardPage() {
                     <span className="spinner" /> Loading connections…
                   </div>
                 ) : (connections.data?.length ?? 0) === 0 ? (
-                  <p className="muted">No connection configured yet.</p>
+                  <p className="muted">尚未配置连接。</p>
                 ) : (
                   <div className="stack" style={{ gap: 7 }}>
                     {connections.data?.slice(0, 4).map((connection) => (
@@ -487,7 +487,7 @@ export function DashboardPage() {
                 )}
               </div>
               <Link className="btn btn--quiet btn--sm section-gap" to="/integrations">
-                Open integrations
+                打开集成
                 <Icon name="chevron-right" size={13} />
               </Link>
             </Panel>
@@ -500,7 +500,7 @@ export function DashboardPage() {
             subtitle="Coverage and data quality signals"
             action={
               <Link className="btn btn--quiet btn--sm" to="/policy">
-                Reports
+                报告
               </Link>
             }
           >
@@ -514,7 +514,7 @@ export function DashboardPage() {
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Evidence coverage</div>
+                    <div className="coverage-cell__label">证据覆盖率</div>
                     <div className="coverage-cell__value">
                       {formatPercent(report.workPackages.evidenceCoverageRate)}
                     </div>
@@ -524,21 +524,21 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Confirmed claims</div>
+                    <div className="coverage-cell__label">已确认申报</div>
                     <div className="coverage-cell__value">{report.claims.confirmed}</div>
                     <div className="coverage-cell__sub">
                       {report.claims.pending} in review
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Deliverables</div>
+                    <div className="coverage-cell__label">交付物</div>
                     <div className="coverage-cell__value">
                       {report.deliverables.pendingAcceptance}
                     </div>
-                    <div className="coverage-cell__sub">pending acceptance</div>
+                    <div className="coverage-cell__sub">待验收</div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Open data issues</div>
+                    <div className="coverage-cell__label">未结数据问题</div>
                     <div className="coverage-cell__value">{report.dataQuality.open}</div>
                     <div className="coverage-cell__sub">
                       {report.dataQuality.overdue} overdue
@@ -562,7 +562,7 @@ export function DashboardPage() {
                     <p>
                       {report.dataQuality.overdue > 0
                         ? `${report.dataQuality.overdue} issue${report.dataQuality.overdue === 1 ? "" : "s"} past due — resolve before locking the next cycle.`
-                        : "No blocking data-quality issue is overdue for this tenant."}
+                        : "本租户没有逾期的阻断级数据质量问题。"}
                     </p>
                   </div>
                 </div>
@@ -572,20 +572,20 @@ export function DashboardPage() {
               <div className="inline" style={{ justifyContent: "space-between" }}>
                 <span className="muted inline">
                   <Icon name={verifyIcon} size={16} />
-                  Audit hash chain
+                  审计哈希链
                 </span>
                 {auditChain.loading ? (
-                  <span className="badge badge--neutral">Checking…</span>
+                  <span className="badge badge--neutral">检查中…</span>
                 ) : auditChain.data?.valid ? (
-                  <Badge tone="success">Verified</Badge>
+                  <Badge tone="success">已验证</Badge>
                 ) : (
-                  <Badge tone="danger">Needs attention</Badge>
+                  <Badge tone="danger">需要关注</Badge>
                 )}
               </div>
               <div className="inline" style={{ justifyContent: "space-between", marginTop: 10 }}>
                 <span className="muted inline">
                   <Icon name="clock" size={16} />
-                  Report generated
+                  报告已生成
                 </span>
                 <span className="subtle">{formatDateTime(report?.generatedAt)}</span>
               </div>
@@ -619,7 +619,7 @@ export function DashboardPage() {
               <EmptyState
                 icon="clock"
                 title="No activity recorded"
-                description="Seed a demo cycle or create an entity to populate the audit trail."
+                description="创建演示周期或业务实体后，审计轨迹会填充 here。"
               />
             ) : (
               <div className="activity-list">
@@ -648,7 +648,7 @@ export function DashboardPage() {
       {canViewTeam ? (
         <Panel
           title="Team aggregate"
-          subtitle="Group-level coverage only; individual amounts and names are never shown"
+          subtitle="仅群体级覆盖；绝不显示个人金额与姓名"
           className="section-gap"
         >
           {team.error ? (
@@ -660,7 +660,7 @@ export function DashboardPage() {
           ) : team.data.suppressed ? (
             <InfoNotice>
               {team.data.note ??
-                "Team aggregates are suppressed below the minimum group size."}{" "}
+                "低于最小人数时团队聚合自动抑制。"}{" "}
               Current group size is {team.data.teamSize}; at least{" "}
               {team.data.minimumGroupSize} direct reports are required.
             </InfoNotice>
@@ -668,14 +668,14 @@ export function DashboardPage() {
             <>
               <div className="coverage-grid">
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Direct reports</div>
+                  <div className="coverage-cell__label">直属下属</div>
                   <div className="coverage-cell__value">{team.data.teamSize}</div>
                   <div className="coverage-cell__sub">
                     minimum group {team.data.minimumGroupSize}
                   </div>
                 </div>
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Evaluation coverage</div>
+                  <div className="coverage-cell__label">评价覆盖率</div>
                   <div className="coverage-cell__value">
                     {formatPercent(team.data.evaluations?.coverage ?? 0)}
                   </div>
@@ -685,7 +685,7 @@ export function DashboardPage() {
                   </div>
                 </div>
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Confirmed claims</div>
+                  <div className="coverage-cell__label">已确认申报</div>
                   <div className="coverage-cell__value">
                     {team.data.claims?.confirmed ?? 0}
                   </div>
@@ -694,7 +694,7 @@ export function DashboardPage() {
                   </div>
                 </div>
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Open appeals</div>
+                  <div className="coverage-cell__label">未结申诉</div>
                   <div className="coverage-cell__value">
                     {team.data.appeals?.open ?? 0}
                   </div>
@@ -703,7 +703,7 @@ export function DashboardPage() {
                   </div>
                 </div>
                 <div className="coverage-cell">
-                  <div className="coverage-cell__label">Work packages</div>
+                  <div className="coverage-cell__label">工作包</div>
                   <div className="coverage-cell__value">
                     {team.data.workPackages?.total ?? 0}
                   </div>
@@ -715,7 +715,7 @@ export function DashboardPage() {
               {Object.keys(team.data.evaluations?.dimensions ?? {}).length >
               0 ? (
                 <div className="detail-section">
-                  <div className="detail-section__title">Dimension averages</div>
+                  <div className="detail-section__title">维度均值</div>
                   <div className="stack" style={{ gap: 6 }}>
                     {Object.entries(
                       team.data.evaluations?.dimensions ?? {},
@@ -739,7 +739,7 @@ export function DashboardPage() {
 
       <Panel
         title="Fairness and appeals"
-        subtitle="Published no-retaliation statement and aggregate appeal outcomes"
+        subtitle="已发布无报复承诺与申诉聚合结果"
         className="section-gap"
       >
         {appealStats.error ? (
@@ -766,12 +766,12 @@ export function DashboardPage() {
               </div>
             ) : (
               <InfoNotice>
-                No no-retaliation commitment has been published yet.
+                尚未发布无报复承诺。
               </InfoNotice>
             )}
             <div className="coverage-grid">
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Appeals</div>
+                <div className="coverage-cell__label">申诉</div>
                 <div className="coverage-cell__value">
                   {appealStats.data.appeals.total}
                 </div>
@@ -780,7 +780,7 @@ export function DashboardPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Open</div>
+                <div className="coverage-cell__label">待处理</div>
                 <div className="coverage-cell__value">
                   {appealStats.data.appeals.open}
                 </div>
@@ -789,7 +789,7 @@ export function DashboardPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Closed</div>
+                <div className="coverage-cell__label">已关闭</div>
                 <div className="coverage-cell__value">
                   {appealStats.data.appeals.closed}
                 </div>
@@ -800,7 +800,7 @@ export function DashboardPage() {
                 </div>
               </div>
               <div className="coverage-cell">
-                <div className="coverage-cell__label">Outcomes</div>
+                <div className="coverage-cell__label">结果</div>
                 <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                   {Object.keys(appealStats.data.appeals.resolutions).length === 0
                     ? "No resolution yet"
@@ -812,7 +812,7 @@ export function DashboardPage() {
                         .join(" · ")}
                 </div>
                 <div className="coverage-cell__sub">
-                  aggregate only, no personal data
+                  仅聚合，无个人数据
                 </div>
               </div>
             </div>
@@ -825,7 +825,7 @@ export function DashboardPage() {
 }
 
 function EmployeeHome() {
-  useDocumentTitle("My overview");
+  useDocumentTitle("我的工作台");
   async function downloadDataPackage() {
     try {
       const dataPackage = await api<Record<string, unknown>>(
@@ -887,8 +887,8 @@ function EmployeeHome() {
     <>
       <PageHeader
         eyebrow="My workspace"
-        title="My overview"
-        description="Your work, confirmations, appeals and AI record. Team data is aggregate-only and suppressed below the minimum group size."
+        title="我的工作台"
+        description="你的工作、确认、申诉与 AI 记录；团队数据仅聚合展示，低于最小人数自动抑制。"
         actions={
           <>
             <Button
@@ -896,15 +896,15 @@ function EmployeeHome() {
               icon="download"
               onClick={() => void downloadDataPackage()}
             >
-              My data
+              我的数据
             </Button>
             <Link className="btn btn--secondary" to="/contribution">
               <Icon name="layers" size={16} />
-              <span>My work</span>
+              <span>我的工作</span>
             </Link>
             <Link className="btn btn--primary" to="/my-ai">
               <Icon name="ai" size={16} />
-              <span>My AI record</span>
+              <span>我的 AI 记录</span>
             </Link>
           </>
         }
@@ -917,7 +917,7 @@ function EmployeeHome() {
           icon="layers"
         />
         <StatTile
-          label="Open appeals"
+          label="未结申诉"
           value={openAppeals.length}
           detail={`${appeals.data?.length ?? 0} total`}
           icon="alert-circle"
@@ -942,7 +942,7 @@ function EmployeeHome() {
         />
       </div>
       <div className="split-grid section-gap">
-        <Panel title="My work" subtitle="Packages where you own or contribute">
+        <Panel title="我的工作" subtitle="Packages where you own or contribute">
           {workPackages.error ? (
             <ErrorNotice
               error={workPackages.error}
@@ -953,8 +953,8 @@ function EmployeeHome() {
           ) : (workPackages.data?.length ?? 0) === 0 ? (
             <EmptyState
               icon="layers"
-              title="No work package"
-              description="Work assigned to you will appear here."
+              title="暂无工作包"
+              description="分配给你的工作会出现在这里。"
             />
           ) : (
             <div className="stack" style={{ gap: 8 }}>
@@ -971,7 +971,7 @@ function EmployeeHome() {
             </div>
           )}
         </Panel>
-        <Panel title="My appeals" subtitle="Independent review and evidence disclosure">
+        <Panel title="My appeals" subtitle="独立复核与证据公开">
           {appeals.error ? (
             <ErrorNotice error={appeals.error} onRetry={appeals.reload} />
           ) : appeals.loading ? (
@@ -979,8 +979,8 @@ function EmployeeHome() {
           ) : (appeals.data?.length ?? 0) === 0 ? (
             <EmptyState
               icon="approvals"
-              title="No appeal"
-              description="Your appeals and their evidence disclosures will appear here."
+              title="暂无申诉"
+              description="你的申诉与证据公开记录会出现在这里。"
             />
           ) : (
             <div className="stack" style={{ gap: 8 }}>
@@ -1011,7 +1011,7 @@ function EmployeeHome() {
           ) : confirmations.loading ? (
             <LoadingRows rows={2} />
           ) : (confirmations.data?.length ?? 0) === 0 ? (
-            <p className="muted">No confirmation recorded yet.</p>
+            <p className="muted">暂无确认记录。</p>
           ) : (
             <div className="stack" style={{ gap: 6 }}>
               {confirmations.data?.slice(0, 6).map((confirmation) => (
@@ -1033,22 +1033,22 @@ function EmployeeHome() {
         <Panel title="My team aggregate" subtitle="No individual names or amounts">
           {team.error ? (
             <p className="muted">
-              Team aggregate is unavailable until a manager is linked.
+              未关联汇报关系前团队聚合不可用。
             </p>
           ) : team.loading ? (
             <LoadingRows rows={2} />
           ) : team.data?.suppressed ? (
             <p className="muted">
-              Suppressed because the team is below the minimum group size.
+              团队人数低于最小值，已抑制。
             </p>
           ) : (
             <div className="stack" style={{ gap: 6 }}>
               <div className="inline" style={{ justifyContent: "space-between" }}>
-                <span>Team size</span>
+                <span>团队人数</span>
                 <span className="muted">{team.data?.teamSize}</span>
               </div>
               <div className="inline" style={{ justifyContent: "space-between" }}>
-                <span>Evaluated</span>
+                <span>已评测</span>
                 <span className="muted">
                   {team.data?.evaluations?.evaluated ?? 0}
                 </span>
@@ -1082,7 +1082,7 @@ function NotificationsPanel() {
 
   return (
     <Panel
-      title="Notifications"
+      title="通知"
       subtitle={unread > 0 ? `${unread} unread` : "All caught up"}
       className="section-gap"
       flush
@@ -1102,7 +1102,7 @@ function NotificationsPanel() {
         <EmptyState
           icon="approvals"
           title="No notification"
-          description="Reminders, approvals and settlement events appear here."
+          description="提醒、审批与结算事件会出现在这里。"
         />
       ) : (
         <div className="activity-list">
@@ -1123,14 +1123,14 @@ function NotificationsPanel() {
               </div>
               <div className="cell-actions">
                 {item.readAt ? (
-                  <span className="subtle">Read</span>
+                  <span className="subtle">已读</span>
                 ) : (
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => void markRead(item.id)}
                   >
-                    Mark read
+                    标记已读
                   </Button>
                 )}
               </div>

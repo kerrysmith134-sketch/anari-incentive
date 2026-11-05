@@ -51,7 +51,7 @@ import type {
 } from "../lib/ops-types.js";
 
 export function PolicyPage() {
-  useDocumentTitle("Policy");
+  useDocumentTitle("政策");
   const toast = useToast();
   const { session } = useAuth();
   const { people } = usePeople();
@@ -640,7 +640,7 @@ export function PolicyPage() {
     <>
       <PageHeader
         eyebrow="Rules and readiness"
-        title="Policy"
+        title="政策"
         description="Versioned policy definitions with test suites, legal gates, notice acknowledgement and DPIA evidence. A version is not settlement-ready until every blocker clears."
         actions={
           <>
@@ -654,7 +654,7 @@ export function PolicyPage() {
               }}
               loading={versions.loading}
             >
-              Refresh
+              刷新
             </Button>
             <Button
               variant="primary"
@@ -663,7 +663,7 @@ export function PolicyPage() {
               loading={running}
               disabled={!selectedId}
             >
-              Run test suite
+              运行用例集
             </Button>
           </>
         }
@@ -672,7 +672,7 @@ export function PolicyPage() {
       {versions.error ? (
         <ErrorNotice error={versions.error} onRetry={versions.reload} />
       ) : versions.loading ? (
-        <Panel title="Policy versions">
+        <Panel title="政策版本">
           <LoadingRows rows={3} />
         </Panel>
       ) : list.length === 0 ? (
@@ -680,13 +680,13 @@ export function PolicyPage() {
           <EmptyState
             icon="policy"
             title="No policy version"
-            description="Publish or seed a policy version to unlock readiness reports and test cases."
+            description="发布或导入政策版本后，就绪度报告与测试用例方可使用。"
           />
         </Panel>
       ) : (
         <div className="split-grid">
           <Panel
-            title="Policy versions"
+            title="政策版本"
             subtitle={`${list.length} published or seeded version${list.length === 1 ? "" : "s"}`}
             flush
           >
@@ -694,8 +694,8 @@ export function PolicyPage() {
               <table className="data-table table-clickable">
                 <thead>
                   <tr>
-                    <th>Policy</th>
-                    <th>Status</th>
+                    <th>政策</th>
+                    <th>状态</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -746,13 +746,13 @@ export function PolicyPage() {
                   onClick={openGate}
                   disabled={!selectedId}
                 >
-                  Record gate
+                  记录门禁
                 </Button>
                 {readiness.data ? (
                   <Badge
                     tone={readiness.data.ready ? "success" : "danger"}
                   >
-                    {readiness.data.ready ? "Ready" : "Blocked"}
+                    {readiness.data.ready ? "Ready" : "已阻断"}
                   </Badge>
                 ) : null}
               </div>
@@ -791,14 +791,14 @@ export function PolicyPage() {
                 )}
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Legal gate</div>
+                    <div className="coverage-cell__label">法律门禁</div>
                     <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                       {readiness.data.legalGate.approved ? (
-                        <Badge tone="success">Approved</Badge>
+                        <Badge tone="success">已批准</Badge>
                       ) : readiness.data.legalGate.recorded ? (
-                        <Badge tone="warning">Recorded</Badge>
+                        <Badge tone="warning">已记录</Badge>
                       ) : (
-                        <Badge tone="danger">Missing</Badge>
+                        <Badge tone="danger">缺失</Badge>
                       )}
                     </div>
                     <div className="coverage-cell__sub">
@@ -807,7 +807,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Tests passed</div>
+                    <div className="coverage-cell__label">用例通过</div>
                     <div className="coverage-cell__value">
                       {readiness.data.tests.passed}/{readiness.data.tests.active}
                     </div>
@@ -829,13 +829,13 @@ export function PolicyPage() {
                     <div className="coverage-cell__label">DPIA</div>
                     <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                       {readiness.data.dpia.approved ? (
-                        <Badge tone="success">Approved</Badge>
+                        <Badge tone="success">已批准</Badge>
                       ) : readiness.data.dpia.referenced ? (
                         <Badge tone="warning">
                           {titleCase(readiness.data.dpia.status ?? "referenced")}
                         </Badge>
                       ) : (
-                        <Badge tone="neutral">Not referenced</Badge>
+                        <Badge tone="neutral">未引用</Badge>
                       )}
                     </div>
                     <div className="coverage-cell__sub">
@@ -863,8 +863,8 @@ export function PolicyPage() {
                   <div className="notice notice--success section-gap">
                     <Icon name="check-circle" size={18} />
                     <div>
-                      <strong>No readiness blocker</strong>
-                      <p>This version can back a formal calculation.</p>
+                      <strong>无就绪度阻断</strong>
+                      <p>本版本可用于正式计算。</p>
                     </div>
                   </div>
                 )}
@@ -878,12 +878,12 @@ export function PolicyPage() {
         items={[
           {
             id: "readiness",
-            label: "Test cases",
+            label: "测试用例",
             count: tests.data?.length ?? 0,
           },
-          { id: "coverage", label: "Operations coverage" },
-          { id: "annual", label: "Annual review" },
-          { id: "governance", label: "Governance" },
+          { id: "coverage", label: "运营覆盖" },
+          { id: "annual", label: "年度审查" },
+          { id: "governance", label: "治理" },
         ]}
         active={tab}
         onChange={setTab}
@@ -904,7 +904,7 @@ export function PolicyPage() {
                 loading={running}
                 disabled={!selectedId}
               >
-                Run suite
+                运行用例集
               </Button>
             }
             flush
@@ -921,19 +921,19 @@ export function PolicyPage() {
               <EmptyState
                 icon="policy"
                 title="No test case"
-                description="A policy without a regression suite cannot prove its behaviour. Seed or add test cases for this version."
+                description="没有回归用例的政策无法自证行为；请为本版本补充测试用例。"
               />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Case</th>
-                      <th>Category</th>
-                      <th>Status</th>
-                      <th>Result</th>
-                      <th>Last run</th>
-                      <th>Hash</th>
+                      <th>案件</th>
+                      <th>类别</th>
+                      <th>状态</th>
+                      <th>结果</th>
+                      <th>最近运行</th>
+                      <th>哈希</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -951,11 +951,11 @@ export function PolicyPage() {
                         </td>
                         <td>
                           {testCase.lastRunPassed === undefined ? (
-                            <Badge tone="neutral">Not run</Badge>
+                            <Badge tone="neutral">未运行</Badge>
                           ) : testCase.lastRunPassed ? (
-                            <Badge tone="success">Passed</Badge>
+                            <Badge tone="success">通过</Badge>
                           ) : (
-                            <Badge tone="danger">Failed</Badge>
+                            <Badge tone="danger">失败</Badge>
                           )}
                         </td>
                         <td className="nowrap">
@@ -979,7 +979,7 @@ export function PolicyPage() {
           </Panel>
         ) : tab === "coverage" ? (
           <Panel
-            title="Operations coverage"
+            title="运营覆盖"
             subtitle="Cross-module evidence and data-quality posture"
           >
             {coverage.error ? (
@@ -990,7 +990,7 @@ export function PolicyPage() {
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Evidence coverage</div>
+                    <div className="coverage-cell__label">证据覆盖率</div>
                     <div className="coverage-cell__value">
                       {formatPercent(coverage.data.workPackages.evidenceCoverageRate)}
                     </div>
@@ -1000,7 +1000,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Claims</div>
+                    <div className="coverage-cell__label">申报</div>
                     <div className="coverage-cell__value">
                       {coverage.data.claims.total}
                     </div>
@@ -1010,7 +1010,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Deliverables</div>
+                    <div className="coverage-cell__label">交付物</div>
                     <div className="coverage-cell__value">
                       {coverage.data.deliverables.total}
                     </div>
@@ -1019,7 +1019,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Data quality</div>
+                    <div className="coverage-cell__label">数据质量</div>
                     <div className="coverage-cell__value">
                       {coverage.data.dataQuality.open}
                     </div>
@@ -1030,10 +1030,10 @@ export function PolicyPage() {
                   </div>
                 </div>
                 <div className="detail-section">
-                  <div className="detail-section__title">Appeals and disputes</div>
+                  <div className="detail-section__title">申诉与争议</div>
                   <div className="coverage-grid">
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Open appeals</div>
+                      <div className="coverage-cell__label">未结申诉</div>
                       <div className="coverage-cell__value">
                         {coverage.data.appeals?.open ?? 0}
                       </div>
@@ -1042,7 +1042,7 @@ export function PolicyPage() {
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Appeal rate</div>
+                      <div className="coverage-cell__label">申诉率</div>
                       <div className="coverage-cell__value">
                         {formatPercent(coverage.data.appeals?.appealRate ?? 0, 1)}
                       </div>
@@ -1051,33 +1051,33 @@ export function PolicyPage() {
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Closed appeals</div>
+                      <div className="coverage-cell__label">已结申诉</div>
                       <div className="coverage-cell__value">
                         {coverage.data.appeals?.closed ?? 0}
                       </div>
-                      <div className="coverage-cell__sub">resolved and closed</div>
+                      <div className="coverage-cell__sub">已裁决并关闭</div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">SLA status</div>
+                      <div className="coverage-cell__label">SLA 状态</div>
                       <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                         {(coverage.data.appeals?.overdue ?? 0) > 0 ? (
-                          <Badge tone="danger">Breached</Badge>
+                          <Badge tone="danger">已违反</Badge>
                         ) : (
-                          <Badge tone="success">Within SLA</Badge>
+                          <Badge tone="success">SLA 内</Badge>
                         )}
                       </div>
                       <div className="coverage-cell__sub">
-                        configured at appeal creation
+                        申诉创建时配置
                       </div>
                     </div>
                   </div>
                 </div>
                 <div className="detail-section">
-                  <div className="detail-section__title">Cycle time</div>
+                  <div className="detail-section__title">周期耗时</div>
                   <div className="coverage-grid">
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">
-                        Package acceptance
+                        工作包验收
                       </div>
                       <div className="coverage-cell__value">
                         {(
@@ -1092,7 +1092,7 @@ export function PolicyPage() {
                     </div>
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">
-                        Claim decision
+                        申报决策
                       </div>
                       <div className="coverage-cell__value">
                         {(
@@ -1106,7 +1106,7 @@ export function PolicyPage() {
                     </div>
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">
-                        Employee confirmation
+                        员工确认
                       </div>
                       <div className="coverage-cell__value">
                         {(
@@ -1120,7 +1120,7 @@ export function PolicyPage() {
                     </div>
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">
-                        Payroll approval
+                        薪酬审批
                       </div>
                       <div className="coverage-cell__value">
                         {(
@@ -1134,7 +1134,7 @@ export function PolicyPage() {
                     </div>
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">
-                        Appeal resolution
+                        申诉裁决
                       </div>
                       <div className="coverage-cell__value">
                         {(
@@ -1218,10 +1218,10 @@ export function PolicyPage() {
                 <div className="split-grid section-gap">
                   <div className="detail-section" style={{ marginTop: 0 }}>
                     <div className="detail-section__title">
-                      Coverage by responsibility
+                      按职责覆盖率
                     </div>
                     {coverage.data.workPackages.coverageByResponsibility.length === 0 ? (
-                      <p className="muted">No accepted package with a role yet.</p>
+                      <p className="muted">暂无带角色的已验收工作包。</p>
                     ) : (
                       <div className="stack" style={{ gap: 6 }}>
                         {coverage.data.workPackages.coverageByResponsibility.map(
@@ -1244,10 +1244,10 @@ export function PolicyPage() {
                   </div>
                   <div className="detail-section" style={{ marginTop: 0 }}>
                     <div className="detail-section__title">
-                      Coverage by order type
+                      按订单类型覆盖率
                     </div>
                     {coverage.data.workPackages.coverageByOrderType.length === 0 ? (
-                      <p className="muted">No calculation-linked package yet.</p>
+                      <p className="muted">暂无关联计算的工作包。</p>
                     ) : (
                       <div className="stack" style={{ gap: 6 }}>
                         {coverage.data.workPackages.coverageByOrderType.map((row) => (
@@ -1268,10 +1268,10 @@ export function PolicyPage() {
                   </div>
                   <div className="detail-section" style={{ marginTop: 0 }}>
                     <div className="detail-section__title">
-                      Coverage by task type
+                      按任务类型覆盖率
                     </div>
                     {coverage.data.workPackages.coverageByPackageType.length === 0 ? (
-                      <p className="muted">No accepted package yet.</p>
+                      <p className="muted">暂无已验收的工作包。</p>
                     ) : (
                       <div className="stack" style={{ gap: 6 }}>
                         {coverage.data.workPackages.coverageByPackageType.map((row) => (
@@ -1293,10 +1293,10 @@ export function PolicyPage() {
                 </div>
                 <div className="detail-section">
                   <div className="detail-section__title">
-                    Coverage trend by month
+                    按月覆盖趋势
                   </div>
                   {coverage.data.workPackages.coverageTrend.length === 0 ? (
-                    <p className="muted">No accepted package yet.</p>
+                    <p className="muted">暂无已验收的工作包。</p>
                   ) : (
                     <div className="stack" style={{ gap: 6 }}>
                       {coverage.data.workPackages.coverageTrend
@@ -1359,7 +1359,7 @@ export function PolicyPage() {
         ) : tab === "annual" ? (
           <Panel
             title="Annual policy review"
-            subtitle="Rolling 12-month view of policy, appeal, AI-review and privacy evidence"
+            subtitle="政策/申诉/AI 复核/隐私证据的滚动 12 个月视图"
           >
             {review.error ? (
               <ErrorNotice error={review.error} onRetry={review.reload} />
@@ -1369,7 +1369,7 @@ export function PolicyPage() {
               <>
                 <div className="coverage-grid">
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Policies published</div>
+                    <div className="coverage-cell__label">已发布政策</div>
                     <div className="coverage-cell__value">
                       {review.data.policies.published}
                     </div>
@@ -1387,7 +1387,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Open appeals</div>
+                    <div className="coverage-cell__label">未结申诉</div>
                     <div className="coverage-cell__value">
                       {review.data.appeals.open}
                     </div>
@@ -1397,7 +1397,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">AI acceptance</div>
+                    <div className="coverage-cell__label">AI 采纳率</div>
                     <div className="coverage-cell__value">
                       {formatPercent(review.data.aiReview.acceptanceRate, 1)}
                     </div>
@@ -1407,7 +1407,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Human overrides</div>
+                    <div className="coverage-cell__label">人工改判</div>
                     <div className="coverage-cell__value">
                       {review.data.aiReview.overrides}
                     </div>
@@ -1416,7 +1416,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Data quality</div>
+                    <div className="coverage-cell__label">数据质量</div>
                     <div className="coverage-cell__value">
                       {review.data.dataQuality.open}
                     </div>
@@ -1426,7 +1426,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Evaluation decisions</div>
+                    <div className="coverage-cell__label">评价决策</div>
                     <div className="coverage-cell__value">
                       {review.data.evaluations.decisions}
                     </div>
@@ -1435,7 +1435,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Privacy</div>
+                    <div className="coverage-cell__label">隐私</div>
                     <div className="coverage-cell__value">
                       {review.data.privacy.approvedDpias}/
                       {review.data.privacy.dpias}
@@ -1447,9 +1447,9 @@ export function PolicyPage() {
                 </div>
                 <div className="split-grid section-gap">
                   <div className="detail-section" style={{ marginTop: 0 }}>
-                    <div className="detail-section__title">Appeal outcomes</div>
+                    <div className="detail-section__title">申诉结果</div>
                     {Object.keys(review.data.appeals.outcomes).length === 0 ? (
-                      <p className="muted">No resolved appeal in this window.</p>
+                      <p className="muted">区间内无已结申诉。</p>
                     ) : (
                       <div className="stack" style={{ gap: 6 }}>
                         {Object.entries(review.data.appeals.outcomes).map(
@@ -1468,35 +1468,35 @@ export function PolicyPage() {
                     )}
                   </div>
                   <div className="detail-section" style={{ marginTop: 0 }}>
-                    <div className="detail-section__title">Harness evidence</div>
+                    <div className="detail-section__title">评测证据</div>
                     <div className="stack" style={{ gap: 6 }}>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
-                        <span>Harness evaluations</span>
+                        <span>评测台运行</span>
                         <span className="muted">
                           {review.data.aiReview.harnessEvaluations}
                         </span>
                       </div>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
-                        <span>AI proposals decided</span>
+                        <span>已决 AI 提案</span>
                         <span className="muted">
                           {review.data.aiReview.decided}/{review.data.aiReview.total}
                         </span>
                       </div>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
-                        <span>High-risk proposals</span>
+                        <span>高风险提案</span>
                         <span className="muted">
                           {review.data.aiReview.highRiskProposals}
                         </span>
                       </div>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
-                        <span>Second-review SLA</span>
+                        <span>第二复核 SLA</span>
                         <span className="muted">
                           {review.data.aiReview.secondReviewOverdue} overdue ·{" "}
                           {review.data.aiReview.secondReviewSlaBreaches} breached
                         </span>
                       </div>
                       <div className="inline" style={{ justifyContent: "space-between", width: "100%" }}>
-                        <span>Contribution claims decided</span>
+                        <span>已认定申报数</span>
                         <span className="muted">
                           {review.data.claims.decided}/{review.data.claims.total}
                         </span>
@@ -1553,7 +1553,7 @@ export function PolicyPage() {
                     {review.data.reviewConsistency.claimsDecided} claims decided
                   </div>
                   {review.data.reviewConsistency.reviewers.length === 0 ? (
-                    <p className="muted">No attribution decision in this window.</p>
+                    <p className="muted">区间内无认定决策。</p>
                   ) : (
                     <div className="stack" style={{ gap: 6 }}>
                       {review.data.reviewConsistency.reviewers.map(
@@ -1585,7 +1585,7 @@ export function PolicyPage() {
                           width: "100%",
                         }}
                       >
-                        <span>Repeated decisions</span>
+                        <span>重复决策</span>
                         <span className="muted">
                           {review.data.reviewConsistency.claimsWithMultipleDecisions}{" "}
                           · {review.data.reviewConsistency.claimsWithChangedOutcome}{" "}
@@ -1665,8 +1665,8 @@ export function PolicyPage() {
         ) : (
           <>
             <Panel
-              title="Policy simulation"
-              subtitle="Replay representative inputs through the current and proposed policies; decision support only"
+              title="政策模拟"
+              subtitle="以代表性输入重放当前与拟议政策；仅作决策支持"
               action={
                 <div className="row-actions">
                   <Button
@@ -1675,7 +1675,7 @@ export function PolicyPage() {
                     icon="play"
                     onClick={openMarginal}
                   >
-                    Marginal sweep
+                    边际扫描
                   </Button>
                   <Button
                     size="sm"
@@ -1683,7 +1683,7 @@ export function PolicyPage() {
                     icon="play"
                     onClick={openSimulation}
                   >
-                    Run simulation
+                    运行模拟
                   </Button>
                 </div>
               }
@@ -1692,25 +1692,25 @@ export function PolicyPage() {
                 <>
                   <div className="coverage-grid">
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Current total</div>
+                      <div className="coverage-cell__label">当前总额</div>
                       <div className="coverage-cell__value">
                         {simResult.currentTotal}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Proposed total</div>
+                      <div className="coverage-cell__label">拟调整总额</div>
                       <div className="coverage-cell__value">
                         {simResult.proposedTotal}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Delta</div>
+                      <div className="coverage-cell__label">差额</div>
                       <div className="coverage-cell__value">
                         {simResult.deltaTotal}
                       </div>
                     </div>
                     <div className="coverage-cell">
-                      <div className="coverage-cell__label">Affected people</div>
+                      <div className="coverage-cell__label">影响人数</div>
                       <div className="coverage-cell__value">
                         {simResult.affectedPeople}
                       </div>
@@ -1729,10 +1729,10 @@ export function PolicyPage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Person</th>
-                          <th>Current</th>
-                          <th>Proposed</th>
-                          <th>Delta</th>
+                          <th>人员</th>
+                          <th>当前</th>
+                          <th>拟调整</th>
+                          <th>差额</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1775,7 +1775,7 @@ export function PolicyPage() {
                     setLinkOpen(true);
                   }}
                 >
-                  Link notice
+                  关联告知
                 </Button>
               }
             >
@@ -1794,16 +1794,16 @@ export function PolicyPage() {
                 <EmptyState
                   icon="policy"
                   title="No notice linked"
-                  description="Policy readiness checks acknowledgement coverage for linked notices."
+                  description="政策就绪度会校验关联通知的签收覆盖。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Policy version</th>
-                        <th>Notice</th>
-                        <th>Linked</th>
+                        <th>政策版本</th>
+                        <th>通知</th>
+                        <th>已关联</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1829,7 +1829,7 @@ export function PolicyPage() {
             </Panel>
 
             <Panel
-              title="Rule change orders"
+              title="规则变更单"
               subtitle="Draft → approved or rejected → publicized, with policy-test gating"
               flush
               action={
@@ -1839,7 +1839,7 @@ export function PolicyPage() {
                   icon="plus"
                   onClick={openRuleChange}
                 >
-                  New order
+                  新建变更单
                 </Button>
               }
             >
@@ -1858,17 +1858,17 @@ export function PolicyPage() {
                 <EmptyState
                   icon="policy"
                   title="No rule change order"
-                  description="A rule change records the from/to policy versions, reason and impact simulation before publication."
+                  description="规则变更在发布前记录变更前后版本、原因与影响模拟。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Order</th>
-                        <th>Change</th>
-                        <th>Status</th>
-                        <th>Effective</th>
+                        <th>变更单</th>
+                        <th>变更</th>
+                        <th>状态</th>
+                        <th>生效</th>
                         <th />
                       </tr>
                     </thead>
@@ -1906,7 +1906,7 @@ export function PolicyPage() {
                                     ruleAction(order, "approve")
                                   }
                                 >
-                                  Approve
+                                  批准
                                 </Button>
                                 <Button
                                   size="sm"
@@ -1914,7 +1914,7 @@ export function PolicyPage() {
                                   loading={ruleBusy === `reject:${order.id}`}
                                   onClick={() => ruleAction(order, "reject")}
                                 >
-                                  Reject
+                                  驳回
                                 </Button>
                               </>
                             ) : null}
@@ -1927,7 +1927,7 @@ export function PolicyPage() {
                                   ruleAction(order, "publicize")
                                 }
                               >
-                                Publicize
+                                公示
                               </Button>
                             ) : null}
                           </td>
@@ -1950,7 +1950,7 @@ export function PolicyPage() {
                   icon="plus"
                   onClick={openNotice}
                 >
-                  Publish notice
+                  发布告知
                 </Button>
               }
             >
@@ -1966,17 +1966,17 @@ export function PolicyPage() {
                 <EmptyState
                   icon="policy"
                   title="No employee notice"
-                  description="Notices document what employees were told, when it took effect and who acknowledged it."
+                  description="告知记录了向员工告知的内容、生效时间与签收人。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Notice</th>
-                        <th>Type</th>
-                        <th>Effective</th>
-                        <th>Acknowledgement</th>
+                        <th>通知</th>
+                        <th>类型</th>
+                        <th>生效</th>
+                        <th>签收</th>
                         <th />
                       </tr>
                     </thead>
@@ -1995,7 +1995,7 @@ export function PolicyPage() {
                           </td>
                           <td>
                             {notice.acknowledgementRequired
-                              ? "Required"
+                              ? "必填"
                               : "Not required"}
                           </td>
                           <td className="cell-actions">
@@ -2004,7 +2004,7 @@ export function PolicyPage() {
                               variant="secondary"
                               onClick={() => openAck(notice)}
                             >
-                              Record
+                              记录
                             </Button>
                             <Button
                               size="sm"
@@ -2015,7 +2015,7 @@ export function PolicyPage() {
                                 )
                               }
                             >
-                              {ackNoticeId === notice.id ? "Hide" : "Acks"}
+                              {ackNoticeId === notice.id ? "隐藏" : "Acks"}
                             </Button>
                           </td>
                         </tr>
@@ -2041,16 +2041,16 @@ export function PolicyPage() {
                   </div>
                 ) : (acknowledgements.data?.length ?? 0) === 0 ? (
                   <p className="muted" style={{ padding: 16 }}>
-                    No acknowledgement recorded for this notice.
+                    本告知尚无签收记录。
                   </p>
                 ) : (
                   <div className="table-wrap">
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Person</th>
-                          <th>Result</th>
-                          <th>Recorded</th>
+                          <th>人员</th>
+                          <th>结果</th>
+                          <th>已记录</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2059,10 +2059,10 @@ export function PolicyPage() {
                             <td>{displayName(ack.personId, people)}</td>
                             <td>
                               {ack.acknowledgedAt
-                                ? "Acknowledged"
+                                ? "已签收"
                                 : ack.declinedAt
                                   ? `Declined · ${ack.declineReason ?? ""}`
-                                  : "Pending"}
+                                  : "待处理"}
                             </td>
                             <td className="nowrap">
                               {formatDateTime(
@@ -2082,7 +2082,7 @@ export function PolicyPage() {
 
             <Panel
               title="Policy consultations"
-              subtitle="Discussion, comment periods and negotiation with employee representatives"
+              subtitle="与员工代表的讨论、意见征集与协商"
               flush
               action={
                 <Button
@@ -2091,7 +2091,7 @@ export function PolicyPage() {
                   icon="plus"
                   onClick={openConsultation}
                 >
-                  Record consultation
+                  记录咨询
                 </Button>
               }
             >
@@ -2110,17 +2110,17 @@ export function PolicyPage() {
                 <EmptyState
                   icon="people"
                   title="No consultation recorded"
-                  description="Record the democratic procedure evidence referenced by the legal gate."
+                  description="记录法律门禁引用的民主程序证据。"
                 />
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Type</th>
-                        <th>Started</th>
-                        <th>Outcome</th>
-                        <th>Minutes</th>
+                        <th>类型</th>
+                        <th>已开始</th>
+                        <th>结论</th>
+                        <th>纪要</th>
                         <th />
                       </tr>
                     </thead>
@@ -2144,7 +2144,7 @@ export function PolicyPage() {
                                 variant="secondary"
                                 onClick={() => openConclude(consultation)}
                               >
-                                Conclude
+                                结论
                               </Button>
                             ) : null}
                           </td>
@@ -2158,7 +2158,7 @@ export function PolicyPage() {
 
             <Panel
               title="Employee representation"
-              subtitle="Works councils, unions and elected representatives referenced by the legal gate"
+              subtitle="法律门禁引用的职工代表大会、工会与职工代表"
               flush
               action={
                 <Button
@@ -2167,7 +2167,7 @@ export function PolicyPage() {
                   icon="plus"
                   onClick={openRepresentation}
                 >
-                  Add representation
+                  添加员工代表
                 </Button>
               }
             >
@@ -2193,10 +2193,10 @@ export function PolicyPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Body</th>
-                        <th>Type</th>
-                        <th>Jurisdiction</th>
-                        <th>Status</th>
+                        <th>机构</th>
+                        <th>类型</th>
+                        <th>法域</th>
+                        <th>状态</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2209,7 +2209,7 @@ export function PolicyPage() {
                             <Badge
                               tone={body.active ? "success" : "neutral"}
                             >
-                              {body.active ? "Active" : "Inactive"}
+                              {body.active ? "生效中" : "未启用"}
                             </Badge>
                           </td>
                         </tr>
@@ -2236,14 +2236,14 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setGateOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button
               variant="primary"
               onClick={recordGate}
               loading={gateSubmitting}
             >
-              Record gate
+              记录门禁
             </Button>
           </>
         }
@@ -2263,7 +2263,7 @@ export function PolicyPage() {
               checked={policyApproved}
               onChange={(event) => setPolicyApproved(event.target.checked)}
             />
-            <span>Policy content is approved by the authorised body.</span>
+            <span>政策内容已经授权机构批准。</span>
           </label>
           <label className="checkbox">
             <input
@@ -2273,7 +2273,7 @@ export function PolicyPage() {
                 setMinimumWageChecked(event.target.checked)
               }
             />
-            <span>Minimum-wage and payroll treatment has been checked.</span>
+            <span>已核对最低工资与薪酬处理。</span>
           </label>
           <div className="form-grid">
             <FormField
@@ -2317,7 +2317,7 @@ export function PolicyPage() {
               />
             </FormField>
             <FormField
-              label="Approval request id (optional)"
+              label="审批请求 ID（可选）"
               htmlFor="gate-approval"
               className="field--full"
               hint="Required only when LEGAL_GATE is configured as approval-gated."
@@ -2335,16 +2335,16 @@ export function PolicyPage() {
       <Modal
         open={ruleOpen}
         title="New rule change order"
-        description="A rule change is not effective until approved, tested and publicized."
+        description="规则变更经批准、测试并公示后方可生效。"
         onClose={() => setRuleOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setRuleOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitRuleChange}>
-              Create order
+              创建变更单
             </Button>
           </>
         }
@@ -2378,7 +2378,7 @@ export function PolicyPage() {
               value={ruleFromVersionId}
               onChange={(event) => setRuleFromVersionId(event.target.value)}
             >
-              <option value="">None</option>
+              <option value="">无</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2396,7 +2396,7 @@ export function PolicyPage() {
               onChange={(event) => setRuleToVersionId(event.target.value)}
               required
             >
-              <option value="">Select a version</option>
+              <option value="">选择版本…</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2407,7 +2407,7 @@ export function PolicyPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Effective from" htmlFor="rule-effective">
+          <FormField label="生效自" htmlFor="rule-effective">
             <TextInput
               id="rule-effective"
               type="datetime-local"
@@ -2417,7 +2417,7 @@ export function PolicyPage() {
             />
           </FormField>
           <FormField
-            label="Reason"
+            label="原因"
             htmlFor="rule-reason"
             className="field--full"
           >
@@ -2439,10 +2439,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setNoticeOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitNotice}>
-              Publish
+              发布
             </Button>
           </>
         }
@@ -2453,7 +2453,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{noticeError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Type" htmlFor="notice-type">
+          <FormField label="类型" htmlFor="notice-type">
             <Select
               id="notice-type"
               value={noticeType}
@@ -2470,7 +2470,7 @@ export function PolicyPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Title" htmlFor="notice-title">
+          <FormField label="标题" htmlFor="notice-title">
             <TextInput
               id="notice-title"
               value={noticeTitle}
@@ -2493,7 +2493,7 @@ export function PolicyPage() {
               value={noticePolicyVersionId}
               onChange={(event) => setNoticePolicyVersionId(event.target.value)}
             >
-              <option value="">None</option>
+              <option value="">无</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2504,7 +2504,7 @@ export function PolicyPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Effective from" htmlFor="notice-effective">
+          <FormField label="生效自" htmlFor="notice-effective">
             <TextInput
               id="notice-effective"
               type="datetime-local"
@@ -2519,7 +2519,7 @@ export function PolicyPage() {
               checked={noticeAckRequired}
               onChange={(event) => setNoticeAckRequired(event.target.checked)}
             />
-            <span>Employees must acknowledge this notice.</span>
+            <span>员工必须签收本告知。</span>
           </label>
         </div>
       </Modal>
@@ -2532,10 +2532,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setAckOpen(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitAck}>
-              Record
+              记录
             </Button>
           </>
         }
@@ -2546,10 +2546,10 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{ackError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Person" htmlFor="ack-person">
+          <FormField label="人员" htmlFor="ack-person">
             <PersonSelect id="ack-person" value={ackPerson} onChange={setAckPerson} />
           </FormField>
-          <FormField label="Decision" htmlFor="ack-decision">
+          <FormField label="决策" htmlFor="ack-decision">
             <Select
               id="ack-decision"
               value={ackDecision}
@@ -2559,8 +2559,8 @@ export function PolicyPage() {
                 )
               }
             >
-              <option value="ACKNOWLEDGE">Acknowledge</option>
-              <option value="DECLINE">Decline</option>
+              <option value="ACKNOWLEDGE">签收</option>
+              <option value="DECLINE">婉拒</option>
             </Select>
           </FormField>
           <FormField label="Signature reference (optional)" htmlFor="ack-signature">
@@ -2595,10 +2595,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setRepOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitRepresentation}>
-              Add
+              添加
             </Button>
           </>
         }
@@ -2636,7 +2636,7 @@ export function PolicyPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Jurisdiction" htmlFor="rep-jurisdiction">
+          <FormField label="法域" htmlFor="rep-jurisdiction">
             <TextInput
               id="rep-jurisdiction"
               value={repJurisdiction}
@@ -2655,10 +2655,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setConsultOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitConsultation}>
-              Record
+              记录
             </Button>
           </>
         }
@@ -2669,14 +2669,14 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{consultError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Policy version" htmlFor="consult-policy">
+          <FormField label="政策版本" htmlFor="consult-policy">
             <Select
               id="consult-policy"
               value={consultPolicyVersionId}
               onChange={(event) => setConsultPolicyVersionId(event.target.value)}
               required
             >
-              <option value="">Select a version</option>
+              <option value="">选择版本…</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2687,7 +2687,7 @@ export function PolicyPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Type" htmlFor="consult-type">
+          <FormField label="类型" htmlFor="consult-type">
             <Select
               id="consult-type"
               value={consultType}
@@ -2723,7 +2723,7 @@ export function PolicyPage() {
               required
             />
           </FormField>
-          <FormField label="Minutes reference" htmlFor="consult-minutes">
+          <FormField label="会议纪要引用" htmlFor="consult-minutes">
             <TextInput
               id="consult-minutes"
               value={consultMinutesRef}
@@ -2731,7 +2731,7 @@ export function PolicyPage() {
             />
           </FormField>
           <FormField
-            label="Feedback summary"
+            label="意见汇总"
             htmlFor="consult-feedback"
             className="field--full"
           >
@@ -2751,10 +2751,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setConcludeTarget(null)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={submitConclude}>
-              Conclude
+              结论
             </Button>
           </>
         }
@@ -2765,7 +2765,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{concludeError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Outcome" htmlFor="conclude-outcome">
+          <FormField label="结论" htmlFor="conclude-outcome">
             <Select
               id="conclude-outcome"
               value={concludeOutcome}
@@ -2788,7 +2788,7 @@ export function PolicyPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Minutes reference" htmlFor="conclude-minutes">
+          <FormField label="会议纪要引用" htmlFor="conclude-minutes">
             <TextInput
               id="conclude-minutes"
               value={concludeMinutesRef}
@@ -2796,7 +2796,7 @@ export function PolicyPage() {
             />
           </FormField>
           <FormField
-            label="Feedback summary"
+            label="意见汇总"
             htmlFor="conclude-feedback"
             className="field--full"
           >
@@ -2811,14 +2811,14 @@ export function PolicyPage() {
 
       <Modal
         open={simOpen}
-        title="Policy simulation"
-        description="The current policy is loaded from the selected version; paste a proposed definition and representative inputs."
+        title="政策模拟"
+        description="当前政策从所选版本载入；粘贴拟议定义与代表性输入即可模拟。"
         onClose={() => setSimOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setSimOpen(false)}>
-              Close
+              关闭
             </Button>
             <Button
               variant="primary"
@@ -2826,7 +2826,7 @@ export function PolicyPage() {
               loading={simRunning}
               disabled={!simCurrentId}
             >
-              Simulate
+              模拟
             </Button>
           </>
         }
@@ -2844,7 +2844,7 @@ export function PolicyPage() {
               onChange={(event) => setSimCurrentId(event.target.value)}
               required
             >
-              <option value="">Select a version</option>
+              <option value="">选择版本…</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2892,10 +2892,10 @@ export function PolicyPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setLinkOpen(false)}>
-              Cancel
+              取消
             </Button>
             <Button variant="primary" onClick={linkNotice}>
-              Link
+              关联
             </Button>
           </>
         }
@@ -2906,14 +2906,14 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{linkError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Policy version" htmlFor="link-policy">
+          <FormField label="政策版本" htmlFor="link-policy">
             <Select
               id="link-policy"
               value={linkPolicyVersionId}
               onChange={(event) => setLinkPolicyVersionId(event.target.value)}
               required
             >
-              <option value="">Select a version</option>
+              <option value="">选择版本…</option>
               {list.map((version) => (
                 <option
                   key={version.policyVersionId}
@@ -2924,14 +2924,14 @@ export function PolicyPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Notice" htmlFor="link-notice">
+          <FormField label="通知" htmlFor="link-notice">
             <Select
               id="link-notice"
               value={linkNoticeId}
               onChange={(event) => setLinkNoticeId(event.target.value)}
               required
             >
-              <option value="">Select a notice</option>
+              <option value="">选择告知…</option>
               {(notices.data ?? []).map((notice) => (
                 <option key={notice.id} value={notice.id}>
                   {notice.title}
@@ -2945,20 +2945,20 @@ export function PolicyPage() {
       <Modal
         open={marginalOpen}
         title="Marginal threshold sweep"
-        description="Step one participant field by a small amount to expose cliff effects in the amount."
+        description="对参与人字段做小幅步进，暴露金额跳档效应。"
         onClose={() => setMarginalOpen(false)}
         wide
         footer={
           <>
             <Button variant="ghost" onClick={() => setMarginalOpen(false)}>
-              Close
+              关闭
             </Button>
             <Button
               variant="primary"
               onClick={runMarginal}
               loading={marginalRunning}
             >
-              Sweep
+              扫描
             </Button>
           </>
         }
@@ -2976,7 +2976,7 @@ export function PolicyPage() {
               onChange={(event) => setMarginalIndex(event.target.value)}
             />
           </FormField>
-          <FormField label="Field" htmlFor="marginal-field">
+          <FormField label="字段" htmlFor="marginal-field">
             <Select
               id="marginal-field"
               value={marginalField}
@@ -2988,8 +2988,8 @@ export function PolicyPage() {
                 )
               }
             >
-              <option value="attributionWeight">Attribution weight</option>
-              <option value="evaluationMultiplier">Evaluation multiplier</option>
+              <option value="attributionWeight">认定权重</option>
+              <option value="evaluationMultiplier">评价乘数</option>
             </Select>
           </FormField>
           <FormField label="From" htmlFor="marginal-from">
@@ -3035,7 +3035,7 @@ export function PolicyPage() {
             <DefinitionList
               items={[
                 {
-                  label: "Sweep",
+                  label: "扫描",
                   value: `${marginalResult.field} ${marginalResult.from} → ${marginalResult.to} (step ${marginalResult.step})`,
                 },
                 {
@@ -3048,10 +3048,10 @@ export function PolicyPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Value</th>
-                    <th>Total</th>
-                    <th>Target amount</th>
-                    <th>Target delta</th>
+                    <th>值</th>
+                    <th>合计</th>
+                    <th>目标金额</th>
+                    <th>目标差额</th>
                   </tr>
                 </thead>
                 <tbody>
