@@ -12,6 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "./Icon.js";
 import { statusTone, titleCase } from "../lib/format.js";
+import { zhStatus } from "../lib/zh.js";
 
 /* ------------------------------------------------------------------ button */
 
@@ -94,7 +95,7 @@ export function Badge({
   return (
     <span className={`badge badge--${resolvedTone}`}>
       {dot ? <span className="badge__dot" aria-hidden="true" /> : null}
-      {children ?? titleCase(status)}
+      {children ?? zhStatus(titleCase(status))}
     </span>
   );
 }

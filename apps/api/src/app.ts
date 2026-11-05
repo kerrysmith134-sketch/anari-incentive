@@ -9439,8 +9439,17 @@ export function buildApp(
   });
 
   app.get("/api/v1/equity-grants", async (request) => {
-    requireRoles(request, "manager", "finance");
     const query = request.query as { personId?: string };
+    const own = ownPersonId(request);
+    if (!isPrivileged(request)) {
+      if (!own) throw new ForbiddenError("员工身份缺失，无法查看本人授予");
+      return data(
+        (await platformStore.listEquityGrants(tenantOf(request), own)).filter(
+          (grant) => grant.personId === own,
+        ),
+        request,
+      );
+    }
     return data(
       await platformStore.listEquityGrants(
         tenantOf(request),
@@ -9451,18 +9460,26 @@ export function buildApp(
   });
 
   app.get("/api/v1/equity-grants/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.getEquityGrant(
-        tenantOf(request),
-        idOf(request),
-      ),
-      request,
+    const grant = await platformStore.getEquityGrant(
+      tenantOf(request),
+      idOf(request),
     );
+    if (!isPrivileged(request) && grant.personId !== ownPersonId(request)) {
+      throw new ForbiddenError("只能查看本人的授予");
+    }
+    return data(grant, request);
   });
 
   app.get("/api/v1/equity-grants/:id/vesting", async (request) => {
-    requireRoles(request, "manager", "finance");
+    if (!isPrivileged(request)) {
+      const grant = await platformStore.getEquityGrant(
+        tenantOf(request),
+        idOf(request),
+      );
+      if (grant.personId !== ownPersonId(request)) {
+        throw new ForbiddenError("只能查看本人的归属进度");
+      }
+    }
     const query = request.query as { asOf?: string };
     return data(
       await platformStore.getEquityVesting(
@@ -9475,8 +9492,13 @@ export function buildApp(
   });
 
   app.post("/api/v1/equity-grants/:id/exercises", async (request, reply) => {
-    requireRoles(request, "manager", "finance");
     const body = parse(createEquityExerciseSchema, request.body);
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own || body.requestedBy !== own) {
+        throw new ForbiddenError("员工只能为本人发起行权");
+      }
+    }
     return reply.status(201).send(
       data(
         await platformStore.createEquityExercise({
@@ -9546,7 +9568,7 @@ export function buildApp(
   });
 
   app.get("/api/v1/bounties", async (request) => {
-    requireRoles(request, "manager", "finance");
+    // 员工可浏览悬赏列表（只读）；写操作在各自路由校验。
     const query = request.query as {
       status?: "OPEN" | "CLAIMED" | "SUBMITTED" | "ACCEPTED" | "CANCELLED";
     };
@@ -9565,8 +9587,14 @@ export function buildApp(
   });
 
   app.post("/api/v1/bounties/:id/claim", async (request) => {
-    requireRoles(request, "manager", "finance");
     const body = parse(claimBountySchema, request.body);
+    // 管理员/经理可代登记；员工只能认领给本人（悬赏自助）。
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own || body.personId !== own) {
+        throw new ForbiddenError("员工只能为本人认领悬赏");
+      }
+    }
     return data(
       await platformStore.claimBounty({
         tenantId: tenantOf(request),
@@ -9578,8 +9606,13 @@ export function buildApp(
   });
 
   app.post("/api/v1/bounties/:id/submit", async (request) => {
-    requireRoles(request, "manager", "finance");
     const body = parse(submitBountySchema, request.body);
+    if (!isPrivileged(request)) {
+      const own = ownPersonId(request);
+      if (!own || body.personId !== own) {
+        throw new ForbiddenError("员工只能提交本人的成果");
+      }
+    }
     return data(
       await platformStore.submitBounty({
         tenantId: tenantOf(request),

@@ -99,6 +99,9 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 - **Metrics**: `/metrics` exposes HTTP route/status counters and `n_perform_business_events_total` for approvals, calculations, settlements, notices, DSARs, webhooks, inboxes, budgets, deliverables, recalculations, policy test runs/suites, model prompts, rate limits and ledger adjustments.
 - **Tracing**: set `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) and optional `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,...`) to export request spans as OTLP/HTTP JSON; spans carry tenant/person and, when present, cycle/policy correlation attributes, and are batched and flushed on shutdown.
 - **Auth**: `AUTH_MODE=dev` trusts headers and is for local use only; set `AUTH_MODE=oidc` before exposing the API. With `NODE_ENV=production` the API refuses to start on dev auth or the in-memory store unless `ALLOW_UNSAFE_DEV_AUTH`/`ALLOW_MEMORY_STORE` explicitly accept the risk.
+- **账号密码登录**：`SESSION_SECRET`（≥16 字符）开启 `POST /api/v1/auth/password/login`；开发模式未配置时自动使用开发默认密钥（仅限本地/演示）。初始化账号：
+  `DATABASE_URL=... npm run user:password -- --email boss@company.com --password 'S3cret-123' [--tenant <uuid> --role admin --name 张三]`。
+  自助注册（`POST /api/v1/public/signup`）可携带 `password` 直接创建可登录管理员。
 - **Signup**: self-service signup is on by default; disable it with `publicSignup=false` (BuildAppOptions) at the edge.
 - **Model summaries**: wire `MODEL_SCORING_BASE_URL`/`MODEL_SCORING_API_KEY`/`MODEL_SCORING_MODEL` into the server's `modelScoring` option to enable advisory model-backed summaries; without them `POST /ai/model-summary` returns 501.
 - **Audit anchors**: run `API_BASE_URL=… TENANT_ID=… API_TOKEN=… AUDIT_WORM_URI=… npm run anchor:export` on a timer to archive audit-chain anchors; without `AUDIT_WORM_URI` it writes a local receipt trail under `anchor-archive/`.

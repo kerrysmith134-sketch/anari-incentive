@@ -65,9 +65,20 @@ const primaryAuthenticator =
 // Feishu OAuth issues local session tokens; accept them alongside the
 // primary mode. Session tokens only compete on requests carrying a bearer.
 const feishuSessionSecret = process.env.FEISHU_SESSION_SECRET;
-const authenticator = feishuSessionSecret
+/** 开发/演示环境默认会话密钥：让账号密码登录开箱可用（生产必须显式配置）。 */
+const sessionSecret =
+  process.env.SESSION_SECRET ??
+  (process.env.AUTH_MODE === "oidc"
+    ? undefined
+    : "dev-session-secret-change-me-0123456789");
+if (!process.env.SESSION_SECRET && process.env.AUTH_MODE !== "oidc") {
+  console.warn(
+    "[config] SESSION_SECRET 未设置：使用开发默认会话密钥（仅限本地/演示，生产请配置）",
+  );
+}
+const authenticator = sessionSecret
   ? new CompositeAuthenticator([
-      new SessionAuthenticator(feishuSessionSecret),
+      new SessionAuthenticator(sessionSecret),
       primaryAuthenticator,
     ])
   : primaryAuthenticator;
@@ -197,8 +208,7 @@ const app = buildApp(
     tracer,
     rateLimit,
     bodyLimitBytes: bodyLimit,
-    sessionSecret:
-      process.env.SESSION_SECRET ?? process.env.FEISHU_SESSION_SECRET,
+    sessionSecret: sessionSecret ?? feishuSessionSecret,
     feishu: feishuConfig,
   },
 );
