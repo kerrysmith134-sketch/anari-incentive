@@ -22,6 +22,11 @@ const LoginPage = lazy(() =>
     default: module.LoginPage,
   })),
 );
+const MyRewardsPage = lazy(() =>
+  import("./pages/MyRewardsPage.js").then((module) => ({
+    default: module.MyRewardsPage,
+  })),
+);
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage.js").then((module) => ({
     default: module.PerformancePage,
@@ -228,6 +233,7 @@ export function App() {
                     <Route path="/cycles" element={<CyclesPage />} />
                     <Route path="/contribution" element={<ContributionPage />} />
                     <Route path="/performance" element={<PerformancePage />} />
+                    <Route path="/my-rewards" element={<MyRewardsPage />} />
                     <Route path="/commission" element={<CommissionPage />} />
                     <Route path="/equity" element={<EquityPage />} />
                     <Route path="/bounty" element={<BountyPage />} />

@@ -56,6 +56,11 @@ export function EquityPage() {
   useDocumentTitle("期权股权");
   const toast = useToast();
   const { session } = useAuth();
+  const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
+  const privileged =
+    identity.data?.roles.some((role) =>
+      ["admin", "manager", "finance"].includes(role),
+    ) ?? false;
   const grants = useApiQuery<EquityGrantView[]>("/api/v1/equity-grants");
   const exercises = useApiQuery<ExerciseView[]>("/api/v1/equity-exercises");
   const [tab, setTab] = useState("grants");
@@ -190,7 +195,11 @@ export function EquityPage() {
         {tab === "grants" ? (
           <Panel
             title="授予台账"
-            action={<Button onClick={() => setGrantOpen(true)}>新建授予</Button>}
+            action={
+              privileged ? (
+                <Button onClick={() => setGrantOpen(true)}>新建授予</Button>
+              ) : null
+            }
             flush
           >
             {grants.loading && grants.data === undefined ? (
@@ -291,7 +300,7 @@ export function EquityPage() {
                       </td>
                       <td className="cell-actions">
                         <div className="row-actions">
-                          {exercise.status === "PENDING" ? (
+                          {privileged && exercise.status === "PENDING" ? (
                             <Button
                               size="sm"
                               variant="secondary"
@@ -300,7 +309,7 @@ export function EquityPage() {
                               批准
                             </Button>
                           ) : null}
-                          {exercise.status === "APPROVED" ? (
+                          {privileged && exercise.status === "APPROVED" ? (
                             <Button
                               size="sm"
                               variant="primary"

@@ -28,6 +28,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/", label: "总览", icon: "overview", end: true },
       { to: "/my-ai", label: "我的 AI 记录", icon: "ai" },
+      { to: "/my-rewards", label: "我的激励", icon: "rewards" },
       {
         to: "/approvals",
         label: "审批",
@@ -69,18 +70,8 @@ const NAV: NavGroup[] = [
         icon: "payroll",
         allowed: ["finance", "admin"],
       },
-      {
-        to: "/equity",
-        label: "期权股权",
-        icon: "rewards",
-        allowed: ["manager", "finance", "admin"],
-      },
-      {
-        to: "/bounty",
-        label: "悬赏任务",
-        icon: "rewards",
-        allowed: ["manager", "finance", "admin"],
-      },
+      { to: "/equity", label: "期权股权", icon: "rewards" },
+      { to: "/bounty", label: "悬赏任务", icon: "rewards" },
       {
         to: "/settlements",
         label: "结算",
@@ -206,6 +197,7 @@ const TITLES: Record<string, string> = {
   "/platform": "平台",
   "/login": "登录",
   "/signup": "注册",
+  "/my-rewards": "我的激励",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

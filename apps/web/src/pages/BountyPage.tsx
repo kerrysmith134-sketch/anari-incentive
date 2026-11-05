@@ -38,6 +38,11 @@ export function BountyPage() {
   useDocumentTitle("悬赏任务");
   const toast = useToast();
   const { session } = useAuth();
+  const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
+  const privileged =
+    identity.data?.roles.some((role) =>
+      ["admin", "manager", "finance"].includes(role),
+    ) ?? false;
   const bounties = useApiQuery<BountyView[]>("/api/v1/bounties");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -150,7 +155,11 @@ export function BountyPage() {
       />
       <Panel
         title="悬赏列表"
-        action={<Button onClick={() => setCreateOpen(true)}>发布悬赏</Button>}
+        action={
+          privileged ? (
+            <Button onClick={() => setCreateOpen(true)}>发布悬赏</Button>
+          ) : null
+        }
         flush
       >
         {bounties.loading && bounties.data === undefined ? (
@@ -222,7 +231,7 @@ export function BountyPage() {
                           提交成果
                         </Button>
                       ) : null}
-                      {bounty.status === "SUBMITTED" ? (
+                      {privileged && bounty.status === "SUBMITTED" ? (
                         <Button
                           size="sm"
                           variant="primary"
@@ -231,7 +240,8 @@ export function BountyPage() {
                           验收
                         </Button>
                       ) : null}
-                      {bounty.status === "OPEN" || bounty.status === "CLAIMED" ? (
+                      {privileged &&
+                      (bounty.status === "OPEN" || bounty.status === "CLAIMED") ? (
                         <Button
                           size="sm"
                           variant="ghost"
