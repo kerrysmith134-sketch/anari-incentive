@@ -355,3 +355,214 @@ describe("feishu directory sync", () => {
     expect(response.statusCode).toBe(501);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TDD rounds 04/05/06/19/26/30/31 — adversarial probes on the Feishu flows.
+// ---------------------------------------------------------------------------
+describe("round 04: provisioning respects the billing seat limit", () => {
+  function seatFixture(): typeof fetch {
+    return feishuApiFixture({
+      departments: [
+        { open_department_id: "od-root", name: "Anari", parent_department_id: "" },
+      ],
+      usersByDepartment: {
+        "od-root": [
+          { open_id: "ou-s1", name: "Seat One", department_ids: ["od-root"] },
+          { open_id: "ou-s2", name: "Seat Two", department_ids: ["od-root"] },
+        ],
+      },
+    });
+  }
+
+  it("stops provisioning when the plan's seats are exhausted", async () => {
+    await platformStore.createSubscriptionPlan({
+      code: "SMALL",
+      name: "Small",
+      monthlyPrice: "99.00",
+      currency: "CNY",
+      seatLimit: 2, // 1 ACTIVE person (OWNER) already exists
+      trialDays: 0,
+      features: [],
+    });
+    await platformStore.setTenantSubscription({
+      tenantId: TENANT,
+      planCode: "SMALL",
+      status: "ACTIVE",
+      seats: 2,
+      currentPeriodStart: new Date().toISOString(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 864e5).toISOString(),
+    });
+    const app = build(seatFixture());
+    const applied = await app.inject({
+      method: "POST",
+      url: "/api/v1/platform/feishu/sync-directory",
+      payload: { dryRun: false, allowCreate: true },
+    } as never);
+    expect(applied.statusCode).toBe(200);
+    const result = applied.json().data;
+    expect(result.users.map((u: { action: string }) => u.action)).toEqual([
+      "PROVISION",
+      "SKIPPED_SEAT_LIMIT",
+    ]);
+    expect(await platformStore.listPersons(TENANT)).toHaveLength(2);
+  });
+});
+
+describe("round 05/19: one bad member must not abort the whole sync", () => {
+  function collisionFixture(): typeof fetch {
+    return feishuApiFixture({
+      departments: [
+        { open_department_id: "od-root", name: "Anari", parent_department_id: "" },
+      ],
+      usersByDepartment: {
+        "od-root": [
+          {
+            open_id: "ou-ok",
+            name: "Fine Member",
+            employee_no: "FS-OK",
+            department_ids: ["od-root"],
+          },
+          {
+            open_id: "ou-clash",
+            name: "Clashing Member",
+            employee_no: "E001", // collides with the seeded OWNER's code
+            department_ids: ["od-root"],
+          },
+        ],
+      },
+    });
+  }
+
+  it("records a warning and still provisions the good member", async () => {
+    const app = build(collisionFixture());
+    const applied = await app.inject({
+      method: "POST",
+      url: "/api/v1/platform/feishu/sync-directory",
+      payload: { dryRun: false, allowCreate: true },
+    } as never);
+    expect(applied.statusCode).toBe(200);
+    const result = applied.json().data;
+    expect(result.users.find((u: { openId: string }) => u.openId === "ou-ok").action).toBe(
+      "PROVISION",
+    );
+    const clash = result.users.find((u: { openId: string }) => u.openId === "ou-clash");
+    expect(clash.action).toBe("ERROR");
+    expect(result.warnings.join(" ")).toContain("ou-clash");
+  });
+});
+
+describe("round 06: reporting-line cycles are refused", () => {
+  function cycleFixture(): typeof fetch {
+    return feishuApiFixture({
+      departments: [
+        { open_department_id: "od-root", name: "Anari", parent_department_id: "" },
+      ],
+      usersByDepartment: {
+        "od-root": [
+          {
+            open_id: "ou-a",
+            name: "A",
+            department_ids: ["od-root"],
+            leader_user_id: "ou-b",
+          },
+          {
+            open_id: "ou-b",
+            name: "B",
+            department_ids: ["od-root"],
+            leader_user_id: "ou-a",
+          },
+        ],
+      },
+    });
+  }
+
+  it("links at most one leg and warns about the cycle", async () => {
+    const app = build(cycleFixture());
+    const applied = await app.inject({
+      method: "POST",
+      url: "/api/v1/platform/feishu/sync-directory",
+      payload: { dryRun: false, allowCreate: true },
+    } as never);
+    const result = applied.json().data;
+    expect(result.managersLinked).toBeLessThan(2);
+    expect(result.warnings.join(" ")).toMatch(/cycle/i);
+    const persons = await platformStore.listPersons(TENANT);
+    const a = persons.find((p) => p.displayName === "A");
+    const b = persons.find((p) => p.displayName === "B");
+    // At least one of the two edges must have been refused.
+    const edges = [a?.managerPersonId, b?.managerPersonId].filter(Boolean).length;
+    expect(edges).toBeLessThan(2);
+  });
+});
+
+describe("round 26: multi-department members dedupe and join both nodes", () => {
+  function multiDeptFixture(): typeof fetch {
+    return feishuApiFixture({
+      departments: [
+        { open_department_id: "od-root", name: "Anari", parent_department_id: "" },
+        { open_department_id: "od-sales", name: "Sales", parent_department_id: "od-root" },
+      ],
+      usersByDepartment: {
+        "od-root": [
+          {
+            open_id: "ou-multi",
+            name: "Multi Member",
+            department_ids: ["od-root", "od-sales"],
+          },
+        ],
+        "od-sales": [
+          {
+            open_id: "ou-multi",
+            name: "Multi Member",
+            department_ids: ["od-root", "od-sales"],
+          },
+        ],
+      },
+    });
+  }
+
+  it("creates one person with two org assignments", async () => {
+    const app = build(multiDeptFixture());
+    const applied = await app.inject({
+      method: "POST",
+      url: "/api/v1/platform/feishu/sync-directory",
+      payload: { dryRun: false, allowCreate: true },
+    } as never);
+    const result = applied.json().data;
+    expect(result.users).toHaveLength(1);
+    expect(result.orgAssignmentsCreated).toBe(2);
+    expect(await platformStore.listPersons(TENANT)).toHaveLength(2);
+  });
+});
+
+describe("round 30: authorize sanitises a hostile postLoginPath", () => {
+  it("falls back to /console for non-console paths", async () => {
+    const configured = build(feishuApiFixture());
+    const start = await configured.inject({
+      method: "GET",
+      url: "/api/v1/auth/feishu/authorize?postLoginPath=https%3A%2F%2Fevil.test",
+    });
+    const state = new URL(start.headers.location as string).searchParams.get("state");
+    const callback = await configured.inject({
+      method: "GET",
+      url: `/api/v1/auth/feishu/callback?code=abc&state=${state}`,
+    });
+    const redirect = new URL(callback.headers.location as string);
+    const decoded = decodeURIComponent(redirect.hash);
+    expect(decoded).toContain("postLoginPath=/console");
+    expect(decoded).not.toContain("evil");
+  });
+});
+
+describe("round 31: callback with an unknown state explains itself", () => {
+  it("redirects with a readable error", async () => {
+    const configured = build(feishuApiFixture());
+    const callback = await configured.inject({
+      method: "GET",
+      url: "/api/v1/auth/feishu/callback?code=abc&state=nope",
+    });
+    expect(callback.statusCode).toBe(302);
+    const redirect = new URL(callback.headers.location as string);
+    expect(redirect.searchParams.get("error")).toContain("invalid or expired");
+  });
+});

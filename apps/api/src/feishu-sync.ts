@@ -44,7 +44,9 @@ export interface FeishuSyncResult {
       | "PROVISION"
       | "LINK_PERSON"
       | "EXISTS"
-      | "SKIPPED_NO_PROVISIONING";
+      | "SKIPPED_NO_PROVISIONING"
+      | "SKIPPED_SEAT_LIMIT"
+      | "ERROR";
     userId?: string;
     personId?: string;
   }>;
@@ -170,6 +172,24 @@ export async function syncFeishuDirectory(
     }
   }
 
+  // Seat-limit gate (billing): only ACTIVE people consume seats; provisioning
+  // via directory sync must respect the same cap as the admin API.
+  const subscription = await platformStore.getTenantSubscription(
+    options.tenantId,
+  );
+  let seatsRemaining: number | null = null;
+  if (subscription && subscription.status !== "CANCELED") {
+    const plan = (await platformStore.listSubscriptionPlans()).find(
+      (candidate) => candidate.code === subscription.planCode,
+    );
+    if (plan && plan.seatLimit >= 0) {
+      const active = persons.filter(
+        (candidate) => candidate.employmentStatus === "ACTIVE",
+      ).length;
+      seatsRemaining = Math.max(plan.seatLimit - active, 0);
+    }
+  }
+
   for (const feishuUser of directoryUsers) {
     const entry: FeishuSyncResult["users"][number] = {
       openId: feishuUser.openId,
@@ -186,6 +206,14 @@ export async function syncFeishuDirectory(
     );
     let personId = personByOpenId.get(feishuUser.openId);
 
+    const consumeSeat = (): boolean => {
+      if (seatsRemaining === null) return true;
+      if (seatsRemaining <= 0) return false;
+      seatsRemaining -= 1;
+      return true;
+    };
+
+    try {
     if (!user && !personId) {
       if (!options.allowCreate) {
         entry.action = "SKIPPED_NO_PROVISIONING";
@@ -193,6 +221,10 @@ export async function syncFeishuDirectory(
       }
       if (options.dryRun) {
         entry.action = "PROVISION";
+        continue;
+      }
+      if (!consumeSeat()) {
+        entry.action = "SKIPPED_SEAT_LIMIT";
         continue;
       }
       user = await platformStore.createUser({
@@ -223,6 +255,10 @@ export async function syncFeishuDirectory(
       if (options.dryRun) {
         entry.action = "LINK_PERSON";
         entry.userId = user.id;
+        continue;
+      }
+      if (!consumeSeat()) {
+        entry.action = "SKIPPED_SEAT_LIMIT";
         continue;
       }
       const person = await platformStore.createPerson({
@@ -266,6 +302,15 @@ export async function syncFeishuDirectory(
       assignedNodeIds.add(node.id);
       result.orgAssignmentsCreated += 1;
     }
+    } catch (error) {
+      entry.action = "ERROR";
+      result.warnings.push(
+        `${feishuUser.openId} (${feishuUser.name}): ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+      continue;
+    }
   }
 
   // ---- reporting lines (leader open_id → person) ------------------------
@@ -285,12 +330,20 @@ export async function syncFeishuDirectory(
       result.managersLinked += 1;
       continue;
     }
-    await platformStore.setPersonManager({
-      tenantId: options.tenantId,
-      personId,
-      managerPersonId: leaderPersonId,
-    });
-    result.managersLinked += 1;
+    try {
+      await platformStore.setPersonManager({
+        tenantId: options.tenantId,
+        personId,
+        managerPersonId: leaderPersonId,
+      });
+      result.managersLinked += 1;
+    } catch (error) {
+      result.warnings.push(
+        `reporting line ${feishuUser.name} → leader skipped: ${
+          error instanceof Error ? error.message : "unknown error"
+        } (possible cycle)`,
+      );
+    }
   }
 
   return result;

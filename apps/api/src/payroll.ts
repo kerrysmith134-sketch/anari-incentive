@@ -4,7 +4,7 @@ import type {
   PayrollLine,
   PayrollRun,
 } from "@anari/domain";
-import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
+import { divRound, formatDecimal, parseDecimal } from "@anari/policy-dsl";
 import {
   CHINA_IIT_MONTHLY_BASIC_DEDUCTION,
   calculateCumulativeIit,
@@ -309,11 +309,25 @@ export function calculatePayroll(input: {
   };
 }
 
-function csvField(value: unknown): string {
+function csvField(value: unknown, protectFormula = true): string {
   let text = value === undefined || value === null ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  // A plain decimal number can never be a spreadsheet formula, so it must
+  // keep its sign (negative RECOVERY nets are legitimate money); anything
+  // else starting with a formula trigger still gets the "'" guard.
+  const plainNumber = /^-?\d+(\.\d+)?$/;
+  if (
+    protectFormula &&
+    /^[=+\-@\t\r]/.test(text) &&
+    !plainNumber.test(text)
+  ) {
+    text = `'${text}`;
+  }
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
+
+/** Numeric columns carry validated decimals; formula protection would mangle
+ * legitimate negative amounts (e.g. RECOVERY nets), so they opt out. */
+const csvMoney = (value: unknown): string => csvField(value, false);
 
 export function payrollCsv(run: PayrollRun): string {
   const header =
@@ -323,17 +337,17 @@ export function payrollCsv(run: PayrollRun): string {
       run.id,
       line.personId,
       line.currency,
-      line.fixedAmount,
-      line.incentiveAmount,
-      line.grossAmount,
-      line.deductionAmount,
-      line.taxAmount,
-      line.socialInsuranceAmount,
-      line.netAmount,
-      line.minimumMonthlyWage,
+      csvMoney(line.fixedAmount),
+      csvMoney(line.incentiveAmount),
+      csvMoney(line.grossAmount),
+      csvMoney(line.deductionAmount),
+      csvMoney(line.taxAmount),
+      csvMoney(line.socialInsuranceAmount),
+      csvMoney(line.netAmount),
+      csvMoney(line.minimumMonthlyWage),
       line.minimumWagePassed,
-      line.deductionCapRate,
-      line.deductionCapAmount,
+      csvMoney(line.deductionCapRate),
+      csvMoney(line.deductionCapAmount),
       line.deductionCapPassed,
       line.variableShareRate,
       line.variableShareCapRate,
@@ -350,7 +364,7 @@ export function payrollCsv(run: PayrollRun): string {
       line.smoothingPassed,
       line.bankAccountRef,
     ]
-      .map(csvField)
+      .map((field) => csvField(field))
       .join(","),
   );
   return [header, ...rows].join("\n") + "\n";
@@ -372,11 +386,13 @@ export function payrollBankFileCsv(
         index + 1,
         line.personId,
         line.currency,
-        (parseDecimal(line.netAmount) / 10_000n).toString(),
+        csvMoney(
+          divRound(parseDecimal(line.netAmount), 10_000n, "HALF_UP").toString(),
+        ),
         line.bankAccountRef,
         `payroll ${run.id}`,
       ]
-        .map(csvField)
+        .map((field) => csvField(field))
         .join(","),
     );
     return [header, ...rows].join("\n") + "\n";
@@ -389,19 +405,19 @@ export function payrollBankFileCsv(
       [
         line.personId,
         line.currency,
-        line.netAmount,
+        csvMoney(line.netAmount),
         line.bankAccountRef,
         "SALARY",
       ]
-        .map(csvField)
+        .map((field) => csvField(field))
         .join(","),
     );
     return [header, ...rows].join("\n") + "\n";
   }
   const header = "run_id,person_id,currency,net_amount,bank_account_ref";
   const rows = (run.lines ?? []).map((line) =>
-    [run.id, line.personId, line.currency, line.netAmount, line.bankAccountRef]
-      .map(csvField)
+    [run.id, line.personId, line.currency, csvMoney(line.netAmount), line.bankAccountRef]
+      .map((field) => csvField(field))
       .join(","),
   );
   return [header, ...rows].join("\n") + "\n";
@@ -438,19 +454,19 @@ export function payrollTaxFilingCsv(run: PayrollRun): string {
       line.personId,
       line.currency,
       mode,
-      line.grossAmount,
-      line.socialInsuranceAmount,
-      basicDeduction,
+      csvMoney(line.grossAmount),
+      csvMoney(line.socialInsuranceAmount),
+      csvMoney(basicDeduction),
       mode === "STATUTORY_CN"
         ? formatDecimal(monthlyTaxable > 0n ? monthlyTaxable : 0n)
         : "",
-      line.ytdTaxableIncome ?? "",
-      line.ytdTaxWithheld ?? "",
+      csvMoney(line.ytdTaxableIncome ?? ""),
+      csvMoney(line.ytdTaxWithheld ?? ""),
       line.iitRatePercent ?? "",
-      line.iitQuickDeduction ?? "",
-      line.taxAmount,
+      csvMoney(line.iitQuickDeduction ?? ""),
+      csvMoney(line.taxAmount),
     ]
-      .map(csvField)
+      .map((field) => csvField(field))
       .join(",");
   });
   return [header, ...rows].join("\n") + "\n";

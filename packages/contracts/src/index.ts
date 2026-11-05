@@ -2253,11 +2253,16 @@ export type SetTenantSubscriptionBody = z.infer<
   typeof setTenantSubscriptionSchema
 >;
 
+const positiveMoney = z
+  .string()
+  .regex(/^\d+(\.\d{1,2})?$/)
+  .refine((value) => Number(value) > 0, "must be greater than 0");
+
 export const tenantInvoiceLineItemSchema = z.object({
   description: z.string().min(1),
   quantity: z.number().int().min(1),
-  unitAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
-  amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  unitAmount: positiveMoney,
+  amount: positiveMoney,
 });
 
 export const createTenantInvoiceSchema = z.object({

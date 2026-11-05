@@ -108,7 +108,15 @@ function notFound(kind: string, id: string): never {
 
 function csvField(value: unknown, protectFormula = true): string {
   let text = value === undefined || value === null ? "" : String(value);
-  if (protectFormula && /^[=+\-@\t\r]/.test(text)) {
+  // A plain decimal number can never be a spreadsheet formula, so it must
+  // keep its sign (negative RECOVERY nets are legitimate money); anything
+  // else starting with a formula trigger still gets the "'" guard.
+  const plainNumber = /^-?\d+(\.\d+)?$/;
+  if (
+    protectFormula &&
+    /^[=+\-@\t\r]/.test(text) &&
+    !plainNumber.test(text)
+  ) {
     text = `'${text}`;
   }
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
