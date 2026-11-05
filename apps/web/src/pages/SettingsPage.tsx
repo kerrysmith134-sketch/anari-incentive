@@ -301,6 +301,21 @@ export function SettingsPage() {
     session.personId,
   );
   const [redactionApprover, setRedactionApprover] = useState("");
+  const subscription = useApiQuery<
+    import("../lib/ops-types.js").TenantSubscriptionView | null
+  >("/api/v1/me/subscription");
+  const myInvoices = useApiQuery<
+    import("../lib/ops-types.js").TenantInvoiceView[]
+  >("/api/v1/me/invoices");
+  const [recoveryTarget, setRecoveryTarget] = useState<ClawbackCase | null>(
+    null,
+  );
+  const [recoveryCycleId, setRecoveryCycleId] = useState("");
+  const [recoveryLedgerId, setRecoveryLedgerId] = useState("");
+  const [recoveryCreateBatch, setRecoveryCreateBatch] = useState(true);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [disposalProcessing, setDisposalProcessing] = useState(false);
   const [disposalOpen, setDisposalOpen] = useState(false);
   const [disposalPolicy, setDisposalPolicy] = useState("");
   const [disposalReason, setDisposalReason] = useState("");
@@ -912,6 +927,69 @@ export function SettingsPage() {
       );
     } finally {
       setClawbackSaving(false);
+    }
+  }
+
+  async function generateRecovery(event: FormEvent) {
+    event.preventDefault();
+    if (!recoveryTarget) return;
+    setRecoveryError(null);
+    setRecoveryBusy(true);
+    try {
+      await api(
+        `/api/v1/clawback-cases/${recoveryTarget.id}/generate-recovery`,
+        {
+          method: "POST",
+          body: {
+            cycleId: recoveryCycleId.trim(),
+            ledgerEntryId: recoveryLedgerId.trim(),
+            createBatch: recoveryCreateBatch,
+          },
+        },
+      );
+      toast.success(
+        "Recovery generated",
+        recoveryCreateBatch
+          ? "A RECOVERY settlement batch was opened; affected people must confirm before locking."
+          : "The locked ledger adjustment was appended.",
+      );
+      setRecoveryTarget(null);
+      clawbacks.reload();
+    } catch (error) {
+      setRecoveryError(
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function processDueDisposals() {
+    setDisposalProcessing(true);
+    try {
+      const result = await api<{
+        processedCount: number;
+        skipped: Array<{ requestId: string; reason: string }>;
+      }>("/api/v1/retention-disposal-requests:process", {
+        method: "POST",
+        body: { actorPersonId: session.personId },
+      });
+      toast.success(
+        "Disposals processed",
+        `${result.processedCount} completed${
+          result.skipped.length > 0
+            ? `, ${result.skipped.length} skipped (legal hold or guards)`
+            : ""
+        }`,
+      );
+      disposals.reload();
+    } catch (error) {
+      toast.error(
+        "Could not process disposals",
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setDisposalProcessing(false);
     }
   }
 
@@ -1561,6 +1639,71 @@ export function SettingsPage() {
           )}
         </Panel>
       </div>
+
+      <Panel
+        title="Subscription"
+        subtitle="This tenant's plan, seats and invoices (read-only; managed by the platform operator)"
+        className="section-gap"
+      >
+        {subscription.error ? (
+          <div style={{ padding: 16 }}>
+            <InfoNotice>
+              No subscription is attached to this tenant. Onboarding and seat
+              limits are unrestricted until the platform operator assigns a
+              plan.
+            </InfoNotice>
+          </div>
+        ) : subscription.data ? (
+          <div style={{ padding: 16 }} className="stack">
+            <DefinitionList
+              items={[
+                {
+                  label: "Plan",
+                  value: `${subscription.data.planName} (${subscription.data.planCode})`,
+                },
+                { label: "Status", value: subscription.data.status },
+                { label: "Seats", value: String(subscription.data.seats) },
+                {
+                  label: "Period ends",
+                  value: formatDateTime(subscription.data.currentPeriodEnd),
+                },
+              ]}
+            />
+            {(myInvoices.data ?? []).length > 0 ? (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Status</th>
+                    <th>Total</th>
+                    <th>Due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(myInvoices.data ?? []).map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td>
+                        <code>{invoice.number}</code>
+                      </td>
+                      <td>{invoice.status}</td>
+                      <td>
+                        {invoice.totalAmount} {invoice.currency}
+                      </td>
+                      <td>{invoice.dueDate ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="hint">No invoices yet.</p>
+            )}
+          </div>
+        ) : (
+          <div style={{ padding: 16 }}>
+            <LoadingRows rows={2} />
+          </div>
+        )}
+      </Panel>
 
       <Panel
         title="Retention policies"
@@ -3520,13 +3663,28 @@ export function SettingsPage() {
                           </Button>
                         ) : null}
                         {clawback.status === "APPROVED" ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void openSchedule(clawback)}
-                          >
-                            Schedule
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void openSchedule(clawback)}
+                            >
+                              Schedule
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setRecoveryTarget(clawback);
+                                setRecoveryCycleId("");
+                                setRecoveryLedgerId("");
+                                setRecoveryCreateBatch(true);
+                                setRecoveryError(null);
+                              }}
+                            >
+                              Generate recovery
+                            </Button>
+                          </>
                         ) : null}
                         {clawback.status === "DRAFT" ||
                         clawback.status === "APPROVED" ? (
@@ -4309,19 +4467,107 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      <Modal
+        open={Boolean(recoveryTarget)}
+        title="Generate clawback recovery"
+        onClose={() => setRecoveryTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRecoveryTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="generate-recovery-form"
+              loading={recoveryBusy}
+              disabled={
+                !recoveryCycleId.trim() || !recoveryLedgerId.trim()
+              }
+            >
+              Generate recovery
+            </Button>
+          </>
+        }
+      >
+        <form id="generate-recovery-form" onSubmit={generateRecovery}>
+          {recoveryError ? (
+            <div className="section-gap">
+              <InfoNotice tone="warning">{recoveryError}</InfoNotice>
+            </div>
+          ) : null}
+          <DefinitionList
+            items={[
+              {
+                label: "Case",
+                value: `${recoveryTarget?.amount ?? ""} ${recoveryTarget?.currency ?? ""} · ${recoveryTarget?.reasonCode ?? ""}`,
+              },
+              {
+                label: "Effect",
+                value:
+                  "Appends one locked negative ledger adjustment (idempotent per case). Already-acknowledged settlement cycles refuse retroactive adjustments.",
+              },
+            ]}
+          />
+          <FormField
+            label="Cycle id"
+            htmlFor="recovery-cycle"
+            hint="The cycle whose RECOVERY settlement batch should carry the adjustment."
+          >
+            <TextInput
+              id="recovery-cycle"
+              value={recoveryCycleId}
+              onChange={(event) => setRecoveryCycleId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="Ledger entry id"
+            htmlFor="recovery-ledger"
+            hint="The original locked incentive entry to adjust (find it on the Settlements ledger view)."
+          >
+            <TextInput
+              id="recovery-ledger"
+              value={recoveryLedgerId}
+              onChange={(event) => setRecoveryLedgerId(event.target.value)}
+              required
+            />
+          </FormField>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={recoveryCreateBatch}
+              onChange={(event) => setRecoveryCreateBatch(event.target.checked)}
+            />{" "}
+            Open a RECOVERY settlement batch (affected people must confirm
+            before locking)
+          </label>
+        </form>
+      </Modal>
+
       <Panel
         title="Retention disposal requests"
         subtitle="Reviewed, two-person, grace-period workflow; no automatic hard delete"
         className="section-gap"
         action={
-          <Button
-            size="sm"
-            variant="secondary"
-            icon="plus"
-            onClick={openDisposalForm}
-          >
-            Request disposal
-          </Button>
+          <div className="row-actions">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={disposalProcessing}
+              onClick={() => void processDueDisposals()}
+            >
+              Process due disposals
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="plus"
+              onClick={openDisposalForm}
+            >
+              Request disposal
+            </Button>
+          </div>
         }
         flush
       >

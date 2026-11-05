@@ -108,6 +108,21 @@ export function AiPage() {
   const [auditEvidenceOpened, setAuditEvidenceOpened] = useState(0);
   const [auditStartedAt, setAuditStartedAt] = useState("");
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryDimensions, setSummaryDimensions] = useState("QUALITY, TIMELINESS");
+  const [summaryEvidenceRefs, setSummaryEvidenceRefs] = useState("");
+  const [summaryRubric, setSummaryRubric] = useState("");
+  const [summaryResult, setSummaryResult] = useState<{
+    summary: string;
+    dimensionScores: Record<string, number>;
+    confidence: number;
+    model: string;
+  } | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const evidenceNodes = useApiQuery<
+    Array<{ id: string; evidenceType: string; qualityStatus: string }>
+  >("/api/v1/evidence");
   const [auditSubmitting, setAuditSubmitting] = useState(false);
   const [datasetOpen, setDatasetOpen] = useState(false);
   const [datasetSaving, setDatasetSaving] = useState(false);
@@ -182,7 +197,48 @@ export function AiPage() {
     setRefreshError(null);
   }
 
-  async function saveRefresh(event: FormEvent) {
+    async function runModelSummary() {
+    setSummaryError(null);
+    setSummaryResult(null);
+    setSummaryBusy(true);
+    try {
+      const response = await api<{
+        suggestionLogId: string;
+        summary: {
+          summary: string;
+          dimensionScores: Record<string, number>;
+          confidence: number;
+          model: string;
+        };
+      }>("/api/v1/ai/model-summary", {
+        method: "POST",
+        body: {
+          dimensions: summaryDimensions
+            .split(",")
+            .map((dimension) => dimension.trim())
+            .filter(Boolean),
+          evidenceRefs: summaryEvidenceRefs
+            .split(/[\n,]/)
+            .map((ref) => ref.trim())
+            .filter(Boolean),
+          rubric: summaryRubric.trim() || undefined,
+        },
+      });
+      setSummaryResult(response.summary);
+      toast.success(
+        "Model summary generated",
+        "Logged as an advisory AI suggestion; it never enters money paths.",
+      );
+    } catch (error) {
+      setSummaryError(
+        error instanceof Error ? error.message : "The action failed.",
+      );
+    } finally {
+      setSummaryBusy(false);
+    }
+  }
+
+async function saveRefresh(event: FormEvent) {
     event.preventDefault();
     if (!refreshTarget) return;
     setRefreshSaving(true);
@@ -1282,6 +1338,60 @@ export function AiPage() {
             )}
           </Panel>
         ) : null}
+        {tab === "summary" ? (
+          <Panel
+            title="Model-backed evidence summary"
+            subtitle="Advisory only: the configured model summarises evidence and proposes 0-5 dimension scores; results are logged as AI suggestions"
+            action={
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setSummaryOpen(true);
+                  setSummaryResult(null);
+                  setSummaryError(null);
+                }}
+              >
+                New summary
+              </Button>
+            }
+          >
+            <InfoNotice>
+              Requires a configured model provider (MODEL_SCORING_* on the
+              server); unconfigured deployments return
+              MODEL_PROVIDER_NOT_CONFIGURED. Evidence is passed to the model
+              as untrusted data with an injection-resistant scaffold, and the
+              JSON output is schema-validated before anything is logged.
+            </InfoNotice>
+            {summaryResult ? (
+              <div className="stack">
+                <DefinitionList
+                  items={Object.entries(
+                    summaryResult.dimensionScores,
+                  ).map(([dimension, score]) => ({
+                    label: dimension,
+                    value: `${score}/5`,
+                  }))}
+                />
+                <DefinitionList
+                  items={[
+                    {
+                      label: "Confidence",
+                      value: `${Math.round(summaryResult.confidence * 100)}%`,
+                    },
+                    { label: "Model", value: summaryResult.model },
+                  ]}
+                />
+                <p>{summaryResult.summary}</p>
+              </div>
+            ) : (
+              <EmptyState
+                icon="ai"
+                title="No summary yet"
+                description="Pick evidence references and dimensions to request an advisory model summary."
+              />
+            )}
+          </Panel>
+        ) : null}
         {tab === "redteam" ? (
           <Panel
             title="Red-team runs"
@@ -2361,6 +2471,92 @@ export function AiPage() {
               spellCheck={false}
             />
           </FormField>
+        </div>
+      </Modal>
+      <Modal
+        open={summaryOpen}
+        title="Request a model summary"
+        onClose={() => setSummaryOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSummaryOpen(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              loading={summaryBusy}
+              disabled={
+                summaryEvidenceRefs.trim().length === 0 ||
+                summaryDimensions.trim().length === 0
+              }
+              onClick={() => void runModelSummary()}
+            >
+              Generate summary
+            </Button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {summaryError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{summaryError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="Dimensions (comma separated)"
+            htmlFor="summary-dimensions"
+            hint="Each dimension receives a 0-5 advisory score."
+          >
+            <TextInput
+              id="summary-dimensions"
+              value={summaryDimensions}
+              onChange={(event) => setSummaryDimensions(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Evidence references"
+            htmlFor="summary-evidence"
+            hint="One evidence node id per line (see the Contribution evidence table)."
+          >
+            <Textarea
+              id="summary-evidence"
+              rows={5}
+              value={summaryEvidenceRefs}
+              onChange={(event) => setSummaryEvidenceRefs(event.target.value)}
+              spellCheck={false}
+            />
+          </FormField>
+          <FormField label="Rubric (optional)" htmlFor="summary-rubric">
+            <TextInput
+              id="summary-rubric"
+              value={summaryRubric}
+              onChange={(event) => setSummaryRubric(event.target.value)}
+            />
+          </FormField>
+          {evidenceNodes.data && evidenceNodes.data.length > 0 ? (
+            <div className="field--full">
+              <p className="hint">
+                Recent evidence:{" "}
+                {evidenceNodes.data
+                  .slice(0, 5)
+                  .map((node) => node.id)
+                  .join(", ")}
+              </p>
+            </div>
+          ) : null}
+          {summaryResult ? (
+            <div className="field--full">
+              <DefinitionList
+                items={Object.entries(summaryResult.dimensionScores).map(
+                  ([dimension, score]) => ({
+                    label: dimension,
+                    value: `${score}/5`,
+                  }),
+                )}
+              />
+              <p>{summaryResult.summary}</p>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </>

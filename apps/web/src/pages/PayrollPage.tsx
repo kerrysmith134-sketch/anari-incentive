@@ -309,15 +309,21 @@ function RunsTab({
 
   async function exportRun(
     run: PayrollRun,
-    kind: "export" | "bank-file",
+    kind: "export" | "bank-file" | "tax-filing",
+    bankFormat: "" | "ICBC" | "CMB" = "",
   ): Promise<void> {
-    setDownloading(`${run.id}:${kind}`);
+    const key = `${run.id}:${kind}${bankFormat}`;
+    setDownloading(key);
+    const query =
+      kind === "bank-file" && bankFormat ? `?format=${bankFormat}` : "";
     try {
       await downloadFile(
-        `/api/v1/payroll-runs/${run.id}/${kind}`,
+        `/api/v1/payroll-runs/${run.id}/${kind}${query}`,
         kind === "export"
           ? `payroll-${shortId(run.id, 12)}.csv`
-          : `payroll-bank-${shortId(run.id, 12)}.csv`,
+          : kind === "tax-filing"
+            ? `payroll-tax-filing-${shortId(run.id, 12)}.csv`
+            : `payroll-bank-${shortId(run.id, 12)}${bankFormat ? `-${bankFormat.toLowerCase()}` : ""}.csv`,
       );
     } catch (caught) {
       toast.error(
@@ -612,6 +618,33 @@ function RunsTab({
                       onClick={() => void exportRun(selected, "bank-file")}
                     >
                       Bank file
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon="download"
+                      loading={downloading === `${selected.id}:bank-fileICBC`}
+                      onClick={() => void exportRun(selected, "bank-file", "ICBC")}
+                    >
+                      Bank · ICBC
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon="download"
+                      loading={downloading === `${selected.id}:bank-fileCMB`}
+                      onClick={() => void exportRun(selected, "bank-file", "CMB")}
+                    >
+                      Bank · CMB
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon="download"
+                      loading={downloading === `${selected.id}:tax-filing`}
+                      onClick={() => void exportRun(selected, "tax-filing")}
+                    >
+                      Tax filing CSV
                     </Button>
                   </div>
                 </div>
