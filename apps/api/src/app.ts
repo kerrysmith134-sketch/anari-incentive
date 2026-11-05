@@ -2584,10 +2584,9 @@ export function buildApp(
     const memberships = await platformStore.listMembershipsByUser(
       credential.userId,
     );
-    const membership =
-      (body.tenantId
-        ? memberships.find((candidate) => candidate.tenantId === body.tenantId)
-        : undefined) ?? memberships[0];
+    const membership = body.tenantId
+      ? memberships.find((candidate) => candidate.tenantId === body.tenantId)
+      : memberships[0];
     if (!membership) {
       return reply.status(403).send({
         ...errorBody("NO_TENANT_MEMBERSHIP", "该账号尚未加入任何企业工作区，请联系管理员"),
