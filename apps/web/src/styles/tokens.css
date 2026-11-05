@@ -1,172 +1,214 @@
-/* N-Perform design tokens — light first, dark selected (not inverted). */
+/*
+ * N-Perform design tokens — Anari brand system (2026-11).
+ *
+ * Brand values are extracted from the official logo assets (see
+ * docs/design-system.md and the anari-design-system skill):
+ *   ANARI blue  #1877f2 — the only brand colour; marks interactive elements
+ *   ANARI coal  #342e2c — wordmark colour; anchors the warm-grey neutrals
+ * Brand hexes may only appear in this file; components consume tokens.
+ *
+ * Light first; dark is a re-mapped palette, not an inversion.
+ */
 :root {
   color-scheme: light;
   --font-sans:
-    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Segoe UI", system-ui, "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  --bg: #f3f3ee;
-  --bg-glow: rgba(20, 92, 70, 0.055);
-  --surface: #fcfcfa;
+  /* Brand (extracted from the official logo; do not edit) */
+  --brand: #1877f2;
+  --brand-press: #1464cc;
+  --brand-soft: #e8f1fd;
+  --brand-soft-strong: #cfe2fb;
+  --brand-ink: #ffffff;
+  --brand-bright: #4d94f7;
+  --brand-link: #1877f2;
+
+  /* Warm-grey neutrals derived from the coal wordmark hue */
+  --bg: #f5f5f7;
+  --bg-glow: rgba(24, 119, 242, 0.05);
+  --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-sunken: #eaeae2;
-  --surface-hover: #f4f4ee;
-  --ink: #141713;
-  --ink-2: #42473e;
-  --ink-3: #6a6f64;
-  --ink-4: #8c9086;
-  --line: #dcdcd2;
-  --line-strong: #c6c7bb;
-  --line-soft: #e9e9e1;
+  --surface-sunken: #eeedeb;
+  --surface-hover: #f6f5f3;
+  --ink: #342e2c;
+  --ink-2: #6b6560;
+  --ink-3: #9a938d;
+  --ink-4: #b8b2ac;
+  --line: #e6e3df;
+  --line-strong: #d5d1cc;
+  --line-soft: #eeedeb;
+  --skeleton: #e8e7e5;
 
-  --accent: #0d5c45;
-  --accent-hover: #094a37;
-  --accent-soft: #e0efe8;
-  --accent-soft-strong: #c9e4d8;
-  --accent-ink: #ffffff;
-  --accent-bright: #3fbd91;
+  /* Legacy accent aliases — same values as the brand tokens */
+  --accent: var(--brand);
+  --accent-hover: var(--brand-press);
+  --accent-soft: var(--brand-soft);
+  --accent-soft-strong: var(--brand-soft-strong);
+  --accent-ink: var(--brand-ink);
+  --accent-bright: var(--brand-bright);
 
-  --good: #0ca30c;
-  --good-text: #086b08;
-  --good-soft: #e4f3e3;
-  --warning: #fab219;
-  --warning-text: #7a5000;
-  --warning-soft: #fbf0d7;
-  --serious: #ec835a;
-  --critical: #d03b3b;
-  --critical-text: #a02b2b;
-  --critical-soft: #f8e5e4;
-  --info: #2a78d6;
-  --info-text: #1c5cab;
-  --info-soft: #e5eefb;
+  /* Semantic status colours (not brand) */
+  --good: #15803d;
+  --good-text: #166534;
+  --good-soft: #e6f4ea;
+  --warning: #d97706;
+  --warning-text: #92400e;
+  --warning-soft: #fdf0dd;
+  --serious: #ea8a3d;
+  --critical: #dc2626;
+  --critical-text: #b91c1c;
+  --critical-soft: #fbe9e9;
+  --info: #0284c7;
+  --info-text: #0369a1;
+  --info-soft: #e3f3fc;
 
-  --sidebar-bg: #101410;
-  --sidebar-ink: #eef1e8;
-  --sidebar-muted: #949b8d;
-  --sidebar-line: #252b24;
-  --sidebar-hover: #1a201a;
-  --sidebar-active: #1e2c24;
+  /* Sidebar stays a deep neutral panel in both themes (no coloured gradient) */
+  --sidebar-bg: #101318;
+  --sidebar-ink: #eef0f4;
+  --sidebar-muted: #98a0ab;
+  --sidebar-line: #1d232c;
+  --sidebar-hover: #171c25;
+  --sidebar-active: #16233a;
 
-  --shadow-sm: 0 1px 2px rgba(16, 24, 18, 0.05);
+  --shadow-sm: 0 1px 2px rgba(52, 46, 44, 0.06);
   --shadow-md:
-    0 1px 2px rgba(16, 24, 18, 0.04), 0 8px 24px rgba(16, 24, 18, 0.06);
+    0 1px 3px rgba(52, 46, 44, 0.08), 0 4px 14px rgba(52, 46, 44, 0.06);
   --shadow-lg:
-    0 24px 70px rgba(9, 15, 11, 0.22), 0 2px 8px rgba(9, 15, 11, 0.12);
+    0 24px 70px rgba(13, 15, 18, 0.22), 0 2px 8px rgba(13, 15, 18, 0.12);
 
   --radius-sm: 8px;
-  --radius-md: 11px;
+  --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 22px;
   --radius-pill: 999px;
 
-  --focus: 0 0 0 3px rgba(13, 92, 69, 0.24);
+  --focus: 0 0 0 3px rgba(24, 119, 242, 0.24);
   --topbar-height: 64px;
   --sidebar-width: 252px;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0e0c;
-  --bg-glow: rgba(111, 211, 173, 0.05);
-  --surface: #141714;
-  --surface-raised: #191d19;
-  --surface-sunken: #202520;
-  --surface-hover: #1c211c;
-  --ink: #eef1e9;
-  --ink-2: #c2c8bb;
-  --ink-3: #989f91;
-  --ink-4: #7c8377;
-  --line: #2a302a;
-  --line-strong: #3a423a;
-  --line-soft: #222722;
+  --brand: #1877f2;
+  --brand-press: #3b86f4;
+  --brand-soft: rgba(77, 148, 247, 0.16);
+  --brand-soft-strong: rgba(77, 148, 247, 0.28);
+  --brand-ink: #ffffff;
+  --brand-bright: #4d94f7;
+  --brand-link: #6ea8ff;
 
-  --accent: #7ad6b4;
-  --accent-hover: #9ae6c7;
-  --accent-soft: #17352a;
-  --accent-soft-strong: #1f4636;
-  --accent-ink: #072218;
-  --accent-bright: #7ad6b4;
+  --bg: #0d0f12;
+  --bg-glow: rgba(77, 148, 247, 0.05);
+  --surface: #15181d;
+  --surface-raised: #191d23;
+  --surface-sunken: #1d2127;
+  --surface-hover: #1a1e24;
+  --ink: #f2f1ef;
+  --ink-2: #a8a29b;
+  --ink-3: #736d67;
+  --ink-4: #5c5751;
+  --line: #272c33;
+  --line-strong: #383e47;
+  --line-soft: #22262d;
+  --skeleton: #22262d;
 
-  --good: #0ca30c;
-  --good-text: #63d463;
-  --good-soft: #152b15;
-  --warning: #fab219;
-  --warning-text: #f4c65c;
-  --warning-soft: #302610;
-  --serious: #ec835a;
-  --critical: #d03b3b;
-  --critical-text: #f08d8d;
-  --critical-soft: #321a1a;
-  --info: #3987e5;
-  --info-text: #8dbaf3;
-  --info-soft: #15263d;
+  --accent: var(--brand);
+  --accent-hover: var(--brand-press);
+  --accent-soft: var(--brand-soft);
+  --accent-soft-strong: var(--brand-soft-strong);
+  --accent-ink: var(--brand-ink);
+  --accent-bright: var(--brand-bright);
 
-  --sidebar-bg: #0a0d0a;
-  --sidebar-ink: #eef1e8;
-  --sidebar-muted: #8f978a;
-  --sidebar-line: #202620;
-  --sidebar-hover: #141a14;
-  --sidebar-active: #1b2a21;
+  --good: #4ade80;
+  --good-text: #86efac;
+  --good-soft: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-text: #fcd34d;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --serious: #fb923c;
+  --critical: #f87171;
+  --critical-text: #fca5a5;
+  --critical-soft: rgba(248, 113, 113, 0.14);
+  --info: #38bdf8;
+  --info-text: #7dd3fc;
+  --info-soft: rgba(56, 189, 248, 0.14);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --sidebar-bg: #0d1014;
+  --sidebar-ink: #eef0f4;
+  --sidebar-muted: #8b939e;
+  --sidebar-line: #1b2027;
+  --sidebar-hover: #141821;
+  --sidebar-active: #14213a;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.32);
   --shadow-lg: 0 28px 80px rgba(0, 0, 0, 0.55);
 
-  --focus: 0 0 0 3px rgba(122, 214, 180, 0.26);
+  --focus: 0 0 0 3px rgba(77, 148, 247, 0.3);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0c0e0c;
-    --bg-glow: rgba(111, 211, 173, 0.05);
-    --surface: #141714;
-    --surface-raised: #191d19;
-    --surface-sunken: #202520;
-    --surface-hover: #1c211c;
-    --ink: #eef1e9;
-    --ink-2: #c2c8bb;
-    --ink-3: #989f91;
-    --ink-4: #7c8377;
-    --line: #2a302a;
-    --line-strong: #3a423a;
-    --line-soft: #222722;
+    --brand: #1877f2;
+    --brand-press: #3b86f4;
+    --brand-soft: rgba(77, 148, 247, 0.16);
+    --brand-soft-strong: rgba(77, 148, 247, 0.28);
+    --brand-ink: #ffffff;
+    --brand-bright: #4d94f7;
+    --brand-link: #6ea8ff;
 
-    --accent: #7ad6b4;
-    --accent-hover: #9ae6c7;
-    --accent-soft: #17352a;
-    --accent-soft-strong: #1f4636;
-    --accent-ink: #072218;
-    --accent-bright: #7ad6b4;
+    --bg: #0d0f12;
+    --bg-glow: rgba(77, 148, 247, 0.05);
+    --surface: #15181d;
+    --surface-raised: #191d23;
+    --surface-sunken: #1d2127;
+    --surface-hover: #1a1e24;
+    --ink: #f2f1ef;
+    --ink-2: #a8a29b;
+    --ink-3: #736d67;
+    --ink-4: #5c5751;
+    --line: #272c33;
+    --line-strong: #383e47;
+    --line-soft: #22262d;
+    --skeleton: #22262d;
 
-    --good: #0ca30c;
-    --good-text: #63d463;
-    --good-soft: #152b15;
-    --warning: #fab219;
-    --warning-text: #f4c65c;
-    --warning-soft: #302610;
-    --serious: #ec835a;
-    --critical: #d03b3b;
-    --critical-text: #f08d8d;
-    --critical-soft: #321a1a;
-    --info: #3987e5;
-    --info-text: #8dbaf3;
-    --info-soft: #15263d;
+    --accent: var(--brand);
+    --accent-hover: var(--brand-press);
+    --accent-soft: var(--brand-soft);
+    --accent-soft-strong: var(--brand-soft-strong);
+    --accent-ink: var(--brand-ink);
+    --accent-bright: var(--brand-bright);
 
-    --sidebar-bg: #0a0d0a;
-    --sidebar-ink: #eef1e8;
-    --sidebar-muted: #8f978a;
-    --sidebar-line: #202620;
-    --sidebar-hover: #141a14;
-    --sidebar-active: #1b2a21;
+    --good: #4ade80;
+    --good-text: #86efac;
+    --good-soft: rgba(74, 222, 128, 0.14);
+    --warning: #fbbf24;
+    --warning-text: #fcd34d;
+    --warning-soft: rgba(251, 191, 36, 0.14);
+    --serious: #fb923c;
+    --critical: #f87171;
+    --critical-text: #fca5a5;
+    --critical-soft: rgba(248, 113, 113, 0.14);
+    --info: #38bdf8;
+    --info-text: #7dd3fc;
+    --info-soft: rgba(56, 189, 248, 0.14);
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.28);
+    --sidebar-bg: #0d1014;
+    --sidebar-ink: #eef0f4;
+    --sidebar-muted: #8b939e;
+    --sidebar-line: #1b2027;
+    --sidebar-hover: #141821;
+    --sidebar-active: #14213a;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.32);
     --shadow-lg: 0 28px 80px rgba(0, 0, 0, 0.55);
 
-    --focus: 0 0 0 3px rgba(122, 214, 180, 0.26);
+    --focus: 0 0 0 3px rgba(77, 148, 247, 0.3);
   }
 }
 
@@ -230,7 +272,7 @@ ol {
 }
 
 ::selection {
-  background: var(--accent-soft-strong);
+  background: var(--brand-soft-strong);
   color: var(--ink);
 }
 

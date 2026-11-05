@@ -1758,6 +1758,8 @@ export interface PlatformOrgNode {
   name: string;
   path?: string;
   active: boolean;
+  /** External identity (e.g. Feishu open_department_id) for idempotent sync. */
+  externalId?: string;
   createdAt: string;
 }
 

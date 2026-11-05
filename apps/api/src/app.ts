@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -146,6 +146,7 @@ import {
   processInboxMessageSchema,
   createPlatformTenantSchema,
   createSubscriptionPlanSchema,
+  feishuSyncSchema,
   setTenantSubscriptionSchema,
   createTenantInvoiceSchema,
   setTenantInvoiceStatusSchema,
@@ -231,6 +232,7 @@ import {
 import {
   AuthError,
   DevHeaderAuthenticator,
+  SessionJwt,
   ForbiddenError,
   type Authenticator,
 } from "@anari/auth";
@@ -252,6 +254,7 @@ import {
 } from "./store.js";
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
+import { syncFeishuDirectory } from "./feishu-sync.js";
 import { ApiMetrics } from "./metrics.js";
 import {
   calculatePayroll,
@@ -372,6 +375,17 @@ export interface BuildAppOptions {
     baseUrl: string;
     apiKey: string;
     model: string;
+    fetchImpl?: typeof fetch;
+  };
+  /** Feishu OAuth sign-in + session tokens for the console. */
+  feishu?: {
+    appId: string;
+    appSecret: string;
+    sessionSecret: string;
+    /** Tenant that Feishu sign-ins belong to. */
+    tenantId: string;
+    /** Console origin for redirects (defaults to the request host). */
+    consoleBaseUrl?: string;
     fetchImpl?: typeof fetch;
   };
 }
@@ -1935,6 +1949,8 @@ export function buildApp(
     if (!request.url.startsWith("/api/v1")) return;
     // Unauthenticated marketing/onboarding surface; routes apply their own guards.
     if (request.url.startsWith("/api/v1/public/")) return;
+    // Browser OAuth redirects; the callback validates one-time state itself.
+    if (request.url.startsWith("/api/v1/auth/")) return;
     try {
       request.authContext = await authenticator.authenticate({
         authorization: request.headers.authorization,
@@ -2494,6 +2510,187 @@ export function buildApp(
     );
   });
 
+  // -------------------------------------------------------------------------
+  // Feishu OAuth sign-in (browser flow; one-time state, human-readable errors)
+  // -------------------------------------------------------------------------
+  const feishuStates = new Map<
+    string,
+    { expiresAt: number; postLoginPath: string }
+  >();
+
+  const feishuRedirectBase = (request: FastifyRequest): string =>
+    options.feishu?.consoleBaseUrl ??
+    `${request.protocol}://${request.headers.host ?? "localhost:3000"}`;
+
+  app.get("/api/v1/auth/feishu/authorize", async (request, reply) => {
+    if (!options.feishu) {
+      return reply.status(501).send({
+        ...errorBody(
+          "FEISHU_NOT_CONFIGURED",
+          "Feishu sign-in is not configured on this deployment (FEISHU_APP_ID/FEISHU_APP_SECRET/FEISHU_SESSION_SECRET). Contact the operator or sign in with a token.",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const query = request.query as { postLoginPath?: string };
+    const postLoginPath =
+      query.postLoginPath?.startsWith("/console") ? query.postLoginPath : "/console";
+    const state = randomUUID();
+    // One-time state with a 300s TTL (replay/binding protection).
+    feishuStates.set(state, {
+      expiresAt: Date.now() + 300_000,
+      postLoginPath,
+    });
+    for (const [key, entry] of feishuStates) {
+      if (entry.expiresAt <= Date.now()) feishuStates.delete(key);
+    }
+    const redirectUri = `${feishuRedirectBase(request)}/api/v1/auth/feishu/callback`;
+    const authorizeUrl = new URL(
+      "https://open.feishu.cn/open-apis/authen/v1/authorize",
+    );
+    authorizeUrl.searchParams.set("client_id", options.feishu.appId);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("state", state);
+    return reply.redirect(authorizeUrl.toString());
+  });
+
+  app.get("/api/v1/auth/feishu/callback", async (request, reply) => {
+    const feishuLoginError = (reason: string) => {
+      const base = feishuRedirectBase(request);
+      return reply.redirect(
+        `${base}/console/login?error=${encodeURIComponent(reason)}`,
+      );
+    };
+    if (!options.feishu) return feishuLoginError("Feishu sign-in is not configured");
+    const query = request.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+    if (query.error) return feishuLoginError(`Feishu rejected the sign-in: ${query.error}`);
+    if (!query.code || !query.state) {
+      return feishuLoginError("The callback is missing code/state");
+    }
+    const stateEntry = feishuStates.get(query.state);
+    feishuStates.delete(query.state);
+    if (!stateEntry || stateEntry.expiresAt <= Date.now()) {
+      return feishuLoginError(
+        "The login state is invalid or expired; please start the sign-in again",
+      );
+    }
+    const fetchImpl = options.feishu.fetchImpl ?? fetch;
+    const redirectUri = `${feishuRedirectBase(request)}/api/v1/auth/feishu/callback`;
+    try {
+      // OAuth v2: flat client_id/secret, flat access_token response.
+      const tokenResponse = await fetchImpl(
+        "https://open.feishu.cn/open-apis/authen/v2/oauth/token",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            client_id: options.feishu.appId,
+            client_secret: options.feishu.appSecret,
+            code: query.code,
+            redirect_uri: redirectUri,
+          }),
+        },
+      );
+      const tokenPayload = (await tokenResponse.json()) as {
+        code?: number;
+        msg?: string;
+        data?: { access_token?: string };
+      };
+      const accessToken = tokenPayload.data?.access_token;
+      if (!accessToken) {
+        return feishuLoginError(
+          `Could not exchange the Feishu code (${tokenPayload.code ?? tokenResponse.status}: ${tokenPayload.msg ?? "no access token"})`,
+        );
+      }
+      // user_info MUST use the user token (tenant token returns the app itself).
+      const userResponse = await fetchImpl(
+        "https://open.feishu.cn/open-apis/authen/v1/user_info",
+        { headers: { authorization: `Bearer ${accessToken}` } },
+      );
+      const userPayload = (await userResponse.json()) as {
+        code?: number;
+        msg?: string;
+        data?: {
+          open_id?: string;
+          union_id?: string;
+          name?: string;
+          email?: string;
+        };
+      };
+      const profile = userPayload.data;
+      if (userPayload.code !== 0 || !profile?.open_id) {
+        return feishuLoginError(
+          `Could not read the Feishu profile (${userPayload.code ?? userResponse.status}: ${userPayload.msg ?? "no open_id"})`,
+        );
+      }
+
+      // Resolve or provision the identity. First sign-in creates a basic
+      // employee account only; elevated roles are always granted by an admin.
+      const authSubject = `feishu:${profile.open_id}`;
+      const tenantId = options.feishu.tenantId;
+      const users = await platformStore.listUsers();
+      let user = users.find((candidate) => candidate.authSubject === authSubject);
+      if (!user) {
+        user = await platformStore.createUser({
+          authSubject,
+          displayName: profile.name ?? profile.open_id,
+          email: profile.email,
+        });
+        await platformStore.addMembership({
+          tenantId,
+          userId: user.id,
+          roleCodes: ["employee"],
+        });
+      }
+      const memberships = await platformStore.listMemberships(tenantId);
+      const roles = memberships
+        .filter((membership) => membership.userId === user.id)
+        .flatMap((membership) => membership.roleCodes);
+      let personId: string | undefined;
+      try {
+        const identity = await platformStore.resolveIdentity({
+          tenantId,
+          userId: user.id,
+        });
+        personId = identity.personId;
+      } catch {
+        personId = undefined;
+      }
+      if (!personId) {
+        const person = await platformStore.createPerson({
+          tenantId,
+          employeeCode: `FS-${profile.open_id.replace(/-/g, "").slice(-8)}`,
+          displayName: profile.name ?? profile.open_id,
+          userId: user.id,
+        });
+        personId = person.id;
+      }
+
+      const jwt = new SessionJwt(options.feishu.sessionSecret);
+      const token = await jwt.sign({ tenantId, userId: user.id, personId, roles });
+      countEvent("feishu_login_completed");
+      const base = feishuRedirectBase(request);
+      return reply.redirect(
+        `${base}/console/login#feishu-token=${token}&postLoginPath=${encodeURIComponent(stateEntry.postLoginPath)}`,
+      );
+    } catch (error) {
+      request.log.warn(
+        { err: error },
+        "feishu oauth callback failed",
+      );
+      return feishuLoginError(
+        error instanceof Error
+          ? `Sign-in failed: ${error.message}`
+          : "Sign-in failed for an unknown reason",
+      );
+    }
+  });
+
   app.get("/api/v1/public/plans", async (request) => {
     return data(await platformStore.listSubscriptionPlans(true), request);
   });
@@ -2625,6 +2822,39 @@ export function buildApp(
   app.get("/api/v1/platform/tenants/:id/persons", async (request) => {
     requireRoles(request, "platform_admin");
     return data(await platformStore.listPersons(idOf(request)), request);
+  });
+
+  app.post("/api/v1/platform/feishu/sync-directory", async (request, reply) => {
+    requireRoles(request, "platform_admin");
+    if (!options.feishu) {
+      return reply.status(501).send({
+        ...errorBody(
+          "FEISHU_NOT_CONFIGURED",
+          "Feishu integration is not configured (FEISHU_APP_ID/FEISHU_APP_SECRET); directory sync is unavailable",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const body = parse(feishuSyncSchema, request.body);
+    try {
+      const result = await syncFeishuDirectory(platformStore, {
+        tenantId: options.feishu.tenantId,
+        appId: options.feishu.appId,
+        appSecret: options.feishu.appSecret,
+        dryRun: body.dryRun ?? true,
+        allowCreate: body.allowCreate ?? false,
+        fetchImpl: options.feishu.fetchImpl,
+      });
+      countEvent("feishu_directory_synced");
+      return data(result, request);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "directory sync failed";
+      return reply.status(502).send({
+        ...errorBody("FEISHU_SYNC_FAILED", message),
+        meta: { correlation_id: request.id },
+      });
+    }
   });
 
   app.post("/api/v1/platform/plans", async (request, reply) => {

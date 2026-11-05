@@ -2315,6 +2315,12 @@ export type ProcessRetentionDisposalsBody = z.infer<
   typeof processRetentionDisposalsSchema
 >;
 
+export const feishuSyncSchema = z.object({
+  dryRun: z.boolean().default(true),
+  allowCreate: z.boolean().default(false),
+});
+export type FeishuSyncBody = z.infer<typeof feishuSyncSchema>;
+
 export const modelSummarySchema = z.object({
   dimensions: z.array(z.string().min(1)).min(1).max(8),
   evidenceRefs: z.array(z.string().min(1)).min(1).max(20),
@@ -2354,6 +2360,7 @@ export const requestSchemaRegistry = {
   StrategicPoolCostReview: strategicPoolCostReviewSchema,
   StrategicPoolFinanceApprove: strategicPoolFinanceApproveSchema,
   CreateTenantInvoice: createTenantInvoiceSchema,
+  FeishuSync: feishuSyncSchema,
   ModelSummary: modelSummarySchema,
   ProcessRetentionDisposals: processRetentionDisposalsSchema,
   PublicSignup: publicSignupSchema,

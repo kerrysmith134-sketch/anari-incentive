@@ -18,7 +18,7 @@ import {
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { api } from "../lib/api.js";
+import { api, ApiError } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   formatDateTime,
@@ -200,6 +200,13 @@ export function IntegrationsPage() {
           <InfoNotice tone="warning">{actionError}</InfoNotice>
         </div>
       ) : null}
+
+      <Panel
+        title="Feishu directory sync"
+        subtitle="Departments → org nodes, members → people, leaders → reporting lines; job titles never influence roles"
+      >
+        <FeishuSyncPanel />
+      </Panel>
 
       {connections.error ? (
         <ErrorNotice error={connections.error} onRetry={connections.reload} />
@@ -1288,6 +1295,157 @@ function IdentitiesSection() {
           </FormField>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+
+interface FeishuSyncResultView {
+  dryRun: boolean;
+  departments: Array<{
+    externalId: string;
+    name: string;
+    action: string;
+  }>;
+  users: Array<{
+    openId: string;
+    name: string;
+    email?: string;
+    jobTitle?: string;
+    action: string;
+  }>;
+  managersLinked: number;
+  orgAssignmentsCreated: number;
+  warnings: string[];
+}
+
+function FeishuSyncPanel() {
+  const toast = useToast();
+  const [result, setResult] = useState<FeishuSyncResultView | null>(null);
+  const [allowCreate, setAllowCreate] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function runSync(dryRun: boolean) {
+    setBusy(true);
+    try {
+      const response = await api<FeishuSyncResultView>(
+        "/api/v1/platform/feishu/sync-directory",
+        { method: "POST", body: { dryRun, allowCreate } },
+      );
+      setResult(response);
+      toast.success(
+        dryRun ? "Preview ready" : "Directory synced",
+        `${response.departments.length} departments · ${response.users.length} people · ${response.managersLinked} reporting lines`,
+      );
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "Directory sync failed",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <InfoNotice>
+        Preview first: dry-run lists what would be created without writing.
+        Provisioning only grants the basic employee role; elevated roles stay
+        with an administrator. Requires FEISHU_APP_ID/FEISHU_APP_SECRET on the
+        server (501 otherwise).
+      </InfoNotice>
+      <div className="row-actions">
+        <Button
+          variant="secondary"
+          loading={busy}
+          onClick={() => void runSync(true)}
+        >
+          Preview (dry run)
+        </Button>
+        <Button
+          variant="primary"
+          loading={busy}
+          onClick={() => void runSync(false)}
+        >
+          Apply sync
+        </Button>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={allowCreate}
+            onChange={(event) => setAllowCreate(event.target.checked)}
+          />{" "}
+          Provision missing people (basic role only)
+        </label>
+      </div>
+      {result ? (
+        <div className="stack">
+          <div className="stat-grid stat-grid--three">
+            <div>
+              <div className="stat-label">Departments</div>
+              <div className="stat-value">
+                {result.departments.filter((d) => d.action === "CREATE").length}{" "}
+                new / {result.departments.length}
+              </div>
+            </div>
+            <div>
+              <div className="stat-label">People</div>
+              <div className="stat-value">
+                {
+                  result.users.filter((u) => u.action === "PROVISION" || u.action === "LINK_PERSON")
+                    .length
+                }{" "}
+                new / {result.users.length}
+              </div>
+            </div>
+            <div>
+              <div className="stat-label">Reporting lines</div>
+              <div className="stat-value">{result.managersLinked}</div>
+            </div>
+          </div>
+          {result.warnings.length > 0 ? (
+            <InfoNotice tone="warning">
+              {result.warnings.slice(0, 3).join(" · ")}
+              {result.warnings.length > 3 ? ` (+${result.warnings.length - 3} more)` : ""}
+            </InfoNotice>
+          ) : null}
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Title</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.users.slice(0, 12).map((user) => (
+                <tr key={user.openId}>
+                  <td>
+                    {user.name}
+                    {user.email ? (
+                      <span className="hint"> · {user.email}</span>
+                    ) : null}
+                  </td>
+                  <td>{user.jobTitle ?? "—"}</td>
+                  <td>
+                    <Badge
+                      tone={
+                        user.action === "PROVISION" || user.action === "LINK_PERSON"
+                          ? "info"
+                          : user.action === "SKIPPED_NO_PROVISIONING"
+                            ? "neutral"
+                            : "success"
+                      }
+                    >
+                      {user.action}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1364,6 +1364,10 @@ async function saveRefresh(event: FormEvent) {
             </InfoNotice>
             {summaryResult ? (
               <div className="stack">
+                <div className="row-actions">
+                  <Badge tone="info">🤖 AI 模型 · {summaryResult.model}</Badge>
+                  <Badge tone="neutral">Advisory — never enters money paths</Badge>
+                </div>
                 <DefinitionList
                   items={Object.entries(
                     summaryResult.dimensionScores,
@@ -1372,15 +1376,32 @@ async function saveRefresh(event: FormEvent) {
                     value: `${score}/5`,
                   }))}
                 />
-                <DefinitionList
-                  items={[
-                    {
-                      label: "Confidence",
-                      value: `${Math.round(summaryResult.confidence * 100)}%`,
-                    },
-                    { label: "Model", value: summaryResult.model },
-                  ]}
-                />
+                <div>
+                  <div className="stat-label">
+                    Confidence {Math.round(summaryResult.confidence * 100)}%
+                  </div>
+                  <div
+                    className="confidence-bar"
+                    role="meter"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(summaryResult.confidence * 100)}
+                    aria-label="Model confidence"
+                  >
+                    <span
+                      className="confidence-bar__fill"
+                      style={{
+                        width: `${Math.round(summaryResult.confidence * 100)}%`,
+                        background:
+                          summaryResult.confidence > 0.7
+                            ? "var(--brand)"
+                            : summaryResult.confidence > 0.4
+                              ? "var(--warning)"
+                              : "var(--critical)",
+                      }}
+                    />
+                  </div>
+                </div>
                 <p>{summaryResult.summary}</p>
               </div>
             ) : (

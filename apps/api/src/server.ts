@@ -7,8 +7,10 @@ import {
 } from "@anari/agent-runtime";
 import { PgAgentTaskRepository } from "@anari/agent-persistence";
 import {
+  CompositeAuthenticator,
   DevHeaderAuthenticator,
   OidcJwtAuthenticator,
+  SessionAuthenticator,
 } from "@anari/auth";
 import { buildApp, type AgentRuntimeFactory } from "./app.js";
 import { createAgentContext } from "./agent-context.js";
@@ -44,7 +46,7 @@ const defaultTenantId =
     ? "00000000-0000-4000-8000-000000000001"
     : "tenant-demo");
 
-const authenticator =
+const primaryAuthenticator =
   process.env.AUTH_MODE === "oidc"
     ? new OidcJwtAuthenticator({
         issuer: process.env.OIDC_ISSUER ?? "",
@@ -59,6 +61,16 @@ const authenticator =
           "00000000-0000-4000-8000-000000000001",
         roles: ["admin"],
       });
+
+// Feishu OAuth issues local session tokens; accept them alongside the
+// primary mode. Session tokens only compete on requests carrying a bearer.
+const feishuSessionSecret = process.env.FEISHU_SESSION_SECRET;
+const authenticator = feishuSessionSecret
+  ? new CompositeAuthenticator([
+      new SessionAuthenticator(feishuSessionSecret),
+      primaryAuthenticator,
+    ])
+  : primaryAuthenticator;
 
 const createRuntime: AgentRuntimeFactory | undefined = pool
   ? (store, tenantId) =>
@@ -130,6 +142,19 @@ const rateLimit =
     ? { limit: rateLimitPerMinute }
     : undefined;
 const bodyLimitBytes = Number(process.env.BODY_LIMIT_BYTES ?? "0");
+const feishuConfig =
+  process.env.FEISHU_APP_ID &&
+  process.env.FEISHU_APP_SECRET &&
+  process.env.FEISHU_SESSION_SECRET
+    ? {
+        appId: process.env.FEISHU_APP_ID,
+        appSecret: process.env.FEISHU_APP_SECRET!,
+        sessionSecret: process.env.FEISHU_SESSION_SECRET!,
+        tenantId:
+          process.env.FEISHU_TENANT_ID ?? defaultTenantId,
+        consoleBaseUrl: process.env.CONSOLE_BASE_URL,
+      }
+    : undefined;
 const bodyLimit =
   Number.isInteger(bodyLimitBytes) && bodyLimitBytes > 0
     ? bodyLimitBytes
@@ -172,6 +197,7 @@ const app = buildApp(
     tracer,
     rateLimit,
     bodyLimitBytes: bodyLimit,
+    feishu: feishuConfig,
   },
 );
 

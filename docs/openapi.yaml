@@ -7875,6 +7875,57 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/auth/feishu/authorize:
+    get:
+      tags: [Platform]
+      summary: Start Feishu OAuth sign-in
+      description: >
+        Generates a one-time state (300s TTL) and redirects to Feishu. Returns
+        501 with a human-readable message when the deployment has no Feishu
+        credentials configured.
+      responses:
+        "302":
+          description: Redirect to Feishu authorize endpoint
+        "501":
+          description: Feishu sign-in not configured
+  /api/v1/auth/feishu/callback:
+    get:
+      tags: [Platform]
+      summary: Feishu OAuth callback
+      description: >
+        Validates the one-time state, exchanges the code for a user token,
+        reads the profile, provisions the basic identity on first sign-in
+        (employee role only) and redirects to the console with a local session
+        token. Failures redirect to the login page with an explanation.
+      responses:
+        "302":
+          description: Redirect to the console (token) or login (error)
+  /api/v1/platform/feishu/sync-directory:
+    post:
+      tags: [Platform]
+      summary: Sync the Feishu directory into org nodes, people and reporting lines
+      description: >
+        dryRun (default true) previews the changes. allowCreate provisions new
+        people with the basic employee role only; job titles never influence
+        roles. Departments map to org nodes by open_department_id; users bind
+        by feishu open_id; leaders become reporting lines.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeishuSync"
+      responses:
+        "200":
+          description: Sync result (preview or applied)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "501":
+          description: Feishu not configured
+        "502":
+          description: Feishu API error
   /api/v1/public/signup:
     post:
       tags: [Platform]
@@ -11327,6 +11378,14 @@ components:
           type: string
         context:
           type: string
+    FeishuSync:
+      type: object
+      required: []
+      properties:
+        dryRun:
+          type: boolean
+        allowCreate:
+          type: boolean
     GenerateClawbackRecovery:
       type: object
       required: [cycleId, ledgerEntryId]

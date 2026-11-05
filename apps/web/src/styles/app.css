@@ -56,6 +56,13 @@
   border-bottom: 1px solid var(--sidebar-line);
 }
 
+.brand-mark--logo {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
 .brand-mark {
   display: inline-flex;
   color: var(--accent-bright);
@@ -2389,4 +2396,71 @@
 
 .checkbox span {
   min-width: 0;
+}
+
+/* Brand logo placement on the auth pages (vertical lockup, centred) */
+.auth-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.auth-logo img {
+  width: 132px;
+  height: auto;
+}
+
+/* Feishu SSO entry on the login card */
+.feishu-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+}
+
+.feishu-login:hover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.feishu-login::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--brand);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19l7-7 3 3-7 7-3-3z'/%3E%3Cpath d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/%3E%3Cpath d='M2 2l7.586 7.586'/%3E%3Ccircle cx='11' cy='11' r='2'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 19l7-7 3 3-7 7-3-3z'/%3E%3Cpath d='M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z'/%3E%3Cpath d='M2 2l7.586 7.586'/%3E%3Ccircle cx='11' cy='11' r='2'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+
+/* AI panel confidence bar (2px meter, brand/warning/critical bands) */
+.confidence-bar {
+  height: 2px;
+  width: 100%;
+  max-width: 320px;
+  background: var(--line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.confidence-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width 200ms ease-out;
 }

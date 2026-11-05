@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
@@ -25,6 +25,33 @@ export function LoginPage() {
   useDocumentTitle("Sign in");
   const { updateSession, session } = useAuth();
   const [mode, setMode] = useState(session.token ? "token" : "dev");
+  const [redirectError, setRedirectError] = useState<string | null>(null);
+
+  // Feishu OAuth lands on #feishu-token=…&postLoginPath=…; failures arrive
+  // as ?error=… with a human-readable message.
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, "");
+    const hashParams = new URLSearchParams(hash);
+    const token = hashParams.get("feishu-token");
+    const queryError = new URLSearchParams(window.location.search).get(
+      "error",
+    );
+    if (queryError) {
+      setRedirectError(queryError);
+      window.history.replaceState(null, "", "/console/login");
+      return;
+    }
+    if (!token) return;
+    updateSession({
+      tenantId: session.tenantId,
+      userId: session.userId || "feishu-user",
+      personId: session.personId,
+      token,
+    });
+    const postLoginPath = hashParams.get("postLoginPath") ?? "/console";
+    window.history.replaceState(null, "", postLoginPath);
+    window.location.reload();
+  }, [session, updateSession]);
   const [tenantId, setTenantId] = useState(session.tenantId);
   const [userId, setUserId] = useState(session.userId);
   const [personId, setPersonId] = useState(session.personId);
@@ -75,12 +102,26 @@ export function LoginPage() {
 
   return (
     <div className="page">
+      <div className="auth-logo">
+        <img src="/brand/logo-vertical.png" alt="anari" width="132" />
+      </div>
       <PageHeader
         eyebrow="Console access"
         title="Sign in"
         description="Verify a session against the API before entering the operations console. Production deployments use OIDC bearer tokens; dev headers only work when the API runs with AUTH_MODE=dev."
       />
       <Panel title="Session">
+        {redirectError ? (
+          <div className="section-gap">
+            <InfoNotice tone="warning">{redirectError}</InfoNotice>
+          </div>
+        ) : null}
+        <a
+          className="feishu-login"
+          href="/api/v1/auth/feishu/authorize?postLoginPath=/console"
+        >
+          Sign in with Feishu
+        </a>
         <div className="form-grid">
           {error ? (
             <div className="field--full">

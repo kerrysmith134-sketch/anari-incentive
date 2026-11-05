@@ -16,13 +16,16 @@ interface ThemeContextValue {
   toggle: () => void;
 }
 
-const STORAGE_KEY = "anari.theme";
+const STORAGE_KEY = "anari-theme";
+const LEGACY_STORAGE_KEY = "anari.theme";
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function readPreference(): ThemePreference {
   try {
-    const value = localStorage.getItem(STORAGE_KEY);
+    const value =
+      localStorage.getItem(STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_STORAGE_KEY);
     if (value === "light" || value === "dark" || value === "system") {
       return value;
     }
@@ -64,7 +67,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (preference === "system") delete root.dataset.theme;
     else root.dataset.theme = preference;
     const meta = document.querySelector('meta[name="theme-color"]');
-    meta?.setAttribute("content", resolved === "dark" ? "#0c0e0c" : "#101410");
+    meta?.setAttribute("content", resolved === "dark" ? "#0d0f12" : "#101318");
     try {
       if (preference === "system") localStorage.removeItem(STORAGE_KEY);
       else localStorage.setItem(STORAGE_KEY, preference);

@@ -211,6 +211,7 @@ export interface PlatformStore {
     name: string;
     nodeType: string;
     parentId?: string;
+    externalId?: string;
   }): Promise<PlatformOrgNode>;
   listOrgNodes(tenantId: string): Promise<PlatformOrgNode[]>;
   assignPersonOrg(input: {
@@ -2144,6 +2145,7 @@ export class MemoryPlatformStore implements PlatformStore {
     name: string;
     nodeType: string;
     parentId?: string;
+    externalId?: string;
   }): Promise<PlatformOrgNode> {
     if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
     const parent = input.parentId
@@ -2160,6 +2162,7 @@ export class MemoryPlatformStore implements PlatformStore {
       name: input.name,
       path: parent?.path ? `${parent.path}/${input.name}` : `/${input.name}`,
       active: true,
+      externalId: input.externalId,
       createdAt: now(),
     };
     this.orgNodes.set(node.id, node);
@@ -8412,6 +8415,7 @@ export class PgPlatformStore implements PlatformStore {
     name: string;
     nodeType: string;
     parentId?: string;
+    externalId?: string;
   }): Promise<PlatformOrgNode> {
     let parentPath: string | undefined;
     if (input.parentId) {
@@ -8425,8 +8429,8 @@ export class PgPlatformStore implements PlatformStore {
     try {
       const { rows } = await this.pool.query(
         `INSERT INTO org_nodes
-          (id, tenant_id, parent_id, node_type, name, path)
-         VALUES ($1,$2,$3,$4,$5,$6)
+          (id, tenant_id, parent_id, node_type, name, path, external_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          RETURNING *`,
         [
           randomUUID(),
@@ -8435,6 +8439,7 @@ export class PgPlatformStore implements PlatformStore {
           input.nodeType,
           input.name,
           parentPath ? `${parentPath}/${input.name}` : `/${input.name}`,
+          input.externalId ?? null,
         ],
       );
       return this.mapOrgNode(rows[0]);
@@ -15490,6 +15495,7 @@ export class PgPlatformStore implements PlatformStore {
       name: row.name,
       path: row.path ?? undefined,
       active: row.active,
+      externalId: row.external_id ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

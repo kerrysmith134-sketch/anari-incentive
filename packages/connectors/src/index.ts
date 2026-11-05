@@ -8,3 +8,4 @@ export * from "./hubspot.js";
 export * from "./feishu.js";
 export * from "./presets.js";
 export * from "./integration.js";
+export * from "./feishu-directory.js";

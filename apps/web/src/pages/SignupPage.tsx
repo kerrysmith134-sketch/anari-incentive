@@ -66,6 +66,9 @@ export function SignupPage() {
 
   return (
     <div className="page">
+      <div className="auth-logo">
+        <img src="/brand/logo-vertical.png" alt="anari" width="132" />
+      </div>
       <PageHeader
         title="Create your workspace"
         description="Provision a tenant, an admin account and an optional trial subscription. No credentials are stored here; sign-in goes through your identity provider."

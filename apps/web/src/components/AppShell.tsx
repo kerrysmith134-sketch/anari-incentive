@@ -218,23 +218,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar__brand">
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 32 32" width="30" height="30">
-              <rect width="32" height="32" rx="9" fill="currentColor" opacity="0.14" />
-              <path
-                d="M9 23V10.5L23 21.5V9"
-                stroke="currentColor"
-                strokeWidth="2.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-              <circle cx="23" cy="9" r="2.4" fill="var(--accent-bright)" />
-            </svg>
-          </span>
+          <img
+            src="/brand/logo-icon.png"
+            alt=""
+            width="28"
+            height="28"
+            className="brand-mark brand-mark--logo"
+          />
           <div className="sidebar__brand-copy">
-            <strong>N-Perform</strong>
-            <span>Assurance console</span>
+            <strong>anari</strong>
+            <span>N-Perform console</span>
           </div>
           <button
             type="button"
