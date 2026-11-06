@@ -2,6 +2,14 @@
   "generatedFrom": "packages/contracts/src/index.ts#requestSchemaRegistry",
   "description": "Generated request contracts derived from Zod. Run `npm run contracts:manifest`; do not edit by hand.",
   "schemas": {
+    "AdvanceCycle": {
+      "required": [
+        "status"
+      ],
+      "optional": [
+        "reason"
+      ]
+    },
     "AmendEmploymentContract": {
       "required": [
         "approvedBy",
@@ -389,6 +397,17 @@
         "reviewerPersonId"
       ],
       "optional": []
+    },
+    "RunsFromIngestion": {
+      "required": [
+        "cycleId",
+        "policyVersionId",
+        "sourceSystem"
+      ],
+      "optional": [
+        "evidenceType",
+        "mode"
+      ]
     },
     "SetPassword": {
       "required": [

@@ -165,6 +165,39 @@ console.log(
   }`,
 );
 
+/** 周期推进：COLLECTING 且 endsAt 已过 → 自动进入 AI_PRE_REVIEW。 */
+async function advanceDueCycles(): Promise<number> {
+  const headers: Record<string, string> = tokenProvider
+    ? { authorization: `Bearer ${await tokenProvider.getToken()}` }
+    : { "x-tenant-id": tenantId, "x-user-id": "worker" };
+  const listResponse = await fetch(`${apiBaseUrl}/api/v1/evaluation-cycles`, {
+    headers,
+  });
+  if (!listResponse.ok) return 0;
+  const { data } = (await listResponse.json()) as { data?: Array<{ id: string; status: string; endsAt: string }> };
+  let advanced = 0;
+  for (const cycle of data ?? []) {
+    if (cycle.status !== "COLLECTING") continue;
+    if (Date.parse(cycle.endsAt) > Date.now()) continue;
+    const advanceResponse = await fetch(
+      `${apiBaseUrl}/api/v1/evaluation-cycles/${cycle.id}/advance`,
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          status: "AI_PRE_REVIEW",
+          reason: "周期已到期，自动进入 AI 预审",
+        }),
+      },
+    );
+    if (advanceResponse.ok) advanced += 1;
+  }
+  return advanced;
+}
+
+let lastCycleAdvanceMs = 0;
+const CYCLE_ADVANCE_INTERVAL_MS = 30 * 60 * 1000;
+
 while (running) {
   try {
     const scheduled = await scheduler.tick();
@@ -173,6 +206,11 @@ while (running) {
       maxAttempts: 3,
       minAgeMs: 60_000,
     });
+    if (Date.now() - lastCycleAdvanceMs >= CYCLE_ADVANCE_INTERVAL_MS) {
+      lastCycleAdvanceMs = Date.now();
+      const advanced = await advanceDueCycles();
+      if (advanced > 0) console.log(`agent worker: cycles advanced=${advanced}`);
+    }
     if (scheduled.length + events.length + retried.length > 0) {
       console.log(
         `agent worker: scheduled=${scheduled.length} events=${events.length} retried=${retried.length}`,

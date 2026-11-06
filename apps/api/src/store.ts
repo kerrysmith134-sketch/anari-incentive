@@ -8,6 +8,7 @@ import {
   calculationRunTransitions,
   confirmationBlockers,
   contributionClaimTransitions,
+  evaluationCycleTransitions,
   dataQualityIssueTransitions,
   evaluationDraftTransitions,
   legalGateBlockers,
@@ -1675,6 +1676,30 @@ export class Store implements IncentiveStore {
     return [...this.rubrics.values()].sort(
       (a, b) => b.createdAt.localeCompare(a.createdAt),
     );
+  }
+
+  async advanceEvaluationCycle(
+    id: string,
+    input: { status: string; reason?: string; actorPersonId?: string },
+  ): Promise<EvaluationCycle> {
+    const cycle = await this.getEvaluationCycle(id);
+    assertTransition(
+      evaluationCycleTransitions,
+      "EvaluationCycle",
+      cycle.status,
+      input.status as never,
+    );
+    cycle.status = input.status;
+    cycle.updatedAt = now();
+    this.recordAuditEvent({
+      actorType: "USER",
+      actorId: input.actorPersonId,
+      action: "EVALUATION_CYCLE_ADVANCED",
+      objectType: "EVALUATION_CYCLE",
+      objectId: id,
+      reason: `${cycle.status} → ${input.status}${input.reason ? `: ${input.reason}` : ""}`,
+    });
+    return cycle;
   }
 
   async createEvaluationDraft(input: {

@@ -7920,6 +7920,54 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/evaluation-cycles/{id}/advance:
+    post:
+      tags: [Evaluation]
+      summary: 推进考核周期状态机
+      description: >
+        DRAFT → COLLECTING → AI_PRE_REVIEW → HUMAN_REVIEW → DECIDED →
+        CALCULATING → SETTLED。HUMAN_REVIEW 前必须有 AGENT 预审草稿；
+        DECIDED 前所有草稿必须已决策；写入审计链。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdvanceCycle"
+      responses:
+        "200":
+          description: 已推进
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+  /api/v1/calculation-runs:from-ingestion:
+    post:
+      tags: [Rewards]
+      summary: 从摄取订单物化影子计算批次（CRM/ERP → 计算适配）
+      description: >
+        取指定来源系统在周期窗口内的有效订单证据，按外部身份映射解析参与人，
+        逐单创建影子计算批次；同一外部订单幂等（ALREADY_MATERIALIZED 跳过），
+        无映射/无毛利则跳过并给出原因。不写金额入账本（锁定仍走审批）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunsFromIngestion"
+      responses:
+        "200":
+          description: 物化结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/evaluation-cycles/{id}/pre-review:
     post:
       tags: [Evaluation]
@@ -11448,6 +11496,30 @@ components:
         rubric:
           type: string
         context:
+          type: string
+    AdvanceCycle:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [COLLECTING, AI_PRE_REVIEW, HUMAN_REVIEW, DECIDED, CALCULATING, SETTLED]
+        reason:
+          type: string
+    RunsFromIngestion:
+      type: object
+      required: [cycleId, policyVersionId, sourceSystem]
+      properties:
+        cycleId:
+          type: string
+        policyVersionId:
+          type: string
+        sourceSystem:
+          type: string
+        mode:
+          type: string
+          enum: [SHADOW, FORMAL]
+        evidenceType:
           type: string
     PreReview:
       type: object

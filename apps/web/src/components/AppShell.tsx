@@ -183,7 +183,7 @@ function zhRole(role: string): string {
 }
 
 const TITLES: Record<string, string> = {
-  "/": "总览",
+  "/": "运营总览",
   "/approvals": "审批",
   "/cycles": "考核周期",
   "/contribution": "贡献认定",

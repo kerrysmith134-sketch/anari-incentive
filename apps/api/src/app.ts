@@ -148,6 +148,8 @@ import {
   createSubscriptionPlanSchema,
   feishuSyncSchema,
   passwordLoginSchema,
+  advanceCycleSchema,
+  runsFromIngestionSchema,
   preReviewSchema,
   setPasswordSchema,
   setTenantSubscriptionSchema,
@@ -2393,6 +2395,154 @@ export function buildApp(
         missingInformation,
       });
     }
+    return data({ created, skipped }, request);
+  });
+
+  // 周期推进状态机（AI_PRE_REVIEW→HUMAN_REVIEW 与 HUMAN_REVIEW→DECIDED 带门禁）。
+  app.post("/api/v1/evaluation-cycles/:id/advance", async (request) => {
+    requireRoles(request, "manager", "admin");
+    const body = parse(advanceCycleSchema, request.body);
+    const store = storeFor(request);
+    if (body.status === "HUMAN_REVIEW") {
+      // 门禁：预审必须已产出 AGENT 草稿。
+      const drafts = await store.listEvaluationDrafts({ cycleId: idOf(request) });
+      if (!drafts.some((draft) => draft.generatedByType === "AGENT")) {
+        throw new ConflictError(
+          "PRE_REVIEW_REQUIRED: 先运行 pre-review 生成 AGENT 草稿",
+        );
+      }
+    }
+    if (body.status === "DECIDED") {
+      // 门禁：所有草稿均已决策（无 DRAFT/SUBMITTED 残留）。
+      const drafts = await store.listEvaluationDrafts({ cycleId: idOf(request) });
+      const undecided = drafts.filter(
+        (draft) => draft.status === "DRAFT" || draft.status === "SUBMITTED",
+      );
+      if (undecided.length > 0) {
+        throw new ConflictError(
+          `UNDECIDED_DRAFTS: ${undecided.length} 份草稿尚未决策`,
+        );
+      }
+    }
+    const cycle = await store.advanceEvaluationCycle(idOf(request), {
+      status: body.status,
+      reason: body.reason,
+      actorPersonId: ownPersonId(request),
+    });
+    countEvent("evaluation_cycle_advanced");
+    return data(cycle, request);
+  });
+
+  // CRM/ERP → 计算适配：把摄取的订单证据物化为影子计算批次。
+  app.post("/api/v1/calculation-runs:from-ingestion", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(runsFromIngestionSchema, request.body);
+    const store = storeFor(request);
+    const cycle = await store.getEvaluationCycle(body.cycleId);
+    const windowStart = Date.parse(cycle.startsAt);
+    const windowEnd = Date.parse(cycle.endsAt);
+    const evidence = (await store.listEvidence()).filter(
+      (node) =>
+        node.sourceSystem === body.sourceSystem &&
+        node.evidenceType === body.evidenceType &&
+        Date.parse(node.observedAt) >= windowStart &&
+        Date.parse(node.observedAt) <= windowEnd &&
+        node.qualityStatus === "VALID" ||
+        node.qualityStatus === "UNVERIFIED",
+    );
+    if (evidence.length === 0) {
+      return data(
+        {
+          created: [],
+          skipped: [],
+          note: "窗口内没有该来源的有效订单证据",
+        },
+        request,
+      );
+    }
+    const identities = await platformStore.listExternalIdentities(
+      tenantOf(request),
+      { sourceSystem: body.sourceSystem },
+    );
+    const identityByExternal = new Map(
+      identities.map((row) => [row.externalId, row.personId]),
+    );
+    // 幂等：同一外部订单只物化一次（按 order.id 比对既有批次）。
+    const existingRuns = await store.listRuns();
+    const materializedOrderIds = new Set(
+      existingRuns.map((run) => run.inputSnapshot?.order?.id),
+    );
+    const created: Array<Record<string, unknown>> = [];
+    const skipped: Array<Record<string, unknown>> = [];
+    for (const node of evidence) {
+      const payload = node.normalizedPayload as Record<string, unknown>;
+      const grossProfit = payload.grossProfit ?? payload.amount;
+      if (grossProfit === undefined || grossProfit === null) {
+        skipped.push({ evidenceId: node.id, reason: "NO_GROSS_PROFIT" });
+        continue;
+      }
+      const externalId = String(
+        payload.dealId ?? payload.orderId ?? payload.sourceRecordId ?? node.id,
+      );
+      if (materializedOrderIds.has(externalId)) {
+        skipped.push({ evidenceId: node.id, reason: "ALREADY_MATERIALIZED" });
+        continue;
+      }
+      const personId =
+        identityByExternal.get(externalId) ??
+        (identityByExternal.get("*") ?? undefined);
+      if (!personId) {
+        skipped.push({
+          evidenceId: node.id,
+          reason: "NO_IDENTITY_MAPPING",
+          externalId,
+        });
+        continue;
+      }
+      try {
+        const run = await store.createCalculationRun({
+          cycleId: body.cycleId,
+          policyVersionId: body.policyVersionId,
+          mode: body.mode ?? "SHADOW",
+          order: {
+            id: externalId,
+            grossProfit: String(grossProfit),
+            currency: String(payload.currency ?? "CNY"),
+            invoiceAmount: payload.invoiceAmount
+              ? String(payload.invoiceAmount)
+              : undefined,
+            cashCollected: payload.cashCollected
+              ? String(payload.cashCollected)
+              : undefined,
+            creditApproved: Boolean(payload.creditApproved ?? true),
+            qualityHold: Boolean(payload.qualityHold ?? false),
+            projectType: payload.projectType
+              ? String(payload.projectType)
+              : undefined,
+          },
+          participants: [
+            {
+              personId,
+              workPackageId: node.subjectId,
+              attributionWeight: String(payload.attributionWeight ?? "1"),
+              role: "OWNER",
+            },
+          ],
+        } as never);
+        created.push({
+          runId: run.id,
+          evidenceId: node.id,
+          personId,
+          resultHash: run.resultHash,
+        });
+      } catch (error) {
+        skipped.push({
+          evidenceId: node.id,
+          reason: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    }
+    countEvent("runs_from_ingestion");
     return data({ created, skipped }, request);
   });
 

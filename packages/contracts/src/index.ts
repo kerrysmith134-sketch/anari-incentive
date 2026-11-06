@@ -2337,6 +2337,29 @@ export const setPasswordSchema = z.object({
 });
 export type SetPasswordBody = z.infer<typeof setPasswordSchema>;
 
+export const advanceCycleSchema = z.object({
+  status: z.enum([
+    "COLLECTING",
+    "AI_PRE_REVIEW",
+    "HUMAN_REVIEW",
+    "DECIDED",
+    "CALCULATING",
+    "SETTLED",
+  ]),
+  reason: z.string().min(3).optional(),
+});
+
+export const runsFromIngestionSchema = z.object({
+  cycleId: uuidSchema,
+  policyVersionId: uuidSchema,
+  sourceSystem: z.string().min(1),
+  mode: z.enum(["SHADOW", "FORMAL"]).default("SHADOW"),
+  /** 订单证据的 evidenceType（默认 ORDER）。 */
+  evidenceType: z.string().min(1).default("ORDER"),
+});
+export type AdvanceCycleBody = z.infer<typeof advanceCycleSchema>;
+export type RunsFromIngestionBody = z.infer<typeof runsFromIngestionSchema>;
+
 export const preReviewSchema = z.object({
   personIds: z.array(uuidSchema).max(100).optional(),
 });
@@ -2390,7 +2413,9 @@ export const requestSchemaRegistry = {
   CreateTenantInvoice: createTenantInvoiceSchema,
   FeishuSync: feishuSyncSchema,
   PasswordLogin: passwordLoginSchema,
+  AdvanceCycle: advanceCycleSchema,
   PreReview: preReviewSchema,
+  RunsFromIngestion: runsFromIngestionSchema,
   SetPassword: setPasswordSchema,
   ModelSummary: modelSummarySchema,
   ProcessRetentionDisposals: processRetentionDisposalsSchema,

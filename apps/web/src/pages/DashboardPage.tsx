@@ -4,11 +4,13 @@ import {
   Badge,
   Button,
   EmptyState,
+  FormField,
   ErrorNotice,
   InfoNotice,
   LoadingRows,
   PageHeader,
   Panel,
+  TextInput,
   StatTile,
 } from "../components/ui.js";
 import { Icon } from "../components/Icon.js";
@@ -1068,8 +1070,10 @@ function NotificationsPanel() {
   const notifications = useApiQuery<NotificationView[]>(
     "/api/v1/notifications",
   );
+  const [showAll, setShowAll] = useState(false);
   const list = notifications.data ?? [];
   const unread = list.filter((item) => !item.readAt).length;
+  const visible = showAll ? list : list.slice(0, 3);
 
   async function markRead(id: string) {
     try {
@@ -1083,7 +1087,7 @@ function NotificationsPanel() {
   return (
     <Panel
       title="通知"
-      subtitle={unread > 0 ? `${unread} unread` : "All caught up"}
+      subtitle={unread > 0 ? `${unread} 条未读` : "全部已读"}
       className="section-gap"
       flush
     >
@@ -1106,7 +1110,7 @@ function NotificationsPanel() {
         />
       ) : (
         <div className="activity-list">
-          {list.slice(0, 12).map((item) => (
+          {visible.map((item) => (
             <div className="activity-row" key={item.id}>
               <span
                 className="activity-row__dot"
@@ -1136,6 +1140,16 @@ function NotificationsPanel() {
               </div>
             </div>
           ))}
+          {list.length > 3 ? (
+            <div style={{ padding: "12px 16px" }}>
+              <Button
+                variant="ghost"
+                onClick={() => setShowAll((current) => !current)}
+              >
+                {showAll ? "收起" : `查看全部（${list.length} 条）`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </Panel>
@@ -1153,6 +1167,7 @@ interface AgentScanFinding {
 function AiWorkbench({ privileged }: { privileged: boolean }) {
   const toast = useToast();
   const [scanning, setScanning] = useState(false);
+  const [question, setQuestion] = useState("");
   const [findings, setFindings] = useState<AgentScanFinding[] | null>(null);
 
   async function runScan() {
@@ -1175,38 +1190,37 @@ function AiWorkbench({ privileged }: { privileged: boolean }) {
 
   return (
     <div className="stack">
-      <div className="row-actions">
-        <span className="hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              background: "var(--brand)",
-              color: "#fff",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 13,
-            }}
-            aria-hidden="true"
-          >
-            ✨
-          </span>
-          AI 仅建议，人工拍板：
-        </span>
-        <Button
-          variant="primary"
-          loading={scanning}
-          onClick={() => void runScan()}
+      <div className="form-grid">
+        <FormField
+          label={privileged ? "向 AI 助手描述要检查的内容" : "我的 AI 记录"}
+          htmlFor="ai-workbench-input"
         >
-          {privileged ? "发起智能扫描" : "查看我的 AI 记录"}
-        </Button>
-        {!privileged ? (
-          <a className="btn btn--secondary" href="/console/my-ai">
-            我的 AI 记录
-          </a>
-        ) : null}
+          <TextInput
+            id="ai-workbench-input"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder={
+              privileged
+                ? "例如：检查本月证据覆盖缺口与结算就绪度"
+                : "查看你的 AI 记录"
+            }
+          />
+        </FormField>
+        <div className="row-actions">
+          <Button
+            variant="primary"
+            loading={scanning}
+            disabled={privileged && !question.trim()}
+            onClick={() => void runScan()}
+          >
+            {privileged ? "发起智能扫描" : "查看我的 AI 记录"}
+          </Button>
+          {!privileged ? (
+            <a className="btn btn--secondary" href="/console/my-ai">
+              打开记录
+            </a>
+          ) : null}
+        </div>
       </div>
       {findings ? (
         findings.length === 0 ? (

@@ -139,6 +139,30 @@ export const attributionDecisionTransitions: TransitionMap<AttributionDecisionSt
     SUPERSEDED: [],
   };
 
+/**
+ * 考核周期推进状态机（PRD 四段链路：申报 → AI 预审 → 人工复审 → 自动计算）。
+ * worker 按到期时间自动推进 COLLECTING → AI_PRE_REVIEW；后续段落的跃迁
+ * 带门禁校验（见 advance 端点），终态 SETTLED。
+ */
+export type EvaluationCycleStatus =
+  | "DRAFT"
+  | "COLLECTING"
+  | "AI_PRE_REVIEW"
+  | "HUMAN_REVIEW"
+  | "DECIDED"
+  | "CALCULATING"
+  | "SETTLED";
+
+export const evaluationCycleTransitions: TransitionMap<EvaluationCycleStatus> = {
+  DRAFT: ["COLLECTING"],
+  COLLECTING: ["AI_PRE_REVIEW"],
+  AI_PRE_REVIEW: ["HUMAN_REVIEW"],
+  HUMAN_REVIEW: ["DECIDED"],
+  DECIDED: ["CALCULATING"],
+  CALCULATING: ["SETTLED"],
+  SETTLED: [],
+};
+
 export const evaluationDraftTransitions: TransitionMap<EvaluationDraftStatus> = {
   DRAFT: ["SUBMITTED"],
   SUBMITTED: ["APPROVED", "REJECTED"],

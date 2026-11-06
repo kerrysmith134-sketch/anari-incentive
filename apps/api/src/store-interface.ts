@@ -261,6 +261,10 @@ export interface IncentiveStore {
   }): Promise<InAppNotification[]>;
   markNotificationRead(id: string): Promise<InAppNotification>;
 
+  advanceEvaluationCycle(
+    id: string,
+    input: { status: string; reason?: string; actorPersonId?: string },
+  ): Promise<EvaluationCycle>;
   createEvaluationDraft(input: {
     cycleId: string;
     personId: string;

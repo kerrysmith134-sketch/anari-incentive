@@ -9,6 +9,7 @@ import {
   calculationRunTransitions,
   confirmationBlockers,
   contributionClaimTransitions,
+  evaluationCycleTransitions,
   dataQualityIssueTransitions,
   evaluationDraftTransitions,
   legalGateBlockers,
@@ -2195,6 +2196,44 @@ export class PgStore implements IncentiveStore {
         [this.tenantId],
       );
       return rows.map((row) => this.mapRubric(row));
+    });
+  }
+
+  async advanceEvaluationCycle(
+    id: string,
+    input: { status: string; reason?: string; actorPersonId?: string },
+  ): Promise<EvaluationCycle> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        "SELECT * FROM evaluation_cycles WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+        [this.tenantId, id],
+      );
+      if (!rows[0]) notFound("EvaluationCycle", id);
+      assertTransition(
+        evaluationCycleTransitions,
+        "EvaluationCycle",
+        rows[0].status,
+        input.status as never,
+      );
+      const { rows: updated } = await client.query(
+        `UPDATE evaluation_cycles
+            SET status=$3,
+                locked_at = CASE WHEN $3 = 'SETTLED' THEN now() ELSE locked_at END,
+                updated_at = now(),
+                version = version + 1
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [this.tenantId, id, input.status],
+      );
+      await this.appendAudit(client, {
+        action: "EVALUATION_CYCLE_ADVANCED",
+        objectType: "EVALUATION_CYCLE",
+        objectId: id,
+        actorType: "USER",
+        actorId: input.actorPersonId,
+        reason: `${rows[0].status} -> ${input.status}${input.reason ? `: ${input.reason}` : ""}`,
+      });
+      return this.mapEvaluationCycle(updated[0]);
     });
   }
 
