@@ -396,3 +396,15 @@
 8. **MON-07 deployment evidence**：在目标环境启用 WORM/双副本/外部 TSA，保存恢复演练与 anchor 回执。
 
 这些剩余项里，有些是产品/法务/部署决策，不能只靠代码“补完”；在当前代码基线上，**核心 P0 闭环和大部控制已可运行，但仍不能宣称完整 P0 全部落地**。
+
+# 2026-11-06 链路自动化轮（44c0f2a）
+
+针对「链路是断的」审计的收尾，打通四段链路的最后断点：
+
+15. **周期状态机**：`evaluationCycleTransitions`（DRAFT→COLLECTING→AI_PRE_REVIEW→HUMAN_REVIEW→DECIDED→CALCULATING→SETTLED）落 domain；`POST /evaluation-cycles/:id/advance` 经 assertTransition 校验跃迁，HUMAN_REVIEW 前必须有 AGENT 预审草稿、DECIDED 前所有草稿必须已决策；推进写入审计哈希链。跳段/终态回退/非法值均 409/400。
+16. **worker 自动推进**：每 30 分钟将 endsAt 已过的 COLLECTING 周期自动推入 AI_PRE_REVIEW（ bearer/dev 自适应认证）——"周期结束→自动进入评价"不再依赖人点。
+17. **CRM/ERP→计算适配**：`POST /calculation-runs:from-ingestion` 将摄取的 ORDER 证据按外部身份映射物化为影子计算批次；同一外部订单幂等（ALREADY_MATERIALIZED）、无映射（NO_IDENTITY_MAPPING）/无毛利（NO_GROSS_PROFIT）跳过并给因；账本锁定仍走审批。
+18. **仪表盘视觉**：通知折叠（最近 3 条+查看全部）、AI 工作台改真输入框（边框/placeholder/禁用态）、面包屑与 H1 统一。
+19. **TDD R149–R160（12 轮全绿）**：状态机全程/跳段/终态/非法值、预审联动门禁、摄取物化/跳过/幂等、推进审计留痕与链校验。
+
+至此 PRD 四段链路（员工自主申报 → AI 预审 → 人工复审 → 自动计算）的代码闭环全部到位；剩余为部署侧配置（真实 CRM 凭据、金标集标注）。
