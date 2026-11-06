@@ -150,7 +150,11 @@ async function createConfirmedClaim(
       summary: "Delivered the agreed scope",
     },
     evidenceRefs: ["evidence-1"],
-    rationale: "Delivered the agreed scope on time",
+    
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
+        rationale: "Delivered the agreed scope on time",
   });
   expect(created.status).toBe(201);
   const claimId = created.body.data.id as string;
@@ -779,10 +783,11 @@ describe("platform onboarding", () => {
       url: "/api/v1/platform/identity",
     } as never);
     expect(identity.statusCode).toBe(200);
-    expect(identity.json().data).toEqual({
+    expect(identity.json().data).toMatchObject({
       userId: secondUserId,
       personId: secondPersonId,
       roles: ["manager"],
+      tenantName: "Design partner",
     });
 
     const forbidden = await secondApp.inject({
@@ -3455,6 +3460,10 @@ describe("AI suggestion logs and workflow runs", () => {
       {
         reviewerPersonId: MEMBER,
         scores: overrideProposal.body.data.scores,
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
         rationale: "Duplicate",
         reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
       },
@@ -4871,7 +4880,11 @@ describe("vertical slice", () => {
           rubricVersionId,
           decision: "APPROVE",
           scores: { QUALITY: score },
-          rationale: "Reviewed evidence",
+          
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
+        rationale: "Reviewed evidence",
         },
       );
       expect(decision.status).toBe(200);
@@ -5688,6 +5701,10 @@ describe("vertical slice", () => {
         rubricVersionId: rubricId,
         decision: "APPROVE",
         scores: { QUALITY: 4, SPEED: 3 },
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
         rationale: "Evidence supports the rating",
       },
     );
@@ -5712,6 +5729,10 @@ describe("vertical slice", () => {
         rubricVersionId: rubricId,
         decision: "APPROVE",
         scores: { QUALITY: 5, SPEED: 4 },
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
         rationale: "Corrected evidence",
       },
     );
@@ -5772,6 +5793,10 @@ describe("vertical slice", () => {
         rubricVersionId: rubric.body.data.id,
         decision: "APPROVE",
         scores: { QUALITY: 5 },
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
         rationale: "Self review",
       },
     );
@@ -8669,7 +8694,11 @@ describe("vertical slice", () => {
         await call("POST", `/api/v1/appeals/${appealId}/resolve`, {
           reviewerPersonId: ADJUDICATOR,
           resolution: "UPHOLD",
-          rationale: "Evidence supports the original decision",
+          
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
+        rationale: "Evidence supports the original decision",
         })
       ).status,
     ).toBe(200);
@@ -9710,6 +9739,10 @@ describe("vertical slice", () => {
       {
         reviewerPersonId: ADJUDICATOR,
         resolution: "CHANGE",
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
         rationale: "The missing delivery changes the attribution",
       },
     );
@@ -9749,7 +9782,11 @@ describe("vertical slice", () => {
     const resolved = await call("POST", `/api/v1/appeals/${appealId}/resolve`, {
       reviewerPersonId: ADJUDICATOR,
       resolution: "CHANGE",
-      rationale: "The missing delivery changes the attribution",
+      
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,
+        rationale: "The missing delivery changes the attribution",
     });
     expect(resolved.status).toBe(200);
     expect(resolved.body.data.status).toBe("RECALCULATION_REQUIRED");

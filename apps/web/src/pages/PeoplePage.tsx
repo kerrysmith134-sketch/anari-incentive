@@ -154,9 +154,9 @@ export function PeoplePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Identity directory"
+        eyebrow="身份通讯录"
         title="人员"
-        description="The person record anchors payroll, equity, evidence attribution and approval decisions. Link a platform user and reporting line here."
+        description="人员档案是薪酬、股权、证据归属与审批的锚点；在此关联平台用户与汇报线。"
         actions={
           <>
             <Button
@@ -199,13 +199,13 @@ export function PeoplePage() {
       </div>
 
       <Panel
-        title="Directory"
+        title="通讯录"
         subtitle="工号作为稳定的外部标识"
         action={
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search code, name or id"
+            placeholder="搜索工号、姓名或 ID"
           />
         }
         flush
@@ -214,7 +214,7 @@ export function PeoplePage() {
           <span className="muted" style={{ fontSize: 12 }}>
             租户 <span className="mono">{session.tenantId}</span>
           </span>
-          <CopyButton value={session.tenantId} label="Copy tenant id" />
+          <CopyButton value={session.tenantId} label="复制租户 ID" />
         </div>
 
         {people.error ? (
@@ -319,7 +319,7 @@ export function PeoplePage() {
 
       <Modal
         open={createOpen}
-        title="New person"
+        title="新建人员"
         description="人员 ID 由平台生成，全模块通用。"
         onClose={() => setCreateOpen(false)}
         footer={
@@ -362,7 +362,7 @@ export function PeoplePage() {
               required
             />
           </FormField>
-          <FormField label="Employment status" htmlFor="person-status">
+          <FormField label="用工状态" htmlFor="person-status">
             <Select
               id="person-status"
               value={employmentStatus}
@@ -378,7 +378,7 @@ export function PeoplePage() {
 
       <Modal
         open={Boolean(linkTarget)}
-        title="Link platform user"
+        title="关联平台用户"
         description="关联用户后，本人即可登录并看到个人范围的视图。"
         onClose={() => setLinkTarget(null)}
         footer={
@@ -401,7 +401,7 @@ export function PeoplePage() {
               关联中 <strong>{linkTarget.displayName}</strong> (
               {linkTarget.employeeCode}) to a platform user id.
             </InfoNotice>
-            <FormField label="Platform user id" htmlFor="link-user-id">
+            <FormField label="平台用户 ID" htmlFor="link-user-id">
               <TextInput
                 id="link-user-id"
                 value={userId}
@@ -416,7 +416,7 @@ export function PeoplePage() {
 
       <Modal
         open={Boolean(managerTarget)}
-        title="Set reporting manager"
+        title="设置汇报人"
         description="汇报关系用于升级与审批路由。"
         onClose={() => setManagerTarget(null)}
         footer={

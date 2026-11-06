@@ -170,6 +170,18 @@ const NAV: NavGroup[] = [
   },
 ];
 
+const ROLE_ZH: Record<string, string> = {
+  admin: "管理员",
+  manager: "经理",
+  finance: "财务",
+  employee: "员工",
+  integration: "集成",
+  platform_admin: "平台管理员",
+};
+function zhRole(role: string): string {
+  return ROLE_ZH[role] ?? role;
+}
+
 const TITLES: Record<string, string> = {
   "/": "总览",
   "/approvals": "审批",
@@ -282,18 +294,45 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="sidebar__footer">
           <div className="env-card">
-            <span className="env-card__dot" aria-hidden="true" />
+            <span
+              className="env-card__dot"
+              aria-hidden="true"
+              style={{
+                background: identity.data?.roles.includes("admin")
+                  ? "var(--good)"
+                  : "var(--brand)",
+              }}
+            />
             <div>
-              <strong>{session.token ? "OIDC token" : "Header auth"}</strong>
-              <span>{session.token ? "Bearer 会话" : "开发身份"}</span>
+              <strong>
+                {identity.data?.displayName ??
+                  (session.token || session.userId
+                    ? identity.data?.userId
+                      ? "已登录"
+                      : "未登录"
+                    : "未登录")}
+              </strong>
+              <span>
+                {identity.data?.tenantName ?? "选择工作区"} ·{" "}
+                {identity.data?.roles?.length
+                  ? identity.data.roles.map((role) => zhRole(role)).join("/")
+                  : "无角色"}
+              </span>
             </div>
           </div>
           {roles.length === 0 || roles.includes("admin") ? (
           <NavLink to="/settings" className="user-chip">
-            <Avatar name="Operator" size={30} />
+            <Avatar
+              name={identity.data?.displayName ?? "用户"}
+              size={30}
+            />
             <span className="user-chip__copy">
-              <strong>{shortId(session.userId || session.personId, 16)}</strong>
-              <span>{shortId(session.tenantId, 18)}</span>
+              <strong>
+                {identity.data?.displayName ?? "未命名用户"}
+              </strong>
+              <span>
+                {identity.data?.tenantName ?? "未选择工作区"}
+              </span>
             </span>
             <Icon name="chevron-right" size={14} />
           </NavLink>
@@ -301,8 +340,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLink to="/login" className="user-chip">
             <Avatar name="Session" size={30} />
             <span className="user-chip__copy">
-              <strong>登录 / 切换会话</strong>
-              <span>{session.token ? "OIDC 令牌" : "开发头"}</span>
+              <strong>登录 / 切换账号</strong>
+              <span>账号密码 · 飞书 · OIDC</span>
             </span>
             <Icon name="chevron-right" size={14} />
           </NavLink>

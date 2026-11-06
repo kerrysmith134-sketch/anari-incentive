@@ -8,12 +8,11 @@ export interface Session {
 
 const SESSION_KEY = "anari.session";
 
+/** 未登录时的空会话；真实身份只能来自登录（密码/飞书）或显式注入的环境变量。 */
 export const DEFAULT_SESSION: Session = {
-  tenantId: import.meta.env.VITE_TENANT_ID ?? "tenant-demo",
-  userId: import.meta.env.VITE_USER_ID ?? "dev-user",
-  personId:
-    import.meta.env.VITE_PERSON_ID ??
-    "00000000-0000-4000-8000-000000000001",
+  tenantId: import.meta.env.VITE_TENANT_ID ?? "",
+  userId: import.meta.env.VITE_USER_ID ?? "",
+  personId: import.meta.env.VITE_PERSON_ID ?? "",
   token: "",
 };
 

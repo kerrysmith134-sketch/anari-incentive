@@ -94,7 +94,7 @@ export function DashboardPage() {
 
   if (identity.loading) {
     return (
-      <Panel title="Loading workspace">
+      <Panel title="工作区加载中">
         <LoadingRows rows={4} />
       </Panel>
     );
@@ -206,7 +206,7 @@ export function DashboardPage() {
           tone="accent"
         />
         <StatTile
-          label="Pending approvals"
+          label="待批审批"
           value={approvals.loading ? "…" : pendingApprovals.length}
           detail={
             approvals.loading
@@ -219,7 +219,7 @@ export function DashboardPage() {
           tone={pendingApprovals.length > 0 ? "warning" : "good"}
         />
         <StatTile
-          label="Latest payroll net"
+          label="最近薪酬实发"
           value={
             payroll.loading
               ? "…"
@@ -294,7 +294,7 @@ export function DashboardPage() {
             ) : pendingApprovals.length === 0 ? (
               <EmptyState
                 icon="check-circle"
-                title="Queue is clear"
+                title="队列为空"
                 description="没有等待审批的动作；新的 T2/T3 请求会出现在这里。"
               />
             ) : (
@@ -331,7 +331,7 @@ export function DashboardPage() {
 
           <Panel
             title="薪酬批次"
-            subtitle="Most recent settlement periods"
+            subtitle="最近结算周期"
             action={
               <Link className="btn btn--quiet btn--sm" to="/payroll">
                 打开薪酬
@@ -401,7 +401,7 @@ export function DashboardPage() {
           </Panel>
 
           <div className="split-grid">
-            <Panel title="激励" subtitle="Equity and open work">
+            <Panel title="激励" subtitle="股权与进行中工作">
               <div className="coverage-grid">
                 <div className="coverage-cell">
                   <div className="coverage-cell__label">生效授予</div>
@@ -444,7 +444,7 @@ export function DashboardPage() {
               </Link>
             </Panel>
 
-            <Panel title="集成" subtitle="Payload movement">
+            <Panel title="集成" subtitle="数据流转">
               <div className="two-col">
                 <div className="coverage-cell" style={{ border: "1px solid var(--line-soft)", borderRadius: 10 }}>
                   <div className="coverage-cell__label">已连通</div>
@@ -496,8 +496,8 @@ export function DashboardPage() {
 
         <div className="stack">
           <Panel
-            title="Assurance posture"
-            subtitle="Coverage and data quality signals"
+            title="保障态势"
+            subtitle="覆盖与数据质量信号"
             action={
               <Link className="btn btn--quiet btn--sm" to="/policy">
                 报告
@@ -593,13 +593,13 @@ export function DashboardPage() {
           </Panel>
 
           <Panel
-            title="Recent activity"
-            subtitle="Append-only audit trail"
+            title="最近动态"
+            subtitle="追加式审计轨迹"
             action={
               <button
                 type="button"
                 className="icon-button"
-                aria-label="Refresh activity"
+                aria-label="刷新动态"
                 onClick={audit.reload}
               >
                 <Icon name="refresh" size={16} />
@@ -618,7 +618,7 @@ export function DashboardPage() {
             ) : (audit.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="clock"
-                title="No activity recorded"
+                title="暂无动态记录"
                 description="创建演示周期或业务实体后，审计轨迹会填充 here。"
               />
             ) : (
@@ -647,7 +647,7 @@ export function DashboardPage() {
 
       {canViewTeam ? (
         <Panel
-          title="Team aggregate"
+          title="团队聚合"
           subtitle="仅群体级覆盖；绝不显示个人金额与姓名"
           className="section-gap"
         >
@@ -738,7 +738,7 @@ export function DashboardPage() {
       ) : null}
 
       <Panel
-        title="Fairness and appeals"
+        title="公平与申诉"
         subtitle="已发布无报复承诺与申诉聚合结果"
         className="section-gap"
       >
@@ -886,7 +886,7 @@ function EmployeeHome() {
   return (
     <>
       <PageHeader
-        eyebrow="My workspace"
+        eyebrow="我的工作台"
         title="我的工作台"
         description="你的工作、确认、申诉与 AI 记录；团队数据仅聚合展示，低于最小人数自动抑制。"
         actions={
@@ -911,7 +911,7 @@ function EmployeeHome() {
       />
       <div className="stat-grid">
         <StatTile
-          label="Active work"
+          label="进行中工作"
           value={activeWork.length}
           detail={`${workPackages.data?.length ?? 0} packages in scope`}
           icon="layers"
@@ -924,14 +924,14 @@ function EmployeeHome() {
           tone={openAppeals.length > 0 ? "warning" : "neutral"}
         />
         <StatTile
-          label="Objections"
+          label="异议"
           value={objected.length}
           detail="Confirmations you objected to"
           icon="check-circle"
           tone={objected.length > 0 ? "warning" : "neutral"}
         />
         <StatTile
-          label="AI proposals pending"
+          label="待审 AI 提案"
           value={pendingAi.length}
           detail={
             ai.data?.aiUsed
@@ -942,7 +942,7 @@ function EmployeeHome() {
         />
       </div>
       <div className="split-grid section-gap">
-        <Panel title="我的工作" subtitle="Packages where you own or contribute">
+        <Panel title="我的工作" subtitle="你负责或参与的工作包">
           {workPackages.error ? (
             <ErrorNotice
               error={workPackages.error}
@@ -971,7 +971,7 @@ function EmployeeHome() {
             </div>
           )}
         </Panel>
-        <Panel title="My appeals" subtitle="独立复核与证据公开">
+        <Panel title="我的申诉" subtitle="独立复核与证据公开">
           {appeals.error ? (
             <ErrorNotice error={appeals.error} onRetry={appeals.reload} />
           ) : appeals.loading ? (
@@ -1002,7 +1002,7 @@ function EmployeeHome() {
         </Panel>
       </div>
       <div className="split-grid section-gap">
-        <Panel title="My confirmation record">
+        <Panel title="我的确认记录">
           {confirmations.error ? (
             <ErrorNotice
               error={confirmations.error}
@@ -1030,7 +1030,7 @@ function EmployeeHome() {
             </div>
           )}
         </Panel>
-        <Panel title="My team aggregate" subtitle="No individual names or amounts">
+        <Panel title="我的团队聚合" subtitle="不显示个人姓名与金额">
           {team.error ? (
             <p className="muted">
               未关联汇报关系前团队聚合不可用。
@@ -1101,7 +1101,7 @@ function NotificationsPanel() {
       ) : list.length === 0 ? (
         <EmptyState
           icon="approvals"
-          title="No notification"
+          title="暂无通知"
           description="提醒、审批与结算事件会出现在这里。"
         />
       ) : (

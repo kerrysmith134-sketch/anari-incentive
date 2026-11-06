@@ -1760,6 +1760,10 @@ export class Store implements IncentiveStore {
       decision: "APPROVE" | "REJECT";
       scores: Record<string, number>;
       rationale: string;
+      independentScores: Record<string, number>;
+      independentRationale: string;
+      evidenceOpened?: number;
+      reviewStartedAt?: string;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }> {
     const draft = await this.getEvaluationDraft(id);
@@ -1811,6 +1815,10 @@ export class Store implements IncentiveStore {
       rubricVersionId: input.rubricVersionId,
       evidenceSnapshotHash: draft.evidenceSnapshotHash,
       scores: input.scores,
+      independentScores: input.independentScores,
+      independentRationale: input.independentRationale,
+      evidenceOpened: input.evidenceOpened,
+      reviewStartedAt: input.reviewStartedAt,
       rationale: input.rationale,
       reviewerPersonId: input.reviewerPersonId,
       approvedAt: timestamp,

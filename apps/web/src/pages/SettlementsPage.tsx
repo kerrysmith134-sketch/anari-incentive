@@ -521,9 +521,9 @@ export function SettlementsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Money path"
+        eyebrow="资金路径"
         title="结算"
-        description="Reconcile, approve, lock and export batches from locked ledger entries. The ledger hash chain and budget commitments stay visible beside the workflow."
+        description="从锁定账本对账、批准、锁定并导出批次；账本哈希链与预算占用始终可见。"
         actions={
           <Button
             variant="secondary"
@@ -603,7 +603,7 @@ export function SettlementsPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Settlement views"
+        label="结算视图"
       />
 
       <div className="tab-panel">
@@ -611,7 +611,7 @@ export function SettlementsPage() {
           <div className="payroll-detail-grid">
             <Panel
               title="结算批次"
-              subtitle="Select a batch to run the money-path workflow"
+              subtitle="选择批次执行资金路径流程"
               action={
                 <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
                   新建批次
@@ -630,8 +630,8 @@ export function SettlementsPage() {
               ) : batchList.length === 0 ? (
                 <EmptyState
                   icon="wallet"
-                  title="No settlement batch"
-                  description="Create a batch from a cycle with locked ledger entries."
+                  title="暂无结算批次"
+                  description="从有锁定账本的周期创建批次。"
                   action={
                     <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
                       创建批次
@@ -686,8 +686,8 @@ export function SettlementsPage() {
                 <Panel title="批次详情">
                   <EmptyState
                     icon="layers"
-                    title="Select a batch"
-                    description="Open a batch to reconcile, approve, lock or export it."
+                    title="选择批次…"
+                    description="打开批次进行对账、批准、锁定或导出。"
                   />
                 </Panel>
               ) : detail.error ? (
@@ -807,18 +807,18 @@ export function SettlementsPage() {
         {tab === "ledger" ? (
           <Panel
             title="账本条目"
-            subtitle="Append-only; locked entries cannot be edited"
+            subtitle="追加式；锁定条目不可编辑"
             action={
               <div className="toolbar__group">
                 <SearchInput
                   value={ledgerSearch}
                   onChange={setLedgerSearch}
-                  placeholder="Search person, cycle or entry"
+                  placeholder="搜索人员、周期或条目"
                 />
                 <Select
                   value={ledgerStatus}
                   onChange={(event) => setLedgerStatus(event.target.value)}
-                  aria-label="Ledger status"
+                  aria-label="账本状态"
                   style={{ width: 140, height: 34 }}
                 >
                   {["ALL", "PROVISIONAL", "APPROVED", "LOCKED", "REVERSED"].map(
@@ -844,7 +844,7 @@ export function SettlementsPage() {
             ) : visibleLedger.length === 0 ? (
               <EmptyState
                 icon="wallet"
-                title="No ledger entry"
+                title="暂无账本条目"
                 description="账本条目在计算批次批准并锁定后出现。"
               />
             ) : (
@@ -897,7 +897,7 @@ export function SettlementsPage() {
           <div className="split-grid">
             <Panel
               title="预算池"
-              subtitle="Approved pools fund formal calculations"
+              subtitle="已批准资金池供正式计算使用"
               action={
                 <Button size="sm" variant="primary" icon="plus" onClick={openPoolCreate}>
                   新建资金池
@@ -993,7 +993,7 @@ export function SettlementsPage() {
               {!selectedPool ? (
                 <EmptyState
                   icon="chart"
-                  title="No pool selected"
+                  title="未选择资金池"
                   description="打开资金池查看已占用分配，必要时释放。"
                 />
               ) : (
@@ -1072,7 +1072,7 @@ export function SettlementsPage() {
           <>
             <div className="split-grid">
               <Panel
-                title="Cash-gate inputs"
+                title="现金门禁输入"
                 subtitle="按周期日期的安全准备金与 13 周预测证据"
                 flush
                 action={
@@ -1100,7 +1100,7 @@ export function SettlementsPage() {
                 ) : (cashGates.data?.length ?? 0) === 0 ? (
                   <EmptyState
                     icon="chart"
-                    title="No cash-gate input"
+                    title="暂无现金门禁输入"
                     description="记录周期是否通过现金门禁及其依赖的预测。"
                   />
                 ) : (
@@ -1139,7 +1139,7 @@ export function SettlementsPage() {
 
               <Panel
                 title="财务事实"
-                subtitle="Ingested facts with quality status and period"
+                subtitle="带质量状态与周期的财务事实"
                 flush
                 action={
                   <Button
@@ -1166,8 +1166,8 @@ export function SettlementsPage() {
                 ) : (financialFacts.data?.length ?? 0) === 0 ? (
                   <EmptyState
                     icon="payroll"
-                    title="No financial fact"
-                    description="Facts feed reservation and cash-collection checks."
+                    title="暂无财务事实"
+                    description="财务事实用于预算占用与回款检查。"
                   />
                 ) : (
                   <div className="table-wrap">
@@ -1210,8 +1210,8 @@ export function SettlementsPage() {
         ) : (
           <div className="split-grid">
             <Panel
-              title="Settlement exports"
-              subtitle="Exported files, their hash and external acknowledgement"
+              title="结算导出"
+              subtitle="导出文件、哈希与外部回执"
               flush
             >
               {settlementExports.error ? (
@@ -1228,8 +1228,8 @@ export function SettlementsPage() {
               ) : (settlementExports.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="download"
-                  title="No settlement export"
-                  description="Exports are recorded when a locked batch is exported."
+                  title="暂无结算导出"
+                  description="锁定批次导出时记录。"
                 />
               ) : (
                 <div className="table-wrap">
@@ -1283,8 +1283,8 @@ export function SettlementsPage() {
             </Panel>
 
             <Panel
-              title="Ledger adjustments"
-              subtitle="Original → adjustment entry pairs with approval evidence"
+              title="账本调整"
+              subtitle="原条目 → 调整条目对，附审批证据"
               flush
             >
               {adjustmentRecords.error ? (
@@ -1301,7 +1301,7 @@ export function SettlementsPage() {
               ) : (adjustmentRecords.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="clock"
-                  title="No adjustment"
+                  title="暂无调整"
                   description="调整以追加更正条目实现；原账本行永不被修改。"
                 />
               ) : (
@@ -1346,8 +1346,8 @@ export function SettlementsPage() {
 
       <Modal
         open={createOpen}
-        title="New settlement batch"
-        description="Batches collect locked ledger entries for a cycle."
+        title="新建结算批次"
+        description="批次归集周期的锁定账本条目。"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
@@ -1407,10 +1407,10 @@ export function SettlementsPage() {
             />
           </FormField>
           <FormField
-            label="Batch number (optional)"
+            label="批次号（可选）"
             htmlFor="batch-number"
             className="field--full"
-            hint="Leave blank to use the generated number."
+            hint="留空使用自动生成编号。"
           >
             <TextInput
               id="batch-number"
@@ -1475,7 +1475,7 @@ export function SettlementsPage() {
               <FormField
                 label="外部引用"
                 htmlFor="command-reference"
-                hint="Bank or payment-provider receipt."
+                hint="银行或支付渠道回执。"
               >
                 <TextInput
                   id="command-reference"
@@ -1507,7 +1507,7 @@ export function SettlementsPage() {
               <FormField
                 label="审批请求 ID（可选）"
                 htmlFor="command-approval"
-                hint="Required only when this action is configured for approval."
+                hint="仅当该动作配置为需审批时必填。"
               >
                 <TextInput
                   id="command-approval"
@@ -1517,7 +1517,7 @@ export function SettlementsPage() {
               </FormField>
             ) : null}
             {commandTarget.command !== "RECONCILE" ? (
-              <FormField label="Actor person" htmlFor="command-actor">
+              <FormField label="操作人" htmlFor="command-actor">
                 <PersonSelect
                   id="command-actor"
                   value={actorPersonId}
@@ -1531,7 +1531,7 @@ export function SettlementsPage() {
 
       <Modal
         open={poolCreateOpen}
-        title="New budget pool"
+        title="新建资金池"
         description="资金池批准后才可用于正式计算。"
         onClose={() => setPoolCreateOpen(false)}
         footer={
@@ -1587,7 +1587,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Pool type" htmlFor="pool-type">
+          <FormField label="资金池类型" htmlFor="pool-type">
             <TextInput
               id="pool-type"
               value={poolType}
@@ -1604,7 +1604,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Approved amount" htmlFor="pool-amount" className="field--full">
+          <FormField label="批准金额" htmlFor="pool-amount" className="field--full">
             <TextInput
               id="pool-amount"
               type="number"
@@ -1620,8 +1620,8 @@ export function SettlementsPage() {
 
       <Modal
         open={Boolean(approveTarget)}
-        title="Approve budget pool"
-        description="Approval makes the pool available to formal calculations."
+        title="批准资金池"
+        description="批准后资金池可用于正式计算。"
         onClose={() => setApproveTarget(null)}
         footer={
           <>
@@ -1662,7 +1662,7 @@ export function SettlementsPage() {
 
       <Modal
         open={cashOpen}
-        title="Record cash-gate input"
+        title="记录现金门禁"
         description="现金门禁是周期足以支付已批激励的证据。"
         onClose={() => setCashOpen(false)}
         footer={
@@ -1706,7 +1706,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Safety reserve (months)" htmlFor="cash-reserve">
+          <FormField label="安全准备金（月）" htmlFor="cash-reserve">
             <TextInput
               id="cash-reserve"
               value={cashReserveMonths}
@@ -1714,7 +1714,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="13-week forecast ref" htmlFor="cash-forecast">
+          <FormField label="13 周预测引用" htmlFor="cash-forecast">
             <TextInput
               id="cash-forecast"
               value={cashForecastRef}
@@ -1742,8 +1742,8 @@ export function SettlementsPage() {
 
       <Modal
         open={factOpen}
-        title="Add financial fact"
-        description="Facts are keyed by source system and record id."
+        title="添加财务事实"
+        description="财务事实按来源系统与记录 ID 唯一。"
         onClose={() => setFactOpen(false)}
         footer={
           <>
@@ -1770,7 +1770,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Source record id" htmlFor="fact-record">
+          <FormField label="来源记录 ID" htmlFor="fact-record">
             <TextInput
               id="fact-record"
               value={factSourceRecordId}
@@ -1778,7 +1778,7 @@ export function SettlementsPage() {
               required
             />
           </FormField>
-          <FormField label="Fact type" htmlFor="fact-type">
+          <FormField label="事实类型" htmlFor="fact-type">
             <TextInput
               id="fact-type"
               value={factType}
@@ -1826,7 +1826,7 @@ export function SettlementsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Period start (optional)" htmlFor="fact-start">
+          <FormField label="周期开始（可选）" htmlFor="fact-start">
             <TextInput
               id="fact-start"
               type="date"
@@ -1834,7 +1834,7 @@ export function SettlementsPage() {
               onChange={(event) => setFactPeriodStart(event.target.value)}
             />
           </FormField>
-          <FormField label="Period end (optional)" htmlFor="fact-end">
+          <FormField label="周期结束（可选）" htmlFor="fact-end">
             <TextInput
               id="fact-end"
               type="date"
@@ -1871,7 +1871,7 @@ export function SettlementsPage() {
             label="外部引用"
             htmlFor="ack-reference"
             className="field--full"
-            hint="Bank or finance receipt reference for this export."
+            hint="本次导出的银行/财务回执引用。"
           >
             <TextInput
               id="ack-reference"

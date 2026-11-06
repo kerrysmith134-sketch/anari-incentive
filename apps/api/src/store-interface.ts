@@ -291,6 +291,10 @@ export interface IncentiveStore {
       decision: "APPROVE" | "REJECT";
       scores: Record<string, number>;
       rationale: string;
+      independentScores: Record<string, number>;
+      independentRationale: string;
+      evidenceOpened?: number;
+      reviewStartedAt?: string;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }>;
   listEvaluationDecisions(filter?: {

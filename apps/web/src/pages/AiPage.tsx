@@ -657,7 +657,7 @@ async function saveRefresh(event: FormEvent) {
   return (
     <>
       <PageHeader
-        eyebrow="Human-in-the-loop scoring"
+        eyebrow="人在环评分"
         title="AI 保障"
         description="Model output is always a proposal. Numeric scores require a passed evaluation gate, evidence citations and an explicit human decision before they enter a formal evaluation."
         actions={
@@ -770,20 +770,20 @@ async function saveRefresh(event: FormEvent) {
         ]}
         active={tab}
         onChange={setTab}
-        label="AI assurance views"
+        label="AI 保障视图"
       />
 
       <div className="tab-panel">
         {tab === "proposals" ? (
           <Panel
             title="评分提案"
-            subtitle="Numeric scores stay proposals until a human accepts them"
+            subtitle="数值评分在人工采纳前始终只是提案"
             action={
               <div className="toolbar__group">
                 <Select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  aria-label="Filter proposal status"
+                  aria-label="筛选提案状态"
                   style={{ width: 140, height: 34 }}
                 >
                   {TABS.map((item) => (
@@ -893,7 +893,7 @@ async function saveRefresh(event: FormEvent) {
         ) : tab === "prompts" ? (
           <Panel
             title="提示词登记簿"
-            subtitle="Prompts activate only after an evaluation run passes"
+            subtitle="提示词仅在评测通过后激活"
             flush
           >
             {prompts.error ? (
@@ -907,7 +907,7 @@ async function saveRefresh(event: FormEvent) {
             ) : promptList.length === 0 ? (
               <EmptyState
                 icon="policy"
-                title="No prompt registered"
+                title="暂无提示词"
                 description="登记提示词版本→运行评测→激活；评分提案只能引用已激活提示词。"
               />
             ) : (
@@ -988,7 +988,7 @@ async function saveRefresh(event: FormEvent) {
             ) : evaluationList.length === 0 ? (
               <EmptyState
                 icon="chart"
-                title="No evaluation run"
+                title="暂无评测运行"
                 description="激活提示词或使用数值评分提案前，用标注金标集运行评测。"
               />
             ) : (
@@ -1057,7 +1057,7 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "audit" ? (
           <Panel
-            title="Second-review audit queue"
+            title="第二复核审计队列"
             subtitle="所有改判必抽，另按可配置比例随机抽样"
             flush
           >
@@ -1093,7 +1093,7 @@ async function saveRefresh(event: FormEvent) {
             ) : (auditQueue.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="shield"
-                title="No pending audit"
+                title="暂无待审项"
                 description="改判必抽样；其他决策按配置比例进入审计队列。"
               />
             ) : (
@@ -1164,7 +1164,7 @@ async function saveRefresh(event: FormEvent) {
         {tab === "datasets" ? (
           <Panel
             title="金标集"
-            subtitle="Versioned evaluation datasets with holdout and refresh tracking"
+            subtitle="带留出集与刷新跟踪的版本化评测数据集"
             action={
               <Button
                 size="sm"
@@ -1200,7 +1200,7 @@ async function saveRefresh(event: FormEvent) {
             ) : (datasets.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="chart"
-                title="No gold set registered"
+                title="暂无金标集"
                 description="启用金标集强制前，先登记带留出集与季度刷新日期的标注数据集。"
               />
             ) : (
@@ -1274,8 +1274,8 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "canary" ? (
           <Panel
-            title="Canary comparisons"
-            subtitle="Candidate vs baseline harness metrics before a provider/model rollout"
+            title="金丝雀对比"
+            subtitle="供应商/模型切换前的候选 vs 基线评测指标"
             flush
           >
             {canaries.error ? (
@@ -1289,7 +1289,7 @@ async function saveRefresh(event: FormEvent) {
             ) : (canaries.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="chart"
-                title="No canary comparison"
+                title="暂无金丝雀对比"
                 description="升级模型或更换供应商前，在同一金标集上对比基线与候选评测。"
               />
             ) : (
@@ -1340,7 +1340,7 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "summary" ? (
           <Panel
-            title="Model-backed evidence summary"
+            title="模型证据摘要"
             subtitle="仅供参考：模型汇总证据并给出 0–5 维度建议分；结果记入 AI 建议日志"
             action={
               <Button
@@ -1386,7 +1386,7 @@ async function saveRefresh(event: FormEvent) {
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(summaryResult.confidence * 100)}
-                    aria-label="Model confidence"
+                    aria-label="模型置信度"
                   >
                     <span
                       className="confidence-bar__fill"
@@ -1407,7 +1407,7 @@ async function saveRefresh(event: FormEvent) {
             ) : (
               <EmptyState
                 icon="ai"
-                title="No summary yet"
+                title="暂无摘要"
                 description="选择证据引用与维度，请求一次建议性模型摘要。"
               />
             )}
@@ -1415,7 +1415,7 @@ async function saveRefresh(event: FormEvent) {
         ) : null}
         {tab === "redteam" ? (
           <Panel
-            title="Red-team runs"
+            title="红队运行"
             subtitle="租户启用后，激活提示词前必须提供对抗测试证据"
             action={
               <Button
@@ -1440,7 +1440,7 @@ async function saveRefresh(event: FormEvent) {
             ) : (redTeam.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="shield"
-                title="No red-team run"
+                title="暂无红队运行"
                 description="启用强制时，激活提示词前必须记录注入与外泄测试。"
               />
             ) : (
@@ -1492,8 +1492,8 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={redTeamOpen}
-        title="Record red-team run"
-        description="A failed run must list its findings."
+        title="记录红队运行"
+        description="失败的运行必须列出发现。"
         onClose={() => setRedTeamOpen(false)}
         wide
         footer={
@@ -1541,7 +1541,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Tests run" htmlFor="red-team-tests">
+            <FormField label="已运行测试" htmlFor="red-team-tests">
               <TextInput
                 id="red-team-tests"
                 type="number"
@@ -1558,7 +1558,7 @@ async function saveRefresh(event: FormEvent) {
                 onChange={setRedTeamCreator}
               />
             </FormField>
-            <FormField label="Artifact reference" htmlFor="red-team-artifact">
+            <FormField label="产物引用" htmlFor="red-team-artifact">
               <TextInput
                 id="red-team-artifact"
                 value={redTeamArtifact}
@@ -1583,7 +1583,7 @@ async function saveRefresh(event: FormEvent) {
             <span>红队运行通过，无未解决发现。</span>
           </label>
           <FormField
-            label="Findings (one per line)"
+            label="发现（每行一条）"
             htmlFor="red-team-findings"
           >
             <Textarea
@@ -1598,7 +1598,7 @@ async function saveRefresh(event: FormEvent) {
       <Modal
         open={datasetOpen}
         title="登记金标集"
-        description="Holdout must be smaller than the sample. Use a new version for a refresh."
+        description="留出集必须小于样本；刷新请新建版本。"
         onClose={() => setDatasetOpen(false)}
         footer={
           <>
@@ -1671,7 +1671,7 @@ async function saveRefresh(event: FormEvent) {
                 required
               />
             </FormField>
-            <FormField label="Label source" htmlFor="dataset-label">
+            <FormField label="标注来源" htmlFor="dataset-label">
               <TextInput
                 id="dataset-label"
                 value={datasetLabelSource}
@@ -1705,8 +1705,8 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={Boolean(refreshTarget)}
-        title="Refresh gold set"
-        description="Creates a new active version and retires the current one."
+        title="刷新金标集"
+        description="创建新生效版本并退役当前版本。"
         onClose={() => setRefreshTarget(null)}
         footer={
           <>
@@ -1777,7 +1777,7 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={Boolean(selected)}
-        title="Score proposal"
+        title="评分提案"
         description={
           selected
             ? selected.status === "PENDING" && !revealed
@@ -1865,10 +1865,10 @@ async function saveRefresh(event: FormEvent) {
                     </FormField>
                   ))}
                   <FormField
-                    label="Independent rationale"
+                    label="独立判断理由"
                     htmlFor="independent-rationale"
                     className="field--full"
-                    hint="At least 3 characters; recorded before AI output is shown."
+                    hint="至少 3 个字符；在展示 AI 输出前记录。"
                   >
                     <Textarea
                       id="independent-rationale"
@@ -2109,7 +2109,7 @@ async function saveRefresh(event: FormEvent) {
                           <option value="REJECT">驳回提案</option>
                         </Select>
                       </FormField>
-                      <FormField label="Decided by" htmlFor="ai-decider">
+                      <FormField label="决策人" htmlFor="ai-decider">
                         <PersonSelect
                           id="ai-decider"
                           value={decidedBy}
@@ -2129,12 +2129,12 @@ async function saveRefresh(event: FormEvent) {
                           id="ai-note"
                           value={note}
                           onChange={(event) => setNote(event.target.value)}
-                          placeholder="What did you check before deciding?"
+                          placeholder="决策前你核对了什么？"
                         />
                       </FormField>
                       {currentOverride(selected) ? (
                         <FormField
-                          label="Override reason (required)"
+                          label="改判理由（必填）"
                           htmlFor="ai-override"
                           className="field--full"
                         >
@@ -2221,7 +2221,7 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={Boolean(evaluationDetail)}
-        title="Evaluation run"
+        title="评测运行"
         description={
           evaluationDetail
             ? `${evaluationDetail.modelProvider} ${evaluationDetail.modelName} · ${evaluationDetail.datasetRef}`
@@ -2290,8 +2290,8 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={Boolean(auditTarget)}
-        title="Second-review audit"
-        description="Score independently before comparing with the first review."
+        title="第二复核审计"
+        description="先独立评分，再与第一复核对比。"
         onClose={() => setAuditTarget(null)}
         wide
         footer={
@@ -2398,7 +2398,7 @@ async function saveRefresh(event: FormEvent) {
 
       <Modal
         open={harnessOpen}
-        title="Run evaluation harness"
+        title="运行评测台"
         description="样本为人工打分对与模型分；通过/阻断由服务端计算。"
         onClose={() => setHarnessOpen(false)}
         wide
@@ -2423,7 +2423,7 @@ async function saveRefresh(event: FormEvent) {
               <InfoNotice tone="warning">{harnessError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Evaluation type" htmlFor="harness-type">
+          <FormField label="评测类型" htmlFor="harness-type">
             <TextInput
               id="harness-type"
               value={harnessType}
@@ -2431,7 +2431,7 @@ async function saveRefresh(event: FormEvent) {
               required
             />
           </FormField>
-          <FormField label="Model provider" htmlFor="harness-provider">
+          <FormField label="模型供应商" htmlFor="harness-provider">
             <TextInput
               id="harness-provider"
               value={harnessProvider}
@@ -2439,7 +2439,7 @@ async function saveRefresh(event: FormEvent) {
               required
             />
           </FormField>
-          <FormField label="Model name" htmlFor="harness-model">
+          <FormField label="模型名称" htmlFor="harness-model">
             <TextInput
               id="harness-model"
               value={harnessModel}
@@ -2457,7 +2457,7 @@ async function saveRefresh(event: FormEvent) {
               required
             />
           </FormField>
-          <FormField label="Dataset reference" htmlFor="harness-dataset">
+          <FormField label="数据集引用" htmlFor="harness-dataset">
             <TextInput
               id="harness-dataset"
               value={harnessDatasetRef}
@@ -2466,7 +2466,7 @@ async function saveRefresh(event: FormEvent) {
             />
           </FormField>
           <FormField
-            label="Samples (JSON)"
+            label="样本（JSON）"
             htmlFor="harness-samples"
             className="field--full"
             hint="[{ sampleId, subgroup, humanScoreA, humanScoreB, aiScore, counterfactualScores, promptInjectionPassed, holdout }]"
@@ -2480,7 +2480,7 @@ async function saveRefresh(event: FormEvent) {
             />
           </FormField>
           <FormField
-            label="Thresholds (JSON, optional)"
+            label="阈值（JSON，可选）"
             htmlFor="harness-thresholds"
             className="field--full"
           >
@@ -2496,7 +2496,7 @@ async function saveRefresh(event: FormEvent) {
       </Modal>
       <Modal
         open={summaryOpen}
-        title="Request a model summary"
+        title="请求模型摘要"
         onClose={() => setSummaryOpen(false)}
         footer={
           <>
@@ -2526,7 +2526,7 @@ async function saveRefresh(event: FormEvent) {
           <FormField
             label="维度（逗号分隔）"
             htmlFor="summary-dimensions"
-            hint="Each dimension receives a 0-5 advisory score."
+            hint="每个维度给出 0–5 的建议分。"
           >
             <TextInput
               id="summary-dimensions"
@@ -2537,7 +2537,7 @@ async function saveRefresh(event: FormEvent) {
           <FormField
             label="证据引用"
             htmlFor="summary-evidence"
-            hint="One evidence node id per line (see the Contribution evidence table)."
+            hint="每行一个证据节点 ID（见「贡献认定」证据表）。"
           >
             <Textarea
               id="summary-evidence"
@@ -2547,7 +2547,7 @@ async function saveRefresh(event: FormEvent) {
               spellCheck={false}
             />
           </FormField>
-          <FormField label="Rubric (optional)" htmlFor="summary-rubric">
+          <FormField label="评分标准（可选）" htmlFor="summary-rubric">
             <TextInput
               id="summary-rubric"
               value={summaryRubric}

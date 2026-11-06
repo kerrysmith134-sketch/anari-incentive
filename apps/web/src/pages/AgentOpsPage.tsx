@@ -278,7 +278,7 @@ export function AgentOpsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Bounded automation"
+        eyebrow="有界自动化"
         title="Agent 运维"
         description="Proactive agent tasks, their approval gates, workflow runs and suggestion logs. T2/T3 actions require a human; every step is audited."
         actions={
@@ -327,7 +327,7 @@ export function AgentOpsPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Agent views"
+        label="Agent 视图"
       />
 
       <div className="tab-panel">
@@ -344,7 +344,7 @@ export function AgentOpsPage() {
             ) : taskList.length === 0 ? (
               <EmptyState
                 icon="ai"
-                title="No agent task"
+                title="暂无 Agent 任务"
                 description="可手动排队任务或运行扫描，让 Agent 观察证据缺口与结算就绪度。"
               />
             ) : (
@@ -405,14 +405,14 @@ export function AgentOpsPage() {
           </Panel>
         ) : tab === "approvals" ? (
           <Panel
-            title="Pending agent actions"
+            title="待审批 Agent 动作"
             subtitle="批准即执行动作；T3 政策发布仅管理员"
             flush
           >
             {pendingActions.length === 0 ? (
               <EmptyState
                 icon="approvals"
-                title="Nothing awaiting approval"
+                title="没有等待审批的事项"
                 description="T0/T1 自动执行；更高风险动作在此等待。"
               />
             ) : (
@@ -498,7 +498,7 @@ export function AgentOpsPage() {
             ) : workflowList.length === 0 ? (
               <EmptyState
                 icon="clock"
-                title="No workflow run"
+                title="暂无工作流运行"
                 description="工作流运行记录 Agent 多步执行及当前步骤。"
               />
             ) : (
@@ -558,7 +558,7 @@ export function AgentOpsPage() {
           </Panel>
         ) : tab === "suggestions" ? (
           <Panel
-            title="AI suggestion logs"
+            title="AI 建议日志"
             subtitle="与 Agent 任务关联的模型输出；采纳归属到人"
             flush
             action={
@@ -595,7 +595,7 @@ export function AgentOpsPage() {
             ) : suggestionList.length === 0 ? (
               <EmptyState
                 icon="ai"
-                title="No suggestion log"
+                title="暂无建议日志"
                 description="建议是非评分类模型输出，须人工复核。"
               />
             ) : (
@@ -738,7 +738,7 @@ export function AgentOpsPage() {
 
       <Modal
         open={enqueueOpen}
-        title="Enqueue agent task"
+        title="排队 Agent 任务"
         description="幂等键防止重复执行。"
         onClose={() => setEnqueueOpen(false)}
         footer={
@@ -758,7 +758,7 @@ export function AgentOpsPage() {
               <InfoNotice tone="warning">{enqueueError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Agent type" htmlFor="agent-type">
+          <FormField label="Agent 类型" htmlFor="agent-type">
             <Select
               id="agent-type"
               value={agentType}
@@ -771,7 +771,7 @@ export function AgentOpsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Trigger" htmlFor="agent-trigger">
+          <FormField label="触发器" htmlFor="agent-trigger">
             <Select
               id="agent-trigger"
               value={triggerType}
@@ -792,7 +792,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Input JSON" htmlFor="agent-input" className="field--full">
+          <FormField label="输入 JSON" htmlFor="agent-input" className="field--full">
             <Textarea
               id="agent-input"
               value={taskInput}
@@ -850,7 +850,7 @@ export function AgentOpsPage() {
 
       <Modal
         open={workflowOpen}
-        title="New workflow run"
+        title="新建工作流运行"
         onClose={() => setWorkflowOpen(false)}
         footer={
           <>
@@ -884,7 +884,7 @@ export function AgentOpsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Workflow name" htmlFor="workflow-name">
+          <FormField label="工作流名称" htmlFor="workflow-name">
             <TextInput
               id="workflow-name"
               value={workflowName}
@@ -912,7 +912,7 @@ export function AgentOpsPage() {
 
       <Modal
         open={suggestionOpen}
-        title="Log AI suggestion"
+        title="记录 AI 建议"
         onClose={() => setSuggestionOpen(false)}
         footer={
           <>
@@ -955,7 +955,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Suggestion type" htmlFor="suggestion-type">
+          <FormField label="建议类型" htmlFor="suggestion-type">
             <TextInput
               id="suggestion-type"
               value={suggestionType}
@@ -974,7 +974,7 @@ export function AgentOpsPage() {
               required
             />
           </FormField>
-          <FormField label="Input hash" htmlFor="suggestion-hash">
+          <FormField label="输入哈希" htmlFor="suggestion-hash">
             <TextInput
               id="suggestion-hash"
               value={suggestionInputHash}
@@ -984,7 +984,7 @@ export function AgentOpsPage() {
             />
           </FormField>
           <FormField
-            label="Output JSON"
+            label="输出 JSON"
             htmlFor="suggestion-output"
             className="field--full"
           >

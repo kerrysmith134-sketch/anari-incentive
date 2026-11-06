@@ -689,7 +689,10 @@ describePg("PgStore vertical slice", () => {
         rubricVersionId: rubric.id,
         decision: "APPROVE",
         scores: { QUALITY: score },
-        rationale: "Reviewed",
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "Reviewed",
       });
       return result.decision!.id;
     }
@@ -783,7 +786,10 @@ describePg("PgStore vertical slice", () => {
       rubricVersionId: rubric.id,
       decision: "APPROVE",
       scores: { QUALITY: 4, SPEED: 3 },
-      rationale: "Evidence supports the rating",
+      
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "Evidence supports the rating",
     });
     expect(first.draft.status).toBe("APPROVED");
     const firstVersion = first.decision!.decisionVersion;
@@ -802,7 +808,10 @@ describePg("PgStore vertical slice", () => {
       rubricVersionId: rubric.id,
       decision: "APPROVE",
       scores: { QUALITY: 5, SPEED: 4 },
-      rationale: "Corrected evidence",
+      
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "Corrected evidence",
     });
     expect(second.decision?.decisionVersion).toBe(firstVersion + 1);
     expect(second.decision?.supersedesId).toBe(first.decision?.id);
@@ -831,7 +840,10 @@ describePg("PgStore vertical slice", () => {
         rubricVersionId: rubric.id,
         decision: "APPROVE",
         scores: { QUALITY: 5, SPEED: 5 },
-        rationale: "Self",
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "Self",
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });

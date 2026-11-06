@@ -639,9 +639,9 @@ export function PolicyPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Rules and readiness"
+        eyebrow="规则与就绪度"
         title="政策"
-        description="Versioned policy definitions with test suites, legal gates, notice acknowledgement and DPIA evidence. A version is not settlement-ready until every blocker clears."
+        description="版本化政策定义，配套用例集、法律门禁、告知签收与 DPIA 证据；阻断项全部清除前，版本不能用于结算。"
         actions={
           <>
             <Button
@@ -679,7 +679,7 @@ export function PolicyPage() {
         <Panel>
           <EmptyState
             icon="policy"
-            title="No policy version"
+            title="暂无政策版本"
             description="发布或导入政策版本后，就绪度报告与测试用例方可使用。"
           />
         </Panel>
@@ -732,7 +732,7 @@ export function PolicyPage() {
           </Panel>
 
           <Panel
-            title="Policy readiness"
+            title="政策就绪度"
             subtitle={
               selected
                 ? `${selected.code} v${selected.version} · ${formatDateTime(readiness.data?.generatedAt)}`
@@ -887,14 +887,14 @@ export function PolicyPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Policy views"
+        label="政策视图"
       />
 
       <div className="tab-panel">
         {tab === "readiness" ? (
           <Panel
-            title="Regression suite"
-            subtitle="Boundary, exception and historical cases for the selected version"
+            title="回归用例集"
+            subtitle="所选版本的边界/异常/历史用例"
             action={
               <Button
                 size="sm"
@@ -920,7 +920,7 @@ export function PolicyPage() {
             ) : (tests.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="policy"
-                title="No test case"
+                title="暂无用例"
                 description="没有回归用例的政策无法自证行为；请为本版本补充测试用例。"
               />
             ) : (
@@ -980,7 +980,7 @@ export function PolicyPage() {
         ) : tab === "coverage" ? (
           <Panel
             title="运营覆盖"
-            subtitle="Cross-module evidence and data-quality posture"
+            subtitle="跨模块证据与数据质量态势"
           >
             {coverage.error ? (
               <ErrorNotice error={coverage.error} onRetry={coverage.reload} />
@@ -1358,7 +1358,7 @@ export function PolicyPage() {
           </Panel>
         ) : tab === "annual" ? (
           <Panel
-            title="Annual policy review"
+            title="年度政策审查"
             subtitle="政策/申诉/AI 复核/隐私证据的滚动 12 个月视图"
           >
             {review.error ? (
@@ -1760,8 +1760,8 @@ export function PolicyPage() {
             </Panel>
 
             <Panel
-              title="Policy notice links"
-              subtitle="Bind notices to a policy version for readiness coverage"
+              title="政策-告知关联"
+              subtitle="将告知绑定到政策版本以纳入就绪度覆盖"
               flush
               action={
                 <Button
@@ -1793,7 +1793,7 @@ export function PolicyPage() {
               ) : (policyNotices.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="policy"
-                  title="No notice linked"
+                  title="暂无关联告知"
                   description="政策就绪度会校验关联通知的签收覆盖。"
                 />
               ) : (
@@ -1830,7 +1830,7 @@ export function PolicyPage() {
 
             <Panel
               title="规则变更单"
-              subtitle="Draft → approved or rejected → publicized, with policy-test gating"
+              subtitle="草稿 → 批准/驳回 → 公示，带用例门禁"
               flush
               action={
                 <Button
@@ -1857,7 +1857,7 @@ export function PolicyPage() {
               ) : (ruleChanges.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="policy"
-                  title="No rule change order"
+                  title="暂无规则变更单"
                   description="规则变更在发布前记录变更前后版本、原因与影响模拟。"
                 />
               ) : (
@@ -1940,8 +1940,8 @@ export function PolicyPage() {
             </Panel>
 
             <Panel
-              title="Employee notices"
-              subtitle="Published notices and per-person acknowledgement coverage"
+              title="员工告知"
+              subtitle="已发布告知与逐人签收覆盖"
               flush
               action={
                 <Button
@@ -1965,7 +1965,7 @@ export function PolicyPage() {
               ) : (notices.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="policy"
-                  title="No employee notice"
+                  title="暂无员工告知"
                   description="告知记录了向员工告知的内容、生效时间与签收人。"
                 />
               ) : (
@@ -2027,7 +2027,7 @@ export function PolicyPage() {
             </Panel>
 
             {ackNoticeId ? (
-              <Panel title="Notice acknowledgements" flush>
+              <Panel title="告知签收" flush>
                 {acknowledgements.error ? (
                   <div style={{ padding: 16 }}>
                     <ErrorNotice
@@ -2081,7 +2081,7 @@ export function PolicyPage() {
             ) : null}
 
             <Panel
-              title="Policy consultations"
+              title="政策咨询"
               subtitle="与员工代表的讨论、意见征集与协商"
               flush
               action={
@@ -2109,7 +2109,7 @@ export function PolicyPage() {
               ) : (consultations.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="people"
-                  title="No consultation recorded"
+                  title="暂无咨询记录"
                   description="记录法律门禁引用的民主程序证据。"
                 />
               ) : (
@@ -2157,7 +2157,7 @@ export function PolicyPage() {
             </Panel>
 
             <Panel
-              title="Employee representation"
+              title="员工代表"
               subtitle="法律门禁引用的职工代表大会、工会与职工代表"
               flush
               action={
@@ -2185,8 +2185,8 @@ export function PolicyPage() {
               ) : (representations.data?.length ?? 0) === 0 ? (
                 <EmptyState
                   icon="people"
-                  title="No representation recorded"
-                  description="Record the employee body consulted for policy changes."
+                  title="暂无员工代表记录"
+                  description="记录政策变更咨询的职工机构。"
                 />
               ) : (
                 <div className="table-wrap">
@@ -2225,7 +2225,7 @@ export function PolicyPage() {
 
       <Modal
         open={gateOpen}
-        title="Record legal gate"
+        title="记录法律门禁"
         description={
           selected
             ? `${selected.code} v${selected.version} · this is assurance evidence, not a legal opinion.`
@@ -2277,39 +2277,39 @@ export function PolicyPage() {
           </label>
           <div className="form-grid">
             <FormField
-              label="Democratic procedure reference"
+              label="民主程序引用"
               htmlFor="gate-democratic"
             >
               <TextInput
                 id="gate-democratic"
                 value={democraticRef}
                 onChange={(event) => setDemocraticRef(event.target.value)}
-                placeholder="Consultation minutes / resolution id"
+                placeholder="咨询纪要/决议 ID"
               />
             </FormField>
             <FormField
-              label="Employee notice reference"
+              label="员工告知引用"
               htmlFor="gate-notice"
             >
               <TextInput
                 id="gate-notice"
                 value={noticeRef}
                 onChange={(event) => setNoticeRef(event.target.value)}
-                placeholder="Notice reference"
+                placeholder="告知引用"
               />
             </FormField>
             <FormField
-              label="DPIA reference"
+              label="DPIA 引用"
               htmlFor="gate-dpia"
             >
               <TextInput
                 id="gate-dpia"
                 value={dpiaRef}
                 onChange={(event) => setDpiaRef(event.target.value)}
-                placeholder="Assessment reference"
+                placeholder="评估引用"
               />
             </FormField>
-            <FormField label="Recorded by" htmlFor="gate-recorder">
+            <FormField label="记录人" htmlFor="gate-recorder">
               <PersonSelect
                 id="gate-recorder"
                 value={recordedBy}
@@ -2320,7 +2320,7 @@ export function PolicyPage() {
               label="审批请求 ID（可选）"
               htmlFor="gate-approval"
               className="field--full"
-              hint="Required only when LEGAL_GATE is configured as approval-gated."
+              hint="仅当 LEGAL_GATE 配置为需审批时必填。"
             >
               <TextInput
                 id="gate-approval"
@@ -2334,7 +2334,7 @@ export function PolicyPage() {
 
       <Modal
         open={ruleOpen}
-        title="New rule change order"
+        title="新建规则变更单"
         description="规则变更经批准、测试并公示后方可生效。"
         onClose={() => setRuleOpen(false)}
         wide
@@ -2355,7 +2355,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{ruleError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Policy code" htmlFor="rule-policy-code">
+          <FormField label="政策编码" htmlFor="rule-policy-code">
             <TextInput
               id="rule-policy-code"
               value={rulePolicyCode}
@@ -2363,16 +2363,16 @@ export function PolicyPage() {
               required
             />
           </FormField>
-          <FormField label="Change type" htmlFor="rule-change-type">
+          <FormField label="变更类型" htmlFor="rule-change-type">
             <TextInput
               id="rule-change-type"
               value={ruleChangeType}
               onChange={(event) => setRuleChangeType(event.target.value)}
-              placeholder="RATE_OR_CAP"
+              placeholder="比例或上限"
               required
             />
           </FormField>
-          <FormField label="From version (optional)" htmlFor="rule-from">
+          <FormField label="来源版本（可选）" htmlFor="rule-from">
             <Select
               id="rule-from"
               value={ruleFromVersionId}
@@ -2389,7 +2389,7 @@ export function PolicyPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="To version" htmlFor="rule-to">
+          <FormField label="目标版本" htmlFor="rule-to">
             <Select
               id="rule-to"
               value={ruleToVersionId}
@@ -2433,8 +2433,8 @@ export function PolicyPage() {
 
       <Modal
         open={noticeOpen}
-        title="Publish employee notice"
-        description="Record what employees were told and when it takes effect."
+        title="发布员工告知"
+        description="记录向员工告知的内容与生效时间。"
         onClose={() => setNoticeOpen(false)}
         footer={
           <>
@@ -2478,16 +2478,16 @@ export function PolicyPage() {
               required
             />
           </FormField>
-          <FormField label="Body reference" htmlFor="notice-body">
+          <FormField label="机构引用" htmlFor="notice-body">
             <TextInput
               id="notice-body"
               value={noticeBodyRef}
               onChange={(event) => setNoticeBodyRef(event.target.value)}
-              placeholder="Internal document reference"
+              placeholder="内部文档引用"
               required
             />
           </FormField>
-          <FormField label="Policy version (optional)" htmlFor="notice-policy">
+          <FormField label="政策版本（可选）" htmlFor="notice-policy">
             <Select
               id="notice-policy"
               value={noticePolicyVersionId}
@@ -2526,7 +2526,7 @@ export function PolicyPage() {
 
       <Modal
         open={Boolean(ackOpen)}
-        title="Record notice response"
+        title="记录告知反馈"
         description={ackOpen?.title}
         onClose={() => setAckOpen(null)}
         footer={
@@ -2563,7 +2563,7 @@ export function PolicyPage() {
               <option value="DECLINE">婉拒</option>
             </Select>
           </FormField>
-          <FormField label="Signature reference (optional)" htmlFor="ack-signature">
+          <FormField label="签名引用（可选）" htmlFor="ack-signature">
             <TextInput
               id="ack-signature"
               value={ackSignatureRef}
@@ -2572,7 +2572,7 @@ export function PolicyPage() {
           </FormField>
           {ackDecision === "DECLINE" ? (
             <FormField
-              label="Decline reason"
+              label="婉拒原因"
               htmlFor="ack-decline-reason"
               className="field--full"
             >
@@ -2589,8 +2589,8 @@ export function PolicyPage() {
 
       <Modal
         open={repOpen}
-        title="Add employee representation"
-        description="The body consulted for policy changes."
+        title="添加员工代表"
+        description="政策变更咨询的机构。"
         onClose={() => setRepOpen(false)}
         footer={
           <>
@@ -2609,7 +2609,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{repError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Body name" htmlFor="rep-name">
+          <FormField label="机构名称" htmlFor="rep-name">
             <TextInput
               id="rep-name"
               value={repName}
@@ -2617,7 +2617,7 @@ export function PolicyPage() {
               required
             />
           </FormField>
-          <FormField label="Body type" htmlFor="rep-type">
+          <FormField label="机构类型" htmlFor="rep-type">
             <Select
               id="rep-type"
               value={repType}
@@ -2650,7 +2650,7 @@ export function PolicyPage() {
 
       <Modal
         open={consultOpen}
-        title="Record policy consultation"
+        title="记录政策咨询"
         onClose={() => setConsultOpen(false)}
         footer={
           <>
@@ -2706,7 +2706,7 @@ export function PolicyPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Representation id (optional)" htmlFor="consult-rep">
+          <FormField label="代表机构 ID（可选）" htmlFor="consult-rep">
             <TextInput
               id="consult-rep"
               value={consultRepresentationId}
@@ -2714,7 +2714,7 @@ export function PolicyPage() {
               placeholder="UUID"
             />
           </FormField>
-          <FormField label="Started at" htmlFor="consult-start">
+          <FormField label="开始时间" htmlFor="consult-start">
             <TextInput
               id="consult-start"
               type="datetime-local"
@@ -2746,7 +2746,7 @@ export function PolicyPage() {
 
       <Modal
         open={Boolean(concludeTarget)}
-        title="Conclude consultation"
+        title="结论咨询"
         onClose={() => setConcludeTarget(null)}
         footer={
           <>
@@ -2837,7 +2837,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{simError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Current policy version" htmlFor="sim-current">
+          <FormField label="当前政策版本" htmlFor="sim-current">
             <Select
               id="sim-current"
               value={simCurrentId}
@@ -2856,7 +2856,7 @@ export function PolicyPage() {
             </Select>
           </FormField>
           <FormField
-            label="Proposed policy (JSON)"
+            label="拟议政策（JSON）"
             htmlFor="sim-proposed"
             className="field--full"
           >
@@ -2872,7 +2872,7 @@ export function PolicyPage() {
             label="Samples (JSON: [{ personId, input }])"
             htmlFor="sim-samples"
             className="field--full"
-            hint="Uses the calculation-run input shape; at least one sample."
+            hint="使用计算批次输入结构；至少一个样本。"
           >
             <Textarea
               id="sim-samples"
@@ -2887,7 +2887,7 @@ export function PolicyPage() {
 
       <Modal
         open={linkOpen}
-        title="Link notice to policy version"
+        title="将告知关联到政策版本"
         onClose={() => setLinkOpen(false)}
         footer={
           <>
@@ -2944,7 +2944,7 @@ export function PolicyPage() {
 
       <Modal
         open={marginalOpen}
-        title="Marginal threshold sweep"
+        title="边际阈值扫描"
         description="对参与人字段做小幅步进，暴露金额跳档效应。"
         onClose={() => setMarginalOpen(false)}
         wide
@@ -2969,7 +2969,7 @@ export function PolicyPage() {
               <InfoNotice tone="warning">{marginalError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Participant index" htmlFor="marginal-index">
+          <FormField label="参与人序号" htmlFor="marginal-index">
             <TextInput
               id="marginal-index"
               value={marginalIndex}
@@ -3017,7 +3017,7 @@ export function PolicyPage() {
             />
           </FormField>
           <FormField
-            label="Sample (JSON)"
+            label="样本（JSON）"
             htmlFor="marginal-sample"
             className="field--full"
           >

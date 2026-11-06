@@ -724,6 +724,8 @@ export interface PlatformIdentity {
   userId: Uuid;
   personId?: Uuid;
   roles: string[];
+  displayName?: string;
+  tenantName?: string;
 }
 
 export interface ModelRedTeamRun {

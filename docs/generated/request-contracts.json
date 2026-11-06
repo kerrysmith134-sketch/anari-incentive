@@ -303,6 +303,12 @@
         "tenantId"
       ]
     },
+    "PreReview": {
+      "required": [],
+      "optional": [
+        "personIds"
+      ]
+    },
     "ProcessRetentionDisposals": {
       "required": [
         "actorPersonId"

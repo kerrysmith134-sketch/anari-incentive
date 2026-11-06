@@ -103,7 +103,10 @@ describe("round 62: evaluation decisions version and supersede", () => {
         rubricVersionId,
         decision: "APPROVE",
         scores: { QUALITY: 4 },
-        rationale: "Reviewed evidence",
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "Reviewed evidence",
       },
     );
     expect(decision.status).toBeLessThan(300);
@@ -139,7 +142,10 @@ describe("round 63: evaluation drafts block self-review", () => {
         rubricVersionId,
         decision: "APPROVE",
         scores: { QUALITY: 5 },
-        rationale: "I agree with this assessment",
+        
+independentScores: { QUALITY: 4 },
+independentRationale: "先独立判断：证据覆盖充分",
+evidenceOpened: 1,rationale: "I agree with this assessment",
       },
     );
     expect(decision.status).toBeGreaterThanOrEqual(400);

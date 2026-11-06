@@ -82,7 +82,7 @@ export function MyAiPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Employee transparency"
+        eyebrow="员工透明"
         title="我的 AI 记录"
         description="AI 在关于你的决策中参与了什么、由哪位人工复核、如何申诉——这里只返回你本人的记录。"
       />
@@ -90,14 +90,14 @@ export function MyAiPage() {
       {record.error ? (
         <ErrorNotice error={record.error} onRetry={record.reload} />
       ) : record.loading || !record.data ? (
-        <Panel title="Loading AI record">
+        <Panel title="AI 记录加载中">
           <LoadingRows rows={5} />
         </Panel>
       ) : (
         <>
           <div className="stat-grid stat-grid--three">
             <StatTile
-              label="AI participation"
+              label="AI 参与"
               value={record.data.aiUsed ? "Used" : "无"}
               detail={
                 record.data.aiUsed
@@ -115,7 +115,7 @@ export function MyAiPage() {
               tone="warning"
             />
             <StatTile
-              label="Human decisions"
+              label="人工决策"
               value={record.data.evaluationDecisions.length}
               detail="归属复核人、可申诉"
               icon="approvals"
@@ -140,7 +140,7 @@ export function MyAiPage() {
               {record.data.notices.length === 0 ? (
                 <EmptyState
                   icon="policy"
-                  title="No AI-use notice"
+                  title="暂无 AI 使用告知"
                   description="公司尚未将 AI 使用告知关联到你的记录。"
                 />
               ) : (
@@ -233,7 +233,7 @@ export function MyAiPage() {
             {record.data.evaluationDecisions.length === 0 ? (
               <EmptyState
                 icon="approvals"
-                title="No formal decision"
+                title="暂无正式决策"
                 description="AI 草稿在人工复核记录决策之前不构成决策。"
               />
             ) : (

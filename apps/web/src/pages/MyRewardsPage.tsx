@@ -9,7 +9,9 @@ import {
   Modal,
   PageHeader,
   Panel,
+  Select,
   Tabs,
+  Textarea,
   TextInput,
 } from "../components/ui.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -46,6 +48,13 @@ interface VestingView {
   fullyVested: boolean;
 }
 
+interface WorkPackageView {
+  id: string;
+  title: string;
+  status: string;
+  objective?: string;
+}
+
 interface RunView {
   id: string;
   mode: string;
@@ -70,6 +79,7 @@ export function MyRewardsPage() {
   const grants = useApiQuery<GrantView[]>("/api/v1/equity-grants");
   const runs = useApiQuery<RunView[]>("/api/v1/calculation-runs");
   const [tab, setTab] = useState("bounties");
+  const packages = useApiQuery<WorkPackageView[]>("/api/v1/work-packages");
 
   const bountyList = bounties.data ?? [];
   const grantList = grants.data ?? [];
@@ -82,6 +92,16 @@ export function MyRewardsPage() {
   const [exerciseTarget, setExerciseTarget] = useState<GrantView | null>(null);
   const [exerciseUnits, setExerciseUnits] = useState("");
   const [exerciseError, setExerciseError] = useState<string | null>(null);
+
+  // 我要申报
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimPackage, setClaimPackage] = useState("");
+  const [claimDims, setClaimDims] = useState("QUALITY, TIMELINESS");
+  const [claimSummary, setClaimSummary] = useState("");
+  const [claimEvidence, setClaimEvidence] = useState("");
+  const [claimRationale, setClaimRationale] = useState("");
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [savingClaim, setSavingClaim] = useState(false);
 
   const [vesting, setVesting] = useState<{
     grant: GrantView;
@@ -156,6 +176,44 @@ export function MyRewardsPage() {
   const myRuns = runList.filter((run) =>
     (run.lines ?? []).some((line) => line.personId === me),
   );
+  const myAcceptedPackages = (packages.data ?? []).filter(
+    (item) => item.status === "ACCEPTED",
+  );
+
+  async function createClaim(event: FormEvent) {
+    event.preventDefault();
+    setClaimError(null);
+    setSavingClaim(true);
+    try {
+      await api("/api/v1/contribution-claims", {
+        method: "POST",
+        body: {
+          workPackageId: claimPackage,
+          claimantPersonId: me,
+          claimType: "DELIVERABLE_CONTRIBUTION",
+          claimedContribution: {
+            dimensions: claimDims
+              .split(",")
+              .map((dimension) => dimension.trim())
+              .filter(Boolean),
+            summary: claimSummary.trim(),
+          },
+          evidenceRefs: claimEvidence
+            .split(/[,，]/)
+            .map((ref) => ref.trim())
+            .filter(Boolean),
+          rationale: claimRationale.trim(),
+        },
+      });
+      toast.success("申报已创建", "提交后进入人工认定");
+      setClaimOpen(false);
+      packages.reload();
+    } catch (caught) {
+      setClaimError(caught instanceof ApiError ? caught.message : "申报失败");
+    } finally {
+      setSavingClaim(false);
+    }
+  }
 
   return (
     <div className="page">
@@ -174,6 +232,7 @@ export function MyRewardsPage() {
           { id: "bounties", label: "我的悬赏", count: myBounties.length },
           { id: "equity", label: "我的股权", count: myGrants.length },
           { id: "commission", label: "我的提成", count: myRuns.length },
+          { id: "claims", label: "我要申报", count: myAcceptedPackages.length },
         ]}
         active={tab}
         onChange={setTab}
@@ -354,6 +413,63 @@ export function MyRewardsPage() {
         ) : null}
       </div>
 
+      {tab === "claims" ? (
+        <Panel
+          title="我要申报"
+          subtitle="针对已验收的工作包申报本人贡献；申报≠认定，由独立裁决人复核"
+          action={
+            <Button
+              variant="primary"
+              disabled={myAcceptedPackages.length === 0}
+              onClick={() => {
+                setClaimPackage(myAcceptedPackages[0]?.id ?? "");
+                setClaimSummary("");
+                setClaimRationale("");
+                setClaimEvidence("");
+                setClaimError(null);
+                setClaimOpen(true);
+              }}
+            >
+              新建申报
+            </Button>
+          }
+          flush
+        >
+          {packages.loading && packages.data === undefined ? (
+            <LoadingRows rows={3} />
+          ) : myAcceptedPackages.length === 0 ? (
+            <EmptyState
+              icon="layers"
+              title="暂无可申报的工作包"
+              description="申报需要工作包已验收。没有时请联系负责人在「贡献认定」中完成验收。"
+            />
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>工作包</th>
+                  <th>目标</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myAcceptedPackages.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <strong>{item.title}</strong>
+                    </td>
+                    <td>{item.objective ?? "—"}</td>
+                    <td>
+                      <Badge status={item.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
+      ) : null}
+
       {/* 提交成果 */}
       <Modal
         open={Boolean(submitTarget)}
@@ -385,6 +501,78 @@ export function MyRewardsPage() {
               id="submission-ref"
               value={submissionRef}
               onChange={(event) => setSubmissionRef(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      {/* 新建申报 */}
+      <Modal
+        open={claimOpen}
+        title="新建贡献申报"
+        onClose={() => setClaimOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setClaimOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="my-claim-form" loading={savingClaim}>
+              提交申报
+            </Button>
+          </>
+        }
+      >
+        <form id="my-claim-form" onSubmit={createClaim} className="form-grid">
+          {claimError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{claimError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="工作包" htmlFor="my-claim-package">
+            <Select
+              id="my-claim-package"
+              value={claimPackage}
+              onChange={(event) => setClaimPackage(event.target.value)}
+              required
+            >
+              {myAcceptedPackages.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="贡献维度（逗号分隔）" htmlFor="my-claim-dims">
+            <TextInput
+              id="my-claim-dims"
+              value={claimDims}
+              onChange={(event) => setClaimDims(event.target.value)}
+            />
+          </FormField>
+          <FormField label="贡献摘要" htmlFor="my-claim-summary">
+            <Textarea
+              id="my-claim-summary"
+              rows={2}
+              value={claimSummary}
+              onChange={(event) => setClaimSummary(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="证据引用（逗号分隔，可选）" htmlFor="my-claim-evidence">
+            <TextInput
+              id="my-claim-evidence"
+              value={claimEvidence}
+              onChange={(event) => setClaimEvidence(event.target.value)}
+              placeholder="evidence-id-1"
+            />
+          </FormField>
+          <FormField label="申报理由" htmlFor="my-claim-rationale">
+            <Textarea
+              id="my-claim-rationale"
+              rows={2}
+              value={claimRationale}
+              onChange={(event) => setClaimRationale(event.target.value)}
               required
             />
           </FormField>

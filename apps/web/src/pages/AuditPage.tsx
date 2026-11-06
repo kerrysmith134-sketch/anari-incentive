@@ -79,7 +79,7 @@ export function AuditPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Append-only trail"
+        eyebrow="追加式留痕"
         title="审计"
         description="每个敏感命令写入哈希链事件；校验会重算整链，异常立即可见。"
         actions={
@@ -208,7 +208,7 @@ export function AuditPage() {
       </div>
 
       <Panel
-        title="Event log"
+        title="事件日志"
         subtitle="最新在前；选择事件查看哈希"
         action={
           <div className="toolbar__group">

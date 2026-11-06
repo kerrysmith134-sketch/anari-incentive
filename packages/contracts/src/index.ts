@@ -2043,6 +2043,10 @@ export const decideEvaluationDraftSchema = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
   scores: z.record(z.number().min(0).max(5)).default({}),
   rationale: z.string().min(3),
+  /** ATT-06：复核人必须先独立判断再看 AI 草稿；此处记录独立得分与理由。 */
+  independentScores: z.record(z.number().min(0).max(5)),
+  independentRationale: z.string().min(3),
+  evidenceOpened: z.number().int().min(0).default(0),
 });
 export type DecideEvaluationDraftBody = z.infer<
   typeof decideEvaluationDraftSchema
@@ -2333,6 +2337,11 @@ export const setPasswordSchema = z.object({
 });
 export type SetPasswordBody = z.infer<typeof setPasswordSchema>;
 
+export const preReviewSchema = z.object({
+  personIds: z.array(uuidSchema).max(100).optional(),
+});
+export type PreReviewBody = z.infer<typeof preReviewSchema>;
+
 export const feishuSyncSchema = z.object({
   dryRun: z.boolean().default(true),
   allowCreate: z.boolean().default(false),
@@ -2381,6 +2390,7 @@ export const requestSchemaRegistry = {
   CreateTenantInvoice: createTenantInvoiceSchema,
   FeishuSync: feishuSyncSchema,
   PasswordLogin: passwordLoginSchema,
+  PreReview: preReviewSchema,
   SetPassword: setPasswordSchema,
   ModelSummary: modelSummarySchema,
   ProcessRetentionDisposals: processRetentionDisposalsSchema,

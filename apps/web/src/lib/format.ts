@@ -64,10 +64,10 @@ export function formatDate(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
+  return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
+    month: "long",
+    day: "numeric",
   }).format(date);
 }
 
@@ -75,10 +75,10 @@ export function formatDateTime(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
+  return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
+    month: "long",
+    day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
@@ -89,7 +89,7 @@ export function formatRelative(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   const deltaSeconds = Math.round((date.getTime() - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const formatter = new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" });
   const abs = Math.abs(deltaSeconds);
   if (abs < 60) return formatter.format(deltaSeconds, "second");
   if (abs < 3600) return formatter.format(Math.round(deltaSeconds / 60), "minute");

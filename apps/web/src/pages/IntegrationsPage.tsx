@@ -175,9 +175,9 @@ export function IntegrationsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Payload plumbing"
+        eyebrow="数据通道"
         title="集成"
-        description="Connections, versioned field mappings and due-schedule claiming. Credentials stay behind references; mapping edits create a new version."
+        description="连接、版本化字段映射与到期计划认领。凭据只存引用；映射修改即新建版本。"
         actions={
           <>
             <Button
@@ -218,7 +218,7 @@ export function IntegrationsPage() {
         <Panel>
           <EmptyState
             icon="integrations"
-            title="No integration connection"
+            title="暂无集成连接"
             description="先添加供应商连接，再挂接版本化映射与同步计划。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
@@ -294,7 +294,7 @@ export function IntegrationsPage() {
                   ]}
                   active={detailTab}
                   onChange={setDetailTab}
-                  label="Connection detail"
+                  label="连接详情"
                 />
                 <div className="tab-panel">
                   {detailTab === "mappings" ? (
@@ -393,7 +393,7 @@ export function IntegrationsPage() {
                   </div>
                 </Panel>
 
-                <Panel title="Config" subtitle="Non-secret connection settings">
+                <Panel title="配置" subtitle="非敏感连接配置">
                   <pre className="code-block">
                     {JSON.stringify(selected.config ?? {}, null, 2)}
                   </pre>
@@ -406,7 +406,7 @@ export function IntegrationsPage() {
 
       <Modal
         open={createOpen}
-        title="New integration connection"
+        title="新建集成连接"
         description="只保存凭据引用——绝不保存密钥本体。"
         onClose={() => setCreateOpen(false)}
         footer={
@@ -440,7 +440,7 @@ export function IntegrationsPage() {
               required
             />
           </FormField>
-          <FormField label="Connection name" htmlFor="connection-name">
+          <FormField label="连接名称" htmlFor="connection-name">
             <TextInput
               id="connection-name"
               value={connectionName}
@@ -450,7 +450,7 @@ export function IntegrationsPage() {
             />
           </FormField>
           <FormField
-            label="Credential reference"
+            label="凭据引用"
             htmlFor="connection-credential"
             className="field--full"
             hint="保管库路径或密钥名，不是凭据值本身。"
@@ -623,7 +623,7 @@ function MappingsSection({
       ) : mappings.length === 0 ? (
         <EmptyState
           icon="layers"
-          title="No field mapping"
+          title="暂无字段映射"
           description="将来源字段映射到证据契约。预设覆盖 HubSpot 交易、飞书多维表格与 ERP 订单。"
           action={
             <Button variant="primary" size="sm" onClick={() => openForm()}>
@@ -686,7 +686,7 @@ function MappingsSection({
 
       <Modal
         open={open}
-        title="New field mapping"
+        title="新建字段映射"
         description="预设只是起点——创建版本前请逐项核对。"
         onClose={() => setOpen(false)}
         wide
@@ -737,7 +737,7 @@ function MappingsSection({
                 required
               />
             </FormField>
-            <FormField label="Mapping type" htmlFor="mapping-type">
+            <FormField label="映射类型" htmlFor="mapping-type">
               <Select
                 id="mapping-type"
                 value={mappingType}
@@ -764,7 +764,7 @@ function MappingsSection({
               />
             </FormField>
             <FormField
-              label="Field map (JSON)"
+              label="字段映射（JSON）"
               htmlFor="mapping-fields"
               className="field--full"
               hint="键为目标字段；值为来源路径。"
@@ -778,7 +778,7 @@ function MappingsSection({
               />
             </FormField>
             <FormField
-              label="Config (JSON)"
+              label="配置（JSON）"
               htmlFor="mapping-config"
               className="field--full"
             >
@@ -926,7 +926,7 @@ function SchedulesSection({
       ) : schedules.length === 0 ? (
         <EmptyState
           icon="clock"
-          title="No sync schedule"
+          title="暂无同步计划"
           description="设置重复间隔，执行器才能认领并排队同步。"
           action={
             <Button variant="primary" size="sm" onClick={openForm}>
@@ -983,7 +983,7 @@ function SchedulesSection({
 
       <Modal
         open={open}
-        title="New sync schedule"
+        title="新建同步计划"
         description="间隔单位为分钟；到期后由同步执行器认领。"
         onClose={() => setOpen(false)}
         footer={
@@ -1016,7 +1016,7 @@ function SchedulesSection({
               required
             />
           </FormField>
-          <FormField label="Interval (minutes)" htmlFor="schedule-interval">
+          <FormField label="间隔（分钟）" htmlFor="schedule-interval">
             <TextInput
               id="schedule-interval"
               type="number"
@@ -1027,7 +1027,7 @@ function SchedulesSection({
               required
             />
           </FormField>
-          <FormField label="First run (optional)" htmlFor="schedule-start">
+          <FormField label="首次运行（可选）" htmlFor="schedule-start">
             <TextInput
               id="schedule-start"
               type="datetime-local"
@@ -1089,7 +1089,7 @@ function RunsSection({
       ) : runs.length === 0 ? (
         <EmptyState
           icon="server"
-          title="No sync run"
+          title="暂无同步运行"
           description="可手动排队一次同步，或由执行器认领到期计划。"
         />
       ) : (
@@ -1233,7 +1233,7 @@ function IdentitiesSection() {
 
       <Modal
         open={open}
-        title="Map external identity"
+        title="映射外部身份"
         onClose={() => setOpen(false)}
         footer={
           <>
@@ -1273,7 +1273,7 @@ function IdentitiesSection() {
               required
             />
           </FormField>
-          <FormField label="Object type" htmlFor="identity-object">
+          <FormField label="对象类型" htmlFor="identity-object">
             <TextInput
               id="identity-object"
               value={objectType}
@@ -1282,7 +1282,7 @@ function IdentitiesSection() {
             />
           </FormField>
           <FormField
-            label="Person id (optional)"
+            label="人员 ID（可选）"
             htmlFor="identity-person"
             className="field--full"
           >

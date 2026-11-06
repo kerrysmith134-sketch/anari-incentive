@@ -190,7 +190,7 @@ export function AdverseActionsPage() {
       <PageHeader
         eyebrow="仅人工的 HR 保障流程"
         title="不利决定"
-        description="PIP, training/reassignment, demotion, pay reduction and termination are opened and decided by people, never auto-triggered by a score. Legal review and approval must be performed by different people."
+        description="PIP、培训/调岗、降职、降薪与解除由人工发起与决策，绝不由分数自动触发；法律复核与批准必须由不同人完成。"
         actions={
           <>
             <Button
@@ -231,7 +231,7 @@ export function AdverseActionsPage() {
         ) : list.length === 0 ? (
           <EmptyState
             icon="shield"
-            title="No adverse-action case"
+            title="暂无不利决定案件"
             description="低分绝不会自动打开本流程；必须由经理基于书面绩效依据显式发起。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
@@ -385,7 +385,7 @@ export function AdverseActionsPage() {
               onChange={setPersonId}
             />
           </FormField>
-          <FormField label="Action type" htmlFor="adverse-type">
+          <FormField label="动作类型" htmlFor="adverse-type">
             <Select
               id="adverse-type"
               value={actionType}
@@ -573,7 +573,7 @@ export function AdverseActionsPage() {
                   />
                 </FormField>
                 <FormField
-                  label="Legal review reference"
+                  label="法律复核引用"
                   htmlFor="adverse-review-ref"
                   className="field--full"
                 >

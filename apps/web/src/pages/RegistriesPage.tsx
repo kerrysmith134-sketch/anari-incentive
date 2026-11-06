@@ -170,9 +170,9 @@ export function RegistriesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Reference data"
+        eyebrow="参考数据"
         title="登记簿"
-        description="Versioned metric definitions and role compensation templates. Contracts reference a template by code and are validated against its range."
+        description="版本化指标定义与岗位薪酬模板；合同按编码引用模板并按其区间校验。"
       />
 
       <div className="split-grid">
@@ -197,7 +197,7 @@ export function RegistriesPage() {
           ) : metricList.length === 0 ? (
             <EmptyState
               icon="chart"
-              title="No metric definition"
+              title="暂无指标定义"
               description="定义度量对象、单位与生效窗口。"
             />
           ) : (
@@ -390,7 +390,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Data type" htmlFor="metric-datatype">
+          <FormField label="数据类型" htmlFor="metric-datatype">
             <TextInput
               id="metric-datatype"
               value={metricDataType}
@@ -405,7 +405,7 @@ export function RegistriesPage() {
               onChange={(event) => setMetricUnit(event.target.value)}
             />
           </FormField>
-          <FormField label="Aggregation" htmlFor="metric-aggregation">
+          <FormField label="聚合方式" htmlFor="metric-aggregation">
             <TextInput
               id="metric-aggregation"
               value={metricAggregation}
@@ -470,7 +470,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Role code" htmlFor="template-role">
+          <FormField label="岗位编码" htmlFor="template-role">
             <TextInput
               id="template-role"
               value={templateRoleCode}
@@ -502,7 +502,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Salary min" htmlFor="template-min">
+          <FormField label="薪资下限" htmlFor="template-min">
             <TextInput
               id="template-min"
               value={templateMin}
@@ -510,7 +510,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Salary max" htmlFor="template-max">
+          <FormField label="薪资上限" htmlFor="template-max">
             <TextInput
               id="template-max"
               value={templateMax}
@@ -518,7 +518,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Deduction cap" htmlFor="template-cap">
+          <FormField label="扣款上限" htmlFor="template-cap">
             <TextInput
               id="template-cap"
               value={templateCap}
@@ -526,7 +526,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Variable share cap" htmlFor="template-variable">
+          <FormField label="浮动占比上限" htmlFor="template-variable">
             <TextInput
               id="template-variable"
               value={templateVariableCap}
@@ -534,7 +534,7 @@ export function RegistriesPage() {
               required
             />
           </FormField>
-          <FormField label="Smoothing threshold" htmlFor="template-smoothing">
+          <FormField label="平滑阈值" htmlFor="template-smoothing">
             <TextInput
               id="template-smoothing"
               value={templateSmoothing}

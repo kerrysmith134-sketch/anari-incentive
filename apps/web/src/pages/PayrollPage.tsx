@@ -106,9 +106,9 @@ export function PayrollPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Reward settlement"
+        eyebrow="激励结算"
         title="薪酬"
-        description="Declared contracts, minimum-wage gates, tax withholding and bank-ready settlement — with a statutory IIT calculator for China."
+        description="已申报合同、最低工资门禁、个税代扣与银行代发结算——内置中国法定个税计算器。"
         actions={
           <Button
             variant="secondary"
@@ -132,7 +132,7 @@ export function PayrollPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Payroll views"
+        label="薪酬视图"
       />
 
       <div className="tab-panel">
@@ -357,7 +357,7 @@ function RunsTab({
       <div className="payroll-detail-grid">
         <Panel
           title="Runs"
-          subtitle="Draft → calculated → approved → paid. Blocked runs require remediation."
+          subtitle="草稿 → 已计算 → 已批准 → 已支付；被阻断的批次需先整改。"
           action={
             <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
               新建计算
@@ -455,7 +455,7 @@ function RunsTab({
             <Panel title="批次明细">
               <EmptyState
                 icon="approvals"
-                title="Select a run"
+                title="选择批次…"
                 description="打开薪酬批次查看明细、执行流转并导出结算文件。"
               />
             </Panel>
@@ -658,7 +658,7 @@ function RunsTab({
                 {(selected.lines?.length ?? 0) === 0 ? (
                   <EmptyState
                     icon="layers"
-                    title="No lines calculated"
+                    title="尚未计算明细"
                     description="运行计算，把生效合同与锁定账本纳入本期。"
                     action={
                       <Button
@@ -811,8 +811,8 @@ function RunsTab({
 
       <Modal
         open={createOpen}
-        title="New payroll run"
-        description="Draft a settlement period. Calculation happens as a separate gated step."
+        title="新建薪酬批次"
+        description="草稿即一个结算周期；计算是独立的受门禁步骤。"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
@@ -837,7 +837,7 @@ function RunsTab({
             </div>
           ) : null}
           <FormField
-            label="Evaluation cycle"
+            label="考核周期"
             htmlFor="run-cycle"
             hint={
               cycles.length === 0
@@ -876,7 +876,7 @@ function RunsTab({
               />
             )}
           </FormField>
-          <FormField label="Period start" htmlFor="run-start">
+          <FormField label="周期开始" htmlFor="run-start">
             <TextInput
               id="run-start"
               type="date"
@@ -885,7 +885,7 @@ function RunsTab({
               required
             />
           </FormField>
-          <FormField label="Period end" htmlFor="run-end">
+          <FormField label="周期结束" htmlFor="run-end">
             <TextInput
               id="run-end"
               type="date"
@@ -906,7 +906,7 @@ function RunsTab({
           <FormField
             label="编制人"
             htmlFor="run-preparer"
-            hint="The preparer cannot approve this run."
+            hint="编制人不能批准本批次。"
           >
             <PersonSelect
               id="run-preparer"
@@ -983,7 +983,7 @@ function RunsTab({
             ) : null}
             {pendingAction.kind === "reverse" ? (
               <>
-                <FormField label="Reversed by" htmlFor="run-reverser">
+                <FormField label="冲销人" htmlFor="run-reverser">
                   <PersonSelect
                     id="run-reverser"
                     value={reversedBy}
@@ -993,13 +993,13 @@ function RunsTab({
                 <FormField
                   label="原因（必填）"
                   htmlFor="run-reason"
-                  hint="Retained permanently against the run."
+                  hint="随批次永久保留。"
                 >
                   <Textarea
                     id="run-reason"
                     value={actionReason}
                     onChange={(event) => setActionReason(event.target.value)}
-                    placeholder="Why is this settlement being reversed?"
+                    placeholder="冲销本批次的原因？"
                   />
                 </FormField>
               </>
@@ -1275,7 +1275,7 @@ function ContractsTab({
 
   return (
     <Panel
-      title="Employment contracts"
+      title="劳动合同"
       subtitle="申报的固定薪、最低工资与扣缴率；法定计算见「个税工作台」。"
       action={
         <div className="row-actions">
@@ -1322,7 +1322,7 @@ function ContractsTab({
       ) : contracts.length === 0 ? (
         <EmptyState
           icon="people"
-          title="No declared contract"
+          title="暂无已申报合同"
           description="薪酬只读取生效合同；请先创建合同，人员才会进入下次计算。"
           action={
             <Button variant="primary" size="sm" icon="plus" onClick={openForm}>
@@ -1456,8 +1456,8 @@ function ContractsTab({
 
       <Modal
         open={open}
-        title="New employment contract"
-        description="Declare the legal minimum and withholding rates used by payroll."
+        title="新建劳动合同"
+        description="申报薪酬计算所用的法定最低工资与扣缴率。"
         onClose={() => setOpen(false)}
         wide
         footer={
@@ -1489,7 +1489,7 @@ function ContractsTab({
               onChange={setPersonId}
             />
           </FormField>
-          <FormField label="Contract code" htmlFor="contract-code">
+          <FormField label="合同编号" htmlFor="contract-code">
             <TextInput
               id="contract-code"
               value={contractCode}
@@ -1511,7 +1511,7 @@ function ContractsTab({
               ))}
             </Select>
           </FormField>
-          <FormField label="Work location" htmlFor="contract-location">
+          <FormField label="工作地" htmlFor="contract-location">
             <TextInput
               id="contract-location"
               value={workLocation}
@@ -1531,7 +1531,7 @@ function ContractsTab({
               placeholder="Anari Shanghai Co., Ltd."
             />
           </FormField>
-          <FormField label="Start date" htmlFor="contract-start">
+          <FormField label="开始日期" htmlFor="contract-start">
             <TextInput
               id="contract-start"
               type="date"
@@ -1540,7 +1540,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="End date (optional)" htmlFor="contract-end">
+          <FormField label="结束日期（可选）" htmlFor="contract-end">
             <TextInput
               id="contract-end"
               type="date"
@@ -1572,7 +1572,7 @@ function ContractsTab({
           <FormField
             label="最低月薪"
             htmlFor="contract-minimum"
-            hint="The calculation blocks any line whose net falls below this."
+            hint="实发低于该值的行会被计算阻断。"
           >
             <TextInput
               id="contract-minimum"
@@ -1586,9 +1586,9 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Declared tax rate (%)"
+            label="申报税率（%）"
             htmlFor="contract-tax"
-            hint="Applied to gross in this declared-rate payroll path."
+            hint="在申报税率薪酬路径中按税前计。"
           >
             <TextInput
               id="contract-tax"
@@ -1612,9 +1612,9 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Deduction cap (% of gross)"
+            label="扣款上限（税前 %）"
             htmlFor="contract-deduction-cap"
-            hint="Ledger deductions above this cap block the payroll line. Default 20%."
+            hint="账本扣款超过该上限会阻断薪酬行。默认 20%。"
           >
             <TextInput
               id="contract-deduction-cap"
@@ -1627,7 +1627,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Variable-share cap (% of gross)"
+            label="浮动占比上限（税前 %）"
             htmlFor="contract-variable-cap"
             hint="激励超过税前工资该比例将阻断薪酬行。默认 100%。"
           >
@@ -1644,7 +1644,7 @@ function ContractsTab({
           <FormField
             label="扣款顺序"
             htmlFor="contract-deduction-order"
-            hint="Comma-separated types; payroll groups deductions in this order."
+            hint="逗号分隔类型；薪酬按此顺序归组扣款。"
           >
             <TextInput
               id="contract-deduction-order"
@@ -1655,7 +1655,7 @@ function ContractsTab({
           <FormField
             label="分类型扣款上限"
             htmlFor="contract-deduction-type-caps"
-            hint="Optional: TYPE=rate of gross, e.g. RECOVERY=0.1. Breaches block the line."
+            hint="可选：类型=税前比例，如 RECOVERY=0.1；超出会阻断该行。"
           >
             <TextInput
               id="contract-deduction-type-caps"
@@ -1666,9 +1666,9 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Smoothing threshold (% change)"
+            label="平滑阈值（变化 %）"
             htmlFor="contract-smoothing"
-            hint="Period-over-period incentive change above this threshold blocks the line."
+            hint="激励环比变化超过该阈值会阻断该行。"
           >
             <TextInput
               id="contract-smoothing"
@@ -1681,7 +1681,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Compensation template code (optional)"
+            label="薪酬模板编码（可选）"
             htmlFor="contract-template"
             hint="设置后，生效模板会校验用工类型、币种与薪资区间。"
           >
@@ -1691,18 +1691,18 @@ function ContractsTab({
               onChange={(event) => setCompensationTemplate(event.target.value)}
             />
           </FormField>
-          <FormField label="Bank account reference" htmlFor="contract-bank">
+          <FormField label="银行账户引用" htmlFor="contract-bank">
             <TextInput
               id="contract-bank"
               value={bankAccountRef}
               onChange={(event) => setBankAccountRef(event.target.value)}
-              placeholder="masked account reference"
+              placeholder="脱敏账户引用"
             />
           </FormField>
           <FormField
             label="同意/电子签引用"
             htmlFor="contract-consent"
-            hint="Required evidence that the employee agreed to the pay plan."
+            hint="员工同意薪酬方案的必要凭证。"
           >
             <TextInput
               id="contract-consent"
@@ -1769,7 +1769,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Tax rate (%)" htmlFor="amend-tax">
+          <FormField label="税率（%）" htmlFor="amend-tax">
             <TextInput
               id="amend-tax"
               type="number"
@@ -1791,7 +1791,7 @@ function ContractsTab({
               onChange={(event) => setAmendSocial(event.target.value)}
             />
           </FormField>
-          <FormField label="Deduction cap (%)" htmlFor="amend-cap">
+          <FormField label="扣款上限（%）" htmlFor="amend-cap">
             <TextInput
               id="amend-cap"
               type="number"
@@ -1802,7 +1802,7 @@ function ContractsTab({
               onChange={(event) => setAmendCap(event.target.value)}
             />
           </FormField>
-          <FormField label="Variable-share cap (%)" htmlFor="amend-variable-cap">
+          <FormField label="浮动占比上限（%）" htmlFor="amend-variable-cap">
             <TextInput
               id="amend-variable-cap"
               type="number"
@@ -1837,7 +1837,7 @@ function ContractsTab({
               }
             />
           </FormField>
-          <FormField label="Smoothing threshold (%)" htmlFor="amend-smoothing">
+          <FormField label="平滑阈值（%）" htmlFor="amend-smoothing">
             <TextInput
               id="amend-smoothing"
               type="number"
@@ -1851,7 +1851,7 @@ function ContractsTab({
             />
           </FormField>
           <FormField
-            label="Compensation template code"
+            label="薪酬模板编码"
             htmlFor="amend-template"
           >
             <TextInput
@@ -1875,7 +1875,7 @@ function ContractsTab({
             label="同意/电子签引用"
             htmlFor="amend-consent"
             className="field--full"
-            hint="The server rejects a missing consent reference and future effective dates."
+            hint="服务端会拒绝缺失同意引用与未来生效日期。"
           >
             <TextInput
               id="amend-consent"
@@ -1896,7 +1896,7 @@ function ContractsTab({
 
       <Modal
         open={esignOpen}
-        title="Register e-sign envelope"
+        title="登记电子签信封"
         description="供应商回调会把已签署同意引用写回合同。"
         onClose={() => setEsignOpen(false)}
         footer={
@@ -1940,7 +1940,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Envelope reference" htmlFor="esign-ref">
+          <FormField label="信封引用" htmlFor="esign-ref">
             <TextInput
               id="esign-ref"
               value={esignRef}
@@ -1948,7 +1948,7 @@ function ContractsTab({
               required
             />
           </FormField>
-          <FormField label="Document hash" htmlFor="esign-hash">
+          <FormField label="文档哈希" htmlFor="esign-hash">
             <TextInput
               id="esign-hash"
               value={esignHash}
@@ -2058,12 +2058,12 @@ function TaxStudio() {
 
       <div className="calculator-grid">
         <Panel
-          title="Withholding calculator"
-          subtitle="Cumulative method · basic deduction ¥5,000 per month"
+          title="预扣计算器"
+          subtitle="累计预扣法 · 每月基本减除 ¥5,000"
         >
           <form onSubmit={calculate} className="stack">
             <div className="form-grid">
-              <FormField label="Monthly gross income" htmlFor="tax-gross">
+              <FormField label="当月税前收入" htmlFor="tax-gross">
                 <TextInput
                   id="tax-gross"
                   type="number"
@@ -2077,9 +2077,9 @@ function TaxStudio() {
                 />
               </FormField>
               <FormField
-                label="Social insurance (monthly)"
+                label="社保（每月）"
                 htmlFor="tax-social"
-                hint="Employee contribution deducted before tax."
+                hint="税前扣除的个人缴纳部分。"
               >
                 <TextInput
                   id="tax-social"
@@ -2094,9 +2094,9 @@ function TaxStudio() {
                 />
               </FormField>
               <FormField
-                label="Special additional deductions"
+                label="专项附加扣除"
                 htmlFor="tax-special"
-                hint="Monthly amount, e.g. housing or education."
+                hint="每月金额，如住房或教育。"
               >
                 <TextInput
                   id="tax-special"
@@ -2111,9 +2111,9 @@ function TaxStudio() {
                 />
               </FormField>
               <FormField
-                label="Months elapsed in tax year"
+                label="纳税年度内已过月数"
                 htmlFor="tax-months"
-                hint="Cumulative months including the current one."
+                hint="含当月的累计月数。"
               >
                 <TextInput
                   id="tax-months"
@@ -2129,9 +2129,9 @@ function TaxStudio() {
                 />
               </FormField>
               <FormField
-                label="Tax already withheld YTD"
+                label="年度已预扣税额"
                 htmlFor="tax-withheld"
-                hint="Sum of taxAmount on prior approved runs."
+                hint="之前已批准批次的税额合计。"
                 className="field--full"
               >
                 <TextInput
@@ -2179,8 +2179,8 @@ function TaxStudio() {
         </Panel>
 
         <Panel
-          title="Period result"
-          subtitle="Withholding due for the current month"
+          title="本期结果"
+          subtitle="本月应预扣"
           action={
             result ? (
               <Badge tone="accent" dot={false}>
@@ -2233,7 +2233,7 @@ function TaxStudio() {
           ) : (
             <EmptyState
               icon="chart"
-              title="No estimate yet"
+              title="尚无估算"
               description="录入收入与扣除后计算，即可看到税率档与本期预扣。"
             />
           )}

@@ -406,9 +406,9 @@ export function CyclesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Evaluation operations"
+        eyebrow="评价操作"
         title="考核周期"
-        description="Run evaluation periods, review evidence-bound drafts and issue human decisions. Drafts never become formal decisions without a reviewer."
+        description="运行考核周期、复核证据 bound 草稿并作出人工决策；没有复核人，草稿不会成为正式决策。"
         actions={
           <>
             <Button
@@ -478,7 +478,7 @@ export function CyclesPage() {
         <Panel>
           <EmptyState
             icon="layers"
-            title="No evaluation cycle"
+            title="暂无考核周期"
             description="创建周期以绑定评价草稿、政策版本与结算。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
@@ -490,7 +490,7 @@ export function CyclesPage() {
       ) : (
         <>
           <div className="split-grid">
-            <Panel title="考核周期" subtitle="Select a cycle to inspect its evidence" flush>
+            <Panel title="考核周期" subtitle="选择周期查看其证据" flush>
               <div className="table-wrap">
                 <table className="data-table table-clickable">
                   <thead>
@@ -651,7 +651,7 @@ export function CyclesPage() {
               ) : cycleDrafts.length === 0 ? (
                 <EmptyState
                   icon="policy"
-                  title="No draft for this cycle"
+                  title="该周期暂无草稿"
                   description="草稿由人工或 Agent 生成，必须引用证据快照。"
                 />
               ) : (
@@ -717,7 +717,7 @@ export function CyclesPage() {
               )}
             </Panel>
 
-            <Panel title="已批决策" subtitle="Human decisions only" flush>
+            <Panel title="已批决策" subtitle="仅人工决策" flush>
               {decisions.error ? (
                 <div style={{ padding: 16 }}>
                   <ErrorNotice error={decisions.error} onRetry={decisions.reload} />
@@ -729,7 +729,7 @@ export function CyclesPage() {
               ) : cycleDecisions.length === 0 ? (
                 <EmptyState
                   icon="approvals"
-                  title="No decision for this cycle"
+                  title="该周期暂无决策"
                   description="批准已提交草稿会生成归属复核人的版本化决策。"
                 />
               ) : (
@@ -773,7 +773,7 @@ export function CyclesPage() {
           </div>
 
           <Panel
-            title="Calculation runs"
+            title="计算批次"
             subtitle={selected ? `Formal and shadow runs for ${selected.name}` : undefined}
             flush
             action={
@@ -793,7 +793,7 @@ export function CyclesPage() {
             ) : cycleRuns.length === 0 ? (
               <EmptyState
                 icon="clock"
-                title="No calculation run for this cycle"
+                title="该周期暂无计算批次"
                 description="申报完成认定并记录法律门禁后，即可发起影子或正式计算。"
                 action={
                   <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
@@ -993,11 +993,11 @@ export function CyclesPage() {
               id="cycle-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="FY27 Q1 incentive cycle"
+              placeholder="FY27 Q1 激励周期"
               required
             />
           </FormField>
-          <FormField label="Cycle type" htmlFor="cycle-type">
+          <FormField label="周期类型" htmlFor="cycle-type">
             <Select
               id="cycle-type"
               value={cycleType}
@@ -1023,7 +1023,7 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Starts" htmlFor="cycle-start">
+          <FormField label="开始" htmlFor="cycle-start">
             <TextInput
               id="cycle-start"
               type="date"
@@ -1074,7 +1074,7 @@ export function CyclesPage() {
 
       <Modal
         open={exportScopeOpen}
-        title="Evidence package scope"
+        title="证据包范围"
         description="可将工作包限定到法人实体与法域；留空表示整个周期。"
         onClose={() => setExportScopeOpen(false)}
         footer={
@@ -1105,7 +1105,7 @@ export function CyclesPage() {
             />
           </FormField>
           <FormField
-            label="Jurisdiction (optional)"
+            label="法域（可选）"
             htmlFor="export-jurisdiction"
           >
             <TextInput
@@ -1120,7 +1120,7 @@ export function CyclesPage() {
 
       <Modal
         open={runOpen}
-        title="New calculation run"
+        title="新建计算批次"
         description="正式计算前必须记录法律门禁；参与人的申报须已完成认定。"
         onClose={() => setRunOpen(false)}
         wide
@@ -1173,7 +1173,7 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Order id" htmlFor="run-order-id">
+          <FormField label="订单 ID" htmlFor="run-order-id">
             <TextInput
               id="run-order-id"
               value={orderId}
@@ -1181,7 +1181,7 @@ export function CyclesPage() {
               required
             />
           </FormField>
-          <FormField label="Order gross profit" htmlFor="run-order-profit">
+          <FormField label="订单毛利" htmlFor="run-order-profit">
             <TextInput
               id="run-order-profit"
               value={orderGrossProfit}
@@ -1263,7 +1263,7 @@ export function CyclesPage() {
                     ))}
                   </Select>
                 </FormField>
-                <FormField label="Weight">
+                <FormField label="权重">
                   <TextInput
                     value={participant.attributionWeight}
                     onChange={(event) =>
@@ -1431,7 +1431,7 @@ export function CyclesPage() {
 
       <Modal
         open={Boolean(reviewDraft)}
-        title="Review evaluation draft"
+        title="复核评价草稿"
         description="批准会写入版本化决策；复核人不得是草稿对象本人。"
         onClose={() => setReviewDraft(null)}
         wide
@@ -1520,13 +1520,13 @@ export function CyclesPage() {
                     id="draft-rubric"
                     value={reviewRubric}
                     onChange={(event) => setReviewRubric(event.target.value)}
-                    placeholder="Rubric version UUID"
+                    placeholder="评分标准版本 UUID"
                     required
                   />
                 )}
               </FormField>
               <FormField
-                label="Scores (JSON)"
+                label="得分（JSON）"
                 htmlFor="draft-scores"
                 className="field--full"
                 hint='Optional dimension scores, e.g. {"execution":4.2,"ownership":3.8}. Values 0–5.'

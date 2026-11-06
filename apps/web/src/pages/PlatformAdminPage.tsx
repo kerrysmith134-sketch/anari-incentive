@@ -332,9 +332,9 @@ export function PlatformAdminPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Platform"
+        eyebrow="平台"
         title="平台管理"
-        description="Tenants, users, memberships, org structure and tenant settings. Security-sensitive settings such as field access are also auditable from their dedicated pages."
+        description="租户、用户、成员关系、组织架构与租户设置；字段访问等安全敏感设置也可在各自专属页面审计。"
         actions={
           <Button
             variant="secondary"
@@ -399,7 +399,7 @@ export function PlatformAdminPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Platform views"
+        label="平台视图"
       />
 
       <div className="tab-panel">
@@ -435,7 +435,7 @@ export function PlatformAdminPage() {
                 <LoadingRows rows={3} />
               </div>
             ) : tenantList.length === 0 ? (
-              <EmptyState icon="layers" title="No tenant" />
+              <EmptyState icon="layers" title="暂无租户" />
             ) : (
               <div className="table-wrap">
                 <table className="data-table table-clickable">
@@ -482,7 +482,7 @@ export function PlatformAdminPage() {
 
         {tab === "users" ? (
           <Panel
-            title="Platform users"
+            title="平台用户"
             subtitle="可持有成员关系的认证主体"
             flush
             action={
@@ -511,7 +511,7 @@ export function PlatformAdminPage() {
                 <LoadingRows rows={3} />
               </div>
             ) : (users.data?.length ?? 0) === 0 ? (
-              <EmptyState icon="people" title="No platform user" />
+              <EmptyState icon="people" title="暂无平台用户" />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
@@ -594,7 +594,7 @@ export function PlatformAdminPage() {
                 <LoadingRows rows={3} />
               </div>
             ) : (memberships.data?.length ?? 0) === 0 ? (
-              <EmptyState icon="people" title="No membership" />
+              <EmptyState icon="people" title="暂无成员关系" />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
@@ -680,7 +680,7 @@ export function PlatformAdminPage() {
                 <LoadingRows rows={3} />
               </div>
             ) : (orgNodes.data?.length ?? 0) === 0 ? (
-              <EmptyState icon="layers" title="No org node" />
+              <EmptyState icon="layers" title="暂无组织节点" />
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
@@ -721,7 +721,7 @@ export function PlatformAdminPage() {
 
         {tab === "settings" ? (
           <Panel
-            title="Tenant settings"
+            title="租户设置"
             subtitle={
               selectedTenant
                 ? `Settings for ${selectedTenant.name}`
@@ -773,7 +773,7 @@ export function PlatformAdminPage() {
               ) : (plans.data ?? []).length === 0 ? (
                 <EmptyState
                   icon="layers"
-                  title="No plans yet"
+                  title="暂无套餐"
                   description="创建第一个订阅套餐后即可启用自助注册与席位限制。"
                 />
               ) : (
@@ -858,7 +858,7 @@ export function PlatformAdminPage() {
               ) : (
                 <EmptyState
                   icon="layers"
-                  title="No subscription"
+                  title="暂无订阅"
                   description="在下方分配套餐以开始计费。"
                 />
               )}
@@ -921,7 +921,7 @@ export function PlatformAdminPage() {
               {(invoices.data ?? []).length === 0 ? (
                 <EmptyState
                   icon="layers"
-                  title="No invoices"
+                  title="暂无发票"
                   description="发票按计费周期从订阅生成。"
                 />
               ) : (
@@ -1001,7 +1001,7 @@ export function PlatformAdminPage() {
 
       <Modal
         open={planOpen}
-        title="New subscription plan"
+        title="新建订阅套餐"
         onClose={() => setPlanOpen(false)}
         footer={
           <>
@@ -1036,7 +1036,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Monthly price" htmlFor="plan-price">
+          <FormField label="月价" htmlFor="plan-price">
             <TextInput
               id="plan-price"
               value={planPrice}
@@ -1052,7 +1052,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Trial days" htmlFor="plan-trial">
+          <FormField label="试用天数" htmlFor="plan-trial">
             <TextInput
               id="plan-trial"
               value={planTrial}
@@ -1162,7 +1162,7 @@ export function PlatformAdminPage() {
 
       <Modal
         open={userOpen}
-        title="New platform user"
+        title="新建平台用户"
         onClose={() => setUserOpen(false)}
         footer={
           <>
@@ -1197,7 +1197,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Email (optional)" htmlFor="user-email">
+          <FormField label="邮箱（可选）" htmlFor="user-email">
             <TextInput
               id="user-email"
               type="email"
@@ -1244,7 +1244,7 @@ export function PlatformAdminPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Roles (comma separated)" htmlFor="membership-roles">
+          <FormField label="角色（逗号分隔）" htmlFor="membership-roles">
             <TextInput
               id="membership-roles"
               value={membershipRoles}
@@ -1257,7 +1257,7 @@ export function PlatformAdminPage() {
 
       <Modal
         open={orgOpen}
-        title="New org node"
+        title="新建组织节点"
         onClose={() => setOrgOpen(false)}
         footer={
           <>
@@ -1284,7 +1284,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Node type" htmlFor="org-type">
+          <FormField label="节点类型" htmlFor="org-type">
             <TextInput
               id="org-type"
               value={orgType}
@@ -1292,7 +1292,7 @@ export function PlatformAdminPage() {
               required
             />
           </FormField>
-          <FormField label="Parent id (optional)" htmlFor="org-parent">
+          <FormField label="父节点 ID（可选）" htmlFor="org-parent">
             <TextInput
               id="org-parent"
               value={orgParentId}

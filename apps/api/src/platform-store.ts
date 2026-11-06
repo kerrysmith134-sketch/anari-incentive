@@ -212,6 +212,7 @@ export interface PlatformStore {
   resolveIdentity(input: {
     tenantId: string;
     userId: string;
+    personId?: string;
   }): Promise<PlatformIdentity>;
   createOrgNode(input: {
     tenantId: string;
@@ -2170,21 +2171,34 @@ export class MemoryPlatformStore implements PlatformStore {
   async resolveIdentity(input: {
     tenantId: string;
     userId: string;
+    personId?: string;
   }): Promise<PlatformIdentity> {
-    const person = [...this.persons.values()].find(
-      (candidate) =>
-        candidate.tenantId === input.tenantId &&
-        candidate.userId === input.userId,
-    );
+    const person =
+      [...this.persons.values()].find(
+        (candidate) =>
+          candidate.tenantId === input.tenantId &&
+          (input.personId
+            ? candidate.id === input.personId
+            : candidate.userId === input.userId),
+      ) ??
+      [...this.persons.values()].find(
+        (candidate) =>
+          candidate.tenantId === input.tenantId &&
+          candidate.userId === input.userId,
+      );
     const membership = [...this.memberships.values()].find(
       (candidate) =>
         candidate.tenantId === input.tenantId &&
         candidate.userId === input.userId,
     );
+    const user = this.users.get(input.userId);
+    const tenant = this.tenants.get(input.tenantId);
     return {
       userId: input.userId,
       personId: person?.id,
       roles: membership?.roleCodes ?? [],
+      displayName: person?.displayName ?? user?.displayName ?? user?.email,
+      tenantName: tenant?.name,
     };
   }
 
@@ -8481,25 +8495,40 @@ export class PgPlatformStore implements PlatformStore {
   async resolveIdentity(input: {
     tenantId: string;
     userId: string;
+    personId?: string;
   }): Promise<PlatformIdentity> {
-    const [{ rows: personRows }, { rows: membershipRows }] = await Promise.all([
-      this.pool.query(
-        `SELECT id FROM people
-          WHERE tenant_id=$1 AND user_id=$2
-          ORDER BY created_at
-          LIMIT 1`,
-        [input.tenantId, input.userId],
-      ),
-      this.pool.query(
-        `SELECT role_codes FROM memberships
-          WHERE tenant_id=$1 AND user_id=$2`,
-        [input.tenantId, input.userId],
-      ),
-    ]);
+    const [{ rows: personRows }, { rows: membershipRows }, { rows: nameRows }] =
+      await Promise.all([
+        this.pool.query(
+          `SELECT id FROM people
+            WHERE tenant_id=$1
+              AND ($3::uuid IS NOT NULL AND id = $3
+                   OR user_id = $2)
+            ORDER BY (id = $3) DESC NULLS LAST, created_at
+            LIMIT 1`,
+          [input.tenantId, input.userId, input.personId ?? null],
+        ),
+        this.pool.query(
+          `SELECT role_codes FROM memberships
+            WHERE tenant_id=$1 AND user_id=$2`,
+          [input.tenantId, input.userId],
+        ),
+        this.pool.query(
+          `SELECT COALESCE(p.display_name, u.display_name, u.email) AS display_name,
+                  t.name AS tenant_name
+             FROM users u
+             JOIN tenants t ON t.id = $2
+            LEFT JOIN people p ON p.tenant_id = $2 AND p.user_id = u.id
+            WHERE u.id = $1`,
+          [input.userId, input.tenantId],
+        ),
+      ]);
     return {
       userId: input.userId,
       personId: personRows[0]?.id ?? undefined,
       roles: membershipRows[0]?.role_codes ?? [],
+      displayName: nameRows[0]?.display_name ?? undefined,
+      tenantName: nameRows[0]?.tenant_name ?? undefined,
     };
   }
 

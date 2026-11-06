@@ -7920,6 +7920,32 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/evaluation-cycles/{id}/pre-review:
+    post:
+      tags: [Evaluation]
+      summary: AI 预审——为周期生成证据 bound 的 AGENT 评价草稿
+      description: >
+        AI-04 草稿生成 workflow（PRD §7.4 三个 bounded workflow 之一）。按周期窗口
+        汇总申报人的证据覆盖，生成 builtin/evidence-coverage-v1 的 AGENT 草稿
+        （无分数），并写入 AI 建议日志；幂等（同人同周期仅一次）。AI 只产草稿，
+        决策必须由人工作出。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreReview"
+      responses:
+        "200":
+          description: 生成的草稿与跳过项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/auth/feishu/authorize:
     get:
       tags: [Platform]
@@ -11423,6 +11449,14 @@ components:
           type: string
         context:
           type: string
+    PreReview:
+      type: object
+      required: []
+      properties:
+        personIds:
+          type: array
+          items:
+            type: string
     PasswordLogin:
       type: object
       required: [email, password]

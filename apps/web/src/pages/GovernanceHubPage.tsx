@@ -81,10 +81,10 @@ export function GovernanceHubPage() {
     <>
       <PageHeader
         eyebrow="治理"
-        title="Governance console"
-        description="Entry point for the governance and money-path modules. Every action is available in its dedicated, role-aware page; this hub replaces the legacy server-rendered governance page."
+        title="治理中心"
+        description="治理与资金路径模块的入口；所有操作都在各自按角色隔离的专属页面，本页替代旧服务端渲染治理页。"
       />
-      <Panel title="Modules" subtitle="Role-aware navigation is enforced by the API">
+      <Panel title="模块" subtitle="按角色的导航由 API 强制">
         <div className="split-grid">
           {SECTIONS.map((section) => (
             <Link

@@ -2310,6 +2310,10 @@ export class PgStore implements IncentiveStore {
       decision: "APPROVE" | "REJECT";
       scores: Record<string, number>;
       rationale: string;
+      independentScores: Record<string, number>;
+      independentRationale: string;
+      evidenceOpened?: number;
+      reviewStartedAt?: string;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }> {
     return this.tx(async (client) => {
@@ -2362,8 +2366,9 @@ export class PgStore implements IncentiveStore {
         `INSERT INTO evaluation_decisions
           (id, tenant_id, cycle_id, person_id, decision_version, status,
            rubric_version_id, evidence_snapshot_hash, scores, rationale,
-           reviewer_person_id, approved_at, supersedes_id)
-         VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10,now(),$11)
+           reviewer_person_id, approved_at, supersedes_id,
+           independent_scores, independent_rationale, evidence_opened)
+         VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10,now(),$11,$12,$13,$14)
          RETURNING *`,
         [
           decisionId,
@@ -2377,6 +2382,9 @@ export class PgStore implements IncentiveStore {
           input.rationale,
           input.reviewerPersonId,
           latest?.id ?? null,
+          JSON.stringify(input.independentScores ?? {}),
+          input.independentRationale ?? "",
+          input.evidenceOpened ?? null,
         ],
       );
       await client.query(
@@ -2518,6 +2526,15 @@ export class PgStore implements IncentiveStore {
       scores: asJson<Record<string, number>>(row.scores, {}),
       rationale: row.rationale,
       reviewerPersonId: row.reviewer_person_id,
+      independentScores: asJson<Record<string, number>>(
+        row.independent_scores,
+        {},
+      ),
+      independentRationale: row.independent_rationale ?? "",
+      evidenceOpened:
+        row.evidence_opened === null || row.evidence_opened === undefined
+          ? undefined
+          : asNumber(row.evidence_opened),
       approvedAt: iso(row.approved_at),
       supersedesId: row.supersedes_id ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),

@@ -100,6 +100,13 @@ scheduler.addSchedule({
   intervalMs: 60 * 60 * 1000,
   input: { slaDays: 3 },
 });
+// AI-04 草稿生成 workflow（PRD §7.4 三个 bounded workflow 之一）：
+// 周期到期前自动预审，生成证据 bound 的 AGENT 草稿供人工复核。
+scheduler.addSchedule({
+  id: "evaluation-draft",
+  agentType: "EVALUATION_DRAFT",
+  intervalMs: 6 * 60 * 60 * 1000,
+});
 
 scheduler.addEventRule({
   id: "claim-submitted",

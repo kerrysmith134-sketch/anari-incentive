@@ -1778,6 +1778,9 @@ export interface PlatformIdentity {
   userId: UUID;
   personId?: UUID;
   roles: string[];
+  /** 展示名（用户或人员姓名），用于界面而非鉴权。 */
+  displayName?: string;
+  tenantName?: string;
 }
 
 export interface PlatformMembership {
@@ -2127,6 +2130,11 @@ export interface EvaluationDecision {
   scores: Record<string, number>;
   rationale: string;
   reviewerPersonId: UUID;
+  /** ATT-06：看 AI 草稿前的独立判断记录。 */
+  independentScores: Record<string, number>;
+  independentRationale: string;
+  evidenceOpened?: number;
+  reviewStartedAt?: string;
   approvedAt?: string;
   supersedesId?: UUID;
   createdAt: string;

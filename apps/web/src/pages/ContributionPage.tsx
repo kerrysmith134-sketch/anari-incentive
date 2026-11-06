@@ -695,9 +695,9 @@ export function ContributionPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Contribution evidence"
+        eyebrow="贡献证据"
         title="贡献"
-        description="Work packages freeze a commitment snapshot; claims cite evidence; a non-claimant adjudicator records the attribution decision. Every step is versioned."
+        description="工作包冻结承诺快照；申报引用证据；由非申报人的裁决人记录认定决策。每一步都版本化。"
         actions={
           <Button
             variant="secondary"
@@ -759,14 +759,14 @@ export function ContributionPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Contribution views"
+        label="贡献视图"
       />
 
       <div className="tab-panel">
         {tab === "packages" ? (
           <Panel
             title="工作包"
-            subtitle="Draft → committed → in progress → submitted → accepted"
+            subtitle="草稿 → 已承诺 → 进行中 → 已提交 → 已验收"
             action={
               <Button size="sm" variant="primary" icon="plus" onClick={resetCreate}>
                 新建工作包
@@ -891,8 +891,8 @@ export function ContributionPage() {
           </Panel>
         ) : tab === "claims" ? (
           <Panel
-            title="Contribution claims"
-            subtitle="A claimant cannot adjudicate their own claim"
+            title="贡献申报"
+            subtitle="申报人不能认定自己的申报"
             action={
               <Button
                 size="sm"
@@ -917,7 +917,7 @@ export function ContributionPage() {
             ) : claimList.length === 0 ? (
               <EmptyState
                 icon="approvals"
-                title="No contribution claim"
+                title="暂无贡献申报"
                 description={
                   claimablePackages.length === 0
                     ? "申报只能针对已验收的工作包；请先提交并验收工作包。"
@@ -1019,7 +1019,7 @@ export function ContributionPage() {
           </Panel>
         ) : tab === "attestations" ? (
           <Panel
-            title="Peer and manager attestations"
+            title="同侪与经理证明"
             subtitle="支持参与人贡献的独立证明"
             action={
               <Button
@@ -1048,7 +1048,7 @@ export function ContributionPage() {
             ) : attestationList.length === 0 ? (
               <EmptyState
                 icon="people"
-                title="No attestation"
+                title="暂无证明"
                 description="同侪与直属经理可添加支持工作包贡献的证明陈述。"
                 action={
                   <Button
@@ -1124,7 +1124,7 @@ export function ContributionPage() {
         ) : (
           <Panel
             title="证据"
-            subtitle="Evidence nodes with provenance, payload and quality status"
+            subtitle="带出处、负载与质量状态的证据节点"
             flush
             action={
               <Button
@@ -1148,7 +1148,7 @@ export function ContributionPage() {
             ) : (evidence.data?.length ?? 0) === 0 ? (
               <EmptyState
                 icon="layers"
-                title="No evidence node"
+                title="暂无证据节点"
                 description="证据必须有出处：来源系统、主体与负载哈希。"
               />
             ) : (
@@ -1216,7 +1216,7 @@ export function ContributionPage() {
 
       <Modal
         open={attestOpen}
-        title="New contribution attestation"
+        title="新建贡献证明"
         description="经理证明要求证明人是对象当前直属经理。"
         onClose={() => setAttestOpen(false)}
         footer={
@@ -1314,7 +1314,7 @@ export function ContributionPage() {
 
       <Modal
         open={createOpen}
-        title="New work package"
+        title="新建工作包"
         description="承诺将当前内容冻结为后续申报的基线。"
         onClose={() => setCreateOpen(false)}
         wide
@@ -1369,9 +1369,9 @@ export function ContributionPage() {
               />
             </FormField>
             <FormField
-              label="Task / package type"
+              label="任务/工作包类型"
               htmlFor="package-type"
-              hint="Used for evidence-coverage stratification"
+              hint="用于证据覆盖率分层"
             >
               <TextInput
                 id="package-type"
@@ -1382,7 +1382,7 @@ export function ContributionPage() {
               />
             </FormField>
             <FormField
-              label="Acceptance criteria (one per line)"
+              label="验收标准（每行一条）"
               htmlFor="package-criteria"
               className="field--full"
             >
@@ -1409,7 +1409,7 @@ export function ContributionPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Responsibility code"
+                    label="职责编码"
                     htmlFor={`member-code-${index}`}
                   >
                     <TextInput
@@ -1425,7 +1425,7 @@ export function ContributionPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Expected output"
+                    label="预期产出"
                     htmlFor={`member-output-${index}`}
                     className="field--full"
                   >
@@ -1771,8 +1771,8 @@ export function ContributionPage() {
 
       <Modal
         open={claimOpen}
-        title="New contribution claim"
-        description="State the contribution, dimensions and evidence references."
+        title="新建贡献申报"
+        description="说明贡献、维度与证据引用。"
         onClose={() => setClaimOpen(false)}
         wide
         footer={
@@ -1828,7 +1828,7 @@ export function ContributionPage() {
               required
             />
           </FormField>
-          <FormField label="Claim mode" htmlFor="claim-mode">
+          <FormField label="申报模式" htmlFor="claim-mode">
             <Select
               id="claim-mode"
               value={claimMode}
@@ -1848,7 +1848,7 @@ export function ContributionPage() {
           </FormField>
           {claimMode !== "STANDARD" ? (
             <FormField
-              label="Exception / backfill reason"
+              label="例外/补录原因"
               htmlFor="claim-exception-reason"
             >
               <TextInput
@@ -1873,7 +1873,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Contribution summary"
+            label="贡献摘要"
             htmlFor="claim-summary"
             className="field--full"
           >
@@ -1900,7 +1900,7 @@ export function ContributionPage() {
             label="证据引用（逗号分隔）"
             htmlFor="claim-evidence"
             className="field--full"
-            hint="Evidence node UUIDs; optional."
+            hint="证据节点 UUID；可选。"
           >
             <TextInput
               id="claim-evidence"
@@ -1913,7 +1913,7 @@ export function ContributionPage() {
 
       <Modal
         open={Boolean(adjudicateClaim)}
-        title="Adjudicate contribution claim"
+        title="认定贡献申报"
         description="裁决人不能是申报人；决策会替代之前的版本。"
         onClose={() => setAdjudicateClaim(null)}
         wide
@@ -1973,7 +1973,7 @@ export function ContributionPage() {
                   <option value="REJECTED">驳回</option>
                 </Select>
               </FormField>
-              <FormField label="Adjudicator" htmlFor="attribution-adjudicator">
+              <FormField label="裁决人" htmlFor="attribution-adjudicator">
                 <PersonSelect
                   id="attribution-adjudicator"
                   value={adjudicator}
@@ -1981,7 +1981,7 @@ export function ContributionPage() {
                 />
               </FormField>
               <FormField
-                label="Contribution dimensions (JSON)"
+                label="贡献维度（JSON）"
                 htmlFor="attribution-dimensions"
                 className="field--full"
                 hint='Numbers between 0 and 1, e.g. {"execution":0.7,"ownership":0.3}.'
@@ -1994,14 +1994,14 @@ export function ContributionPage() {
                   spellCheck={false}
                 />
               </FormField>
-              <FormField label="Accepted facts (one per line)" htmlFor="accepted-facts">
+              <FormField label="采纳事实（每行一条）" htmlFor="accepted-facts">
                 <Textarea
                   id="accepted-facts"
                   value={acceptedFacts}
                   onChange={(event) => setAcceptedFacts(event.target.value)}
                 />
               </FormField>
-              <FormField label="Rejected facts (one per line)" htmlFor="rejected-facts">
+              <FormField label="驳回事实（每行一条）" htmlFor="rejected-facts">
                 <Textarea
                   id="rejected-facts"
                   value={rejectedFacts}
@@ -2021,7 +2021,7 @@ export function ContributionPage() {
                 />
               </FormField>
               <FormField
-                label="Confidence band (optional)"
+                label="置信带（可选）"
                 htmlFor="confidence-band"
                 className="field--full"
               >
@@ -2083,7 +2083,7 @@ export function ContributionPage() {
               onChange={setDeliverableOwner}
             />
           </FormField>
-          <FormField label="Due (optional)" htmlFor="deliverable-due">
+          <FormField label="截止（可选）" htmlFor="deliverable-due">
             <TextInput
               id="deliverable-due"
               type="date"
@@ -2096,7 +2096,7 @@ export function ContributionPage() {
 
       <Modal
         open={Boolean(acceptTarget)}
-        title="Review deliverable"
+        title="复核交付物"
         description={acceptTarget?.title}
         onClose={() => setAcceptTarget(null)}
         footer={
@@ -2142,7 +2142,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Comments (optional)"
+            label="备注（可选）"
             htmlFor="deliverable-comments"
             className="field--full"
           >
@@ -2158,7 +2158,7 @@ export function ContributionPage() {
       <Modal
         open={evidenceOpen}
         title="添加证据"
-        description="Activity monitoring fields are rejected server-side."
+        description="活动量监控字段会被服务端拒绝。"
         onClose={() => setEvidenceOpen(false)}
         footer={
           <>
@@ -2177,7 +2177,7 @@ export function ContributionPage() {
               <InfoNotice tone="warning">{evidenceError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Evidence type" htmlFor="evidence-type">
+          <FormField label="证据类型" htmlFor="evidence-type">
             <TextInput
               id="evidence-type"
               value={evidenceType}
@@ -2185,7 +2185,7 @@ export function ContributionPage() {
               required
             />
           </FormField>
-          <FormField label="Subject type" htmlFor="evidence-subject-type">
+          <FormField label="主体类型" htmlFor="evidence-subject-type">
             <Select
               id="evidence-subject-type"
               value={evidenceSubjectType}
@@ -2198,7 +2198,7 @@ export function ContributionPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Subject id" htmlFor="evidence-subject-id">
+          <FormField label="主体 ID" htmlFor="evidence-subject-id">
             {evidenceSubjectType === "WORK_PACKAGE" ? (
               <Select
                 id="evidence-subject-id"
@@ -2232,7 +2232,7 @@ export function ContributionPage() {
               required
             />
           </FormField>
-          <FormField label="Source URI (optional)" htmlFor="evidence-uri">
+          <FormField label="来源 URI（可选）" htmlFor="evidence-uri">
             <TextInput
               id="evidence-uri"
               value={evidenceSourceUri}
@@ -2240,7 +2240,7 @@ export function ContributionPage() {
             />
           </FormField>
           <FormField
-            label="Normalized payload (JSON)"
+            label="标准化负载（JSON）"
             htmlFor="evidence-payload"
             className="field--full"
           >
@@ -2255,7 +2255,7 @@ export function ContributionPage() {
 
       <Modal
         open={Boolean(viewEvidence)}
-        title="Evidence payload"
+        title="证据负载"
         description={
           viewEvidence
             ? `${titleCase(viewEvidence.evidenceType)} · ${viewEvidence.sourceSystem}`

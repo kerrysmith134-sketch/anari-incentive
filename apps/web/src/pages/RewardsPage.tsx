@@ -69,7 +69,7 @@ export function RewardsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Long-term and spot rewards"
+        eyebrow="长期与即时激励"
         title="激励"
         description="股权悬崖归属与行权、悬赏市场验收与支付留痕；两条线都强制职责分离。"
         actions={
@@ -133,7 +133,7 @@ export function RewardsPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Reward programmes"
+        label="激励计划"
       />
 
       <div className="tab-panel">
@@ -264,7 +264,7 @@ function StrategicPoolsTab() {
   return (
     <>
       <Panel
-        title="Strategic / A-class pools"
+        title="战略 / A 类池"
         action={<Button onClick={() => setOpen(true)}>新建案例</Button>}
       >
         {cases.loading && cases.data === undefined ? (
@@ -272,8 +272,8 @@ function StrategicPoolsTab() {
         ) : list.length === 0 ? (
           <EmptyState
             icon="layers"
-            title="No strategic pool cases"
-            description="A-class pools require standard-cost accounting, a transfer-pricing reference, a total cap and finance sign-off before activation (INC-09)."
+            title="暂无战略池案例"
+            description="A 类池激活前需标准成本核算、转移定价引用、总额上限与财务签核（INC-09）。"
           />
         ) : (
           <table className="table">
@@ -355,7 +355,7 @@ function StrategicPoolsTab() {
 
       <Modal
         open={open}
-        title="New strategic pool case"
+        title="新建战略池案例"
         onClose={() => setOpen(false)}
         footer={
           <>
@@ -382,7 +382,7 @@ function StrategicPoolsTab() {
               required
             />
           </FormField>
-          <FormField label="Pool amount" htmlFor="sp-amount">
+          <FormField label="资金池金额" htmlFor="sp-amount">
             <TextInput
               id="sp-amount"
               value={poolAmount}
@@ -390,7 +390,7 @@ function StrategicPoolsTab() {
               required
             />
           </FormField>
-          <FormField label="Cap amount" htmlFor="sp-cap">
+          <FormField label="上限金额" htmlFor="sp-cap">
             <TextInput
               id="sp-cap"
               value={capAmount}
@@ -612,7 +612,7 @@ function EquityTab({
         ) : grants.length === 0 ? (
           <EmptyState
             icon="rewards"
-            title="No equity grant"
+            title="暂无股权授予"
             description="创建带归属计划的授予，开始跟踪悬崖与可行使数量。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
@@ -682,7 +682,7 @@ function EquityTab({
       </Panel>
 
       <Panel
-        title="Exercises"
+        title="行权"
         subtitle="行权申请不能由申请人本人批准"
         className="section-gap"
         flush
@@ -698,7 +698,7 @@ function EquityTab({
         ) : exercises.length === 0 ? (
           <EmptyState
             icon="layers"
-            title="No exercise requested"
+            title="暂无行权申请"
             description="悬崖期满后，打开授予发起行权数量申请。"
           />
         ) : (
@@ -780,7 +780,7 @@ function EquityTab({
 
       <Modal
         open={createOpen}
-        title="New equity grant"
+        title="新建股权授予"
         description="归属计时从归属起始日开始，而非授予日。"
         onClose={() => setCreateOpen(false)}
         wide
@@ -809,7 +809,7 @@ function EquityTab({
           <FormField label="人员" htmlFor="grant-person">
             <PersonSelect id="grant-person" value={personId} onChange={setPersonId} />
           </FormField>
-          <FormField label="Grant code" htmlFor="grant-code">
+          <FormField label="授予编号" htmlFor="grant-code">
             <TextInput
               id="grant-code"
               value={grantCode}
@@ -818,7 +818,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Grant type" htmlFor="grant-type">
+          <FormField label="授予类型" htmlFor="grant-type">
             <Select
               id="grant-type"
               value={grantType}
@@ -880,7 +880,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Cliff (months)" htmlFor="grant-cliff">
+          <FormField label="悬崖（月）" htmlFor="grant-cliff">
             <TextInput
               id="grant-cliff"
               type="number"
@@ -891,7 +891,7 @@ function EquityTab({
               required
             />
           </FormField>
-          <FormField label="Total vesting (months)" htmlFor="grant-months">
+          <FormField label="总归属期（月）" htmlFor="grant-months">
             <TextInput
               id="grant-months"
               type="number"
@@ -1255,7 +1255,7 @@ function BountiesTab({
           }))}
           active={filter}
           onChange={setFilter}
-          label="Bounty status"
+          label="悬赏状态"
         />
         <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
           新建悬赏
@@ -1265,7 +1265,7 @@ function BountiesTab({
       {error ? (
         <ErrorNotice error={error} onRetry={reload} />
       ) : loading ? (
-        <Panel title="Loading bounties">
+        <Panel title="悬赏加载中">
           <LoadingRows rows={3} />
         </Panel>
       ) : visible.length === 0 ? (
@@ -1386,7 +1386,7 @@ function BountiesTab({
 
       <Modal
         open={createOpen}
-        title="Publish a bounty"
+        title="发布悬赏"
         description="明确成果、金额与截止日；发布人可以是任意已登记人员。"
         onClose={() => setCreateOpen(false)}
         wide
@@ -1417,7 +1417,7 @@ function BountiesTab({
               id="bounty-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Ship the quarterly reconciliation walkthrough"
+              placeholder="完成季度对账演练"
               required
             />
           </FormField>
@@ -1430,11 +1430,11 @@ function BountiesTab({
               id="bounty-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="What is the acceptance condition?"
+              placeholder="验收条件是什么？"
               required
             />
           </FormField>
-          <FormField label="Reward amount" htmlFor="bounty-reward">
+          <FormField label="奖金金额" htmlFor="bounty-reward">
             <TextInput
               id="bounty-reward"
               type="number"
@@ -1530,9 +1530,9 @@ function BountiesTab({
             ) : null}
             {action.kind === "submit" ? (
               <FormField
-                label="Submission reference"
+                label="成果引用"
                 htmlFor="bounty-submission"
-                hint="Link to the deliverable, commit or document."
+                hint="链接到交付物、提交记录或文档。"
               >
                 <TextInput
                   id="bounty-submission"
@@ -1553,7 +1553,7 @@ function BountiesTab({
                   />
                 </FormField>
                 <FormField
-                  label="Payment reference (optional)"
+                  label="支付引用（可选）"
                   htmlFor="bounty-payment"
                 >
                   <TextInput

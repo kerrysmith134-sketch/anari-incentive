@@ -323,9 +323,9 @@ export function ExceptionsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Remediation and appeals"
+        eyebrow="整改与申诉"
         title="申诉与例外"
-        description="Blocking data-quality issues stop formal calculations; appeals challenge attribution or evaluation with a reviewer separate from the appellant."
+        description="阻断级数据质量问题会阻止正式计算；申诉由独立于申诉人的复核人挑战认定或评价。"
         actions={
           <Button
             variant="secondary"
@@ -387,7 +387,7 @@ export function ExceptionsPage() {
         ]}
         active={tab}
         onChange={setTab}
-        label="Exception views"
+        label="例外视图"
       />
 
       <div className="tab-panel">
@@ -408,7 +408,7 @@ export function ExceptionsPage() {
             ) : issueList.length === 0 ? (
               <EmptyState
                 icon="shield"
-                title="No data-quality issue"
+                title="暂无数据质量问题"
                 description="问题由摄取、校验或数据质量 Agent 提出。"
               />
             ) : (
@@ -595,7 +595,7 @@ export function ExceptionsPage() {
           </Panel>
         ) : (
           <Panel
-            title="Recalculation requests"
+            title="重算请求"
             subtitle="针对证据/认定/评价/账本结果的更正"
             flush
             action={
@@ -623,7 +623,7 @@ export function ExceptionsPage() {
             ) : recalcList.length === 0 ? (
               <EmptyState
                 icon="refresh"
-                title="No recalculation request"
+                title="暂无重算请求"
                 description="当证据或认定有误时发起重算；完成时记录新的计算批次。"
               />
             ) : (
@@ -722,7 +722,7 @@ export function ExceptionsPage() {
 
       <Modal
         open={Boolean(dqTarget)}
-        title="Data-quality command"
+        title="数据质量命令"
         description={
           dqTarget ? `${dqTarget.issueCode} · ${titleCase(dqTarget.status)}` : undefined
         }
@@ -775,7 +775,7 @@ export function ExceptionsPage() {
                 </Select>
               </FormField>
               {dqCommand === "ASSIGN" ? (
-                <FormField label="Assign to" htmlFor="dq-assignee">
+                <FormField label="指派给" htmlFor="dq-assignee">
                   <PersonSelect
                     id="dq-assignee"
                     value={assignee}
@@ -919,7 +919,7 @@ export function ExceptionsPage() {
             ) : null}
             {appealTarget.status === "UNDER_REVIEW" ? (
               <div className="form-grid">
-                <FormField label="Resolution" htmlFor="appeal-resolution">
+                <FormField label="裁决" htmlFor="appeal-resolution">
                   <Select
                     id="appeal-resolution"
                     value={resolution}
@@ -954,7 +954,7 @@ export function ExceptionsPage() {
 
       <Modal
         open={recalcOpen}
-        title="New recalculation request"
+        title="新建重算请求"
         description="指出需要更正的证据、认定、评价或账本条目。"
         onClose={() => setRecalcOpen(false)}
         footer={
@@ -993,7 +993,7 @@ export function ExceptionsPage() {
               )}
             </Select>
           </FormField>
-          <FormField label="Target id" htmlFor="recalc-target-id">
+          <FormField label="目标 ID" htmlFor="recalc-target-id">
             <TextInput
               id="recalc-target-id"
               value={recalcTargetId}
@@ -1007,7 +1007,7 @@ export function ExceptionsPage() {
               id="recalc-reason"
               value={recalcReasonCode}
               onChange={(event) => setRecalcReasonCode(event.target.value)}
-              placeholder="EVIDENCE_WRONG"
+              placeholder="证据有误"
               required
             />
           </FormField>
@@ -1028,7 +1028,7 @@ export function ExceptionsPage() {
 
       <Modal
         open={Boolean(completeTarget)}
-        title="Complete recalculation"
+        title="完成重算"
         description="记录更正产生的计算批次。"
         onClose={() => setCompleteTarget(null)}
         footer={
@@ -1049,7 +1049,7 @@ export function ExceptionsPage() {
             </div>
           ) : null}
           <FormField
-            label="New calculation run id"
+            label="新计算批次 ID"
             htmlFor="recalc-run-id"
             className="field--full"
           >

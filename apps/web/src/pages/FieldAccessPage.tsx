@@ -230,9 +230,9 @@ export function FieldAccessPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Security posture"
+        eyebrow="安全态势"
         title="字段权限"
-        description="Per-field role allow-lists with optional server-side predicates. Conditions only narrow access; admin and self access stay unconditional. Unknown predicates are rejected."
+        description="字段级角色白名单，可选服务端谓词。条件只收窄访问；管理员与本人始终放行。未知谓词会被拒绝。"
         actions={
           <Button variant="primary" onClick={save} loading={saving}>
             保存覆盖
@@ -243,7 +243,7 @@ export function FieldAccessPage() {
       {error ? <InfoNotice tone="warning">{error}</InfoNotice> : null}
 
       <Panel
-        title="Effective matrix"
+        title="生效矩阵"
         subtitle="编辑行可创建租户覆盖；重置则回退系统默认"
         flush
       >
@@ -258,7 +258,7 @@ export function FieldAccessPage() {
         ) : rows.length === 0 ? (
           <EmptyState
             icon="shield"
-            title="No field policy"
+            title="暂无字段策略"
             description="在下方添加资源字段以开始保护。"
           />
         ) : (
@@ -287,7 +287,7 @@ export function FieldAccessPage() {
                         onChange={(event) =>
                           updateRow(row.key, { roles: event.target.value })
                         }
-                        placeholder="finance, admin"
+                        placeholder="财务、管理员"
                       />
                     </td>
                     <td>
@@ -363,9 +363,9 @@ export function FieldAccessPage() {
         )}
       </Panel>
 
-      <Panel title="Add protected field" subtitle="RESOURCE.field 必须匹配受控资源">
+      <Panel title="添加受保护字段" subtitle="RESOURCE.field 必须匹配受控资源">
         <div className="form-grid">
-          <FormField label="Resource" htmlFor="new-resource">
+          <FormField label="资源" htmlFor="new-resource">
             <Select
               id="new-resource"
               value={newResource}
@@ -420,7 +420,7 @@ export function FieldAccessPage() {
         ) : (attributes.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="shield"
-            title="No subgroup label"
+            title="暂无子群体标签"
             description="标签需要单独的同意引用，可随时撤回。"
           />
         ) : (
@@ -467,7 +467,7 @@ export function FieldAccessPage() {
 
       <Modal
         open={attributeOpen}
-        title="Record subgroup label"
+        title="记录子群体标签"
         description="需单独同意；标签为假名化，仅在抑制后的聚合中使用。"
         onClose={() => setAttributeOpen(false)}
         footer={
@@ -522,7 +522,7 @@ export function FieldAccessPage() {
               required
             />
           </FormField>
-          <FormField label="Consent reference" htmlFor="attribute-consent">
+          <FormField label="同意引用" htmlFor="attribute-consent">
             <TextInput
               id="attribute-consent"
               value={attributeConsentRef}
@@ -530,7 +530,7 @@ export function FieldAccessPage() {
               required
             />
           </FormField>
-          <FormField label="Consented at" htmlFor="attribute-consented">
+          <FormField label="同意时间" htmlFor="attribute-consented">
             <TextInput
               id="attribute-consented"
               type="date"
@@ -539,7 +539,7 @@ export function FieldAccessPage() {
               required
             />
           </FormField>
-          <FormField label="Expires at (optional)" htmlFor="attribute-expires">
+          <FormField label="过期时间（可选）" htmlFor="attribute-expires">
             <TextInput
               id="attribute-expires"
               type="date"

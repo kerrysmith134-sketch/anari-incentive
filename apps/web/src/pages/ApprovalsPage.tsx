@@ -182,9 +182,9 @@ export function ApprovalsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Human gates"
+        eyebrow="人工门禁"
         title="审批"
-        description="High-risk actions stop here. Review the payload hash, risk tier and approval count before deciding — approvals are append-only and attributed."
+        description="高风险动作在此等待。决策前核对负载哈希、风险级与审批数——审批只追加、归属到人。"
         actions={
           <Button
             variant="secondary"
@@ -222,7 +222,7 @@ export function ApprovalsPage() {
       </div>
 
       <Panel
-        title="Request ledger"
+        title="审批台账"
         subtitle="每个门禁保留目标版本与负载哈希"
         action={
           <SearchInput
@@ -239,7 +239,7 @@ export function ApprovalsPage() {
           }))}
           active={tab}
           onChange={setTab}
-          label="Approval status"
+          label="审批状态"
         />
 
         <div className="tab-panel">
@@ -354,7 +354,7 @@ export function ApprovalsPage() {
 
       <Modal
         open={Boolean(selected)}
-        title="Review approval request"
+        title="复核审批请求"
         description={
           selected
             ? `${titleCase(selected.actionType)} · ${selected.riskTier} risk`

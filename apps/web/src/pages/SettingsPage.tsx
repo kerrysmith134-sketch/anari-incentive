@@ -1330,21 +1330,21 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Workspace"
+        eyebrow="工作区"
         title="设置"
-        description="Session identity, appearance and the assurance registers that govern this tenant's data."
+        description="会话身份、外观与本租户的保障登记簿。"
       />
 
       <div className="split-grid">
         <Panel
-          title="Session context"
-          subtitle="Sent as x-tenant-id, x-user-id and x-person-id on every API call"
+          title="会话上下文"
+          subtitle="每次 API 调用以 x-tenant-id / x-user-id / x-person-id 发送"
         >
           <form onSubmit={saveSession} className="stack">
             <FormField
-              label="Tenant id"
+              label="租户 ID"
               htmlFor="session-tenant"
-              hint="In development this can be tenant-demo; in PostgreSQL mode use the tenant UUID."
+              hint="开发模式可用 tenant-demo；PostgreSQL 模式请用租户 UUID。"
             >
               <TextInput
                 id="session-tenant"
@@ -1353,7 +1353,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="User id" htmlFor="session-user">
+            <FormField label="用户 ID" htmlFor="session-user">
               <TextInput
                 id="session-user"
                 value={userId}
@@ -1364,7 +1364,7 @@ export function SettingsPage() {
             <FormField
               label="人员 ID"
               htmlFor="session-person"
-              hint="Used for approval attribution, payroll separation of duties and person-scoped requests."
+              hint="用于审批归属、薪酬职责分离与个人范围请求。"
             >
               <TextInput
                 id="session-person"
@@ -1374,9 +1374,9 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="OIDC bearer token (optional)"
+              label="OIDC Bearer 令牌（可选）"
               htmlFor="session-token"
-              hint="Used when the API runs with AUTH_MODE=oidc. It stays in this browser's local storage; prefer an edge-injected token in production."
+              hint="API 以 AUTH_MODE=oidc 运行时使用；仅存本浏览器，生产建议网关注入。"
             >
               <TextInput
                 id="session-token"
@@ -1409,7 +1409,7 @@ export function SettingsPage() {
         </Panel>
 
         <div className="stack">
-          <Panel title="Appearance" subtitle="Theme is stored per browser">
+          <Panel title="外观" subtitle="主题按浏览器记忆">
             <div className="toolbar__group">
               {(
                 [
@@ -1434,7 +1434,7 @@ export function SettingsPage() {
             </p>
           </Panel>
 
-          <Panel title="Identity resolution" subtitle="What the server sees">
+          <Panel title="身份解析" subtitle="服务端所见">
             {identity.error ? (
               <ErrorNotice error={identity.error} onRetry={identity.reload} />
             ) : identity.loading ? (
@@ -1462,12 +1462,12 @@ export function SettingsPage() {
               />
             ) : null}
             <div className="row-actions section-gap" style={{ justifyContent: "flex-start" }}>
-              <CopyButton value={session.tenantId} label="Copy tenant" />
-              <CopyButton value={session.personId} label="Copy person" />
+              <CopyButton value={session.tenantId} label="复制租户" />
+              <CopyButton value={session.personId} label="复制人员" />
             </div>
           </Panel>
 
-          <Panel title="System health" subtitle="Live probes from this browser">
+          <Panel title="系统健康" subtitle="来自本浏览器的实时探测">
             <DefinitionList
               items={[
                 {
@@ -1512,16 +1512,16 @@ export function SettingsPage() {
 
       <div className="section-gap">
         <PageHeader
-          eyebrow="Registers"
-          title="Assurance records"
-          description="Read-only views of the privacy and retention artefacts that a formal cycle depends on."
+          eyebrow="登记簿"
+          title="保障记录"
+          description="正式周期依赖的隐私与保留物证的只读视图。"
         />
       </div>
 
       <div className="split-grid">
         <Panel
           title="DPIAs"
-          subtitle="Data protection impact assessments"
+          subtitle="数据保护影响评估"
           action={<Badge tone="neutral" dot={false}>{dpias.data?.length ?? 0}</Badge>}
           flush
         >
@@ -1536,8 +1536,8 @@ export function SettingsPage() {
           ) : (dpias.data?.length ?? 0) === 0 ? (
             <EmptyState
               icon="lock"
-              title="No DPIA recorded"
-              description="A policy version that touches employee data should reference an approved assessment."
+              title="暂无 DPIA 记录"
+              description="涉及员工数据的政策版本应引用已批准的评估。"
             />
           ) : (
             <div className="table-wrap">
@@ -1579,7 +1579,7 @@ export function SettingsPage() {
         </Panel>
 
         <Panel
-          title="Data subject requests"
+          title="个人数据请求"
           subtitle={`${openDsars.length} open · ${overdueDsars.length} overdue`}
           action={<Badge tone={overdueDsars.length > 0 ? "danger" : "neutral"} dot={false}>{dsars.data?.length ?? 0}</Badge>}
           flush
@@ -1595,8 +1595,8 @@ export function SettingsPage() {
           ) : (dsars.data?.length ?? 0) === 0 ? (
             <EmptyState
               icon="user"
-              title="No data subject request"
-              description="Access, correction, deletion, explanation and objection requests appear here."
+              title="暂无个人数据请求"
+              description="查询/更正/删除/说明/异议请求在此展示。"
             />
           ) : (
             <div className="table-wrap">
@@ -1642,7 +1642,7 @@ export function SettingsPage() {
 
       <Panel
         title="订阅"
-        subtitle="This tenant's plan, seats and invoices (read-only; managed by the platform operator)"
+        subtitle="本租户的套餐、席位与发票（只读；由平台运营方管理）"
         className="section-gap"
       >
         {subscription.error ? (
@@ -1706,7 +1706,7 @@ export function SettingsPage() {
       </Panel>
 
       <Panel
-        title="Retention policies"
+        title="保留策略"
         subtitle={`${heldPolicies.length} under legal hold`}
         className="section-gap"
         action={
@@ -1732,7 +1732,7 @@ export function SettingsPage() {
         ) : (retention.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="clock"
-            title="No retention policy"
+            title="暂无保留策略"
             description="按数据类别定义保留月数与法律依据；自动删除被有意关闭。"
           />
         ) : (
@@ -1826,7 +1826,7 @@ export function SettingsPage() {
 
       <Modal
         open={retentionOpen}
-        title="Add retention policy"
+        title="添加保留策略"
         description="保守的系统默认；请确认你所在法域的法律依据，法务保留始终优先。"
         onClose={() => setRetentionOpen(false)}
         footer={
@@ -1849,7 +1849,7 @@ export function SettingsPage() {
           {retentionError ? (
             <InfoNotice tone="warning">{retentionError}</InfoNotice>
           ) : null}
-          <FormField label="Recommended category" htmlFor="retention-preset">
+          <FormField label="推荐类别" htmlFor="retention-preset">
             <Select
               id="retention-preset"
               value={retentionCategory}
@@ -1912,8 +1912,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Data-source registry"
-        subtitle="Owner, response SLA and field-level classification for every incentive data source"
+        title="数据源登记簿"
+        subtitle="每个激励数据源的责任人、响应 SLA 与字段级分类"
         className="section-gap"
         action={
           <Button
@@ -1941,7 +1941,7 @@ export function SettingsPage() {
         ) : dataMap.data.sources.length === 0 ? (
           <EmptyState
             icon="server"
-            title="No data source registered"
+            title="暂无数据源"
             description="登记每个供证系统、责任人与其贡献的字段。"
           />
         ) : (
@@ -2051,8 +2051,8 @@ export function SettingsPage() {
 
       <Modal
         open={sourceOpen}
-        title="Register data source"
-        description="Accountable owner, response SLA and the minimum fields this source contributes."
+        title="登记数据源"
+        description="责任人、响应 SLA 与本数据源贡献的最小字段集。"
         onClose={() => setSourceOpen(false)}
         wide
         footer={
@@ -2109,7 +2109,7 @@ export function SettingsPage() {
                 onChange={setSourceOwner}
               />
             </FormField>
-            <FormField label="Response SLA (hours)" htmlFor="source-sla">
+            <FormField label="响应 SLA（小时）" htmlFor="source-sla">
               <TextInput
                 id="source-sla"
                 type="number"
@@ -2140,7 +2140,7 @@ export function SettingsPage() {
                 <option value="CRITICAL">严重</option>
               </Select>
             </FormField>
-            <FormField label="Storage region" htmlFor="source-region">
+            <FormField label="存储区域" htmlFor="source-region">
               <TextInput
                 id="source-region"
                 value={sourceRegion}
@@ -2149,7 +2149,7 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="Processors (comma separated)"
+              label="处理者（逗号分隔）"
               htmlFor="source-processors"
             >
               <TextInput
@@ -2201,7 +2201,7 @@ export function SettingsPage() {
                     />
                   </FormField>
                   <FormField
-                    label="Classification"
+                    label="分类"
                     htmlFor={`source-class-${index}`}
                   >
                     <Select
@@ -2250,7 +2250,7 @@ export function SettingsPage() {
                   <FormField
                     label="保留月数"
                     htmlFor={`source-retention-${index}`}
-                    hint="Required for PERSONAL/SENSITIVE fields."
+                    hint="PERSONAL/SENSITIVE 字段必填。"
                   >
                     <TextInput
                       id={`source-retention-${index}`}
@@ -2320,8 +2320,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Conflict declarations"
-        subtitle="Active related-party declarations block adjudication between the pair"
+        title="利益冲突申报"
+        subtitle="生效的关联方申报会阻断两人互相认定"
         className="section-gap"
         action={
           <Button
@@ -2346,7 +2346,7 @@ export function SettingsPage() {
         ) : (conflicts.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="people"
-            title="No conflict declared"
+            title="暂无冲突申报"
             description="申报应回避认定对方贡献的近亲属或财务关系。"
           />
         ) : (
@@ -2405,8 +2405,8 @@ export function SettingsPage() {
 
       <Modal
         open={conflictOpen}
-        title="Declare conflict of interest"
-        description="The pair cannot adjudicate each other's contribution while the declaration is active."
+        title="申报利益冲突"
+        description="申报生效期间，双方不能认定彼此的贡献。"
         onClose={() => setConflictOpen(false)}
         footer={
           <>
@@ -2428,14 +2428,14 @@ export function SettingsPage() {
           {conflictError ? (
             <InfoNotice tone="warning">{conflictError}</InfoNotice>
           ) : null}
-          <FormField label="Declaring person" htmlFor="conflict-person">
+          <FormField label="申报人" htmlFor="conflict-person">
             <PersonSelect
               id="conflict-person"
               value={conflictPerson}
               onChange={setConflictPerson}
             />
           </FormField>
-          <FormField label="Related person" htmlFor="conflict-related">
+          <FormField label="关联人" htmlFor="conflict-related">
             <PersonSelect
               id="conflict-related"
               value={conflictRelated}
@@ -2447,7 +2447,7 @@ export function SettingsPage() {
               id="conflict-type"
               value={conflictType}
               onChange={(event) => setConflictType(event.target.value)}
-              placeholder="FAMILY, FINANCIAL, FORMER_MANAGER…"
+              placeholder="家庭 / 财务 / 前上级…"
               required
             />
           </FormField>
@@ -2466,7 +2466,7 @@ export function SettingsPage() {
 
       <Modal
         open={Boolean(revokeTarget)}
-        title="Revoke conflict declaration"
+        title="撤回冲突申报"
         onClose={() => setRevokeTarget(null)}
         footer={
           <>
@@ -2492,7 +2492,7 @@ export function SettingsPage() {
           {conflictError ? (
             <InfoNotice tone="warning">{conflictError}</InfoNotice>
           ) : null}
-          <FormField label="Revocation reason" htmlFor="revoke-reason">
+          <FormField label="撤回原因" htmlFor="revoke-reason">
             <TextInput
               id="revoke-reason"
               value={revokeReason}
@@ -2504,8 +2504,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Trust surveys"
-        subtitle="Anonymous quarterly pulse on fairness, voice and confidence in the process"
+        title="信任调查"
+        subtitle="关于公平、发声与流程信心的匿名季度调查"
         className="section-gap"
         action={
           <Button
@@ -2533,7 +2533,7 @@ export function SettingsPage() {
         ) : (trustSurveys.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="people"
-            title="No trust survey"
+            title="暂无信任调查"
             description="创建调查→开放作答→关闭后与上期对比维度均值。"
           />
         ) : (
@@ -2619,8 +2619,8 @@ export function SettingsPage() {
 
       <Modal
         open={surveyOpen}
-        title="Create trust survey"
-        description="Questions are scored 1–5. Responses store only a pseudonymous hash and the score set."
+        title="创建调查"
+        description="题目按 1–5 分作答；响应仅存假名哈希与得分。"
         onClose={() => setSurveyOpen(false)}
         wide
         footer={
@@ -2777,7 +2777,7 @@ export function SettingsPage() {
 
       <Modal
         open={Boolean(respondTarget)}
-        title="Respond to trust survey"
+        title="参与调查"
         onClose={() => setRespondTarget(null)}
         footer={
           <>
@@ -2814,7 +2814,7 @@ export function SettingsPage() {
                 },
               ]}
             />
-            <FormField label="Respondent" htmlFor="survey-respondent">
+            <FormField label="作答人" htmlFor="survey-respondent">
               <PersonSelect
                 id="survey-respondent"
                 value={respondentId}
@@ -2827,7 +2827,7 @@ export function SettingsPage() {
                   key={question.code}
                   label={question.prompt}
                   htmlFor={`survey-score-${question.code}`}
-                  hint="1 = strongly disagree · 5 = strongly agree"
+                  hint="1 = 非常不同意 · 5 = 非常同意"
                 >
                   <TextInput
                     id={`survey-score-${question.code}`}
@@ -2929,8 +2929,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="No-retaliation commitment"
-        subtitle="Published fairness statement; publishing a new version supersedes the prior one"
+        title="无报复承诺"
+        subtitle="已发布的公平声明；新版本发布即替代旧版"
         className="section-gap"
         action={
           <Button
@@ -2955,8 +2955,8 @@ export function SettingsPage() {
         ) : (commitments.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="shield"
-            title="No fairness commitment"
-            description="Publish a statement that good-faith concerns can be raised without retaliation."
+            title="暂无公平承诺"
+            description="发布声明：善意反馈不受报复。"
           />
         ) : (
           <div className="table-wrap">
@@ -2997,8 +2997,8 @@ export function SettingsPage() {
 
       <Modal
         open={commitmentOpen}
-        title="Publish fairness commitment"
-        description="Employees should be able to see this statement and the appeal statistics that accompany it."
+        title="发布公平承诺"
+        description="员工应能看到本声明及配套的申诉统计。"
         onClose={() => setCommitmentOpen(false)}
         footer={
           <>
@@ -3036,7 +3036,7 @@ export function SettingsPage() {
             />
           </FormField>
           <FormField
-            label="Publication channels (comma separated)"
+            label="发布渠道（逗号分隔）"
             htmlFor="commitment-channels"
           >
             <TextInput
@@ -3049,8 +3049,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Manager enablement"
-        subtitle="Training completion and calibration sessions that support consistent review"
+        title="经理赋能"
+        subtitle="支持一致复核的培训完成与校准会"
         className="section-gap"
         flush
       >
@@ -3148,7 +3148,7 @@ export function SettingsPage() {
 
       <Modal
         open={trainingOpen}
-        title="Record manager training"
+        title="记录经理培训"
         onClose={() => setTrainingOpen(false)}
         footer={
           <>
@@ -3178,7 +3178,7 @@ export function SettingsPage() {
             />
           </FormField>
           <div className="form-grid">
-            <FormField label="Training code" htmlFor="training-code">
+            <FormField label="培训编码" htmlFor="training-code">
               <TextInput
                 id="training-code"
                 value={trainingCode}
@@ -3194,7 +3194,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Completed" htmlFor="training-completed">
+            <FormField label="已完成" htmlFor="training-completed">
               <TextInput
                 id="training-completed"
                 type="date"
@@ -3205,7 +3205,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Expires (optional)" htmlFor="training-expires">
+            <FormField label="到期（可选）" htmlFor="training-expires">
               <TextInput
                 id="training-expires"
                 type="date"
@@ -3214,7 +3214,7 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="Evidence reference"
+              label="证据引用"
               htmlFor="training-evidence"
             >
               <TextInput
@@ -3229,8 +3229,8 @@ export function SettingsPage() {
 
       <Modal
         open={calibrationOpen}
-        title="Record calibration session"
-        description="Select the attendees who reviewed scoring anchors together."
+        title="记录校准会"
+        description="选择共同校准评分锚点的参加人。"
         onClose={() => setCalibrationOpen(false)}
         footer={
           <>
@@ -3273,7 +3273,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Held on" htmlFor="calibration-held">
+            <FormField label="举办于" htmlFor="calibration-held">
               <TextInput
                 id="calibration-held"
                 type="date"
@@ -3282,7 +3282,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Facilitator" htmlFor="calibration-facilitator">
+            <FormField label="主持人" htmlFor="calibration-facilitator">
               <PersonSelect
                 id="calibration-facilitator"
                 value={calibrationFacilitator}
@@ -3322,8 +3322,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Pilot enrollments"
-        subtitle="Voluntary cohorts with evidence of consent and scope"
+        title="试点登记"
+        subtitle="有同意凭证与范围的自愿群体"
         className="section-gap"
         action={
           <Button
@@ -3348,8 +3348,8 @@ export function SettingsPage() {
         ) : (pilots.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="people"
-            title="No pilot enrollment"
-            description="Enroll volunteers with a consent signature reference and a defined pilot scope."
+            title="暂无试点登记"
+            description="以同意签名引用与明确的试点范围登记自愿者。"
           />
         ) : (
           <div className="table-wrap">
@@ -3398,8 +3398,8 @@ export function SettingsPage() {
 
       <Modal
         open={pilotOpen}
-        title="Enroll in pilot"
-        description="Only voluntary participation with a recorded consent reference is accepted."
+        title="加入试点"
+        description="仅接受有同意引用记录的自愿参与。"
         onClose={() => setPilotOpen(false)}
         footer={
           <>
@@ -3428,7 +3428,7 @@ export function SettingsPage() {
               onChange={setPilotPerson}
             />
           </FormField>
-          <FormField label="Pilot code" htmlFor="pilot-code">
+          <FormField label="试点编码" htmlFor="pilot-code">
             <TextInput
               id="pilot-code"
               value={pilotCode}
@@ -3459,8 +3459,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Break-glass grants"
-        subtitle="Time-bound, reason-required access to sensitive payroll fields"
+        title="紧急授权"
+        subtitle="限时、需理由的敏感薪酬字段访问"
         className="section-gap"
         action={
           <Button
@@ -3485,7 +3485,7 @@ export function SettingsPage() {
         ) : (grants.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="lock"
-            title="No break-glass grant"
+            title="暂无紧急授权"
             description="非财务角色默认看不到敏感薪酬字段，除非管理员授予限时访问。"
           />
         ) : (
@@ -3533,8 +3533,8 @@ export function SettingsPage() {
 
       <Modal
         open={grantOpen}
-        title="Grant break-glass access"
-        description="Maximum 24 hours. The grantee cannot approve their own access."
+        title="授予紧急访问"
+        description="最长 24 小时；被授权人不能批准自己的访问。"
         onClose={() => setGrantOpen(false)}
         footer={
           <>
@@ -3563,7 +3563,7 @@ export function SettingsPage() {
               onChange={setGranteeId}
             />
           </FormField>
-          <FormField label="Granted by" htmlFor="grant-granted-by">
+          <FormField label="授予人" htmlFor="grant-granted-by">
             <PersonSelect
               id="grant-granted-by"
               value={grantedById}
@@ -3578,7 +3578,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Duration (hours, max 24)" htmlFor="grant-hours">
+          <FormField label="时长（小时，最长 24）" htmlFor="grant-hours">
             <TextInput
               id="grant-hours"
               type="number"
@@ -3593,8 +3593,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Clawback cases"
-        subtitle="Consent, installment and hardship terms before any recovery settlement"
+        title="追回案例"
+        subtitle="追回结算前的同意、分期与困难条款"
         className="section-gap"
         action={
           <Button
@@ -3619,8 +3619,8 @@ export function SettingsPage() {
         ) : (clawbacks.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="wallet"
-            title="No clawback case"
-            description="Record written consent, installment or hardship terms before recovering an incentive."
+            title="暂无追回案例"
+            description="追回激励前先记录书面同意、分期或困难条款。"
           />
         ) : (
           <div className="table-wrap">
@@ -3711,8 +3711,8 @@ export function SettingsPage() {
 
       <Modal
         open={clawbackOpen}
-        title="Record clawback terms"
-        description="Written consent is required. Recovery still requires a separate settlement-recovery batch."
+        title="记录追回条款"
+        description="书面同意必填；追回仍需单独的 RECOVERY 结算批次。"
         onClose={() => setClawbackOpen(false)}
         footer={
           <>
@@ -3742,7 +3742,7 @@ export function SettingsPage() {
             />
           </FormField>
           <div className="form-grid">
-            <FormField label="Amount (CNY)" htmlFor="clawback-amount">
+            <FormField label="金额（元）" htmlFor="clawback-amount">
               <TextInput
                 id="clawback-amount"
                 type="number"
@@ -3764,7 +3764,7 @@ export function SettingsPage() {
               />
             </FormField>
             <FormField
-              label="Installments (1–12)"
+              label="分期（1–12）"
               htmlFor="clawback-installments"
             >
               <TextInput
@@ -3816,7 +3816,7 @@ export function SettingsPage() {
           </label>
           {clawbackHardship ? (
             <FormField
-              label="Hardship reason"
+              label="困难原因"
               htmlFor="clawback-hardship"
             >
               <TextInput
@@ -3834,7 +3834,7 @@ export function SettingsPage() {
 
       <Modal
         open={Boolean(waiveTarget)}
-        title="Waive clawback"
+        title="豁免追回"
         onClose={() => setWaiveTarget(null)}
         footer={
           <>
@@ -3853,7 +3853,7 @@ export function SettingsPage() {
         }
       >
         <form id="waive-form" className="stack" onSubmit={waiveClawback}>
-          <FormField label="Waiver reason" htmlFor="waive-reason">
+          <FormField label="豁免理由" htmlFor="waive-reason">
             <TextInput
               id="waive-reason"
               value={waiveReason}
@@ -3866,8 +3866,8 @@ export function SettingsPage() {
 
       <Modal
         open={Boolean(scheduleTarget)}
-        title="Clawback installment schedule"
-        description="Checks each installment against the active contract's deduction cap and minimum-wage floor."
+        title="追回分期排期"
+        description="逐期校验生效合同的扣款上限与最低工资下限。"
         onClose={() => {
           setScheduleTarget(null);
           setSchedule(null);
@@ -3977,8 +3977,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Discretionary pool reviews"
-        subtitle="Committee decisions with an independent employee observer"
+        title="机动池评审"
+        subtitle="委员会决策 + 独立员工观察员"
         className="section-gap"
         action={
           <Button
@@ -4006,7 +4006,7 @@ export function SettingsPage() {
         ) : (poolReviews.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="wallet"
-            title="No discretionary review"
+            title="暂无机动池评审"
             description="记录机动池的评审委员会、员工观察员与评选标准。"
           />
         ) : (
@@ -4060,8 +4060,8 @@ export function SettingsPage() {
 
       <Modal
         open={poolReviewOpen}
-        title="Record discretionary pool review"
-        description="At least two committee members and an optional independent employee observer."
+        title="记录机动池评审"
+        description="至少两名委员会成员与可选的独立员工观察员。"
         onClose={() => setPoolReviewOpen(false)}
         wide
         footer={
@@ -4088,7 +4088,7 @@ export function SettingsPage() {
           {poolReviewError ? (
             <InfoNotice tone="warning">{poolReviewError}</InfoNotice>
           ) : null}
-          <FormField label="Budget pool" htmlFor="pool-review-pool">
+          <FormField label="预算池" htmlFor="pool-review-pool">
             <Select
               id="pool-review-pool"
               value={poolReviewPool}
@@ -4127,7 +4127,7 @@ export function SettingsPage() {
             </div>
           </div>
           <FormField
-            label="Employee observer (independent, optional)"
+            label="员工观察员（独立，可选）"
             htmlFor="pool-review-observer"
           >
             <Select
@@ -4143,7 +4143,7 @@ export function SettingsPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="Reviewed by" htmlFor="pool-review-reviewer">
+          <FormField label="评审人" htmlFor="pool-review-reviewer">
             <PersonSelect
               id="pool-review-reviewer"
               value={poolReviewReviewer}
@@ -4151,7 +4151,7 @@ export function SettingsPage() {
             />
           </FormField>
           <FormField
-            label="Selection criteria"
+            label="评选标准"
             htmlFor="pool-review-criteria"
           >
             <Textarea
@@ -4161,7 +4161,7 @@ export function SettingsPage() {
               required
             />
           </FormField>
-          <FormField label="Decision notes" htmlFor="pool-review-notes">
+          <FormField label="决策说明" htmlFor="pool-review-notes">
             <Textarea
               id="pool-review-notes"
               value={poolReviewNotes}
@@ -4173,8 +4173,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Model provider policies"
-        subtitle="Zero-retention, DPA, inference region and egress allowlist per provider"
+        title="模型供应商策略"
+        subtitle="每个供应商的零留存、DPA、推理区域与出口白名单"
         className="section-gap"
         action={
           <Button
@@ -4202,7 +4202,7 @@ export function SettingsPage() {
         ) : (providerPolicies.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="ai"
-            title="No provider policy"
+            title="暂无供应商策略"
             description="启用供应商策略强制前，登记零留存确认、DPA 引用、区域与出口白名单。"
           />
         ) : (
@@ -4260,8 +4260,8 @@ export function SettingsPage() {
 
       <Modal
         open={policyOpen}
-        title="Record model-provider policy"
-        description="Enforcement is enabled per tenant with requireModelProviderPolicy."
+        title="记录供应商策略"
+        description="租户通过 requireModelProviderPolicy 启用强制。"
         onClose={() => setPolicyOpen(false)}
         footer={
           <>
@@ -4296,7 +4296,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="Inference region" htmlFor="policy-region">
+            <FormField label="推理区域" htmlFor="policy-region">
               <TextInput
                 id="policy-region"
                 value={policyRegion}
@@ -4304,7 +4304,7 @@ export function SettingsPage() {
                 required
               />
             </FormField>
-            <FormField label="DPA reference" htmlFor="policy-dpa">
+            <FormField label="DPA 引用" htmlFor="policy-dpa">
               <TextInput
                 id="policy-dpa"
                 value={policyDpa}
@@ -4321,7 +4321,7 @@ export function SettingsPage() {
             </FormField>
           </div>
           <FormField
-            label="Egress allowlist (comma separated)"
+            label="出口白名单（逗号分隔）"
             htmlFor="policy-egress"
           >
             <TextInput
@@ -4345,8 +4345,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Audit redactions"
-        subtitle="Two-person overlay for sensitive free-text reasons; hash chain stays intact"
+        title="审计脱敏"
+        subtitle="敏感自由文本原因的双人脱敏；哈希链不变"
         className="section-gap"
         action={
           <Button
@@ -4371,8 +4371,8 @@ export function SettingsPage() {
         ) : (redactions.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="lock"
-            title="No audit redaction"
-            description="Only redact free-text reasons when they contain unrelated personal or sensitive data; the original event hash remains unchanged."
+            title="暂无审计脱敏"
+            description="仅当自由文本原因含无关个人/敏感数据时脱敏；原事件哈希保持不变。"
           />
         ) : (
           <div className="table-wrap">
@@ -4411,8 +4411,8 @@ export function SettingsPage() {
 
       <Modal
         open={redactionOpen}
-        title="Redact audit reason"
-        description="Two different people must request and approve the redaction."
+        title="脱敏审计原因"
+        description="请求与批准脱敏必须为不同两人。"
         onClose={() => setRedactionOpen(false)}
         footer={
           <>
@@ -4434,7 +4434,7 @@ export function SettingsPage() {
           {redactionError ? (
             <InfoNotice tone="warning">{redactionError}</InfoNotice>
           ) : null}
-          <FormField label="Audit event id" htmlFor="redaction-event">
+          <FormField label="审计事件 ID" htmlFor="redaction-event">
             <TextInput
               id="redaction-event"
               value={redactionEventId}
@@ -4469,7 +4469,7 @@ export function SettingsPage() {
 
       <Modal
         open={Boolean(recoveryTarget)}
-        title="Generate clawback recovery"
+        title="生成追回"
         onClose={() => setRecoveryTarget(null)}
         footer={
           <>
@@ -4510,9 +4510,9 @@ export function SettingsPage() {
             ]}
           />
           <FormField
-            label="Cycle id"
+            label="周期 ID"
             htmlFor="recovery-cycle"
-            hint="The cycle whose RECOVERY settlement batch should carry the adjustment."
+            hint="承载调整的 RECOVERY 结算批次所属周期。"
           >
             <TextInput
               id="recovery-cycle"
@@ -4522,9 +4522,9 @@ export function SettingsPage() {
             />
           </FormField>
           <FormField
-            label="Ledger entry id"
+            label="账本条目 ID"
             htmlFor="recovery-ledger"
-            hint="The original locked incentive entry to adjust (find it on the Settlements ledger view)."
+            hint="要调整的原锁定激励条目（在「结算」账本视图查找）。"
           >
             <TextInput
               id="recovery-ledger"
@@ -4546,8 +4546,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Retention disposal requests"
-        subtitle="Reviewed, two-person, grace-period workflow; no automatic hard delete"
+        title="保留处置请求"
+        subtitle="双人复核 + 宽限期的处置流程；无自动硬删除"
         className="section-gap"
         action={
           <div className="row-actions">
@@ -4582,7 +4582,7 @@ export function SettingsPage() {
         ) : (disposals.data?.length ?? 0) === 0 ? (
           <EmptyState
             icon="clock"
-            title="No disposal request"
+            title="暂无处置请求"
             description="处置需要无保留的策略、理由、第二审批人与未来的宽限期。"
           />
         ) : (
@@ -4630,7 +4630,7 @@ export function SettingsPage() {
 
       <Modal
         open={disposalOpen}
-        title="Request retention disposal"
+        title="申请保留处置"
         description="必须由另一人批准；未到宽限日期不可完成。"
         onClose={() => setDisposalOpen(false)}
         footer={
@@ -4653,7 +4653,7 @@ export function SettingsPage() {
           {disposalError ? (
             <InfoNotice tone="warning">{disposalError}</InfoNotice>
           ) : null}
-          <FormField label="Retention policy" htmlFor="disposal-policy">
+          <FormField label="保留策略" htmlFor="disposal-policy">
             <Select
               id="disposal-policy"
               value={disposalPolicy}
@@ -4689,8 +4689,8 @@ export function SettingsPage() {
       </Modal>
 
       <Panel
-        title="Field access matrix"
-        subtitle="Role-based redaction for payroll and calculation resources"
+        title="字段权限矩阵"
+        subtitle="薪酬与计算资源的按角色脱敏"
         className="section-gap"
         action={
           <Button
@@ -4749,7 +4749,7 @@ export function SettingsPage() {
 
       <Modal
         open={fieldPolicyOpen}
-        title="Edit field access matrix"
+        title="编辑字段权限矩阵"
         description="JSON 对象，将 RESOURCE.field 映射到允许角色；缺失项使用系统默认。"
         onClose={() => setFieldPolicyOpen(false)}
         wide
@@ -4772,7 +4772,7 @@ export function SettingsPage() {
           {fieldPolicyError ? (
             <InfoNotice tone="warning">{fieldPolicyError}</InfoNotice>
           ) : null}
-          <FormField label="Configured policies (JSON)" htmlFor="field-policy-json">
+          <FormField label="已配置策略（JSON）" htmlFor="field-policy-json">
             <Textarea
               id="field-policy-json"
               value={fieldPolicyJson}
