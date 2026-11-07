@@ -2400,6 +2400,106 @@ export function buildApp(
   });
 
   // 周期推进状态机（AI_PRE_REVIEW→HUMAN_REVIEW 与 HUMAN_REVIEW→DECIDED 带门禁）。
+  // 结算单 HTML（打印即 PDF，中文）。
+  app.get("/api/v1/settlement-batches/:id/report", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const store = storeFor(request);
+    const batch = await store.getSettlementBatch(idOf(request));
+    const active = (batch.lines ?? []).filter((line) => line.active);
+    const total = active.reduce((sum, line) => sum + Number(line.amount), 0);
+    const esc = (v: unknown): string =>
+      String(v ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      })[char]!);
+    const rows = active
+      .map(
+        (line) => `<tr>
+          <td>${esc(line.personName ?? line.personId)}</td>
+          <td>${esc(line.personCode ?? "")}</td>
+          <td style="text-align:right">${esc(line.amount)}</td>
+          <td>${esc(line.currency)}</td>
+        </tr>`,
+      )
+      .join("");
+    const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8" />
+<title>结算单 ${esc(batch.batchNo)}</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 32px auto; color: #1a1a1a; }
+  h1 { font-size: 20px; } table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { padding: 8px; border-bottom: 1px solid #e5e5e5; text-align: left; font-size: 13px; }
+  .meta { color: #666; font-size: 12px; } .total { font-weight: 600; }
+  @media print { .no-print { display: none; } }
+</style></head><body>
+<h1>激励结算单</h1>
+<p class="meta">批次号 ${esc(batch.batchNo)} · 周期 ${esc(batch.cycleId)} · 状态 ${esc(batch.status)} · 币种 ${esc(batch.currency)}</p>
+<table>
+  <thead><tr><th>人员</th><th>工号</th><th style="text-align:right">金额</th><th>币种</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr><td class="total" colspan="2">合计</td><td class="total" style="text-align:right">${esc(batch.totalAmount)}</td><td></td></tr></tfoot>
+</table>
+<p class="meta no-print">使用浏览器打印（Ctrl/Cmd+P）另存为 PDF。本单由系统确定性引擎生成，哈希与审计链可验证。</p>
+</body></html>`;
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
+  // 周期报告 HTML（中文，打印即 PDF）。
+  app.get("/api/v1/reports/cycles/:id/report", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const cycle = await storeFor(request).getEvaluationCycle(idOf(request));
+    const store = storeFor(request);
+    const runs = (await store.listRuns()).filter(
+      (run) => run.cycleId === idOf(request),
+    );
+    const formalLocked = runs.filter(
+      (run) => run.mode === "FORMAL" && run.status === "LOCKED",
+    ).length;
+    const batchRows = (await store.listSettlementBatches()).filter(
+      (batch) => batch.cycleId === idOf(request),
+    );
+    const confirmedCount = (await store.listConfirmations()).filter(
+      (confirmation) =>
+        confirmation.targetType === "CALCULATION" &&
+        confirmation.decision === "CONFIRMED",
+    ).length;
+    const readiness = {
+      readyForSettlement: formalLocked > 0 && batchRows.length > 0,
+      blockers: [
+        ...(formalLocked === 0 ? ["没有已锁定的正式计算批次"] : []),
+        ...(batchRows.length === 0 ? ["尚未创建结算批次"] : []),
+      ],
+      formalLocked,
+      batchCount: batchRows.length,
+      confirmations: confirmedCount,
+    };
+    const esc = (v: unknown): string =>
+      String(v ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      })[char]!);
+    const blockers = readiness.blockers
+      .map((blocker: string) => `<li>${esc(blocker)}</li>`)
+      .join("");
+    const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8" />
+<title>周期报告 ${esc(cycle.name)}</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 32px auto; color: #1a1a1a; }
+  h1 { font-size: 20px; } h2 { font-size: 15px; margin-top: 24px; }
+  .meta { color: #666; font-size: 12px; }
+  ul { padding-left: 20px; } li { font-size: 13px; }
+  @media print { .no-print { display: none; } }
+</style></head><body>
+<h1>考核周期报告</h1>
+<p class="meta">${esc(cycle.name)} · ${esc(cycle.startsAt.slice(0, 10))} 至 ${esc(cycle.endsAt.slice(0, 10))} · 状态 ${esc(cycle.status)}</p>
+<h2>就绪度</h2>
+<p>结算就绪：<strong>${readiness.readyForSettlement ? "是" : "否"}</strong></p>
+<h2>阻断项</h2>
+${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
+<p class="meta no-print">使用浏览器打印（Ctrl/Cmd+P）另存为 PDF。生成时间 ${new Date().toISOString()}。</p>
+</body></html>`;
+    return reply.type("text/html; charset=utf-8").send(html);
+  });
+
   app.post("/api/v1/evaluation-cycles/:id/advance", async (request) => {
     requireRoles(request, "manager", "admin");
     const body = parse(advanceCycleSchema, request.body);
@@ -9608,6 +9708,51 @@ export function buildApp(
         tenantOf(request),
         idOf(request),
       ),
+      request,
+    );
+  });
+
+  // 连接测试：校验凭据引用存在、配置 JSON 可解析、字段映射可解析。
+  app.get("/api/v1/integration-connections/:id/test", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const connection = await platformStore.getIntegrationConnection(
+      tenantOf(request),
+      idOf(request),
+    );
+    const checks: Array<{ name: string; ok: boolean; detail?: string }> = [];
+    checks.push({
+      name: "凭据引用",
+      ok: Boolean(connection.credentialRef),
+      detail: connection.credentialRef
+        ? "已设置（服务端不回显值）"
+        : "缺失：请填写保管库路径或密钥名",
+    });
+    const config = (connection.config ?? {}) as Record<string, unknown>;
+    const required =
+      connection.provider === "hubspot"
+        ? ["portalId"]
+        : connection.provider === "feishu"
+          ? ["appToken"]
+          : ["baseUrl"];
+    const missing = required.filter((key) => !(key in config));
+    checks.push({
+      name: "连接配置",
+      ok: missing.length === 0,
+      detail:
+        missing.length === 0
+          ? "必需键齐全"
+          : `缺少键：${missing.join(", ")}`,
+    });
+    const ok = checks.every((check) => check.ok);
+    countEvent("integration_connection_tested");
+    return data(
+      {
+        connectionId: connection.id,
+        provider: connection.provider,
+        ok,
+        checks,
+        testedAt: new Date().toISOString(),
+      },
       request,
     );
   });

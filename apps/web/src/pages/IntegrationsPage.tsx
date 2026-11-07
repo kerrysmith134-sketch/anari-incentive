@@ -43,6 +43,12 @@ export function IntegrationsPage() {
   const presets = useApiQuery<MappingPreset[]>("/api/v1/integration-mapping-presets");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState("mappings");
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    checks: Array<{ name: string; ok: boolean; detail?: string }>;
+    testedAt: string;
+  } | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [provider, setProvider] = useState("");
   const [connectionName, setConnectionName] = useState("");
@@ -85,7 +91,29 @@ export function IntegrationsPage() {
     setCreateOpen(true);
   }
 
-  async function createConnection(event: FormEvent) {
+    async function testConnection(connectionId: string) {
+    setTestBusy(true);
+    try {
+      const result = await api<{
+        ok: boolean;
+        checks: Array<{ name: string; ok: boolean; detail?: string }>;
+        testedAt: string;
+      }>(`/api/v1/integration-connections/${connectionId}/test`);
+      setTestResult(result);
+      toast.success(
+        result.ok ? "连接检查通过" : "连接检查未通过",
+        result.checks.map((check) => check.name).join(" / "),
+      );
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError ? caught.message : "测试失败",
+      );
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
+async function createConnection(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
     let parsedConfig: unknown = {};
@@ -270,19 +298,31 @@ export function IntegrationsPage() {
             <div className="integration-detail section-gap">
               <Panel
                 title={selected.connectionName}
-                subtitle={`${selected.provider} · credential ${selected.credentialRef}`}
-                action={<Badge status={selected.status} />}
+                subtitle={`${selected.provider} · 凭据引用 ${selected.credentialRef}`}
+                action={
+                  <div className="row-actions">
+                    <Badge status={selected.status} />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={testBusy}
+                      onClick={() => void testConnection(selected.id)}
+                    >
+                      测试连接
+                    </Button>
+                  </div>
+                }
               >
                 <Tabs
                   items={[
                     {
                       id: "mappings",
-                      label: "Mappings",
+                      label: "字段映射",
                       count: mappings.data?.length ?? 0,
                     },
                     {
                       id: "schedules",
-                      label: "Schedules",
+                      label: "同步计划",
                       count: schedules.data?.length ?? 0,
                     },
                     {
@@ -290,12 +330,29 @@ export function IntegrationsPage() {
                       label: "同步运行",
                       count: syncRuns.data?.length ?? 0,
                     },
-                    { id: "identities", label: "Identities" },
+                    { id: "identities", label: "身份映射" },
                   ]}
                   active={detailTab}
                   onChange={setDetailTab}
                   label="连接详情"
                 />
+                {testResult ? (
+                  <div
+                    className="section-gap"
+                    style={{ padding: "0 16px 12px" }}
+                  >
+                    <InfoNotice tone={testResult.ok ? "success" : "warning"}>
+                      {testResult.ok ? "✅ 连接检查通过" : "⚠️ 连接检查未通过"}
+                      {" · "}
+                      {testResult.checks
+                        .map(
+                          (check) =>
+                            `${check.name}：${check.ok ? "通过" : check.detail ?? "未通过"}`,
+                        )
+                        .join("；")}
+                    </InfoNotice>
+                  </div>
+                ) : null}
                 <div className="tab-panel">
                   {detailTab === "mappings" ? (
                     <MappingsSection

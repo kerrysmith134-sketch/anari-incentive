@@ -4332,6 +4332,21 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/integration-connections/{id}/test:
+    get:
+      tags: [Integrations]
+      summary: 连接测试（凭据/配置完整性检查）
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 检查结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/integration-connections/{id}/status:
     post:
       tags: [Ingestion]
@@ -6838,6 +6853,28 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/settlement-batches/{id}/report:
+    get:
+      tags: [Rewards]
+      summary: 结算单 HTML（中文，打印即 PDF）
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 结算单 HTML
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/reports/cycles/{id}/report:
+    get:
+      tags: [Evaluation]
+      summary: 考核周期报告 HTML（中文，打印即 PDF）
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 周期报告 HTML
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/settlement-batches/{id}/commands:
     post:
       tags: [Ledger]

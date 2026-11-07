@@ -29,6 +29,7 @@ const NAV: NavGroup[] = [
       { to: "/", label: "总览", icon: "overview", end: true },
       { to: "/my-ai", label: "我的 AI 记录", icon: "ai" },
       { to: "/my-rewards", label: "我的激励", icon: "rewards" },
+      { to: "/notifications", label: "通知中心", icon: "approvals" },
       {
         to: "/approvals",
         label: "审批",
@@ -210,6 +211,7 @@ const TITLES: Record<string, string> = {
   "/login": "登录",
   "/signup": "注册",
   "/my-rewards": "我的激励",
+  "/notifications": "通知中心",
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
