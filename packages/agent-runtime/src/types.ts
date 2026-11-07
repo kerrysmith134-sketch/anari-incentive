@@ -83,6 +83,14 @@ export interface AgentTask {
 
 export interface AgentContext {
   listWorkPackages(): Promise<WorkPackage[]>;
+  listEvaluationCycles(): Promise<
+    Array<{ id: string; name: string; status: string; startsAt: string; endsAt: string }>
+  >;
+  advanceEvaluationCycle(
+    id: string,
+    status: string,
+    reason?: string,
+  ): Promise<unknown>;
   listClaims(): Promise<ContributionClaim[]>;
   listDecisions(claimId?: string): Promise<AttributionDecision[]>;
   listRuns(): Promise<CalculationRun[]>;

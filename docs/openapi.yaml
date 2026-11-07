@@ -7994,6 +7994,29 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/model-evaluation-datasets:import:
+    post:
+      tags: [AI]
+      summary: 金标集批量导入（AI-02 落地）
+      description: >
+        一次登记标注数据集与全部样本（双人工分 + 模型分 + 对抗结果）。
+        服务端计算样本/留出规模与内容哈希；导入后即可运行评测台（harness），
+        通过后解锁提示词激活与数值评分提案。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoldSetImport"
+      responses:
+        "201":
+          description: 数据集与统计
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/auth/feishu/authorize:
     get:
       tags: [Platform]
@@ -11521,6 +11544,48 @@ components:
           enum: [SHADOW, FORMAL]
         evidenceType:
           type: string
+    GoldSetImport:
+      type: object
+      required: [code, name, labelSource, ownerPersonId, refreshedAt, nextRefreshDueAt, samples]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        labelSource:
+          type: string
+        ownerPersonId:
+          type: string
+        holdoutRatio:
+          type: number
+        refreshedAt:
+          type: string
+        nextRefreshDueAt:
+          type: string
+        samples:
+          type: array
+          items:
+            type: object
+            required: [sampleId, subgroup, humanScoreA, humanScoreB, aiScore, promptInjectionPassed]
+            properties:
+              sampleId:
+                type: string
+              subgroup:
+                type: string
+              humanScoreA:
+                type: number
+              humanScoreB:
+                type: number
+              aiScore:
+                type: number
+              counterfactualScores:
+                type: array
+                items:
+                  type: number
+              promptInjectionPassed:
+                type: boolean
+              holdout:
+                type: boolean
     PreReview:
       type: object
       required: []

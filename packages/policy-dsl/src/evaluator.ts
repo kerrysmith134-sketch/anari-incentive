@@ -28,7 +28,7 @@ export interface OrderContributionResult {
   engineVersion: string;
 }
 
-interface AllocatableParticipant {
+export interface AllocatableParticipant {
   personId: string;
   workPackageId: string;
   role: string;

@@ -63,6 +63,25 @@ export function createDefaultTools(): AgentTool[] {
       },
     },
     {
+      name: "advance_cycle",
+      riskTier: "T2",
+      access: "WRITE",
+      description:
+        "Advance an evaluation cycle to the next pipeline stage via the state machine.",
+      async execute(input, context) {
+        const cycleId = input.cycleId;
+        const status = input.status;
+        if (typeof cycleId !== "string" || typeof status !== "string") {
+          throw new Error("ADVANCE_CYCLE_FIELDS_REQUIRED");
+        }
+        return context.advanceEvaluationCycle(
+          cycleId,
+          status,
+          typeof input.reason === "string" ? input.reason : undefined,
+        );
+      },
+    },
+    {
       name: "create_todo",
       riskTier: "T1",
       access: "WRITE",

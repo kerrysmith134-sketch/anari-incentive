@@ -237,6 +237,7 @@ export interface IncentiveStore {
   }): Promise<EvaluationCycle>;
   getEvaluationCycle(id: string): Promise<EvaluationCycle>;
   listEvaluationCycles(): Promise<EvaluationCycle[]>;
+  listEvaluationCycles(): Promise<EvaluationCycle[]>;
   createRubric(input: {
     code: string;
     name: string;

@@ -148,6 +148,7 @@ import {
   createSubscriptionPlanSchema,
   feishuSyncSchema,
   passwordLoginSchema,
+  goldSetImportSchema,
   advanceCycleSchema,
   runsFromIngestionSchema,
   preReviewSchema,
@@ -6308,6 +6309,53 @@ export function buildApp(
         policyId: idOf(request),
       }),
       request,
+    );
+  });
+
+  // AI-02：金标集批量导入——从标注导出（JSON）登记数据集并计算留出集与内容哈希。
+  app.post("/api/v1/model-evaluation-datasets:import", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(goldSetImportSchema, request.body);
+    const sampleSize = body.samples.length;
+    const holdoutCount = body.samples.filter((sample) => sample.holdout).length;
+    const holdoutSize =
+      holdoutCount > 0
+        ? holdoutCount
+        : Math.max(1, Math.round(sampleSize * (body.holdoutRatio ?? 0.2)));
+    // 内容哈希只绑定样本内容（按 sampleId 排序），不绑定提交顺序或 code；
+    // 相同样本集在导入/刷新间哈希一致，便于审计比对。
+    const contentHash = sha256({
+      samples: [...body.samples].sort((a, b) =>
+        a.sampleId.localeCompare(b.sampleId),
+      ),
+    });
+    const dataset = await platformStore.createModelEvaluationDataset({
+      tenantId: tenantOf(request),
+      code: body.code,
+      version: 1,
+      name: body.name,
+      sampleSize,
+      holdoutSize,
+      labelSource: body.labelSource,
+      ownerPersonId: body.ownerPersonId,
+      refreshedAt: body.refreshedAt,
+      nextRefreshDueAt: body.nextRefreshDueAt,
+      contentHash,
+    });
+    countEvent("gold_set_imported");
+    return reply.status(201).send(
+      data(
+        {
+          dataset,
+          samples: body.samples,
+          stats: {
+            sampleSize,
+            holdoutSize,
+            subgroups: [...new Set(body.samples.map((sample) => sample.subgroup))],
+          },
+        },
+        request,
+      ),
     );
   });
 

@@ -32,6 +32,12 @@ import {
 } from "../index.js";
 
 class FakeContext implements AgentContext {
+  async listEvaluationCycles() {
+    return [];
+  }
+  async advanceEvaluationCycle() {
+    return {};
+  }
   workPackages: WorkPackage[] = [];
   claims: ContributionClaim[] = [];
   decisions: AttributionDecision[] = [];

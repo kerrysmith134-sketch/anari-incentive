@@ -81,6 +81,25 @@ export class HttpAgentContext implements AgentContext {
     );
   }
 
+  async listEvaluationCycles(): Promise<
+    Array<{ id: string; name: string; status: string; startsAt: string; endsAt: string }>
+  > {
+    return readData<{ id: string; name: string; status: string; startsAt: string; endsAt: string }[]>(
+      this.baseUrl,
+      "/api/v1/evaluation-cycles",
+      await this.headers(),
+    );
+  }
+
+  async advanceEvaluationCycle(id: string, status: string, reason?: string) {
+    return postData(
+      this.baseUrl,
+      `/api/v1/evaluation-cycles/${id}/advance`,
+      await this.headers(),
+      { status, reason },
+    );
+  }
+
   async listClaims(): Promise<ContributionClaim[]> {
     return readData(
       this.baseUrl,

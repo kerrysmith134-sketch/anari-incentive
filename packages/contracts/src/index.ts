@@ -1728,11 +1728,22 @@ export const policyDefinitionSchema = z.object({
   calculator: z
     .enum([
       "SIMPLE_POOL",
+      "TIERED",
+      "TEAM_POOL",
       "CASH_WEIGHTED_POOL",
       "CASH_WEIGHTED_RETENTION_POOL",
       "CASH_WEIGHTED_RESERVE_CHANNEL_POOL",
     ])
     .optional(),
+  tiers: z
+    .array(
+      z.object({
+        upTo: decimal.nullable(),
+        ratePercent: decimal,
+      }),
+    )
+    .optional(),
+  roleWeights: z.record(decimal).optional(),
   incentiveType: z.string().optional(),
   minimumWage: z
     .object({ monthlyMinimum: decimal, checked: z.boolean() })
@@ -2360,6 +2371,32 @@ export const runsFromIngestionSchema = z.object({
 export type AdvanceCycleBody = z.infer<typeof advanceCycleSchema>;
 export type RunsFromIngestionBody = z.infer<typeof runsFromIngestionSchema>;
 
+/** AI-02：金标集批量导入——一条样本 = 两位人工分 + 模型分 + 对抗结果。 */
+export const goldSetImportSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  labelSource: z.string().min(1),
+  ownerPersonId: uuidSchema,
+  holdoutRatio: z.number().min(0.01).max(0.9).default(0.2),
+  refreshedAt: z.string().datetime(),
+  nextRefreshDueAt: z.string().datetime(),
+  samples: z
+    .array(
+      z.object({
+        sampleId: z.string().min(1),
+        subgroup: z.string().min(1),
+        humanScoreA: z.number().min(0).max(5),
+        humanScoreB: z.number().min(0).max(5),
+        aiScore: z.number().min(0).max(5),
+        counterfactualScores: z.array(z.number().min(0).max(5)).default([]),
+        promptInjectionPassed: z.boolean(),
+        holdout: z.boolean().default(false),
+      }),
+    )
+    .min(2),
+});
+export type GoldSetImportBody = z.infer<typeof goldSetImportSchema>;
+
 export const preReviewSchema = z.object({
   personIds: z.array(uuidSchema).max(100).optional(),
 });
@@ -2414,6 +2451,7 @@ export const requestSchemaRegistry = {
   FeishuSync: feishuSyncSchema,
   PasswordLogin: passwordLoginSchema,
   AdvanceCycle: advanceCycleSchema,
+  GoldSetImport: goldSetImportSchema,
   PreReview: preReviewSchema,
   RunsFromIngestion: runsFromIngestionSchema,
   SetPassword: setPasswordSchema,

@@ -1626,9 +1626,18 @@ export interface PolicyDefinition {
   };
   /** Line item type emitted by the calculator; set by the pack, not the core. */
   incentiveType?: string;
+  /** 阶梯提成：按毛利区间累进计提；upTo 为区间上界（null = 无上限）。 */
+  tiers?: Array<{
+    upTo: DecimalString | null;
+    ratePercent: DecimalString;
+  }>;
+  /** 团队池：按角色的激励系数（乘在申报权重上），缺省 1。 */
+  roleWeights?: Record<string, DecimalString>;
   /** Generic calculator selected by the policy pack, not by industry code. */
   calculator?:
     | "SIMPLE_POOL"
+    | "TIERED"
+    | "TEAM_POOL"
     | "CASH_WEIGHTED_POOL"
     | "CASH_WEIGHTED_RETENTION_POOL"
     | "CASH_WEIGHTED_RESERVE_CHANNEL_POOL";

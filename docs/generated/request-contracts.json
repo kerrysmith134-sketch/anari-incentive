@@ -292,6 +292,20 @@
         "createBatch"
       ]
     },
+    "GoldSetImport": {
+      "required": [
+        "code",
+        "labelSource",
+        "name",
+        "nextRefreshDueAt",
+        "ownerPersonId",
+        "refreshedAt",
+        "samples"
+      ],
+      "optional": [
+        "holdoutRatio"
+      ]
+    },
     "ModelSummary": {
       "required": [
         "dimensions",

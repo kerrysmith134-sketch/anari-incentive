@@ -745,6 +745,113 @@ export class EvaluationDraftSkill implements AgentSkill {
   }
 }
 
+/**
+ * AI-04 草稿生成 workflow（完整流水线）：
+ * 观察处于 AI_PRE_REVIEW 的周期 → 为每个申报人规划 create_evaluation_draft
+ * （T1，证据 bound，无分数）→ 全部草稿就绪后规划 advance_cycle（T2）推进到
+ * 人工复核。决策仍必须由人工作出。
+ */
+export class CyclePreReviewSkill implements AgentSkill {
+  readonly name = "CYCLE_PRE_REVIEW";
+
+  async observe(
+    context: AgentContext,
+    input: Record<string, unknown>,
+  ): Promise<AgentFinding[]> {
+    void input;
+    const cycles = await context.listEvaluationCycles();
+    const due = cycles.filter((cycle) => cycle.status === "AI_PRE_REVIEW");
+    if (due.length === 0) {
+      return [
+        {
+          code: "NO_PRE_REVIEW_DUE",
+          severity: "INFO",
+          subjectType: "CYCLE",
+          subjectId: "none",
+          message: "没有处于 AI 预审阶段的考核周期。",
+          suggestedAction: "无需动作。",
+        },
+      ];
+    }
+    const claims = await context.listClaims();
+    const findings: AgentFinding[] = [];
+    for (const cycle of due) {
+      const windowStart = Date.parse(cycle.startsAt);
+      const windowEnd = Date.parse(cycle.endsAt);
+      const claimants = [
+        ...new Set(
+          claims
+            .filter((claim) => {
+              const at = Date.parse(claim.createdAt);
+              return at >= windowStart && at <= windowEnd;
+            })
+            .map((claim) => claim.claimantPersonId),
+        ),
+      ];
+      findings.push({
+        code: "PRE_REVIEW_DUE",
+        severity: "WARNING",
+        subjectType: "CYCLE",
+        subjectId: cycle.id,
+        message: `考核周期「${cycle.name}」等待 AI 预审：${claimants.length} 名申报人。`,
+        suggestedAction: `为 ${claimants.length} 名申报人生成 AGENT 草稿并推进到人工复核。`,
+        data: { cycleId: cycle.id, claimants, windowStart, windowEnd },
+      });
+    }
+    return findings;
+  }
+
+  plan(finding: AgentFinding): AgentAction[] {
+    if (finding.code === "NO_PRE_REVIEW_DUE") {
+      return [
+        action({
+          tool: "record_finding",
+          riskTier: "T0",
+          targetType: finding.subjectType,
+          targetId: finding.subjectId,
+          description: "没有待预审的周期。",
+          payload: { finding: finding.code },
+        }),
+      ];
+    }
+    const data = (finding.data ?? {}) as {
+      cycleId?: string;
+      claimants?: string[];
+    };
+    if (!data.cycleId || !data.claimants) return [];
+    const actions: AgentAction[] = data.claimants.map((personId) =>
+      action({
+        tool: "create_evaluation_draft",
+        riskTier: "T1",
+        targetType: "PERSON",
+        targetId: personId,
+        description: `生成 AI 预审草稿（周期 ${data.cycleId?.slice(0, 8)}）`,
+        payload: {
+          cycleId: data.cycleId,
+          personId,
+          modelProvider: "builtin",
+          modelName: "evidence-coverage-v1",
+          promptVersion: "pre-review-v1",
+          evidenceSnapshotHash: `pre-review:${data.cycleId}:${personId}`,
+          draftPayload: { source: "cycle-pre-review-skill" },
+        },
+      }),
+    );
+    // T2：全部草稿就绪后推进到人工复核（经状态机门禁）。
+    actions.push(
+      action({
+        tool: "advance_cycle",
+        riskTier: "T2",
+        targetType: "CYCLE",
+        targetId: data.cycleId,
+        description: "预审完成，推进周期到人工复核",
+        payload: { status: "HUMAN_REVIEW", reason: "AI 预审完成" },
+      }),
+    );
+    return actions;
+  }
+}
+
 export function createDefaultSkills(): Record<string, AgentSkill> {
   const skills = [
     new EvidenceGapSkill(),
@@ -753,6 +860,7 @@ export function createDefaultSkills(): Record<string, AgentSkill> {
     new PolicyProposalSkill(),
     new DataQualitySkill(),
     new EvaluationDraftSkill(),
+    new CyclePreReviewSkill(),
     new AppealSlaSkill(),
   ];
   return Object.fromEntries(skills.map((skill) => [skill.name, skill]));
