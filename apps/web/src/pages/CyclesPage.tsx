@@ -218,6 +218,12 @@ export function CyclesPage() {
     if (!selectedId && cycleList[0]?.id) setSelectedId(cycleList[0].id);
   }, [cycleList, selectedId]);
 
+  const successMetrics = useApiQuery<{ overall: string; metrics: Array<{ label: string; status: string; actual?: string; target?: string }> }>(
+    selectedId
+      ? "/api/v1/reports/success-metrics"
+      : null,
+    selectedId,
+  );
   const readiness = useApiQuery<CycleReadinessReport>(
     selectedId
       ? `/api/v1/reports/cycle-readiness?cycleId=${encodeURIComponent(selectedId)}`
@@ -528,7 +534,7 @@ export function CyclesPage() {
             </Panel>
 
             <Panel
-              title={selected ? `${selected.name} readiness` : "Cycle readiness"}
+              title={selected ? `${selected.name} 就绪度` : "周期就绪度"}
               subtitle={
                 selected
                   ? `${selected.timezone} · updated ${formatDateTime(selected.updatedAt)}`
@@ -541,7 +547,7 @@ export function CyclesPage() {
                   >
                     {readiness.data.readyForSettlement
                       ? "结算就绪"
-                      : "Not ready"}
+                      : "未就绪"}
                   </Badge>
                 ) : null
               }
@@ -559,7 +565,7 @@ export function CyclesPage() {
                         {readiness.data.calculations.total}
                       </div>
                       <div className="coverage-cell__sub">
-                        {readiness.data.calculations.formalLocked} formal locked
+                        {readiness.data.calculations.formalLocked} 正式已锁定
                       </div>
                     </div>
                     <div className="coverage-cell">
@@ -571,7 +577,7 @@ export function CyclesPage() {
                         }
                         /{readiness.data.legalGates.length}
                       </div>
-                      <div className="coverage-cell__sub">recorded</div>
+                      <div className="coverage-cell__sub">已记录</div>
                     </div>
                     <div className="coverage-cell">
                       <div className="coverage-cell__label">结算</div>
@@ -579,7 +585,7 @@ export function CyclesPage() {
                         {readiness.data.settlement.total}
                       </div>
                       <div className="coverage-cell__sub">
-                        {readiness.data.settlement.acknowledged} acknowledged
+                        {readiness.data.settlement.acknowledged} 已确认
                       </div>
                     </div>
                     <div className="coverage-cell">
@@ -629,6 +635,63 @@ export function CyclesPage() {
                       </div>
                     </div>
                   )}
+                </>
+              )}
+            </Panel>
+
+            <Panel
+              title="PRD 成功指标"
+              subtitle="证据覆盖 / 复核耗时 / 争议率 / 对账差异 / 门禁通过率"
+            >
+              {successMetrics.error ? (
+                <ErrorNotice
+                  error={successMetrics.error}
+                  onRetry={successMetrics.reload}
+                />
+              ) : successMetrics.loading || !successMetrics.data ? (
+                <LoadingRows rows={3} />
+              ) : (
+                <>
+                  <div
+                    className="notice notice--success"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <strong>
+                      整体状态：
+                      {successMetrics.data.overall === "PASS"
+                        ? "达标"
+                        : successMetrics.data.overall === "FAIL"
+                          ? "未达标"
+                          : successMetrics.data.overall}
+                    </strong>
+                  </div>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>指标</th>
+                        <th>实际</th>
+                        <th>目标</th>
+                        <th>状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {successMetrics.data.metrics.map((metric) => (
+                        <tr key={metric.label}>
+                          <td>{metric.label}</td>
+                          <td className="mono">{metric.actual ?? "—"}</td>
+                          <td className="mono">{metric.target ?? "—"}</td>
+                          <td>
+                            <Badge status={metric.status === "PASS" ? "APPROVED" : metric.status === "FAIL" ? "REJECTED" : "DRAFT"} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </>
               )}
             </Panel>

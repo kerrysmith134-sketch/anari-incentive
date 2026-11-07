@@ -5098,7 +5098,7 @@ export function buildApp(
     const metrics = [
       {
         id: "EVIDENCE_COVERAGE",
-        label: "Evidence coverage",
+        label: "证据覆盖率（≥70%）",
         value: Math.round(coverage * 10000) / 10000,
         unit: "RATIO",
         target: 0.7,
@@ -5108,7 +5108,7 @@ export function buildApp(
       },
       {
         id: "MANAGER_REVIEW_HOURS",
-        label: "Manager review time",
+        label: "经理复核时间（≤2 小时）",
         value: managerReviewHours,
         unit: "HOURS",
         target: 2,
@@ -5123,7 +5123,7 @@ export function buildApp(
       },
       {
         id: "CONTRIBUTION_DISPUTE_RATE",
-        label: "Contribution dispute rate",
+        label: "贡献争议率（<10%）",
         value: Math.round(disputeRate * 10000) / 10000,
         unit: "RATIO",
         target: 0.1,
@@ -5133,7 +5133,7 @@ export function buildApp(
       },
       {
         id: "RECONCILIATION_DIFFERENCES",
-        label: "Reconciliation differences",
+        label: "财务对账差异（=0）",
         value: reconciliationDifferences,
         unit: "COUNT",
         target: 0,
@@ -5143,7 +5143,7 @@ export function buildApp(
       },
       {
         id: "EMPLOYEE_EVIDENCE_MINUTES",
-        label: "Employee evidence supplement time",
+        label: "员工补证时间（≤30 分钟）",
         value: evidenceSupplementAvg,
         unit: "MINUTES",
         target: 30,
@@ -5158,7 +5158,7 @@ export function buildApp(
       },
       {
         id: "TRUST_VS_BASELINE",
-        label: "Trust vs baseline",
+        label: "员工信任对比基线",
         value: trustCurrent,
         unit: "RATIO",
         target: trustBaseline ?? 0,
