@@ -159,7 +159,7 @@ export function RegistriesPage() {
       else templates.reload();
     } catch (caught) {
       toast.error(
-        "Could not retire",
+        "退役失败",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {

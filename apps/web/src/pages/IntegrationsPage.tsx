@@ -120,7 +120,7 @@ async function createConnection(event: FormEvent) {
     try {
       parsedConfig = config.trim() ? JSON.parse(config) : {};
     } catch {
-      setFormError("Config must be valid JSON.");
+      setFormError("配置必须是合法 JSON。");
       return;
     }
     if (
@@ -128,7 +128,7 @@ async function createConnection(event: FormEvent) {
       parsedConfig === null ||
       Array.isArray(parsedConfig)
     ) {
-      setFormError("Config must be a JSON object.");
+      setFormError("配置必须是 JSON 对象。");
       return;
     }
     setSubmitting(true);
@@ -151,7 +151,7 @@ async function createConnection(event: FormEvent) {
       connections.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create connection.",
+        caught instanceof Error ? caught.message : "创建连接失败。",
       );
     } finally {
       setSubmitting(false);
@@ -168,13 +168,13 @@ async function createConnection(event: FormEvent) {
         body: { status: next },
       });
       toast.success(
-        next === "ACTIVE" ? "Connection activated" : "Connection disconnected",
+        next === "ACTIVE" ? "连接已启用" : "连接已断开",
         connection.connectionName,
       );
       connections.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "Could not change status.",
+        caught instanceof Error ? caught.message : "修改状态失败。",
       );
     } finally {
       setStatusBusy(false);
@@ -193,7 +193,7 @@ async function createConnection(event: FormEvent) {
       syncRuns.reload();
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "Could not queue a sync.",
+        caught instanceof Error ? caught.message : "排队同步失败。",
       );
     } finally {
       setStatusBusy(false);
@@ -603,7 +603,7 @@ function MappingsSection({
       parsedFieldMap = JSON.parse(fieldMap);
       parsedConfig = config.trim() ? JSON.parse(config) : {};
     } catch {
-      setFormError("Field map and config must be valid JSON.");
+      setFormError("字段映射与配置必须是合法 JSON。");
       return;
     }
     if (
@@ -634,7 +634,7 @@ function MappingsSection({
       reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the mapping.",
+        caught instanceof Error ? caught.message : "创建映射失败。",
       );
     } finally {
       setSubmitting(false);
@@ -649,12 +649,12 @@ function MappingsSection({
       await api(`/api/v1/integration-mappings/${retireTarget.id}/retire`, {
         method: "POST",
       });
-      toast.success("Mapping retired", retireTarget.name);
+      toast.success("映射已退役", retireTarget.name);
       setRetireTarget(null);
       reload();
     } catch (caught) {
       setRetireError(
-        caught instanceof Error ? caught.message : "Could not retire mapping.",
+        caught instanceof Error ? caught.message : "退役映射失败。",
       );
     } finally {
       setSubmitting(false);
@@ -936,7 +936,7 @@ function SchedulesSection({
       reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the schedule.",
+        caught instanceof Error ? caught.message : "创建计划失败。",
       );
     } finally {
       setSubmitting(false);
@@ -957,7 +957,7 @@ function SchedulesSection({
       reload();
     } catch (caught) {
       toast.error(
-        "Could not change schedule",
+        "修改计划失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -1228,12 +1228,12 @@ function IdentitiesSection() {
           personId: personId.trim() || undefined,
         },
       });
-      toast.success("External identity mapped", externalId);
+      toast.success("外部身份已映射", externalId);
       setOpen(false);
       identities.reload();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not map identity",
+        caught instanceof Error ? caught.message : "映射身份失败",
       );
     } finally {
       setBusy(false);
@@ -1391,12 +1391,12 @@ function FeishuSyncPanel() {
       );
       setResult(response);
       toast.success(
-        dryRun ? "Preview ready" : "Directory synced",
+        dryRun ? "Preview ready" : "通讯录已同步",
         `${response.departments.length} departments · ${response.users.length} people · ${response.managersLinked} reporting lines`,
       );
     } catch (caught) {
       toast.error(
-        caught instanceof ApiError ? caught.message : "Directory sync failed",
+        caught instanceof ApiError ? caught.message : "通讯录同步失败",
       );
     } finally {
       setBusy(false);

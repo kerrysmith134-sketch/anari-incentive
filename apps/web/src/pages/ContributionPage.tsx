@@ -215,7 +215,7 @@ export function ContributionPage() {
       .map((line) => line.trim())
       .filter(Boolean);
     if (criteriaList.length === 0) {
-      setFormError("At least one acceptance criterion is required.");
+      setFormError("至少一条验收标准。");
       return;
     }
     if (
@@ -253,7 +253,7 @@ export function ContributionPage() {
       packages.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the package.",
+        caught instanceof Error ? caught.message : "创建工作包失败。",
       );
     } finally {
       setSubmitting(false);
@@ -275,7 +275,7 @@ export function ContributionPage() {
     if (!packageAction) return;
     const { kind, workPackage } = packageAction;
     if (kind === "review" && reviewDecision === "REJECT" && rejectReason.trim().length < 3) {
-      setActionError("A rejection reason of at least 3 characters is required.");
+      setActionError("驳回理由至少 3 个字符。");
       return;
     }
     setSubmitting(true);
@@ -387,14 +387,14 @@ export function ContributionPage() {
             .filter(Boolean),
         },
       });
-      toast.success("Attestation recorded");
+      toast.success("证明已记录");
       setAttestOpen(false);
       attestations.reload();
     } catch (caught) {
       setAttestError(
         caught instanceof Error
           ? caught.message
-          : "Could not record the attestation.",
+          : "记录证明失败。",
       );
     } finally {
       setSubmitting(false);
@@ -411,11 +411,11 @@ export function ContributionPage() {
           body: { personId: session.personId },
         },
       );
-      toast.success("Attestation withdrawn");
+      toast.success("证明已撤回");
       attestations.reload();
     } catch (caught) {
       toast.error(
-        "Could not withdraw attestation",
+        "撤回证明失败",
         caught instanceof Error ? caught.message : "操作失败。",
       );
     } finally {
@@ -431,7 +431,7 @@ export function ContributionPage() {
       .map((value) => value.trim())
       .filter(Boolean);
     if (dimensions.length === 0) {
-      setClaimError("At least one contribution dimension is required.");
+      setClaimError("至少一个贡献维度。");
       return;
     }
     setSubmitting(true);
@@ -458,12 +458,12 @@ export function ContributionPage() {
             .filter(Boolean),
         },
       });
-      toast.success("Contribution claim created", claimSummary.slice(0, 60));
+      toast.success("贡献申报已创建", claimSummary.slice(0, 60));
       setClaimOpen(false);
       claims.reload();
     } catch (caught) {
       setClaimError(
-        caught instanceof Error ? caught.message : "Could not create the claim.",
+        caught instanceof Error ? caught.message : "创建申报失败。",
       );
     } finally {
       setSubmitting(false);
@@ -476,11 +476,11 @@ export function ContributionPage() {
       await api(`/api/v1/contribution-claims/${claim.id}/submit`, {
         method: "POST",
       });
-      toast.success("Claim submitted", shortId(claim.id));
+      toast.success("申报已提交", shortId(claim.id));
       claims.reload();
     } catch (caught) {
       toast.error(
-        "Could not submit the claim",
+        "提交申报失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -531,7 +531,7 @@ export function ContributionPage() {
       setDecisionError(
         caught instanceof Error
           ? caught.message
-          : "Decision dimensions must be valid JSON.",
+          : "决策维度必须是合法 JSON。",
       );
       return;
     }
@@ -558,7 +558,7 @@ export function ContributionPage() {
         },
       });
       toast.success(
-        "Attribution decision recorded",
+        "认定已记录",
         titleCase(decisionStatus),
       );
       setAdjudicateClaim(null);
@@ -601,12 +601,12 @@ export function ContributionPage() {
             : undefined,
         },
       });
-      toast.success("Deliverable added", deliverableTitle);
+      toast.success("交付物已添加", deliverableTitle);
       setDeliverableOpen(false);
       deliverables.reload();
     } catch (caught) {
       setDeliverableError(
-        caught instanceof ApiError ? caught.message : "Could not add deliverable",
+        caught instanceof ApiError ? caught.message : "添加交付物失败",
       );
     }
   }
@@ -622,7 +622,7 @@ export function ContributionPage() {
       deliverables.reload();
     } catch (caught) {
       toast.error(
-        "Could not submit deliverable",
+        "提交交付物失败",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {
@@ -647,7 +647,7 @@ export function ContributionPage() {
       deliverables.reload();
     } catch (caught) {
       setAcceptError(
-        caught instanceof ApiError ? caught.message : "Could not record acceptance",
+        caught instanceof ApiError ? caught.message : "记录验收失败",
       );
     }
   }
@@ -687,7 +687,7 @@ export function ContributionPage() {
       evidence.reload();
     } catch (caught) {
       setEvidenceError(
-        caught instanceof Error ? caught.message : "Could not record evidence",
+        caught instanceof Error ? caught.message : "记录证据失败",
       );
     }
   }
@@ -1651,7 +1651,7 @@ export function ContributionPage() {
             ? packageAction.kind === "review"
               ? "Review work package"
               : packageAction.kind === "commit"
-                ? "Commit work package"
+                ? "提交工作包承诺"
                 : packageAction.kind === "start"
                   ? "开始"
                   : "Submit work package"

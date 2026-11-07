@@ -169,13 +169,13 @@ export function CyclesPage() {
           })),
         },
       });
-      toast.success("Calculation run created", runMode);
+      toast.success("计算批次已创建", runMode);
       setRunOpen(false);
       runs.reload();
       readiness.reload();
     } catch (caught) {
       setRunError(
-        caught instanceof ApiError ? caught.message : "Could not create the run",
+        caught instanceof ApiError ? caught.message : "创建计算失败",
       );
     } finally {
       setRunSubmitting(false);
@@ -199,14 +199,14 @@ export function CyclesPage() {
         },
       );
       toast.success(
-        command === "approve" ? "Run approved" : "Run locked",
+        command === "approve" ? "计算已批准" : "Run locked",
         shortId(runId),
       );
       runs.reload();
       readiness.reload();
     } catch (caught) {
       toast.error(
-        command === "approve" ? "审批失败" : "Lock failed",
+        command === "approve" ? "审批失败" : "锁定失败",
         caught instanceof ApiError ? caught.message : "请求失败",
       );
     } finally {
@@ -274,7 +274,7 @@ export function CyclesPage() {
       cycles.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the cycle.",
+        caught instanceof Error ? caught.message : "创建周期失败。",
       );
     } finally {
       setSubmitting(false);
@@ -296,12 +296,12 @@ export function CyclesPage() {
         `evidence-package-${selectedId}.json`,
       );
       toast.success(
-        "Evidence package downloaded",
+        "证据包已下载",
         "包含法律门禁、决策、结算、账本与审计事件。",
       );
     } catch (caught) {
       toast.error(
-        "Could not build the evidence package",
+        "证据包构建失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -315,12 +315,12 @@ export function CyclesPage() {
       await api(`/api/v1/evaluation-drafts/${draft.id}/submit`, {
         method: "POST",
       });
-      toast.success("Draft submitted for review", shortId(draft.id));
+      toast.success("草稿已提交复核", shortId(draft.id));
       drafts.reload();
       setDetailDraft(null);
     } catch (caught) {
       toast.error(
-        "Could not submit the draft",
+        "提交草稿失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -363,7 +363,7 @@ export function CyclesPage() {
       return;
     }
     if (!reviewRubric) {
-      setReviewError("A rubric version is required.");
+      setReviewError("必须选择评分标准版本。");
       return;
     }
     if (rationale.trim().length < 3) {
@@ -384,7 +384,7 @@ export function CyclesPage() {
         },
       });
       toast.success(
-        decision === "APPROVE" ? "Evaluation approved" : "Draft rejected",
+        decision === "APPROVE" ? "评价已批准" : "草稿已驳回",
         shortId(reviewDraft.id),
       );
       setReviewDraft(null);
@@ -944,7 +944,7 @@ export function CyclesPage() {
                                 <DefinitionList
                                   items={[
                                     {
-                                      label: "Result hash",
+                                      label: "结果哈希",
                                       value: run.resultHash ?? "—",
                                     },
                                     {
@@ -984,7 +984,7 @@ export function CyclesPage() {
                                         <tr>
                                           <th>人员</th>
                                           <th>行</th>
-                                          <th>Raw</th>
+                                          <th>原始</th>
                                           <th>舍入后</th>
                                         </tr>
                                       </thead>
@@ -1218,7 +1218,7 @@ export function CyclesPage() {
               }
             >
               <option value="FORMAL">正式</option>
-              <option value="SHADOW">Shadow</option>
+              <option value="SHADOW">影子</option>
             </Select>
           </FormField>
           <FormField label="政策版本" htmlFor="run-policy">
@@ -1426,7 +1426,7 @@ export function CyclesPage() {
                   }`,
                 },
                 {
-                  label: "Evidence snapshot",
+                  label: "证据快照",
                   value: (
                     <span className="mono">
                       {shortId(detailDraft.evidenceSnapshotHash, 20)}
@@ -1508,7 +1508,7 @@ export function CyclesPage() {
               onClick={submitDecision}
               loading={submitting}
             >
-              {decision === "REJECT" ? "Reject draft" : "Approve evaluation"}
+              {decision === "REJECT" ? "驳回草稿" : "批准评价"}
             </Button>
           </>
         }
@@ -1533,7 +1533,7 @@ export function CyclesPage() {
                   ),
                 },
                 {
-                  label: "Draft version",
+                  label: "草稿版本",
                   value: `v${reviewDraft.version}`,
                 },
               ]}

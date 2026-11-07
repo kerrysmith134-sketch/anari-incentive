@@ -329,7 +329,7 @@ export function Modal({
             <h2 id={titleId}>{title}</h2>
             {description ? <p>{description}</p> : null}
           </div>
-          <IconButton label="Close dialog" icon="close" onClick={onClose} />
+          <IconButton label="关闭对话框" icon="close" onClick={onClose} />
         </header>
         <div className="modal__body">{children}</div>
         {footer ? <footer className="modal__footer">{footer}</footer> : null}
@@ -424,7 +424,7 @@ export function SearchInput({
       {value ? (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label="清除搜索"
           onClick={() => onChange("")}
         >
           <Icon name="close" size={13} />
@@ -474,7 +474,7 @@ export function LoadingRows({ rows = 4 }: { rows?: number }) {
 }
 
 export function ErrorNotice({
-  title = "Could not load data",
+  title = "数据加载失败",
   error,
   onRetry,
 }: {

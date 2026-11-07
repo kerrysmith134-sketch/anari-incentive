@@ -199,10 +199,10 @@ export function DashboardPage() {
           value={cycles.loading ? "…" : activeCycles.length}
           detail={
             cycles.loading
-              ? "Loading cycles"
+              ? "周期加载中"
               : activeCycles[0]
                 ? `${activeCycles[0].name} · ends ${formatDate(activeCycles[0].endsAt)}`
-                : "No cycle currently in flight"
+                : "当前没有进行中的周期"
           }
           icon="layers"
           tone="accent"
@@ -212,10 +212,10 @@ export function DashboardPage() {
           value={approvals.loading ? "…" : pendingApprovals.length}
           detail={
             approvals.loading
-              ? "Loading queue"
+              ? "队列加载中"
               : highRisk > 0
                 ? `${highRisk} at T2 or above`
-                : "Nothing above T1"
+                : "没有 T1 以上事项"
           }
           icon="approvals"
           tone={pendingApprovals.length > 0 ? "warning" : "good"}
@@ -257,7 +257,7 @@ export function DashboardPage() {
                   openBounties[0]?.currency ?? "CNY",
                   { compact: true },
                 )} committed`
-              : "No live bounty"
+              : "暂无进行中悬赏"
           }
           icon="rewards"
           tone="neutral"
@@ -558,8 +558,8 @@ export function DashboardPage() {
                   <div>
                     <strong>
                       {report.dataQuality.overdue > 0
-                        ? "Remediation is overdue"
-                        : "Data quality is inside tolerance"}
+                        ? "整改已逾期"
+                        : "数据质量在容差内"}
                     </strong>
                     <p>
                       {report.dataQuality.overdue > 0
@@ -763,7 +763,7 @@ export function DashboardPage() {
                 <p className="subtle" style={{ fontSize: 12 }}>
                   Channels:{" "}
                   {appealStats.data.commitment.channels.join(", ") ||
-                    "not specified"}
+                    "未指定"}
                 </p>
               </div>
             ) : (
@@ -805,7 +805,7 @@ export function DashboardPage() {
                 <div className="coverage-cell__label">结果</div>
                 <div className="coverage-cell__value" style={{ fontSize: 15 }}>
                   {Object.keys(appealStats.data.appeals.resolutions).length === 0
-                    ? "No resolution yet"
+                    ? "尚无裁决"
                     : Object.entries(appealStats.data.appeals.resolutions)
                         .map(
                           ([outcome, count]) =>
@@ -928,7 +928,7 @@ function EmployeeHome() {
         <StatTile
           label="异议"
           value={objected.length}
-          detail="Confirmations you objected to"
+          detail="你提出异议的确认"
           icon="check-circle"
           tone={objected.length > 0 ? "warning" : "neutral"}
         />
@@ -938,7 +938,7 @@ function EmployeeHome() {
           detail={
             ai.data?.aiUsed
               ? `${ai.data.models.join(", ") || "review pending"}`
-              : "AI not used for your record"
+              : "你的记录中 AI 未参与"
           }
           icon="ai"
         />

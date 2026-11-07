@@ -227,7 +227,7 @@ export function AiPage() {
       setSummaryResult(response.summary);
       toast.success(
         "Model summary generated",
-        "Logged as an advisory AI suggestion; it never enters money paths.",
+        "已记录为建议性 AI 建议；绝不进入资金路径。",
       );
     } catch (error) {
       setSummaryError(
@@ -258,14 +258,14 @@ async function saveRefresh(event: FormEvent) {
           },
         },
       );
-      toast.success("Gold set refreshed");
+      toast.success("金标集已刷新");
       setRefreshTarget(null);
       datasets.reload();
     } catch (error) {
       setRefreshError(
         error instanceof Error
           ? error.message
-          : "Could not refresh the gold set.",
+          : "无法刷新金标集。",
       );
     } finally {
       setRefreshSaving(false);
@@ -315,7 +315,7 @@ async function saveRefresh(event: FormEvent) {
       setRedTeamError(
         error instanceof Error
           ? error.message
-          : "Could not record the red-team run.",
+          : "无法记录红队运行。",
       );
     } finally {
       setRedTeamSaving(false);
@@ -355,14 +355,14 @@ async function saveRefresh(event: FormEvent) {
             : undefined,
         },
       });
-      toast.success("Gold set registered");
+      toast.success("金标集已登记");
       setDatasetOpen(false);
       datasets.reload();
     } catch (error) {
       setDatasetError(
         error instanceof Error
           ? error.message
-          : "Could not register the gold set.",
+          : "无法登记金标集。",
       );
     } finally {
       setDatasetSaving(false);
@@ -374,11 +374,11 @@ async function saveRefresh(event: FormEvent) {
       await api(`/api/v1/model-evaluation-datasets/${dataset.id}/retire`, {
         method: "POST",
       });
-      toast.success("Gold set retired");
+      toast.success("金标集已退役");
       datasets.reload();
     } catch (error) {
       toast.error(
-        "Could not retire gold set",
+        "无法退役金标集",
         error instanceof Error ? error.message : "操作失败。",
       );
     }
@@ -485,7 +485,7 @@ async function saveRefresh(event: FormEvent) {
       scores[dimension] = value;
     }
     if (auditRationale.trim().length < 3) {
-      setAuditError("A short second-review rationale is required.");
+      setAuditError("第二复核理由过短。");
       return;
     }
     setAuditSubmitting(true);
@@ -504,7 +504,7 @@ async function saveRefresh(event: FormEvent) {
         },
       );
       toast.success(
-        "Audit review recorded",
+        "审计复核已记录",
         "The second review is stored without changing the original decision.",
       );
       setAuditTarget(null);
@@ -514,7 +514,7 @@ async function saveRefresh(event: FormEvent) {
       setAuditError(
         caught instanceof Error
           ? caught.message
-          : "Could not record the audit review.",
+          : "无法记录审计复核。",
       );
     } finally {
       setAuditSubmitting(false);
@@ -528,11 +528,11 @@ async function saveRefresh(event: FormEvent) {
       return;
     }
     if (decision === "REJECT" && !note.trim()) {
-      setActionError("A note is required when rejecting a score proposal.");
+      setActionError("驳回评分提案时必须填写备注。");
       return;
     }
     if (currentOverride(selected) && !overrideReason.trim()) {
-      setActionError("Explain why your independent score differs from the AI proposal.");
+      setActionError("请说明独立评分与 AI 提案不同的原因。");
       return;
     }
     if (selected.secondReviewRequired) {
@@ -541,7 +541,7 @@ async function saveRefresh(event: FormEvent) {
         return;
       }
       if (secondRationale.trim().length < 3) {
-        setActionError("A second-review rationale is required.");
+        setActionError("必须填写第二复核理由。");
         return;
       }
       for (const dimension of selected.dimensions) {
@@ -641,13 +641,13 @@ async function saveRefresh(event: FormEvent) {
           thresholds,
         },
       });
-      toast.success("Harness evaluation recorded", harnessType);
+      toast.success("评测已记录", harnessType);
       setHarnessOpen(false);
       evaluations.reload();
       datasets.reload();
     } catch (caught) {
       setHarnessError(
-        caught instanceof Error ? caught.message : "Harness evaluation failed",
+        caught instanceof Error ? caught.message : "评测失败",
       );
     } finally {
       setHarnessRunning(false);
@@ -659,7 +659,7 @@ async function saveRefresh(event: FormEvent) {
       <PageHeader
         eyebrow="人在环评分"
         title="AI 保障"
-        description="Model output is always a proposal. Numeric scores require a passed evaluation gate, evidence citations and an explicit human decision before they enter a formal evaluation."
+        description="模型输出永远只是建议。数值评分必须通过评测门禁、引用证据，并由人工决策归属。"
         actions={
           <Button
             variant="secondary"
@@ -1803,7 +1803,7 @@ async function saveRefresh(event: FormEvent) {
                   onClick={submitDecision}
                   loading={submitting}
                 >
-                  {decision === "REJECT" ? "Reject score" : "Accept score"}
+                  {decision === "REJECT" ? "Reject score" : "采纳评分"}
                 </Button>
               )}
             </>
@@ -2119,8 +2119,8 @@ async function saveRefresh(event: FormEvent) {
                       <FormField
                         label={
                           decision === "REJECT"
-                            ? "Decision note (required)"
-                            : "Decision note (optional)"
+                            ? "决策备注（必填）"
+                            : "决策备注（可选）"
                         }
                         htmlFor="ai-note"
                         className="field--full"
@@ -2244,7 +2244,7 @@ async function saveRefresh(event: FormEvent) {
                   value:
                     evaluationDetail.metrics.harnessVersion === "ai-gate-v1"
                       ? "Verified (ai-gate-v1)"
-                      : "Imported record",
+                      : "已导入记录",
                 },
                 {
                   label: "结果",

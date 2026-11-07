@@ -134,7 +134,7 @@ export function PlatformAdminPage() {
       tenants.reload();
     } catch (caught) {
       setTenantError(
-        caught instanceof ApiError ? caught.message : "Could not create tenant",
+        caught instanceof ApiError ? caught.message : "创建租户失败",
       );
     }
   }
@@ -154,12 +154,12 @@ export function PlatformAdminPage() {
           features: [],
         },
       });
-      toast.success("Plan saved", planCode);
+      toast.success("套餐已保存", planCode);
       setPlanOpen(false);
       plans.reload();
     } catch (caught) {
       setPlanError(
-        caught instanceof ApiError ? caught.message : "Could not save plan",
+        caught instanceof ApiError ? caught.message : "保存套餐失败",
       );
     }
   }
@@ -181,7 +181,7 @@ export function PlatformAdminPage() {
           currentPeriodEnd: end.toISOString(),
         },
       });
-      toast.success("Subscription saved", subPlanCode);
+      toast.success("订阅已保存", subPlanCode);
       subscription.reload();
     } catch (caught) {
       setSubError(
@@ -211,14 +211,14 @@ export function PlatformAdminPage() {
           ],
         },
       });
-      toast.success("Invoice created");
+      toast.success("发票已创建");
       setInvoiceOpen(false);
       invoices.reload();
     } catch (caught) {
       setInvoiceError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not create invoice",
+          : "创建发票失败",
       );
     }
   }
@@ -229,11 +229,11 @@ export function PlatformAdminPage() {
         method: "POST",
         body: { status },
       });
-      toast.success("Invoice updated", status);
+      toast.success("发票已更新", status);
       invoices.reload();
     } catch (caught) {
       toast.error(
-        caught instanceof ApiError ? caught.message : "Could not update invoice",
+        caught instanceof ApiError ? caught.message : "更新发票失败",
       );
     }
   }
@@ -254,7 +254,7 @@ export function PlatformAdminPage() {
       users.reload();
     } catch (caught) {
       setUserError(
-        caught instanceof ApiError ? caught.message : "Could not create user",
+        caught instanceof ApiError ? caught.message : "创建用户失败",
       );
     }
   }
@@ -281,7 +281,7 @@ export function PlatformAdminPage() {
       memberships.reload();
     } catch (caught) {
       setMembershipError(
-        caught instanceof ApiError ? caught.message : "Could not add membership",
+        caught instanceof ApiError ? caught.message : "添加成员关系失败",
       );
     }
   }
@@ -298,12 +298,12 @@ export function PlatformAdminPage() {
           parentId: orgParentId.trim() || undefined,
         },
       });
-      toast.success("Org node created", orgName);
+      toast.success("组织节点已创建", orgName);
       setOrgOpen(false);
       orgNodes.reload();
     } catch (caught) {
       setOrgError(
-        caught instanceof ApiError ? caught.message : "Could not create org node",
+        caught instanceof ApiError ? caught.message : "创建组织节点失败",
       );
     }
   }
@@ -318,11 +318,11 @@ export function PlatformAdminPage() {
         method: "POST",
         body: parsed,
       });
-      toast.success("Tenant settings saved", selectedTenant?.name);
+      toast.success("租户设置已保存", selectedTenant?.name);
       tenants.reload();
     } catch (caught) {
       setSettingsError(
-        caught instanceof Error ? caught.message : "Could not save settings",
+        caught instanceof Error ? caught.message : "保存设置失败",
       );
     } finally {
       setSaving(false);

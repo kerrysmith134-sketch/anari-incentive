@@ -136,7 +136,7 @@ export function ApprovalsPage() {
         },
       });
       toast.success(
-        decision === "APPROVE" ? "Approval recorded" : "Request rejected",
+        decision === "APPROVE" ? "审批已记录" : "请求已驳回",
         `${titleCase(selected.actionType)} · ${shortId(selected.id)}`,
       );
       setSelected(null);
@@ -163,7 +163,7 @@ export function ApprovalsPage() {
         method: "POST",
         body: { consumedBy: session.personId },
       });
-      toast.success("Approval consumed", shortId(consumeTarget.id));
+      toast.success("审批已消费", shortId(consumeTarget.id));
       setConsumeTarget(null);
       approvals.reload();
     } catch (caught) {
@@ -250,7 +250,7 @@ export function ApprovalsPage() {
           ) : visible.length === 0 ? (
             <EmptyState
               icon="approvals"
-              title={tab === "PENDING" ? "Nothing waiting" : "当前视图暂无请求"}
+              title={tab === "PENDING" ? "没有待办" : "当前视图暂无请求"}
               description={
                 tab === "PENDING"
                   ? "审批队列为空。新的受门禁动作会自动进入此处。"
@@ -505,7 +505,7 @@ export function ApprovalsPage() {
                 { label: "操作", value: titleCase(consumeTarget.actionType) },
                 { label: "对象", value: shortId(consumeTarget.targetId, 16) },
                 {
-                  label: "Consumed by",
+                  label: "消费人",
                   value: <span className="mono">{session.personId}</span>,
                 },
               ]}

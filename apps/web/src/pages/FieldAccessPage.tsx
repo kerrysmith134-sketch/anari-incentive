@@ -153,7 +153,7 @@ export function FieldAccessPage() {
         body: { policies },
       });
       toast.success(
-        "Field matrix saved",
+        "字段矩阵已保存",
         `${Object.keys(policies).length} override(s)`,
       );
       matrix.reload();
@@ -194,12 +194,12 @@ export function FieldAccessPage() {
           recordedBy: session.personId,
         },
       });
-      toast.success("Subgroup label recorded", attributeDimension);
+      toast.success("子群体标签已记录", attributeDimension);
       setAttributeOpen(false);
       attributes.reload();
     } catch (caught) {
       setAttributeError(
-        caught instanceof ApiError ? caught.message : "Could not record label",
+        caught instanceof ApiError ? caught.message : "记录标签失败",
       );
     }
   }

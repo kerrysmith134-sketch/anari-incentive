@@ -98,12 +98,12 @@ export function AgentOpsPage() {
         method: "POST",
         body: {},
       });
-      toast.success("Agent scan finished", `${result.length} task(s) ran`);
+      toast.success("Agent 扫描完成", `${result.length} task(s) ran`);
       tasks.reload();
       workflows.reload();
     } catch (caught) {
       toast.error(
-        "Scan failed",
+        "扫描失败",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {
@@ -115,11 +115,11 @@ export function AgentOpsPage() {
     setBusy(`run:${task.id}`);
     try {
       await api(`/api/v1/agent-tasks/${task.id}/run`, { method: "POST" });
-      toast.success("Task executed", shortId(task.id));
+      toast.success("任务已执行", shortId(task.id));
       tasks.reload();
     } catch (caught) {
       toast.error(
-        "Execution failed",
+        "执行失败",
         caught instanceof ApiError ? caught.message : undefined,
       );
     } finally {
@@ -140,12 +140,12 @@ export function AgentOpsPage() {
           idempotencyKey: idempotencyKey.trim(),
         },
       });
-      toast.success("Agent task queued", agentType);
+      toast.success("Agent 任务已排队", agentType);
       setEnqueueOpen(false);
       tasks.reload();
     } catch (caught) {
       setEnqueueError(
-        caught instanceof Error ? caught.message : "Could not enqueue task",
+        caught instanceof Error ? caught.message : "任务排队失败",
       );
     }
   }
@@ -210,7 +210,7 @@ export function AgentOpsPage() {
         method: "POST",
         body: { status: "SUCCEEDED" },
       });
-      toast.success("Workflow finished", run.workflowName);
+      toast.success("工作流已完结", run.workflowName);
       workflows.reload();
     } catch (caught) {
       toast.error(
@@ -238,12 +238,12 @@ export function AgentOpsPage() {
           validationStatus: "UNVERIFIED",
         },
       });
-      toast.success("Suggestion logged", suggestionType);
+      toast.success("建议已记录", suggestionType);
       setSuggestionOpen(false);
       suggestions.reload();
     } catch (caught) {
       setSuggestionError(
-        caught instanceof Error ? caught.message : "Could not log suggestion",
+        caught instanceof Error ? caught.message : "记录建议失败",
       );
     }
   }
@@ -255,7 +255,7 @@ export function AgentOpsPage() {
         method: "POST",
         body: { acceptedBy: session.personId },
       });
-      toast.success("Suggestion accepted", suggestion.suggestionType);
+      toast.success("建议已采纳", suggestion.suggestionType);
       suggestions.reload();
     } catch (caught) {
       toast.error(
@@ -280,7 +280,7 @@ export function AgentOpsPage() {
       <PageHeader
         eyebrow="有界自动化"
         title="Agent 运维"
-        description="Proactive agent tasks, their approval gates, workflow runs and suggestion logs. T2/T3 actions require a human; every step is audited."
+        description="主动式 Agent 任务、审批门禁、工作流运行与建议日志；T2/T3 必须人工批准，AI 关闭时全人工兜底。"
         actions={
           <>
             <Button
@@ -314,7 +314,7 @@ export function AgentOpsPage() {
           { id: "tasks", label: "Agent 任务", count: taskList.length },
           {
             id: "approvals",
-            label: "Pending actions",
+            label: "待处理动作",
             count: pendingActions.length,
           },
           { id: "workflows", label: "工作流运行", count: workflowList.length },
@@ -804,7 +804,7 @@ export function AgentOpsPage() {
 
       <Modal
         open={Boolean(actionTarget)}
-        title={actionDecision === "approve" ? "Approve agent action" : "Reject agent action"}
+        title={actionDecision === "approve" ? "批准 Agent 动作" : "拒绝 Agent 动作"}
         description={actionTarget?.action.description}
         onClose={() => setActionTarget(null)}
         footer={

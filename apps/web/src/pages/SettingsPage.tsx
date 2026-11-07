@@ -696,7 +696,7 @@ export function SettingsPage() {
       );
       toast.success(
         "Disposal request created",
-        "A second person must approve it; the grace period then applies.",
+        "需另一人批准，随后进入宽限期。",
       );
       setDisposalOpen(false);
       disposals.reload();
@@ -755,7 +755,7 @@ export function SettingsPage() {
           approvedBy: redactionApprover,
         },
       });
-      toast.success("Audit redaction recorded");
+      toast.success("审计脱敏已记录");
       setRedactionOpen(false);
       redactions.reload();
     } catch (error) {
@@ -916,7 +916,7 @@ export function SettingsPage() {
           requestedBy: clawbackRequester,
         },
       });
-      toast.success("Clawback case recorded");
+      toast.success("追回案例已记录");
       setClawbackOpen(false);
       clawbacks.reload();
     } catch (error) {
@@ -950,7 +950,7 @@ export function SettingsPage() {
       toast.success(
         "Recovery generated",
         recoveryCreateBatch
-          ? "A RECOVERY settlement batch was opened; affected people must confirm before locking."
+          ? "已创建 RECOVERY 结算批次；受影响人员须确认后才能锁定。"
           : "The locked ledger adjustment was appended.",
       );
       setRecoveryTarget(null);
@@ -1004,7 +1004,7 @@ export function SettingsPage() {
       clawbacks.reload();
     } catch (error) {
       toast.error(
-        "Could not approve clawback",
+        "批准追回失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -1084,7 +1084,7 @@ export function SettingsPage() {
           ).toISOString(),
         },
       });
-      toast.success("Break-glass grant created");
+      toast.success("紧急授权已创建");
       setGrantOpen(false);
       grants.reload();
     } catch (error) {
@@ -1104,7 +1104,7 @@ export function SettingsPage() {
       await api(`/api/v1/break-glass-grants/${grant.id}/revoke`, {
         method: "POST",
       });
-      toast.success("Break-glass grant revoked");
+      toast.success("紧急授权已撤销");
       grants.reload();
     } catch (error) {
       toast.error(
@@ -1284,7 +1284,7 @@ export function SettingsPage() {
       });
       toast.success(
         "冲突已申报",
-        "Adjudication involving this pair is now blocked.",
+        "该两人之间的贡献认定已被阻断。",
       );
       setConflictOpen(false);
       conflicts.reload();
@@ -1312,7 +1312,7 @@ export function SettingsPage() {
           body: { reason: revokeReason.trim() },
         },
       );
-      toast.success("Conflict declaration revoked");
+      toast.success("冲突申报已撤回");
       setRevokeTarget(null);
       setRevokeReason("");
       conflicts.reload();
@@ -1483,7 +1483,7 @@ export function SettingsPage() {
                   ),
                 },
                 {
-                  label: "Audit chain",
+                  label: "审计链",
                   value: auditChain.loading ? (
                     "检查中…"
                   ) : auditChain.data?.valid ? (
@@ -1493,7 +1493,7 @@ export function SettingsPage() {
                   ),
                 },
                 {
-                  label: "Console origin",
+                  label: "控制台来源",
                   value: <span className="mono">{window.location.origin}</span>,
                 },
                 {

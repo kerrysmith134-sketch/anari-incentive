@@ -238,7 +238,7 @@ export function PolicyPage() {
       setGateError(
         caught instanceof Error
           ? caught.message
-          : "Could not record the legal gate.",
+          : "记录法律门禁失败。",
       );
     } finally {
       setGateSubmitting(false);
@@ -265,7 +265,7 @@ export function PolicyPage() {
       readiness.reload();
     } catch (caught) {
       toast.error(
-        "Could not run the suite",
+        "运行用例集失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -306,7 +306,7 @@ export function PolicyPage() {
       ruleChanges.reload();
     } catch (caught) {
       setRuleError(
-        caught instanceof Error ? caught.message : "Could not create order",
+        caught instanceof Error ? caught.message : "创建变更单失败",
       );
     }
   }
@@ -368,7 +368,7 @@ export function PolicyPage() {
       notices.reload();
     } catch (caught) {
       setNoticeError(
-        caught instanceof Error ? caught.message : "Could not publish notice",
+        caught instanceof Error ? caught.message : "发布告知失败",
       );
     }
   }
@@ -399,7 +399,7 @@ export function PolicyPage() {
         },
       });
       toast.success(
-        ackDecision === "ACKNOWLEDGE" ? "Acknowledgement recorded" : "Decline recorded",
+        ackDecision === "ACKNOWLEDGE" ? "签收已记录" : "婉拒已记录",
         ackOpen.title,
       );
       setAckOpen(null);
@@ -407,7 +407,7 @@ export function PolicyPage() {
       acknowledgements.reload();
     } catch (caught) {
       setAckError(
-        caught instanceof Error ? caught.message : "Could not record the response",
+        caught instanceof Error ? caught.message : "记录反馈失败",
       );
     }
   }
@@ -431,14 +431,14 @@ export function PolicyPage() {
           jurisdiction: repJurisdiction.trim(),
         },
       });
-      toast.success("Employee representation recorded", repName);
+      toast.success("员工代表已记录", repName);
       setRepOpen(false);
       representations.reload();
     } catch (caught) {
       setRepError(
         caught instanceof Error
           ? caught.message
-          : "Could not record representation",
+          : "记录员工代表失败",
       );
     }
   }
@@ -468,12 +468,12 @@ export function PolicyPage() {
           feedbackSummary: consultFeedback.trim() || undefined,
         },
       });
-      toast.success("Consultation recorded", titleCase(consultType));
+      toast.success("咨询已记录", titleCase(consultType));
       setConsultOpen(false);
       consultations.reload();
     } catch (caught) {
       setConsultError(
-        caught instanceof Error ? caught.message : "Could not record consultation",
+        caught instanceof Error ? caught.message : "记录咨询失败",
       );
     }
   }
@@ -502,14 +502,14 @@ export function PolicyPage() {
           },
         },
       );
-      toast.success("Consultation concluded", titleCase(concludeOutcome));
+      toast.success("咨询已结论", titleCase(concludeOutcome));
       setConcludeTarget(null);
       consultations.reload();
     } catch (caught) {
       setConcludeError(
         caught instanceof Error
           ? caught.message
-          : "Could not conclude consultation",
+          : "咨询结论失败",
       );
     }
   }
@@ -532,7 +532,7 @@ export function PolicyPage() {
       setSimError(
         caught instanceof Error
           ? caught.message
-          : "Could not load the current policy",
+          : "载入当前政策失败",
       );
     }
   }
@@ -585,7 +585,7 @@ export function PolicyPage() {
       setLinkError(
         caught instanceof Error
           ? caught.message
-          : "Could not link the notice",
+          : "关联告知失败",
       );
     }
   }

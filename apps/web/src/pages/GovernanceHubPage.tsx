@@ -10,37 +10,37 @@ const SECTIONS = [
   },
   {
     to: "/cycles",
-    title: "Cycles & calculations",
+    title: "周期与计算",
     description: "就绪度、正式/影子计算、批准与锁定。",
   },
   {
     to: "/policy",
-    title: "Policy governance",
+    title: "政策治理",
     description: "规则变更、告知、咨询与员工代表。",
   },
   {
     to: "/contribution",
-    title: "Contribution & deliverables",
+    title: "贡献与交付物",
     description: "工作包、申报、证据与验收。",
   },
   {
     to: "/settlements",
-    title: "Settlements & budgets",
+    title: "结算与预算",
     description: "结算批次、账本、预算池、现金门禁与财务事实。",
   },
   {
     to: "/payroll",
-    title: "Payroll & contracts",
+    title: "薪酬与合同",
     description: "批次、导出、合同、电子签与个税工作台。",
   },
   {
     to: "/rewards",
-    title: "Equity & bounties",
+    title: "股权与悬赏",
     description: "授予、归属、行权与悬赏。",
   },
   {
     to: "/settings",
-    title: "Privacy & assurance",
+    title: "隐私与保障",
     description: "DSAR、DPIA、保留、信任调查、冲突申报与紧急授权。",
   },
   {
@@ -71,7 +71,7 @@ const SECTIONS = [
   {
     to: "/registries",
     title: "登记簿",
-    description: "Metric definitions and compensation templates.",
+    description: "指标定义与薪酬模板。",
   },
 ];
 

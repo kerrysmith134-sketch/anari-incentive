@@ -250,7 +250,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="关闭导航"
         onClick={() => setSidebarOpen(false)}
       />
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside className="sidebar" aria-label="主导航">
         <div className="sidebar__brand">
           <img
             src="/brand/logo-icon.png"
@@ -340,7 +340,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </NavLink>
           ) : null}
           <NavLink to="/login" className="user-chip">
-            <Avatar name="Session" size={30} />
+            <Avatar name="会话" size={30} />
             <span className="user-chip__copy">
               <strong>登录 / 切换账号</strong>
               <span>账号密码 · 飞书 · OIDC</span>
@@ -354,7 +354,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="topbar">
           <div className="topbar__left">
             <IconButton
-              label="Open navigation"
+              label="打开导航"
               icon="menu"
               className="topbar__menu"
               onClick={() => setSidebarOpen(true)}
@@ -373,8 +373,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <IconButton
               label={
                 resolved === "dark"
-                  ? "Switch to light appearance"
-                  : "Switch to dark appearance"
+                  ? "切换到浅色"
+                  : "切换到深色"
               }
               icon={resolved === "dark" ? "sun" : "moon"}
               onClick={toggle}
@@ -383,7 +383,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <NavLink
                 to="/settings"
                 className="topbar__settings"
-                aria-label="Workspace settings"
+                aria-label="工作区设置"
               >
                 <Icon name="settings" size={18} />
               </NavLink>

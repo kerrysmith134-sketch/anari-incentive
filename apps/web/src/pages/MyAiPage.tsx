@@ -162,7 +162,7 @@ export function MyAiPage() {
                             ? "已签收"
                             : myAcknowledgement?.declinedAt
                               ? "Declined"
-                              : "Not acknowledged"}
+                              : "未签收"}
                         </Badge>
                       </div>
                       <p>

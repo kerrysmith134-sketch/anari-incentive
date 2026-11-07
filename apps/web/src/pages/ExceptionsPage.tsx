@@ -50,11 +50,11 @@ const DQ_COMMANDS: Record<string, DqCommand[]> = {
 };
 
 const DQ_COMMAND_COPY: Record<DqCommand, string> = {
-  ASSIGN: "Assign owner",
-  START: "Start remediation",
+  ASSIGN: "指派负责人",
+  START: "开始整改",
   RESOLVE: "解决问题",
   WAIVE: "Waive with approval",
-  REOPEN: "Reopen issue",
+  REOPEN: "重新打开问题",
   ESCALATE: "Escalate",
 };
 
@@ -131,12 +131,12 @@ export function ExceptionsPage() {
           requestedBy: session.personId,
         },
       });
-      toast.success("Recalculation requested", recalcTargetType);
+      toast.success("重算已发起", recalcTargetType);
       setRecalcOpen(false);
       recalculations.reload();
     } catch (caught) {
       setRecalcError(
-        caught instanceof ApiError ? caught.message : "Could not create request",
+        caught instanceof ApiError ? caught.message : "创建请求失败",
       );
     }
   }
@@ -152,13 +152,13 @@ export function ExceptionsPage() {
         body: { approvedBy: session.personId },
       });
       toast.success(
-        command === "approve" ? "Recalculation approved" : "Recalculation rejected",
+        command === "approve" ? "重算已批准" : "重算已驳回",
         shortId(request.id),
       );
       recalculations.reload();
     } catch (caught) {
       toast.error(
-        command === "approve" ? "审批失败" : "Rejection failed",
+        command === "approve" ? "审批失败" : "驳回失败",
         caught instanceof ApiError ? caught.message : "请求失败",
       );
     } finally {
@@ -177,13 +177,13 @@ export function ExceptionsPage() {
           body: { newCalculationRunId: completeRunId.trim() },
         },
       );
-      toast.success("Recalculation completed", shortId(completeTarget.id));
+      toast.success("重算已完成", shortId(completeTarget.id));
       setCompleteTarget(null);
       setCompleteRunId("");
       recalculations.reload();
     } catch (caught) {
       setCompleteError(
-        caught instanceof ApiError ? caught.message : "Could not complete request",
+        caught instanceof ApiError ? caught.message : "完成请求失败",
       );
     }
   }
@@ -259,14 +259,14 @@ export function ExceptionsPage() {
           },
         },
       );
-      toast.success("Appeal evidence disclosed", shortId(appealTarget.id));
+      toast.success("申诉证据已公开", shortId(appealTarget.id));
     } catch (caught) {
       setAppealError(
         caught instanceof ApiError
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The disclosure failed.",
+            : "公开失败。",
       );
     } finally {
       setDisclosing(false);
@@ -283,12 +283,12 @@ export function ExceptionsPage() {
           method: "POST",
           body: { reviewerPersonId: reviewer },
         });
-        toast.success("Appeal triaged", shortId(appealTarget.id));
+        toast.success("申诉已分诊", shortId(appealTarget.id));
       } else if (appealTarget.status === "TRIAGED") {
         await api(`/api/v1/appeals/${appealTarget.id}/review`, {
           method: "POST",
         });
-        toast.success("Appeal moved to review", shortId(appealTarget.id));
+        toast.success("申诉已进入复核", shortId(appealTarget.id));
       } else if (appealTarget.status === "UNDER_REVIEW") {
         if (appealRationale.trim().length < 3) {
           setAppealError("必须填写裁决理由。");
@@ -313,7 +313,7 @@ export function ExceptionsPage() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "The appeal action failed.",
+            : "申诉操作失败。",
       );
     } finally {
       setSubmitting(false);
@@ -825,9 +825,9 @@ export function ExceptionsPage() {
         title={
           appealTarget
             ? appealTarget.status === "OPEN"
-              ? "Triage appeal"
+              ? "申诉分诊"
               : appealTarget.status === "TRIAGED"
-                ? "Start appeal review"
+                ? "开始申诉复核"
                 : "裁决申诉"
             : ""
         }
@@ -867,10 +867,10 @@ export function ExceptionsPage() {
                 },
                 { label: "状态", value: <Badge status={appealTarget.status} /> },
                 {
-                  label: "SLA due",
+                  label: "SLA 到期",
                   value: appealTarget.dueAt
                     ? formatDateTime(appealTarget.dueAt)
-                    : "No SLA recorded",
+                    : "未记录 SLA",
                 },
               ]}
             />

@@ -164,14 +164,14 @@ export function AdverseActionsPage() {
       });
       toast.success(
         kind === "review"
-          ? "Legal review recorded"
+          ? "法律复核已记录"
           : kind === "approve"
-            ? "Case approved"
+            ? "案件已批准"
             : kind === "activate"
-              ? "Case activated"
+              ? "案件已激活"
               : kind === "complete"
                 ? "案件已完结"
-                : "Case cancelled",
+                : "案件已取消",
         shortId(record.id),
       );
       setAction(null);
@@ -448,7 +448,7 @@ export function AdverseActionsPage() {
 
       <Modal
         open={Boolean(selected)}
-        title={selected ? titleCase(selected.actionType) : "Case detail"}
+        title={selected ? titleCase(selected.actionType) : "案件详情"}
         description={
           selected
             ? `${displayName(selected.personId, people)} · ${selected.status}`
@@ -486,7 +486,7 @@ export function AdverseActionsPage() {
                   label: "生效",
                   value: selected.effectiveFrom
                     ? formatDate(selected.effectiveFrom)
-                    : "Not active",
+                    : "未激活",
                 },
               ]}
             />
@@ -520,7 +520,7 @@ export function AdverseActionsPage() {
                   ? "激活不利决定"
                   : action.kind === "complete"
                     ? "完结不利决定"
-                    : "Cancel adverse action"
+                    : "取消不利决定"
             : ""
         }
         description={

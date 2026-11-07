@@ -51,16 +51,16 @@ const ACTION_COPY: Record<
   { title: string; description: string; confirm: string; danger?: boolean }
 > = {
   calculate: {
-    title: "Calculate payroll run",
+    title: "计算薪酬批次",
     description:
       "从生效合同与锁定账本重新计算；本批次已有明细会被替换。",
-    confirm: "Calculate run",
+    confirm: "计算批次",
   },
   approve: {
-    title: "Approve payroll run",
+    title: "批准薪酬批次",
     description:
       "批准会锁定计算结果；编制人不能批准自己的批次。",
-    confirm: "Approve run",
+    confirm: "批准批次",
   },
   pay: {
     title: "Mark payroll paid",
@@ -77,10 +77,10 @@ const ACTION_COPY: Record<
     danger: true,
   },
   cancel: {
-    title: "Cancel payroll run",
+    title: "取消薪酬批次",
     description:
-      "Cancel an unapproved run. Paid runs must be reversed instead of cancelled.",
-    confirm: "Cancel run",
+      "仅未批准批次可取消；已支付批次请冲销。",
+    confirm: "取消批次",
     danger: true,
   },
 };
@@ -225,7 +225,7 @@ function RunsTab({
     event.preventDefault();
     setFormError(null);
     if (!cycleId.trim()) {
-      setFormError("A cycle id is required. Create an evaluation cycle first.");
+      setFormError("必须选择考核周期；请先创建。");
       return;
     }
     setSubmitting(true);
@@ -246,7 +246,7 @@ function RunsTab({
       reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the run.",
+        caught instanceof Error ? caught.message : "创建批次失败。",
       );
     } finally {
       setSubmitting(false);
@@ -265,7 +265,7 @@ function RunsTab({
     if (!pendingAction) return;
     const { kind, run } = pendingAction;
     if (kind === "reverse" && !actionReason.trim()) {
-      setActionError("A reversal reason is required.");
+      setActionError("必须填写冲销原因。");
       return;
     }
     setSubmitting(true);
@@ -517,7 +517,7 @@ function RunsTab({
                         : "—",
                     },
                     {
-                      label: "Blocked lines",
+                      label: "被阻断明细",
                       value:
                         selected.blockedCount > 0 ? (
                           <span className="text-danger">
@@ -723,7 +723,7 @@ function RunsTab({
                                 >
                                   {line.minimumWagePassed
                                     ? "最低工资"
-                                    : "Below minimum"}
+                                    : "低于最低工资"}
                                 </Badge>
                                 <Badge
                                   tone={line.deductionCapPassed ? "success" : "danger"}
@@ -1123,7 +1123,7 @@ function ContractsTab({
       setEsignError(
         caught instanceof Error
           ? caught.message
-          : "Could not register envelope",
+          : "登记信封失败",
       );
     }
   }
@@ -1195,7 +1195,7 @@ function ContractsTab({
       reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the contract.",
+        caught instanceof Error ? caught.message : "创建合同失败。",
       );
     } finally {
       setSubmitting(false);
@@ -1261,12 +1261,12 @@ function ContractsTab({
           approvedBy: amendApprover,
         },
       });
-      toast.success("Contract amended", amendTarget.contractCode);
+      toast.success("合同已修订", amendTarget.contractCode);
       setAmendTarget(null);
       reload();
     } catch (caught) {
       setAmendError(
-        caught instanceof Error ? caught.message : "Could not amend the contract.",
+        caught instanceof Error ? caught.message : "修订合同失败。",
       );
     } finally {
       setSubmitting(false);
@@ -1296,7 +1296,7 @@ function ContractsTab({
                 reload();
               } catch (caught) {
                 toast.error(
-                  "Could not apply amendments",
+                  "应用修订失败",
                   caught instanceof Error ? caught.message : undefined,
                 );
               }
@@ -1720,7 +1720,7 @@ function ContractsTab({
         title={
           amendTarget
             ? `Amend ${amendTarget.contractCode}`
-            : "Amend employment contract"
+            : "修订劳动合同"
         }
         description="新的薪酬方案版本需要员工同意凭证，并记入修订历史。"
         onClose={() => setAmendTarget(null)}
@@ -2034,7 +2034,7 @@ function TaxStudio() {
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Calculation failed.",
+            : "计算失败。",
       );
     } finally {
       setLoading(false);

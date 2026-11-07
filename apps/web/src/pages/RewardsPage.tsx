@@ -219,7 +219,7 @@ function StrategicPoolsTab() {
       cases.reload();
     } catch (caught) {
       setError(
-        caught instanceof ApiError ? caught.message : "Could not create case",
+        caught instanceof ApiError ? caught.message : "创建案例失败",
       );
     } finally {
       setBusy(false);
@@ -255,7 +255,7 @@ function StrategicPoolsTab() {
       cases.reload();
     } catch (caught) {
       toast.error(
-        caught instanceof ApiError ? caught.message : "Could not update case",
+        caught instanceof ApiError ? caught.message : "更新案例失败",
       );
     }
   }
@@ -374,7 +374,7 @@ function StrategicPoolsTab() {
               <InfoNotice tone="warning">{error}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="Cycle ID" htmlFor="sp-cycle">
+          <FormField label="周期 ID" htmlFor="sp-cycle">
             <TextInput
               id="sp-cycle"
               value={cycleId}
@@ -508,7 +508,7 @@ function EquityTab({
           vestingMonths: Math.max(1, Math.floor(toNumber(vestingMonths))),
         },
       });
-      toast.success("Equity grant created", grantCode);
+      toast.success("股权授予已创建", grantCode);
       setCreateOpen(false);
       reloadGrants();
     } catch (caught) {
@@ -537,7 +537,7 @@ function EquityTab({
         method: "POST",
         body: { units: exerciseUnits, requestedBy },
       });
-      toast.success("Exercise requested", selectedGrant.grantCode);
+      toast.success("行权申请已提交", selectedGrant.grantCode);
       setExerciseUnits("");
       reloadExercises();
       vesting.reload();
@@ -547,7 +547,7 @@ function EquityTab({
           ? caught.message
           : caught instanceof Error
             ? caught.message
-            : "Could not request the exercise.",
+            : "发起行权失败。",
       );
     } finally {
       setExerciseSubmitting(false);
@@ -569,8 +569,8 @@ function EquityTab({
       );
       toast.success(
         exerciseAction.kind === "approve"
-          ? "Exercise approved"
-          : "Exercise settled",
+          ? "行权已批准"
+          : "行权已交割",
         shortId(exerciseAction.exercise.id),
       );
       setExerciseAction(null);
@@ -907,7 +907,7 @@ function EquityTab({
 
       <Modal
         open={Boolean(selectedGrant)}
-        title={selectedGrant ? `Grant ${selectedGrant.grantCode}` : "Grant detail"}
+        title={selectedGrant ? `Grant ${selectedGrant.grantCode}` : "授予详情"}
         description={
           selectedGrant
             ? `${displayName(selectedGrant.personId, people)} · ${selectedGrant.grantType} · v${selectedGrant.version}`
@@ -1032,7 +1032,7 @@ function EquityTab({
         open={Boolean(exerciseAction)}
         title={
           exerciseAction?.kind === "approve"
-            ? "Approve equity exercise"
+            ? "批准行权"
             : "Settle equity exercise"
         }
         description={
@@ -1166,12 +1166,12 @@ function BountiesTab({
           dueAt: dueAt ? toIsoDate(dueAt) : undefined,
         },
       });
-      toast.success("Bounty published", title);
+      toast.success("悬赏已发布", title);
       setCreateOpen(false);
       reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not publish the bounty.",
+        caught instanceof Error ? caught.message : "发布悬赏失败。",
       );
     } finally {
       setSubmitting(false);
@@ -1191,7 +1191,7 @@ function BountiesTab({
     if (!action) return;
     const { kind, bounty } = action;
     if (kind === "submit" && !submissionRef.trim()) {
-      setActionError("A submission reference is required.");
+      setActionError("必须填写成果引用。");
       return;
     }
     setSubmitting(true);
@@ -1218,12 +1218,12 @@ function BountiesTab({
       });
       toast.success(
         kind === "claim"
-          ? "Bounty claimed"
+          ? "悬赏已认领"
           : kind === "submit"
             ? "Submission recorded"
             : kind === "accept"
-              ? "Bounty accepted"
-              : "Bounty cancelled",
+              ? "悬赏已验收"
+              : "悬赏已取消",
         bounty.title,
       );
       setAction(null);
@@ -1272,7 +1272,7 @@ function BountiesTab({
         <Panel>
           <EmptyState
             icon="rewards"
-            title={filter === "ALL" ? "No bounty yet" : "No bounty in this status"}
+            title={filter === "ALL" ? "暂无悬赏" : "该状态暂无悬赏"}
             description="发布带奖金的定向任务；认领、提交、验收与支付引用全程留痕。"
             action={
               filter === "ALL" ? (
@@ -1477,11 +1477,11 @@ function BountiesTab({
         title={
           action
             ? action.kind === "claim"
-              ? "Claim bounty"
+              ? "认领悬赏"
               : action.kind === "submit"
                 ? "Submit bounty"
                 : action.kind === "accept"
-                  ? "Accept bounty"
+                  ? "验收悬赏"
                   : "取消悬赏"
             : ""
         }

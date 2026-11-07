@@ -79,7 +79,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               type="button"
               className="toast__close"
               onClick={() => remove(toast.id)}
-              aria-label="Dismiss notification"
+              aria-label="关闭通知"
             >
               <Icon name="close" size={15} />
             </button>
@@ -92,6 +92,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export function useToast(): ToastContextValue {
   const context = useContext(ToastContext);
-  if (!context) throw new Error("useToast must be used inside ToastProvider");
+  if (!context) throw new Error("useToast 必须在 ToastProvider 内使用");
   return context;
 }

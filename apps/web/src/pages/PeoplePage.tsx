@@ -82,7 +82,7 @@ export function PeoplePage() {
           employmentStatus,
         },
       });
-      toast.success("Person created", displayNameValue);
+      toast.success("人员已创建", displayNameValue);
       setCreateOpen(false);
       people.reload();
     } catch (caught) {
@@ -109,7 +109,7 @@ export function PeoplePage() {
         `/api/v1/platform/tenants/${session.tenantId}/persons/${linkTarget.id}/link-user`,
         { method: "POST", body: { userId } },
       );
-      toast.success("User linked", linkTarget.displayName);
+      toast.success("用户已关联", linkTarget.displayName);
       setLinkTarget(null);
       people.reload();
     } catch (caught) {
@@ -139,7 +139,7 @@ export function PeoplePage() {
           body: { managerPersonId: managerId || null },
         },
       );
-      toast.success("Manager updated", managerTarget.displayName);
+      toast.success("汇报人已更新", managerTarget.displayName);
       setManagerTarget(null);
       people.reload();
     } catch (caught) {
@@ -228,7 +228,7 @@ export function PeoplePage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon="people"
-            title={list.length === 0 ? "No person record" : "无匹配"}
+            title={list.length === 0 ? "暂无人员记录" : "无匹配"}
             description={
               list.length === 0
                 ? "请先创建人员，再分配合同、授予或悬赏。"

@@ -73,7 +73,7 @@ const COMMANDS_BY_STATUS: Record<
     { command: "APPROVE", label: "批准", variant: "primary" },
     { command: "CANCEL", label: "取消", variant: "danger" },
   ],
-  APPROVED: [{ command: "LOCK", label: "Lock batch", variant: "primary" }],
+  APPROVED: [{ command: "LOCK", label: "锁定批次", variant: "primary" }],
   LOCKED: [{ command: "EXPORT", label: "导出 CSV", variant: "primary" }],
   EXPORTED: [
     { command: "ACKNOWLEDGE", label: "签收", variant: "primary" },
@@ -94,19 +94,19 @@ const COMMAND_COPY: Record<Command, { title: string; description: string }> = {
   },
   SUBMIT: {
     title: "提交审批",
-    description: "Moves the reconciled batch into the approval queue.",
+    description: "将对账完成的批次移入审批队列。",
   },
   APPROVE: {
-    title: "Approve settlement batch",
+    title: "批准结算批次",
     description: "记录批准；如已配置，需提供对应审批请求。",
   },
   LOCK: {
-    title: "Lock settlement batch",
-    description: "Locks lines and prevents further changes before export.",
+    title: "锁定结算批次",
+    description: "锁定明细，导出前不可再变更。",
   },
   EXPORT: {
-    title: "Export settlement batch",
-    description: "Generates the settlement CSV and records export evidence.",
+    title: "导出结算批次",
+    description: "生成结算 CSV 并记录导出证据。",
   },
   ACKNOWLEDGE: {
     title: "确认结算导出",
@@ -117,7 +117,7 @@ const COMMAND_COPY: Record<Command, { title: string; description: string }> = {
     description: "将批次标记为需更正并记录原因。",
   },
   CANCEL: {
-    title: "Cancel settlement batch",
+    title: "取消结算批次",
     description: "将批次行置为失效；已验收或锁定的资金不会被删除。",
   },
 };
@@ -275,7 +275,7 @@ export function SettlementsPage() {
       batches.reload();
     } catch (caught) {
       setFormError(
-        caught instanceof Error ? caught.message : "Could not create the batch.",
+        caught instanceof Error ? caught.message : "创建批次失败。",
       );
     } finally {
       setSubmitting(false);
@@ -295,11 +295,11 @@ export function SettlementsPage() {
     if (!commandTarget) return;
     const { command, batch } = commandTarget;
     if (command === "ACKNOWLEDGE" && !externalReference.trim()) {
-      setCommandError("An external receipt reference is required.");
+      setCommandError("必须填写外部回执引用。");
       return;
     }
     if (command === "REQUIRE_ADJUSTMENT" && !commandReason.trim()) {
-      setCommandError("A reason is required.");
+      setCommandError("必须填写原因。");
       return;
     }
     setSubmitting(true);
@@ -379,7 +379,7 @@ export function SettlementsPage() {
       pools.reload();
     } catch (caught) {
       setPoolError(
-        caught instanceof Error ? caught.message : "Could not create the pool.",
+        caught instanceof Error ? caught.message : "创建资金池失败。",
       );
     } finally {
       setSubmitting(false);
@@ -451,12 +451,12 @@ export function SettlementsPage() {
           approvedBy: cashApprovedBy,
         },
       });
-      toast.success("Cash-gate input recorded", cashCycleId);
+      toast.success("现金门禁已记录", cashCycleId);
       setCashOpen(false);
       cashGates.reload();
     } catch (caught) {
       setCashError(
-        caught instanceof ApiError ? caught.message : "Could not record input",
+        caught instanceof ApiError ? caught.message : "记录门禁输入失败",
       );
     }
   }
@@ -490,12 +490,12 @@ export function SettlementsPage() {
           qualityStatus: factQuality,
         },
       });
-      toast.success("Financial fact recorded", factSourceRecordId);
+      toast.success("财务事实已记录", factSourceRecordId);
       setFactOpen(false);
       financialFacts.reload();
     } catch (caught) {
       setFactError(
-        caught instanceof ApiError ? caught.message : "Could not record fact",
+        caught instanceof ApiError ? caught.message : "记录财务事实失败",
       );
     }
   }
@@ -508,12 +508,12 @@ export function SettlementsPage() {
         method: "POST",
         body: { externalReference: ackReference.trim() },
       });
-      toast.success("Export acknowledged", ackTarget.exportRef);
+      toast.success("导出回执已确认", ackTarget.exportRef);
       setAckTarget(null);
       settlementExports.reload();
     } catch (caught) {
       setAckError(
-        caught instanceof ApiError ? caught.message : "Could not acknowledge",
+        caught instanceof ApiError ? caught.message : "确认回执失败",
       );
     }
   }
@@ -592,12 +592,12 @@ export function SettlementsPage() {
           { id: "budgets", label: "预算", count: poolList.length },
           {
             id: "cash",
-            label: "Cash & facts",
+            label: "现金与事实",
             count: cashGates.data?.length ?? 0,
           },
           {
             id: "exports",
-            label: "Exports & adjustments",
+            label: "导出与调整",
             count: settlementExports.data?.length ?? 0,
           },
         ]}
