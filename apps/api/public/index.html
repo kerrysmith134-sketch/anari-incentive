@@ -91,18 +91,36 @@
 <body>
   <main>
     <h1>N-Perform 员工确认</h1>
-    <p class="lede">查看本人的计算依据、确认金额、提出异议或申诉。此页面是开发用最小员工端，生产环境需接入身份认证。</p>
+    <p class="lede">查看本人的计算依据、确认金额、提出异议或申诉。登录后自动定位到你自己的数据。</p>
+
+    <section class="card" id="authCard">
+      <div id="loginBox" hidden>
+        <div class="grid">
+          <div>
+            <label for="loginEmail">邮箱</label>
+            <input id="loginEmail" autocomplete="username" placeholder="you@anari.com" />
+          </div>
+          <div>
+            <label for="loginPassword">密码</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" />
+          </div>
+        </div>
+        <div class="actions"><button class="primary" id="doLogin">登录</button></div>
+        <div class="status" id="authStatus"></div>
+      </div>
+      <div id="whoBox" hidden>
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div><strong id="whoName">—</strong> <span class="pill" id="whoCode"></span></div>
+          <button id="doLogout">退出登录</button>
+        </div>
+        <div class="note" id="whoMeta"></div>
+      </div>
+    </section>
 
     <section class="card">
-      <div class="grid">
-        <div>
-          <label for="personId">员工 ID</label>
-          <input id="personId" value="00000000-0000-4000-8000-000000000001" />
-        </div>
-        <div>
-          <label for="runId">计算批次 ID</label>
-          <input id="runId" placeholder="CALCULATION_RUN_ID" />
-        </div>
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <strong>我的计算</strong>
+        <span class="pill" id="runHint">登录后自动定位最近一批</span>
       </div>
       <div class="actions">
         <button class="primary" id="load">加载我的计算</button>
@@ -111,6 +129,13 @@
         <button id="appeal">发起申诉</button>
       </div>
       <div class="status" id="status"></div>
+      <details style="margin-top:10px;">
+        <summary class="note" style="cursor:pointer;">手动指定 ID</summary>
+        <div class="grid" style="margin-top:8px;">
+          <div><label for="personId">员工 ID</label><input id="personId" /></div>
+          <div><label for="runId">计算批次 ID</label><input id="runId" /></div>
+        </div>
+      </details>
     </section>
 
     <section class="card" id="result" hidden>
@@ -304,11 +329,13 @@
       el.dataset.kind = kind;
     }
 
+    const TOKEN_KEY = "np.employee.token";
+    const token = () => localStorage.getItem(TOKEN_KEY) || "";
+
     async function api(path, options = {}) {
-      const response = await fetch(path, {
-        headers: { "content-type": "application/json" },
-        ...options,
-      });
+      const headers = { "content-type": "application/json", ...(options.headers || {}) };
+      if (token()) headers["x-session-token"] = token();
+      const response = await fetch(path, { ...options, headers });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         const message = body?.error?.message || `HTTP ${response.status}`;
@@ -681,6 +708,75 @@
       }[char]));
     }
 
+    async function doLogin() {
+      const email = $("loginEmail").value.trim();
+      const password = $("loginPassword").value;
+      if (!email || !password) { $("authStatus").textContent = "请输入邮箱与密码"; return; }
+      $("authStatus").textContent = "登录中…";
+      try {
+        const response = await fetch("/api/v1/auth/password/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body?.error?.message || `登录失败 (${response.status})`);
+        localStorage.setItem(TOKEN_KEY, body.data.token);
+        $("authStatus").textContent = "";
+        $("loginPassword").value = "";
+        await boot();
+      } catch (error) {
+        $("authStatus").textContent = String(error.message);
+      }
+    }
+
+    async function autoPickRun() {
+      const personId = $("personId").value.trim();
+      if (!personId) { $("runHint").textContent = "未绑定员工档案"; return; }
+      try {
+        const runs = await api("/api/v1/calculation-runs");
+        const list = Array.isArray(runs) ? runs : (runs.items || []);
+        const sorted = list.slice().sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+        for (const run of sorted) {
+          const full = await api(`/api/v1/calculation-runs/${run.id}`);
+          const mine = (full.lines || []).some((line) => line.personId === personId);
+          if (mine) {
+            $("runId").value = full.id;
+            $("runHint").textContent = `已定位 · ${full.status || ""}`;
+            await loadRun();
+            return;
+          }
+        }
+        $("runHint").textContent = "暂无属于你的计算批次";
+      } catch (error) {
+        $("runHint").textContent = "自动定位失败，可在下方手动指定";
+      }
+    }
+
+    async function boot() {
+      if (!token()) {
+        $("loginBox").hidden = false;
+        $("whoBox").hidden = true;
+        return;
+      }
+      try {
+        const identity = await api("/api/v1/platform/identity");
+        $("loginBox").hidden = true;
+        $("whoBox").hidden = false;
+        $("whoName").textContent = identity.displayName || "已登录";
+        $("whoCode").textContent = (identity.roles || []).join(" · ");
+        $("whoMeta").textContent = identity.personId ? `员工 ID ${identity.personId}` : "未绑定员工档案";
+        if (identity.personId) $("personId").value = identity.personId;
+        await Promise.all([loadClaimPackages(), loadMyClaims(), loadEvidence(), loadNotifications(), loadNotices(), loadDsars()]);
+        await autoPickRun();
+      } catch (error) {
+        localStorage.removeItem(TOKEN_KEY);
+        $("loginBox").hidden = false;
+        $("whoBox").hidden = true;
+        $("authStatus").textContent = "会话已失效，请重新登录";
+      }
+    }
+
     $("load").addEventListener("click", loadRun);
     $("confirm").addEventListener("click", () => recordConfirmation("CONFIRMED"));
     $("object").addEventListener("click", () => recordConfirmation("OBJECTED"));
@@ -719,12 +815,15 @@
       markNotificationRead(button.dataset.notification);
     });
 
-    loadClaimPackages();
-    loadMyClaims();
-    loadEvidence();
-    loadNotifications();
-    loadNotices();
-    loadDsars();
+    $("doLogin").addEventListener("click", doLogin);
+    $("loginPassword").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") doLogin();
+    });
+    $("doLogout").addEventListener("click", () => {
+      localStorage.removeItem(TOKEN_KEY);
+      location.reload();
+    });
+    boot();
   </script>
 </body>
 </html>
