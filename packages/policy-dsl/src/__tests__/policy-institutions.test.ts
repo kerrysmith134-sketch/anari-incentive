@@ -359,7 +359,7 @@ describe("017/018 performance engine", () => {
     expect(above.allocations[1]!.amount).toBe("301886.79");
   });
 
-  it("monthly star requires rank one, M-003>=110, evidence and no violation", () => {
+  it("monthly star requires rank one, total>=110, values>=20, evidence and no violation", () => {
     const base = {
       personId: "p1",
       rank: 1,
@@ -378,6 +378,16 @@ describe("017/018 performance engine", () => {
     const rankTwo = evaluateMonthlyStar([{ ...base, rank: 2 }]);
     expect(rankTwo.awarded).toBe(false);
     expect(rankTwo.candidates[0]!.reasonCode).toBe("NOT_RANK_ONE");
+    const lowTotal = evaluateMonthlyStar([
+      { ...base, monthlyScore: "105", m003Score: "20" },
+    ]);
+    expect(lowTotal.candidates[0]!.reasonCode).toBe(
+      "TOTAL_SCORE_BELOW_THRESHOLD",
+    );
+    const lowValues = evaluateMonthlyStar([
+      { ...base, monthlyScore: "110", m003Score: "15" },
+    ]);
+    expect(lowValues.candidates[0]!.reasonCode).toBe("M003_BELOW_THRESHOLD");
     const violation = evaluateMonthlyStar([
       { ...base, seriousViolation: true },
     ]);

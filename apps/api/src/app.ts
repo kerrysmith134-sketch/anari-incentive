@@ -12356,9 +12356,14 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       const result = runPolicyInput(() =>
         evaluateMonthlyStar(
           candidates as Parameters<typeof evaluateMonthlyStar>[0],
-          typeof body.m003Threshold === "string"
-            ? { m003Threshold: body.m003Threshold }
-            : {},
+          {
+            ...(typeof body.m003Threshold === "string"
+              ? { m003Threshold: body.m003Threshold }
+              : {}),
+            ...(typeof body.totalScoreThreshold === "string"
+              ? { totalScoreThreshold: body.totalScoreThreshold }
+              : {}),
+          },
         ),
       );
       const record = await platformStore.savePolicyEngineRecord({

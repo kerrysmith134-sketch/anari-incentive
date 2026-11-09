@@ -543,19 +543,30 @@ export function calculateAnnualProfitSharing(
 }
 
 /**
- * 第九条 / 018 A.2 月明星：排名第一 + M-003 阈值 + 已核实正向事件 +
- * 无严重违规；奖励 500 元，连续三个月自第三个月起 1000 元，每年最多 3 次。
+ * 第九条 / 018 A.2 月明星：排名第一 + 月度总分≥110 + 价值观单项≥20 +
+ * 已核实正向事件 + 无严重违规；奖励 500 元，连续三个月自第三个月起
+ * 1000 元，每年最多 3 次。M-003 的 20 分是价值观单项门槛，
+ * 110 分是月度总分门槛（2026-11-09 业务口径确认）。
  */
 export function evaluateMonthlyStar(
   candidates: MonthlyStarCandidate[],
-  options: { m003Threshold?: string; maxAwardsPerYear?: number } = {},
+  options: {
+    m003Threshold?: string;
+    totalScoreThreshold?: string;
+    maxAwardsPerYear?: number;
+  } = {},
 ): MonthlyStarEvaluationResult {
-  const threshold = parseDecimal(options.m003Threshold ?? "110");
+  const m003Threshold = parseDecimal(options.m003Threshold ?? "20");
+  const totalScoreThreshold = parseDecimal(
+    options.totalScoreThreshold ?? "110",
+  );
   const maxAwards = options.maxAwardsPerYear ?? 3;
   const evaluated = candidates.map((candidate) => {
     let reasonCode: string | undefined;
     if (candidate.rank !== 1) reasonCode = "NOT_RANK_ONE";
-    else if (parseDecimal(candidate.m003Score) < threshold)
+    else if (parseDecimal(candidate.monthlyScore) < totalScoreThreshold)
+      reasonCode = "TOTAL_SCORE_BELOW_THRESHOLD";
+    else if (parseDecimal(candidate.m003Score) < m003Threshold)
       reasonCode = "M003_BELOW_THRESHOLD";
     else if (candidate.verifiedPositiveEvents < 1)
       reasonCode = "NO_VERIFIED_POSITIVE_EVENT";

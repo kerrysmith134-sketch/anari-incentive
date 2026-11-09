@@ -68,7 +68,7 @@ version / createdAt / updatedAt`，可审计、可追溯、不可静默覆盖。
 | 第四、六条 | DBCP = 毛利 − 业务费用 − 人工差旅 − 分摊费用 − 分摊后端工资 − 5% 管理计提 | `calculateDbcp()`；5% 默认、可配置基数 | 已承接 |
 | 第七条 | 净回款为基数；DBCP 利润率分档 0/1/1.5/2/2.5/3%；整笔适用；不乘 Kp | `calculateBusinessUnitCommission()`；默认档位与制度一致，支持模拟覆盖 | 已承接 |
 | 第八条 | 营销奖励 M、执行总监补差 G=DBCP×2%×K管理−M、剩余池 R=B−M−G、比例合计 100%、未分配留存 | `calculateExecutiveSupplement()`；`calculateInternalSplit()`（校验合计 100%、不超池） | 已承接 |
-| 第九条 | 月明星：排名第一、M-003≥110、正向事件证据、无严重违规；500 元；连续三月自第三月起 1000；每年≤3 次；不递补 | `evaluateMonthlyStar()`；阈值可配置；记录评选结果 | 已承接（评选）；奖励发放走结算/薪酬制单 |
+| 第九条 | 月明星：排名第一、月度总分≥110、M-003 价值观单项≥20、正向事件证据、无严重违规；500 元；连续三月自第三月起 1000；每年≤3 次；不递补 | `evaluateMonthlyStar()`；阈值可配置；记录评选结果 | 已承接（评选）；奖励发放走结算/薪酬制单 |
 | 第十、十一条 | 职能季度奖金基数=固定月工资×10%；S>100 才有资格；Kq 封顶 1.50 | `calculateFunctionalQuarterlyBonus()` | 已承接 |
 | 第十二条 | 年度利润分享：P_y≥T_NP 且 >0；池比例 5–10%；点数=岗位价值点×有效季度 Kp 加权×在岗比例；预算硬约束 | `calculateAnnualProfitSharing()`；预留预算余额约束；尾差按最大点数调整 | 已承接 |
 | 第十三条 | 悬赏载明内容/成果/负责人/日期/金额/验收/证据；验收后兑现 | 既有 bounty 生命周期 + `calculateBountySettlement()` | 已承接 |

@@ -266,7 +266,7 @@ export function InstitutionsPage() {
 
   const [starRank, setStarRank] = useState("1");
   const [starScore, setStarScore] = useState("110");
-  const [starM003, setStarM003] = useState("110");
+  const [starM003, setStarM003] = useState("20");
   const [starEvents, setStarEvents] = useState("1");
   const [starConsecutive, setStarConsecutive] = useState("1");
   const [starViolation, setStarViolation] = useState(false);
@@ -785,8 +785,8 @@ export function InstitutionsPage() {
                 <div className="form-grid">
                   <FormField label="员工"><PersonSelect value={personId} onChange={setPersonId} /></FormField>
                   <FormField label="公司月度排名"><TextInput value={starRank} onChange={(event) => setStarRank(event.target.value)} /></FormField>
-                  <FormField label="月度综合得分"><TextInput value={starScore} onChange={(event) => setStarScore(event.target.value)} /></FormField>
-                  <FormField label="M-003 得分" hint="制度要求不低于 110 分"><TextInput value={starM003} onChange={(event) => setStarM003(event.target.value)} /></FormField>
+                  <FormField label="月度综合得分" hint="月明星要求总分不低于 110"><TextInput value={starScore} onChange={(event) => setStarScore(event.target.value)} /></FormField>
+                  <FormField label="M-003 价值观单项得分" hint="价值观单项门槛不低于 20 分；总分门槛 110 分"><TextInput value={starM003} onChange={(event) => setStarM003(event.target.value)} /></FormField>
                   <FormField label="已核实突出正向事件数"><TextInput value={starEvents} onChange={(event) => setStarEvents(event.target.value)} /></FormField>
                   <FormField label="连续满足条件的自然月数"><TextInput value={starConsecutive} onChange={(event) => setStarConsecutive(event.target.value)} /></FormField>
                   <FormField label="本年度已获次数"><TextInput value={starAwarded} onChange={(event) => setStarAwarded(event.target.value)} /></FormField>
