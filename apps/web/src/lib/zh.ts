@@ -7,6 +7,8 @@ const STATUS_ZH: Record<string, string> = {
   DRAFT: "草稿",
   PENDING: "待处理",
   PENDING_APPROVAL: "待审批",
+  EXPORTED: "已导出",
+  ACKNOWLEDGED: "已回执",
   APPROVED: "已批准",
   REJECTED: "已驳回",
   ACTIVE: "生效中",
