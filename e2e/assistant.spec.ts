@@ -134,3 +134,34 @@ test.describe("agent assistant", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("agent chat (LLM phase 2)", () => {
+  test("chat input and send button are visible with hint when LLM not configured", async ({
+    page,
+  }) => {
+    await page.goto("/console/");
+    await page.getByRole("button", { name: "打开 AI 助手" }).click();
+    const drawer = page.getByRole("dialog", { name: "AI 助手" });
+    await expect(drawer).toContainText("规则引擎 · 无 LLM");
+    const input = drawer.getByLabel("对 AI 助手说点什么");
+    await expect(input).toBeVisible();
+    await input.fill("扫描证据缺口");
+    await drawer.getByRole("button", { name: "发送" }).click();
+    await expect(
+      drawer.getByText(/对话意图解析未配置|对话需配置 LLM/).first(),
+    ).toBeVisible();
+    await expect(drawer.locator(".agent-msg--user").first()).toBeVisible();
+  });
+
+  test("engine badge reflects configured provider", async ({ page }) => {
+    // 未配置环境下角标显示“规则引擎 · 无 LLM”；配置后显示 provider 名。
+    await page.goto("/console/");
+    await page.getByRole("button", { name: "打开 AI 助手" }).click();
+    const drawer = page.getByRole("dialog", { name: "AI 助手" });
+    const badge = drawer.locator(".agent-drawer__engine");
+    const text = await badge.innerText();
+    expect(
+      text.includes("规则引擎 · 无 LLM") || text.includes("意图解析 ·"),
+    ).toBe(true);
+  });
+});

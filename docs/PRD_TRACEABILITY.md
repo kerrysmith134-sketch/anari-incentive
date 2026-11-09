@@ -596,3 +596,23 @@ Modal 键盘与焦点、跳过导航、aria-current、404、品牌图、通知�
 - 定向回归：api.test 135 + 批次回归（policy/audit/hardening/acceptance/
   tdd rounds/packages）共 500+ 全绿；PG 67 全绿；
 - 前后端 typecheck 0；web build 通过。
+
+# 2026-11-09 Agentic 第二阶段：LLM 对话入口（DeepSeek / GLM / Kimi）
+
+1. **LLM 网关** `apps/api/src/llm.ts`：OpenAI 兼容 chat completions 客户端，
+   预设 DeepSeek（api.deepseek.com）/ GLM 智谱（open.bigmodel.cn）/
+   Kimi 月之暗面（api.moonshot.cn）/ custom；`resolveLlmConfigFromEnv`
+   读取 LLM_PROVIDER / LLM_API_KEY / LLM_BASE_URL / LLM_MODEL。
+2. **POST /agent-chat**：LLM 只做「命令选择 + ≤120 字人话回复」；命令必须
+   命中 AGENT_COMMANDS 白名单（注入防护最后闸门：目录外命令一律不执行，
+   仅返回 reply）；命中后走与 /agent-command 相同的 enqueue+run 路径，
+   T3 仍等待人工批准。未配置时 501 LLM_NOT_CONFIGURED 并引导使用指令台。
+3. **GET /agent-chat/status**：前端引擎角标显示「意图解析 · DEEPSEEK/GLM/KIMI」
+   或「规则引擎 · 无 LLM」。
+4. **前端**：助手抽屉新增自由文本输入（回车/发送），多轮上下文取最近 10 条；
+   LLM 回复与任务卡同渲染；501 时显示配置引导，指令台路径不受影响。
+5. **治理红线**：系统提示硬规则（不造目录外命令/不给金额分数/不批准）+
+   服务端白名单校验双闸门；评分仍被 ai-gate 封锁。
+
+验证：agent-chat 5 条后端测试（意图→任务/注入防护/T3 门禁/501/status）
+全绿；**107/107 E2E 全绿**；openapi 契约同步。

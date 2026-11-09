@@ -9844,6 +9844,32 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+  /api/v1/agent-chat:
+    post:
+      tags: [Agent]
+      summary: 对话式意图解析（LLM）
+      description: LLM 只做命令选择与人话回复；命令必须命中白名单，执行走任务状态机
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "501":
+          description: LLM 未配置
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/v1/agent-chat/status:
+    get:
+      tags: [Agent]
+      summary: 查询对话引擎配置状态
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
 
 components:
   securitySchemes:

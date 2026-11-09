@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { Icon } from "./Icon.js";
 import { api, ApiError, getApiSession } from "../lib/api.js";
@@ -80,6 +80,13 @@ export function AgentAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inbox, setInbox] = useState<InboxItemView[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [llmStatus, setLlmStatus] = useState<{
+    enabled: boolean;
+    provider: string | null;
+    model: string | null;
+  } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const refreshInbox = useCallback(async () => {
@@ -97,6 +104,13 @@ export function AgentAssistant() {
     if (!open) return;
     void refreshInbox();
     const timer = window.setInterval(() => void refreshInbox(), 20_000);
+    api<{
+      enabled: boolean;
+      provider: string | null;
+      model: string | null;
+    }>("/api/v1/agent-chat/status")
+      .then(setLlmStatus)
+      .catch(() => setLlmStatus(null));
     return () => window.clearInterval(timer);
   }, [open, refreshInbox]);
 
@@ -139,6 +153,52 @@ export function AgentAssistant() {
       );
     } finally {
       setBusyCommand(null);
+    }
+  }
+
+  async function sendChat(event: FormEvent) {
+    event.preventDefault();
+    const content = chatInput.trim();
+    if (!content || chatSending) return;
+    setChatSending(true);
+    setError(null);
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: content, at: new Date().toISOString() },
+    ]);
+    setChatInput("");
+    try {
+      const history = [...messages, {
+        role: "user" as const,
+        text: content,
+        at: new Date().toISOString(),
+      }]
+        .slice(-10)
+        .map((message) => ({ role: message.role, content: message.text }));
+      const result = await api<{
+        reply: string;
+        task: AgentTaskView | null;
+      }>("/api/v1/agent-chat", { method: "POST", body: { messages: history } });
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: result.reply,
+          task: result.task ?? undefined,
+          at: new Date().toISOString(),
+        },
+      ]);
+      void refreshInbox();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 501) {
+        setError(
+          "对话意图解析未配置（需要 LLM_PROVIDER/LLM_API_KEY，支持 DeepSeek/GLM/Kimi）。请先使用上方指令按钮。",
+        );
+      } else {
+        setError(caught instanceof ApiError ? caught.message : "发送失败");
+      }
+    } finally {
+      setChatSending(false);
     }
   }
 
@@ -212,7 +272,9 @@ export function AgentAssistant() {
             <header className="agent-drawer__header">
               <span className="agent-drawer__engine">
                 <Icon name="spark" size={16} />
-                规则引擎 · 无 LLM
+                {llmStatus?.enabled && llmStatus.provider
+                  ? `意图解析 · ${llmStatus.provider.toUpperCase()}`
+                  : "规则引擎 · 无 LLM"}
               </span>
               <strong>AI 助手</strong>
               <button
@@ -315,6 +377,27 @@ export function AgentAssistant() {
                 </div>
               ))}
             </div>
+
+            <form className="agent-drawer__chat-input" onSubmit={sendChat}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder={
+                  llmStatus?.enabled
+                    ? "描述你想做的事，例如“扫描本月证据缺口”…"
+                    : "对话需配置 LLM；先用上方指令按钮…"
+                }
+                aria-label="对 AI 助手说点什么"
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatSending}
+                aria-label="发送"
+              >
+                <Icon name="arrow-up-right" size={16} />
+              </button>
+            </form>
 
             <footer className="agent-drawer__inbox">
               <strong>

@@ -166,6 +166,7 @@ import {
   decideEvaluationDraftSchema,
   createWorkPackageSchema,
   workPackageCommandSchema,
+  agentChatSchema,
   agentCommandSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
@@ -300,6 +301,11 @@ import {
   seatsRemainingFor,
   syncFeishuDirectory,
 } from "./feishu-sync.js";
+import {
+  extractJson,
+  llmChatComplete,
+  type LlmMessage,
+} from "./llm.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { ApiMetrics } from "./metrics.js";
 import {
@@ -434,6 +440,14 @@ export interface BuildAppOptions {
     tenantId: string;
     /** Console origin for redirects (defaults to the request host). */
     consoleBaseUrl?: string;
+    fetchImpl?: typeof fetch;
+  };
+  /** LLM 意图解析（OpenAI 兼容）；未配置时 /agent-chat 返回 501。 */
+  agentChat?: {
+    provider: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
     fetchImpl?: typeof fetch;
   };
 }
@@ -1277,6 +1291,26 @@ export function scanExportDlp(
   }
   return [...findings];
 }
+
+const AGENT_COMMANDS: Record<
+    string,
+    { agentType: Parameters<AgentRuntime["enqueue"]>[0]["agentType"]; input?: (params: Record<string, unknown>) => Record<string, unknown> }
+  > = {
+    scan_evidence_gaps: { agentType: "EVIDENCE_GAP" },
+    scan_contribution_anomalies: { agentType: "CONTRIBUTION_ANOMALY" },
+    scan_data_quality: { agentType: "DATA_QUALITY" },
+    check_settlement_readiness: {
+      agentType: "SETTLEMENT_READINESS",
+      input: (params) => params,
+    },
+    run_cycle_pre_review: { agentType: "CYCLE_PRE_REVIEW" },
+    check_appeal_sla: {
+      agentType: "APPEAL_SLA",
+      input: (params) => params,
+    },
+    propose_policy_change: { agentType: "POLICY_PROPOSAL" },
+    draft_evaluations: { agentType: "EVALUATION_DRAFT" },
+  };
 
 export function buildApp(
   storeOrResolver: IncentiveStore | StoreResolver = new Store(),
@@ -3815,27 +3849,120 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     requireRoles(request, "manager");
     return data(await runtimeFor(request).list(), request);
   });
+  // 对话式入口（第二阶段）：LLM 只做意图选择与人话回复；
+  // 命令必须命中 AGENT_COMMANDS 白名单才会执行，执行仍走任务状态机。
+  const AGENT_CHAT_SYSTEM_PROMPT = [
+    "你是 Anari N-Perform 绩效激励系统的 AI 助手。",
+    "你只能从下面的命令目录中选择一个命令执行，或仅回答问题：",
+    JSON.stringify(
+      Object.entries(AGENT_COMMANDS).map(([command, definition]) => ({
+        command,
+        agentType: definition.agentType,
+      })),
+    ),
+    "硬性规则（违反任何一条即为错误回复）：",
+    "1. 你不能创造、修改或建议任何命令目录之外的命令；",
+    "2. 你不能给出任何金额、绩效分数或系数——正式数值只由确定性引擎计算；",
+    "3. 你不能批准任何动作——批准只能由人在任务卡上点击；",
+    "4. 用户请求超出目录范围时，不要选择命令，用 reply 简短说明能做什么；",
+    "5. 只输出严格 JSON：{\"command\": \"目录中的命令或空串\", \"params\": {}, \"reply\": \"不超过120字的人话回复\"}。",
+  ].join("\n");
+
+  app.get("/api/v1/agent-chat/status", async (request) => {
+    return data(
+      {
+        enabled: Boolean(options.agentChat),
+        provider: options.agentChat?.provider ?? null,
+        model: options.agentChat?.model ?? null,
+      },
+      request,
+    );
+  });
+
+  app.post("/api/v1/agent-chat", async (request, reply) => {
+    requireRoles(request, "manager");
+    if (!options.agentChat) {
+      return reply.status(501).send({
+        ...errorBody(
+          "LLM_NOT_CONFIGURED",
+          "对话意图解析未配置（LLM_PROVIDER/LLM_API_KEY）。请使用上方指令按钮，或联系管理员配置 DeepSeek/GLM/Kimi。",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const body = parse(agentChatSchema, request.body);
+    const messages: LlmMessage[] = [
+      { role: "system", content: AGENT_CHAT_SYSTEM_PROMPT },
+      ...body.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ];
+    let parsed: Record<string, unknown> | null;
+    try {
+      const completion = await llmChatComplete(
+        {
+          provider: options.agentChat.provider as "deepseek" | "glm" | "kimi" | "custom",
+          baseUrl: options.agentChat.baseUrl,
+          apiKey: options.agentChat.apiKey,
+          model: options.agentChat.model,
+          fetchImpl: options.agentChat.fetchImpl,
+        },
+        messages,
+        { temperature: 0.2, maxTokens: 500, timeoutMs: 25_000 },
+      );
+      parsed = extractJson(completion.content);
+      if (!parsed) {
+        return data(
+          { reply: completion.content.slice(0, 600), task: null },
+          request,
+        );
+      }
+    } catch (error) {
+      request.log.warn({ err: error }, "agent-chat llm call failed");
+      throw new BadRequestError(
+        "LLM_CALL_FAILED",
+        error instanceof Error ? error.message : "LLM 调用失败",
+      );
+    }
+    const replyText =
+      typeof parsed.reply === "string" && parsed.reply.trim()
+        ? parsed.reply.trim().slice(0, 600)
+        : "已收到。";
+    const commandName =
+      typeof parsed.command === "string" ? parsed.command : "";
+    const definition = AGENT_COMMANDS[commandName];
+    if (!definition) {
+      // 目录外的“命令”一律不执行——这是注入防护的最后闸门。
+      return data({ reply: replyText, task: null }, request);
+    }
+    const tenantId = tenantOf(request);
+    const runtime = runtimeFor(request);
+    const params =
+      parsed.params && typeof parsed.params === "object"
+        ? (parsed.params as Record<string, unknown>)
+        : {};
+    const idempotencyKey =
+      typeof params.idempotencyKey === "string" && params.idempotencyKey.trim()
+        ? params.idempotencyKey
+        : `chat:${commandName}:${Date.now()}`;
+    const task = await runtime.enqueue({
+      tenantId,
+      agentType: definition.agentType,
+      triggerType: "MANUAL",
+      triggerRef: `chat:${commandName}`,
+      input: definition.input ? definition.input(params) : params,
+      idempotencyKey,
+      actorRole: "ACTOR",
+    });
+    const executed = await runtime.run(task.id);
+    countEvent("agent_chat_dispatched");
+    return data({ reply: replyText, task: executed }, request);
+  });
+
   // 智能指令台（无 LLM）：命令 → 现有 skill 任务；T0-T2 自动执行，
   // T3 一律等待人工批准（publish_policy），执行全部走既有状态机。
-  const AGENT_COMMANDS: Record<
-    string,
-    { agentType: Parameters<ReturnType<typeof runtimeFor>["enqueue"]>[0]["agentType"]; input?: (params: Record<string, unknown>) => Record<string, unknown> }
-  > = {
-    scan_evidence_gaps: { agentType: "EVIDENCE_GAP" },
-    scan_contribution_anomalies: { agentType: "CONTRIBUTION_ANOMALY" },
-    scan_data_quality: { agentType: "DATA_QUALITY" },
-    check_settlement_readiness: {
-      agentType: "SETTLEMENT_READINESS",
-      input: (params) => params,
-    },
-    run_cycle_pre_review: { agentType: "CYCLE_PRE_REVIEW" },
-    check_appeal_sla: {
-      agentType: "APPEAL_SLA",
-      input: (params) => params,
-    },
-    propose_policy_change: { agentType: "POLICY_PROPOSAL" },
-    draft_evaluations: { agentType: "EVALUATION_DRAFT" },
-  };
+
 
   app.post("/api/v1/agent-command", async (request, reply) => {
     requireRoles(request, "manager");
@@ -12449,6 +12576,8 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       );
     }
   };
+
+
 
   const requireString = (
     body: Record<string, unknown>,

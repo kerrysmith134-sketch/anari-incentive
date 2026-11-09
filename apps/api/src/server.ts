@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { assertRuntimeConfig } from "./config.js";
+import { resolveLlmConfigFromEnv } from "./llm.js";
 import {
   AgentRuntime,
   createDefaultSkills,
@@ -124,6 +125,10 @@ const platformStore = platformPool
       },
     });
 
+// LLM 意图解析（OpenAI 兼容：DeepSeek / GLM / Kimi / custom）。未配置则
+// /agent-chat 返回 501，助手退回纯指令台（无 LLM 路径不受影响）。
+const agentChatConfig = resolveLlmConfigFromEnv(process.env);
+
 const otlpEndpoint =
   process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ??
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
@@ -210,6 +215,7 @@ const app = buildApp(
     bodyLimitBytes: bodyLimit,
     sessionSecret: sessionSecret ?? feishuSessionSecret,
     feishu: feishuConfig,
+    agentChat: agentChatConfig,
   },
 );
 

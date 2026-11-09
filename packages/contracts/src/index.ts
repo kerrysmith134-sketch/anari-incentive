@@ -1692,6 +1692,20 @@ export const enqueueAgentTaskSchema = z.object({
 });
 export type EnqueueAgentTaskBody = z.input<typeof enqueueAgentTaskSchema>;
 
+/** 对话式入口：LLM 只做意图选择 + 人话回复，执行仍走 agent-command。 */
+export const agentChatSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().min(1).max(2000),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type AgentChatBody = z.infer<typeof agentChatSchema>;
+
 /** 智能指令台（无 LLM）：命令 → 现有 skill 任务；执行一律走 T0-T3 状态机。 */
 export const agentCommandSchema = z.object({
   command: z.enum([
