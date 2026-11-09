@@ -174,6 +174,24 @@ describePg("PgStore vertical slice", () => {
     const settlement = await store.createSettlementBatch({ cycleId: CYCLE });
     expect(settlement.totalAmount).toBe("2000");
     expect(settlement.lineCount).toBe(3);
+
+    // A waived clawback leaves a -X / +X pair behind. The ledger is immutable,
+    // so the pair is excluded rather than deleted; otherwise the next sweep
+    // picks the negative leg back up and re-charges the person.
+    const governance = new PgPlatformStore(platformPool);
+    const exclusion = {
+      tenantId: DEMO_TENANT_ID,
+      ledgerIds: [reversal.id],
+      reason: "clawback waived",
+      actorPersonId: ADJUDICATOR,
+    };
+    expect(await governance.excludeLedgerFromSettlement(exclusion)).toBe(1);
+    expect(await governance.excludeLedgerFromSettlement(exclusion)).toBe(0);
+    await expect(
+      store.createSettlementBatch({ cycleId: CYCLE, kind: "RECOVERY" }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("NO_SETTLEMENT_ELIGIBLE_LEDGER"),
+    });
   });
 
   it("accepts work packages atomically in a PostgreSQL batch", async () => {
