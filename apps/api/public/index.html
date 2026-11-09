@@ -763,7 +763,14 @@
           || (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH");
         if (!hit) { $("recoveryHint").textContent = "暂无待确认的扣回批次"; return; }
         $("settlementBatchId").value = hit.sourceId;
-        $("recoveryHint").textContent = "已定位待确认扣回批次，请核对金额后确认或反对";
+        let suffix = "已定位待确认扣回批次，请核对金额后确认或反对";
+        try {
+          const mine = await api(`/api/v1/employee-confirmations?personId=${encodeURIComponent($("personId").value.trim())}`);
+          const decided = (mine || []).find((row) => row.targetType === "SETTLEMENT" && row.targetId === hit.sourceId);
+          if (decided?.decision === "CONFIRMED") suffix = "你已确认该扣回；如需变更可重新提交";
+          else if (decided?.decision === "OBJECTED") suffix = "你已提出反对，批次将被阻止锁定，等待财务复核";
+        } catch (ignored) { /* 状态读取失败不影响确认操作 */ }
+        $("recoveryHint").textContent = suffix;
       } catch (error) {
         $("recoveryHint").textContent = "扣回批次定位失败：" + String(error.message);
       }
