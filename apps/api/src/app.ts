@@ -12419,6 +12419,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
 
   app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
     requireRoles(request, "finance");
+    // A malformed id used to reach Postgres as a uuid literal and surface as a
+    // 500; treat it as a missing batch instead.
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOf(request),
+      )
+    ) {
+      throw new NotFoundError(`SettlementBatch ${idOf(request)} not found`);
+    }
     const body = parse(settlementCommandSchema, request.body);
     if (body.command === "EXPORT") assertExportAllowed(request);
     const store = storeFor(request);
