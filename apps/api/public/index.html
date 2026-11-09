@@ -186,7 +186,8 @@
       <div class="grid">
         <div>
           <label for="settlementBatchId">结算批次 ID</label>
-          <input id="settlementBatchId" placeholder="RECOVERY_BATCH_ID" />
+          <input id="settlementBatchId" placeholder="登录后自动定位扣回批次" />
+          <div class="note" id="recoveryHint"></div>
         </div>
       </div>
       <div class="actions">
@@ -755,6 +756,19 @@
       }
     }
 
+    async function autoDetectRecovery() {
+      try {
+        const notifications = await api("/api/v1/notifications");
+        const hit = (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH" && item.status === "UNREAD")
+          || (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH");
+        if (!hit) { $("recoveryHint").textContent = "暂无待确认的扣回批次"; return; }
+        $("settlementBatchId").value = hit.sourceId;
+        $("recoveryHint").textContent = "已定位待确认扣回批次，请核对金额后确认或反对";
+      } catch (error) {
+        $("recoveryHint").textContent = "扣回批次定位失败：" + String(error.message);
+      }
+    }
+
     async function boot() {
       if (!token()) {
         $("loginBox").hidden = false;
@@ -771,6 +785,7 @@
         if (identity.personId) $("personId").value = identity.personId;
         await Promise.all([loadClaimPackages(), loadMyClaims(), loadEvidence(), loadNotifications(), loadNotices(), loadDsars()]);
         await autoPickRun();
+        await autoDetectRecovery();
       } catch (error) {
         localStorage.removeItem(TOKEN_KEY);
         $("loginBox").hidden = false;

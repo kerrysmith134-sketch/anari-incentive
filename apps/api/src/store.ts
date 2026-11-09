@@ -1892,7 +1892,9 @@ export class Store implements IncentiveStore {
       (entry) =>
         entry.cycleId === input.cycleId &&
         entry.status === "LOCKED" &&
-        !alreadyBatched.has(entry.id),
+        !alreadyBatched.has(entry.id) &&
+        // Recovery batches only carry clawback (negative) adjustments.
+        (input.kind !== "RECOVERY" || Number(entry.amount) < 0),
     );
     if (eligible.length === 0) {
       throw new ConflictError(
