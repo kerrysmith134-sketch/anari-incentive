@@ -226,6 +226,13 @@ function isApplicable(
 export function scorePerformance(
   request: PerformanceScoreRequest,
 ): PerformanceScoreResult {
+  const seenMetricIds = new Set<string>();
+  for (const metric of request.metrics) {
+    if (seenMetricIds.has(metric.metricId)) {
+      throw new Error(`duplicate metric id: ${metric.metricId}`);
+    }
+    seenMetricIds.add(metric.metricId);
+  }
   const metricById = new Map(
     request.metrics.map((metric) => [metric.metricId, metric]),
   );

@@ -7058,6 +7058,14 @@ export class MemoryPlatformStore implements PlatformStore {
       );
     }
     if (
+      input.command === "CANCEL" &&
+      !["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(batch.status)
+    ) {
+      throw new ConflictError(
+        `cannot CANCEL incentive award batch after it is ${batch.status}`,
+      );
+    }
+    if (
       input.command === "APPROVE" &&
       input.actorPersonId === batch.createdBy
     ) {
@@ -17633,6 +17641,14 @@ export class PgPlatformStore implements PlatformStore {
     if (!expected || batch.status !== expected[0]) {
       throw new ConflictError(
         `cannot ${input.command} incentive award batch in status ${batch.status}`,
+      );
+    }
+    if (
+      input.command === "CANCEL" &&
+      !["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(batch.status)
+    ) {
+      throw new ConflictError(
+        `cannot CANCEL incentive award batch after it is ${batch.status}`,
       );
     }
     if (
