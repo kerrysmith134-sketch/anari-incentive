@@ -51,6 +51,34 @@ interface ExerciseView {
   createdAt: string;
 }
 
+interface PolicyRecordView<T> {
+  id: string;
+  status?: string;
+  payload: T;
+  createdAt: string;
+}
+
+interface GrantCasePayload {
+  id: string;
+  personId: string;
+  instrument: string;
+  status: string;
+  positionLevel: string;
+  financingStage: string;
+  performanceGrade: string;
+  tenureStage: string;
+  grantPercent: string;
+  totalUnits: string;
+  strikePrice: string;
+  married: boolean;
+  spouseConfirmationSigned: boolean;
+  agreementSigned: boolean;
+  riskAcknowledged: boolean;
+  shareholderResolutionRef?: string;
+  taxFilingRef?: string;
+  capTableUpdated: boolean;
+}
+
 /** 期权股权：授予 → 悬崖归属 → 行权申请 → 审批 → 交割。 */
 export function EquityPage() {
   useDocumentTitle("期权股权");
@@ -63,7 +91,44 @@ export function EquityPage() {
     ) ?? false;
   const grants = useApiQuery<EquityGrantView[]>("/api/v1/equity-grants");
   const exercises = useApiQuery<ExerciseView[]>("/api/v1/equity-exercises");
+  const grantCases = useApiQuery<PolicyRecordView<GrantCasePayload>[]>(
+    "/api/v1/policy/equity/grant-cases",
+  );
   const [tab, setTab] = useState("grants");
+
+  // 授予决策流程
+  const [casePerson, setCasePerson] = useState(session.personId);
+  const [caseInstrument, setCaseInstrument] = useState("OPTION");
+  const [caseLevel, setCaseLevel] = useState("L1");
+  const [caseStage, setCaseStage] = useState("A");
+  const [caseGrade, setCaseGrade] = useState("B");
+  const [caseTenure, setCaseTenure] = useState("A");
+  const [casePercent, setCasePercent] = useState("2.5");
+  const [caseUnits, setCaseUnits] = useState("25000");
+  const [caseStrike, setCaseStrike] = useState("27.5");
+  const [caseMarried, setCaseMarried] = useState(false);
+  const [caseRisk, setCaseRisk] = useState(false);
+  const [caseError, setCaseError] = useState<string | null>(null);
+  const [caseSaving, setCaseSaving] = useState(false);
+  const [advanceCase, setAdvanceCase] =
+    useState<PolicyRecordView<GrantCasePayload> | null>(null);
+  const [advanceResolution, setAdvanceResolution] = useState("");
+  const [advanceAgreement, setAdvanceAgreement] = useState(false);
+  const [advanceSpouse, setAdvanceSpouse] = useState(false);
+  const [advanceTaxRef, setAdvanceTaxRef] = useState("");
+  const [advanceCapTable, setAdvanceCapTable] = useState(false);
+  const [advanceError, setAdvanceError] = useState<string | null>(null);
+
+  const GRANT_STEPS = [
+    "QUALIFICATION",
+    "CALCULATION",
+    "PLAN",
+    "SHAREHOLDER_APPROVAL",
+    "AGREEMENT",
+    "REGISTRATION",
+    "TAX_FILING",
+    "LEDGERED",
+  ];
 
   const [grantOpen, setGrantOpen] = useState(false);
   const [grantPerson, setGrantPerson] = useState(session.personId);
@@ -169,6 +234,77 @@ export function EquityPage() {
     }
   }
 
+  async function createGrantCase(event: FormEvent) {
+    event.preventDefault();
+    setCaseError(null);
+    setCaseSaving(true);
+    try {
+      await api("/api/v1/policy/equity/grant-cases", {
+        method: "POST",
+        body: {
+          personId: casePerson,
+          instrument: caseInstrument,
+          positionLevel: caseLevel,
+          financingStage: caseStage,
+          performanceGrade: caseGrade,
+          tenureStage: caseTenure,
+          grantPercent: casePercent,
+          totalUnits: caseUnits,
+          strikePrice: caseStrike,
+          married: caseMarried,
+          riskAcknowledged: caseRisk,
+        },
+      });
+      toast.success("授予流程已发起", "从资格审核开始，按八步推进");
+      grantCases.reload();
+    } catch (caught) {
+      setCaseError(caught instanceof ApiError ? caught.message : "发起失败");
+    } finally {
+      setCaseSaving(false);
+    }
+  }
+
+  function openAdvance(record: PolicyRecordView<GrantCasePayload>) {
+    setAdvanceCase(record);
+    setAdvanceResolution(record.payload.shareholderResolutionRef ?? "");
+    setAdvanceAgreement(record.payload.agreementSigned);
+    setAdvanceSpouse(record.payload.spouseConfirmationSigned);
+    setAdvanceTaxRef(record.payload.taxFilingRef ?? "");
+    setAdvanceCapTable(record.payload.capTableUpdated);
+    setAdvanceError(null);
+  }
+
+  async function submitAdvance(event: FormEvent) {
+    event.preventDefault();
+    if (!advanceCase) return;
+    const index = GRANT_STEPS.indexOf(advanceCase.payload.status);
+    const next = GRANT_STEPS[index + 1];
+    if (!next) return;
+    setAdvanceError(null);
+    try {
+      await api(
+        `/api/v1/policy/equity/grant-cases/${advanceCase.id}/advance`,
+        {
+          method: "POST",
+          body: {
+            status: next,
+            shareholderResolutionRef: advanceResolution.trim() || undefined,
+            agreementSigned: advanceAgreement,
+            spouseConfirmationSigned: advanceSpouse,
+            riskAcknowledged: advanceCase.payload.riskAcknowledged,
+            taxFilingRef: advanceTaxRef.trim() || undefined,
+            capTableUpdated: advanceCapTable,
+          },
+        },
+      );
+      toast.success("授予流程已推进", next);
+      setAdvanceCase(null);
+      grantCases.reload();
+    } catch (caught) {
+      setAdvanceError(caught instanceof ApiError ? caught.message : "推进失败");
+    }
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -185,6 +321,11 @@ export function EquityPage() {
         items={[
           { id: "grants", label: "授予台账", count: grantList.length },
           { id: "exercises", label: "行权记录", count: exerciseList.length },
+          {
+            id: "workflow",
+            label: "授予决策流程",
+            count: grantCases.data?.length ?? 0,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -326,6 +467,154 @@ export function EquityPage() {
               </table>
             )}
           </Panel>
+        ) : null}
+
+        {tab === "workflow" ? (
+          <div className="stack">
+            <Panel
+              title="发起股权授予流程"
+              subtitle="资格审核 → 配股计算 → 方案 → 股东会 → 协议 → 工商 → 税务 → 台账"
+            >
+              <form onSubmit={createGrantCase}>
+                <div className="form-grid">
+                  <FormField label="激励对象">
+                    <PersonSelect value={casePerson} onChange={setCasePerson} />
+                  </FormField>
+                  <FormField label="工具">
+                    <Select
+                      value={caseInstrument}
+                      onChange={(event) => setCaseInstrument(event.target.value)}
+                    >
+                      <option value="OPTION">期权</option>
+                      <option value="RSU">限制性股票</option>
+                      <option value="LP_SHARE">实股 LP 份额</option>
+                      <option value="PHANTOM">虚拟股/分红权</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="岗位等级">
+                    <Select value={caseLevel} onChange={(event) => setCaseLevel(event.target.value)}>
+                      <option value="L1">L1 · C-Level</option>
+                      <option value="L2">L2 · VP/总监</option>
+                      <option value="L3">L3 · 高级</option>
+                      <option value="L4">L4 · 中级</option>
+                      <option value="L5">L5 · 初级</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="融资阶段">
+                    <Select value={caseStage} onChange={(event) => setCaseStage(event.target.value)}>
+                      <option value="PRE_A">Pre-A/天使</option>
+                      <option value="A">A 轮</option>
+                      <option value="B">B 轮</option>
+                      <option value="C_PRE_IPO">C 轮/Pre-IPO</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="绩效评级">
+                    <Select value={caseGrade} onChange={(event) => setCaseGrade(event.target.value)}>
+                      <option value="S">S</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D（一票否决）</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="加入时融资阶段（司龄）">
+                    <Select value={caseTenure} onChange={(event) => setCaseTenure(event.target.value)}>
+                      <option value="FOUNDING">创始期</option>
+                      <option value="A">A 轮</option>
+                      <option value="B">B 轮</option>
+                      <option value="C">C 轮后</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="授予比例（%）">
+                    <TextInput value={casePercent} onChange={(event) => setCasePercent(event.target.value)} />
+                  </FormField>
+                  <FormField label="授予单位数">
+                    <TextInput value={caseUnits} onChange={(event) => setCaseUnits(event.target.value)} />
+                  </FormField>
+                  <FormField label="行权价">
+                    <TextInput value={caseStrike} onChange={(event) => setCaseStrike(event.target.value)} />
+                  </FormField>
+                  <FormField label="已婚（需配偶确认函）">
+                    <Select
+                      value={caseMarried ? "yes" : "no"}
+                      onChange={(event) => setCaseMarried(event.target.value === "yes")}
+                    >
+                      <option value="no">否</option>
+                      <option value="yes">是</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="已取得风险知悉确认">
+                    <Select
+                      value={caseRisk ? "yes" : "no"}
+                      onChange={(event) => setCaseRisk(event.target.value === "yes")}
+                    >
+                      <option value="no">否</option>
+                      <option value="yes">是</option>
+                    </Select>
+                  </FormField>
+                </div>
+                {caseError ? <InfoNotice tone="warning">{caseError}</InfoNotice> : null}
+                <div className="form-actions">
+                  <Button type="submit" loading={caseSaving}>
+                    发起授予流程
+                  </Button>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel title="授予流程台账" flush>
+              {grantCases.loading ? (
+                <div style={{ padding: 16 }}><LoadingRows /></div>
+              ) : (grantCases.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="rewards"
+                  title="暂无授予流程"
+                  description="先完成资格审核与配股计算，再提交股东会审批。"
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>对象</th>
+                      <th>工具 / 等级</th>
+                      <th>授予比例</th>
+                      <th>当前步骤</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(grantCases.data ?? []).map((record) => {
+                      const index = GRANT_STEPS.indexOf(record.payload.status);
+                      const next = GRANT_STEPS[index + 1];
+                      return (
+                        <tr key={record.id}>
+                          <td className="mono">{record.payload.personId.slice(0, 8)}</td>
+                          <td>
+                            {record.payload.instrument} · {record.payload.positionLevel}
+                          </td>
+                          <td className="mono">{record.payload.grantPercent}%</td>
+                          <td><Badge status={record.payload.status} /></td>
+                          <td className="cell-actions">
+                            {next ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => openAdvance(record)}
+                              >
+                                推进到 {next}
+                              </Button>
+                            ) : (
+                              <span className="muted">已完成</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+          </div>
         ) : null}
       </div>
 
@@ -508,6 +797,70 @@ export function EquityPage() {
               placeholder="1000"
               required
             />
+          </FormField>
+        </form>
+      </Modal>
+
+      {/* 推进授予流程 */}
+      <Modal
+        open={Boolean(advanceCase)}
+        title={`推进授予流程 · ${advanceCase?.payload.status ?? ""}`}
+        onClose={() => setAdvanceCase(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAdvanceCase(null)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="advance-case-form">
+              确认推进
+            </Button>
+          </>
+        }
+      >
+        <form id="advance-case-form" onSubmit={submitAdvance} className="form-grid">
+          {advanceError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{advanceError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="股东会决议编号" hint="进入协议签署前必填">
+            <TextInput
+              value={advanceResolution}
+              onChange={(event) => setAdvanceResolution(event.target.value)}
+            />
+          </FormField>
+          <FormField label="授予协议已签署">
+            <Select
+              value={advanceAgreement ? "yes" : "no"}
+              onChange={(event) => setAdvanceAgreement(event.target.value === "yes")}
+            >
+              <option value="no">否</option>
+              <option value="yes">是</option>
+            </Select>
+          </FormField>
+          <FormField label="配偶确认函已签署">
+            <Select
+              value={advanceSpouse ? "yes" : "no"}
+              onChange={(event) => setAdvanceSpouse(event.target.value === "yes")}
+            >
+              <option value="no">否</option>
+              <option value="yes">是</option>
+            </Select>
+          </FormField>
+          <FormField label="税务备案编号">
+            <TextInput
+              value={advanceTaxRef}
+              onChange={(event) => setAdvanceTaxRef(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Cap Table 已更新">
+            <Select
+              value={advanceCapTable ? "yes" : "no"}
+              onChange={(event) => setAdvanceCapTable(event.target.value === "yes")}
+            >
+              <option value="no">否</option>
+              <option value="yes">是</option>
+            </Select>
           </FormField>
         </form>
       </Modal>

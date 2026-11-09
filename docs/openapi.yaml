@@ -9513,6 +9513,84 @@ paths:
                 type: object
                 additionalProperties: true
 
+# 2026 institutional incentive award batches
+  /api/v1/incentive-award-batches:
+    get:
+      tags: [Policy]
+      summary: 查询制度激励发放批次
+      description: 按奖项类型、周期、状态查询批次
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 创建制度激励发放批次
+      description: 将政策计算结果转为可审批、锁定、导出的应付批次
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/incentive-award-batches/{id}:
+    get:
+      tags: [Policy]
+      summary: 查看制度激励发放批次
+      description: 返回批次明细与状态
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/incentive-award-batches/{id}/commands:
+    post:
+      tags: [Policy]
+      summary: 推进制度激励发放批次
+      description: 提交、审批、锁定、导出、回执或取消
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/incentive-award-batches/{id}/export:
+    get:
+      tags: [Policy]
+      summary: 导出制度激励发放批次
+      description: 导出带 DLP、水印与哈希的中文 CSV
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: 批量标记本人通知已读
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
 components:
   securitySchemes:
     bearerAuth:

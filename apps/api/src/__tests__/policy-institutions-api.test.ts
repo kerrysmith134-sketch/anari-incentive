@@ -775,3 +775,120 @@ describe("equity tax and grant workflow", () => {
     expect(list.body.data[0].status).toBe("LEDGERED");
   });
 });
+
+describe("incentive award batches", () => {
+  function payload(batchNo: string, sourceRecordId = "record-1") {
+    return {
+      batchNo,
+      awardType: "MONTHLY_STAR",
+      period: "2026-11",
+      currency: "CNY",
+      createdBy: ADMIN,
+      sourceRecordIds: [sourceRecordId],
+      lines: [
+        {
+          personId: MEMBER,
+          amount: "500",
+          sourceRecordId,
+          sourceLineRef: "line-1",
+          note: "月明星",
+        },
+      ],
+    };
+  }
+
+  it("runs DRAFT → PENDING_APPROVAL → APPROVED → LOCKED → EXPORTED → ACKNOWLEDGED", async () => {
+    const created = await call(
+      "POST",
+      "/api/v1/incentive-award-batches",
+      payload("AWARD-001"),
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.data.status).toBe("DRAFT");
+    expect(created.body.data.totalAmount).toBe("500");
+    const id = created.body.data.id;
+    const submit = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "SUBMIT" },
+    );
+    expect(submit.body.data.status).toBe("PENDING_APPROVAL");
+    const approve = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "APPROVE" },
+    );
+    expect(approve.body.data.status).toBe("APPROVED");
+    expect(approve.body.data.approvedBy).toBe(OWNER);
+    const lock = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "LOCK" },
+    );
+    expect(lock.body.data.status).toBe("LOCKED");
+    const exported = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "EXPORT" },
+    );
+    expect(exported.body.data.status).toBe("EXPORTED");
+    const csv = await app.inject({
+      method: "GET",
+      url: `/api/v1/incentive-award-batches/${id}/export`,
+    } as never);
+    expect(csv.statusCode).toBe(200);
+    expect(csv.body).toContain("批次号");
+    expect(csv.body).toContain("月明星");
+    const acknowledged = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "ACKNOWLEDGE", paymentRef: "BANK-2026-11" },
+    );
+    expect(acknowledged.body.data.status).toBe("ACKNOWLEDGED");
+    expect(acknowledged.body.data.paymentRef).toBe("BANK-2026-11");
+  });
+
+  it("refuses self-approval and duplicate source records", async () => {
+    const created = await call(
+      "POST",
+      "/api/v1/incentive-award-batches",
+      { ...payload("AWARD-002", "record-self"), createdBy: OWNER },
+    );
+    const id = created.body.data.id;
+    await call("POST", `/api/v1/incentive-award-batches/${id}/commands`, {
+      command: "SUBMIT",
+    });
+    const self = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/commands`,
+      { command: "APPROVE" },
+    );
+    // 默认调用人 OWNER 同时是创建人，自批被阻断。
+    expect(self.status).toBe(409);
+    const duplicate = await call(
+      "POST",
+      "/api/v1/incentive-award-batches",
+      payload("AWARD-003", "record-self"),
+    );
+    expect(duplicate.status).toBe(409);
+  });
+
+  it("rejects empty lines and non-positive amounts", async () => {
+    const empty = await call("POST", "/api/v1/incentive-award-batches", {
+      batchNo: "AWARD-EMPTY",
+      awardType: "MONTHLY_STAR",
+      period: "2026-11",
+      currency: "CNY",
+      lines: [],
+    });
+    expect(empty.status).toBe(400);
+    const negative = await call("POST", "/api/v1/incentive-award-batches", {
+      batchNo: "AWARD-NEG",
+      awardType: "MONTHLY_STAR",
+      period: "2026-11",
+      currency: "CNY",
+      lines: [{ personId: MEMBER, amount: "-1" }],
+    });
+    expect(negative.status).toBe(409);
+  });
+});

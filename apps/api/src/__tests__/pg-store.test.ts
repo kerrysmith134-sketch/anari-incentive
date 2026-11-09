@@ -3898,4 +3898,78 @@ evidenceOpened: 1,rationale: "Self",
     ).rejects.toThrow(/version mismatch/);
   });
 
+  it("persists incentive award batches through approval, lock, export and receipt", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const batch = await platform.createIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchNo: "PG-AWARD-001",
+      awardType: "MONTHLY_STAR",
+      period: "2026-11",
+      currency: "CNY",
+      createdBy: OWNER,
+      sourceRecordIds: ["pg-record-1"],
+      lines: [
+        {
+          personId: MEMBER,
+          amount: "500",
+          sourceRecordId: "pg-record-1",
+          sourceLineRef: "line-1",
+        },
+      ],
+    });
+    expect(batch.status).toBe("DRAFT");
+    expect(batch.totalAmount).toBe("500");
+    await expect(
+      platform.createIncentiveAwardBatch({
+        tenantId: DEMO_TENANT_ID,
+        batchNo: "PG-AWARD-002",
+        awardType: "MONTHLY_STAR",
+        period: "2026-11",
+        currency: "CNY",
+        createdBy: OWNER,
+        sourceRecordIds: ["pg-record-1"],
+        lines: [{ personId: MEMBER, amount: "500" }],
+      }),
+    ).rejects.toThrow(/already used/);
+    await platform.commandIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      command: "SUBMIT",
+      actorPersonId: OWNER,
+    });
+    const approved = await platform.commandIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      command: "APPROVE",
+      actorPersonId: ADJUDICATOR,
+    });
+    expect(approved.approvedBy).toBe(ADJUDICATOR);
+    const locked = await platform.commandIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      command: "LOCK",
+      actorPersonId: ADJUDICATOR,
+    });
+    expect(locked.status).toBe("LOCKED");
+    const exported = await platform.commandIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      command: "EXPORT",
+      actorPersonId: ADJUDICATOR,
+    });
+    expect(exported.status).toBe("EXPORTED");
+    const acknowledged = await platform.commandIncentiveAwardBatch({
+      tenantId: DEMO_TENANT_ID,
+      batchId: batch.id,
+      command: "ACKNOWLEDGE",
+      actorPersonId: ADJUDICATOR,
+      paymentRef: "PG-BANK-1",
+    });
+    expect(acknowledged.status).toBe("ACKNOWLEDGED");
+    const listed = await platform.listIncentiveAwardBatches(DEMO_TENANT_ID, {
+      awardType: "MONTHLY_STAR",
+    });
+    expect(listed.some((row) => row.id === batch.id)).toBe(true);
+  });
+
 });

@@ -104,14 +104,24 @@ export function calculatePayroll(input: {
       contract.deductionOrder.length > 0
         ? contract.deductionOrder
         : ["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"];
-    const priorityOf = (entryType: string): number => {
-      const mapped =
+    const classify = (entryType: string): string => {
+      if (
         entryType === "RECOVERY" ||
         entryType === "REVERSAL" ||
         entryType === "ADJUSTMENT"
-          ? entryType
-          : "OTHER";
-      const index = deductionOrder.indexOf(mapped);
+      ) {
+        return entryType;
+      }
+      // LG-06：注册过的法定扣款类型必须保留原类型，不能一律折叠为 OTHER，
+      // 否则逐类型上限/执行令/同意门禁永远不会命中。
+      return input.statutoryDeductionTypes?.some(
+        (rule) => rule.type === entryType,
+      )
+        ? entryType
+        : "OTHER";
+    };
+    const priorityOf = (entryType: string): number => {
+      const index = deductionOrder.indexOf(classify(entryType));
       return index === -1 ? deductionOrder.length : index;
     };
     const negativeEntries = entries
@@ -127,12 +137,7 @@ export function calculatePayroll(input: {
       deductions += -amount;
     }
     for (const entry of negativeEntries) {
-      const mapped =
-        entry.entryType === "RECOVERY" ||
-        entry.entryType === "REVERSAL" ||
-        entry.entryType === "ADJUSTMENT"
-          ? entry.entryType
-          : "OTHER";
+      const mapped = classify(entry.entryType);
       const current = breakdown.get(mapped);
       const sum = (current?.amount ?? 0n) + -parseDecimal(entry.amount);
       breakdown.set(mapped, {

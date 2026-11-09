@@ -367,3 +367,75 @@ describe("clawback recovery generation (INC-10)", () => {
     expect(duplicate.status).toBe(409);
   });
 });
+
+describe("LG-06 statutory deduction type classification", () => {
+  it("preserves registered statutory types instead of folding them into OTHER", () => {
+    const contract = {
+      id: "00000000-0000-4000-8000-000000000901",
+      tenantId: "tenant-demo",
+      personId: "00000000-0000-4000-8000-000000000001",
+      contractCode: "LG06",
+      employmentType: "FULL_TIME" as const,
+      status: "ACTIVE" as const,
+      startDate: "2026-01-01T00:00:00.000Z",
+      workLocation: "Shenzhen",
+      currency: "CNY",
+      fixedMonthlySalary: "8000",
+      minimumMonthlyWage: "2360",
+      taxRate: "0",
+      socialInsuranceRate: "0",
+      deductionCapRate: "1",
+      variableShareCapRate: "1",
+      deductionOrder: ["COURT_ORDER", "RECOVERY", "OTHER"],
+      deductionTypeCaps: {},
+      smoothingThresholdRate: "1",
+      consentSignatureRef: "sig",
+      consentSignedAt: "2026-01-01T00:00:00.000Z",
+      payPlanVersion: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      version: 1,
+    };
+    const result = calculatePayroll({
+      contracts: [contract],
+      ledger: [
+        {
+          id: "court-1",
+          tenantId: "tenant-demo",
+          personId: "00000000-0000-4000-8000-000000000001",
+          cycleId: "00000000-0000-4000-8000-000000000020",
+          calculationRunId: "00000000-0000-4000-8000-000000000030",
+          entryType: "COURT_ORDER",
+          currency: "CNY",
+          amount: "-100",
+          status: "LOCKED",
+          idempotencyKey: "court-1",
+          entryHash: "hash",
+          prevHash: "prev",
+          createdAt: "2026-11-01T00:00:00.000Z",
+          lockedAt: "2026-11-01T00:00:00.000Z",
+        } as never,
+      ],
+      statutoryDeductionTypes: [
+        {
+          type: "COURT_ORDER",
+          priority: 0,
+          requiresCourtOrder: true,
+          capRate: "0.5",
+        },
+      ],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-11-01T00:00:00.000Z",
+      periodEnd: "2026-11-30T23:59:59.000Z",
+    });
+    const breakdown = result.lines[0]!.deductionBreakdown;
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0]).toMatchObject({
+      type: "COURT_ORDER",
+      statutory: true,
+      requiresCourtOrder: true,
+      priority: 0,
+    });
+  });
+});

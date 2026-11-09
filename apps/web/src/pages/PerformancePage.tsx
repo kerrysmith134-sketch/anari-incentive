@@ -20,6 +20,7 @@ import { useToast } from "../contexts/ToastContext.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { api, ApiError } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { formatDateTime } from "../lib/format.js";
 import { zhStatus } from "../lib/zh.js";
 
 interface EvaluationCycleView {
@@ -60,6 +61,37 @@ interface RubricView {
   effectiveFrom: string;
 }
 
+interface PolicyRecordView<T> {
+  id: string;
+  recordType: string;
+  status?: string;
+  personId?: string;
+  period?: string;
+  payload: T;
+  createdAt: string;
+}
+
+interface GoalCardPayload {
+  id: string;
+  personId: string;
+  period: string;
+  roleCode: string;
+  status: string;
+  metrics: Array<Record<string, unknown>>;
+  lockedAt?: string;
+}
+
+interface MetricTemplate {
+  metricId: string;
+  name: string;
+  period: string;
+  weight: string;
+  metricType: string;
+  target?: string;
+  dataSource: string;
+  [key: string]: unknown;
+}
+
 /** 绩效管理：考核周期 → 评分标准 → 评价草稿（AI 可起草）→ 人工决策。 */
 export function PerformancePage() {
   useDocumentTitle("绩效管理");
@@ -72,7 +104,29 @@ export function PerformancePage() {
     "/api/v1/evaluation-decisions",
   );
   const rubrics = useApiQuery<RubricView[]>("/api/v1/rubrics");
+  const goalCards = useApiQuery<PolicyRecordView<GoalCardPayload>[]>(
+    "/api/v1/policy/performance/goal-cards",
+  );
+  const scoreRecords = useApiQuery<
+    PolicyRecordView<{ result?: { finalScore?: string; kp?: string } }>[]
+  >("/api/v1/policy/performance/scores");
   const [tab, setTab] = useState("cycles");
+
+  // 目标卡
+  const [goalPerson, setGoalPerson] = useState(session.personId);
+  const [goalPeriod, setGoalPeriod] = useState("QUARTERLY");
+  const [goalRole, setGoalRole] = useState("SALES");
+  const [goalMetricsText, setGoalMetricsText] = useState("[]");
+  const [goalError, setGoalError] = useState<string | null>(null);
+  const [goalSaving, setGoalSaving] = useState(false);
+
+  // 正式评分
+  const [scoreCardId, setScoreCardId] = useState("");
+  const [measurementsText, setMeasurementsText] = useState(
+    '[{"metricId":"Q-S-001","rawValue":"120","applicable":true}]',
+  );
+  const [scoreError, setScoreError] = useState<string | null>(null);
+  const [scoreSaving, setScoreSaving] = useState(false);
 
   // 新建周期
   const [cycleOpen, setCycleOpen] = useState(false);
@@ -114,6 +168,126 @@ export function PerformancePage() {
   const draftList = drafts.data ?? [];
   const decisionList = decisions.data ?? [];
   const rubricList = rubrics.data ?? [];
+
+  async function loadGoalTemplate() {
+    setGoalError(null);
+    try {
+      const query =
+        goalPeriod === "QUARTERLY"
+          ? `?period=QUARTERLY&role=${encodeURIComponent(goalRole)}`
+          : `?period=${goalPeriod}`;
+      const template = await api<MetricTemplate[]>(
+        `/api/v1/policy/performance/templates${query}`,
+      );
+      setGoalMetricsText(
+        JSON.stringify(
+          template.map((metric) => ({
+            ...metric,
+            target: metric.target ?? "100",
+          })),
+          null,
+          2,
+        ),
+      );
+    } catch (caught) {
+      setGoalError(
+        caught instanceof ApiError ? caught.message : "载入指标模板失败",
+      );
+    }
+  }
+
+  async function createGoalCard(event: FormEvent) {
+    event.preventDefault();
+    setGoalError(null);
+    setGoalSaving(true);
+    try {
+      const metrics = JSON.parse(goalMetricsText) as unknown;
+      if (!Array.isArray(metrics) || metrics.length === 0) {
+        throw new Error("指标 JSON 必须是非空数组");
+      }
+      await api("/api/v1/policy/performance/goal-cards", {
+        method: "POST",
+        body: {
+          personId: goalPerson,
+          period: goalPeriod,
+          roleCode: goalRole,
+          metrics,
+        },
+      });
+      toast.success("目标卡已创建", "请确认目标后锁定");
+      goalCards.reload();
+    } catch (caught) {
+      setGoalError(
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "创建目标卡失败",
+      );
+    } finally {
+      setGoalSaving(false);
+    }
+  }
+
+  async function lockGoalCard(record: PolicyRecordView<GoalCardPayload>) {
+    try {
+      await api(
+        `/api/v1/policy/performance/goal-cards/${record.id}/lock`,
+        { method: "POST", body: {} },
+      );
+      toast.success("目标卡已锁定", "锁定后不得静默覆盖");
+      goalCards.reload();
+    } catch (caught) {
+      toast.error(
+        "锁定失败",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    }
+  }
+
+  async function runOfficialScore(event: FormEvent) {
+    event.preventDefault();
+    setScoreError(null);
+    setScoreSaving(true);
+    try {
+      const card = goalCards.data?.find(
+        (record) => record.id === scoreCardId,
+      );
+      if (!card) throw new Error("请选择已锁定的目标卡");
+      const measurements = JSON.parse(measurementsText) as unknown;
+      if (!Array.isArray(measurements)) {
+        throw new Error("测量值 JSON 必须是数组");
+      }
+      const result = await api<{
+        finalScore: string;
+        kp: string;
+        complete: boolean;
+      }>("/api/v1/policy/performance/score", {
+        method: "POST",
+        body: {
+          personId: card.payload.personId,
+          period: card.payload.period,
+          metrics: card.payload.metrics,
+          measurements,
+        },
+      });
+      toast.success(
+        "正式评分已生成",
+        `S=${result.finalScore} · Kp=${result.kp}`,
+      );
+      scoreRecords.reload();
+    } catch (caught) {
+      setScoreError(
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "评分失败",
+      );
+    } finally {
+      setScoreSaving(false);
+    }
+  }
 
   function toIso(value: string): string {
     return value ? new Date(`${value}T00:00:00Z`).toISOString() : "";
@@ -255,6 +429,11 @@ export function PerformancePage() {
           { id: "drafts", label: "评价草稿", count: draftList.length },
           { id: "decisions", label: "已批决策", count: decisionList.length },
           { id: "rubrics", label: "评分标准", count: rubricList.length },
+          {
+            id: "scoring",
+            label: "目标卡与评分",
+            count: goalCards.data?.length ?? 0,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -470,6 +649,192 @@ export function PerformancePage() {
               </table>
             )}
           </Panel>
+        ) : null}
+
+        {tab === "scoring" ? (
+          <div className="stack">
+            <Panel
+              title="季度目标卡"
+              subtitle="指标权重合计必须 100%；目标、锚点、数据源事前锁定，锁定后不得静默覆盖"
+            >
+              <form onSubmit={createGoalCard}>
+                <div className="form-grid">
+                  <FormField label="员工">
+                    <PersonSelect value={goalPerson} onChange={setGoalPerson} />
+                  </FormField>
+                  <FormField label="周期">
+                    <Select
+                      value={goalPeriod}
+                      onChange={(event) => setGoalPeriod(event.target.value)}
+                    >
+                      <option value="MONTHLY">月度</option>
+                      <option value="QUARTERLY">季度</option>
+                      <option value="ANNUAL">年度</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="岗位代码" hint="销售 SALES / 执行总监 EXECUTIVE_DIRECTOR / 产品 PRODUCT_MANAGER / 客服 CUSTOMER_SERVICE / 供应链 SUPPLY_CHAIN / 财务 FINANCE">
+                    <TextInput
+                      value={goalRole}
+                      onChange={(event) => setGoalRole(event.target.value)}
+                    />
+                  </FormField>
+                </div>
+                <div className="form-actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={loadGoalTemplate}
+                  >
+                    载入岗位指标模板
+                  </Button>
+                </div>
+                <FormField
+                  label="指标 JSON"
+                  hint="模板载入后逐项填写 target 或 scoringAnchors；提交时后端校验权重合计 100%"
+                >
+                  <Textarea
+                    rows={12}
+                    value={goalMetricsText}
+                    onChange={(event) => setGoalMetricsText(event.target.value)}
+                  />
+                </FormField>
+                {goalError ? <InfoNotice tone="warning">{goalError}</InfoNotice> : null}
+                <div className="form-actions">
+                  <Button type="submit" loading={goalSaving}>
+                    创建目标卡
+                  </Button>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel title="目标卡台账" flush>
+              {goalCards.loading ? (
+                <div style={{ padding: 16 }}><LoadingRows /></div>
+              ) : (goalCards.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="暂无目标卡"
+                  description="季度开始前为每位员工锁定指标、权重、目标与评分函数。"
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>员工</th>
+                      <th>周期 / 岗位</th>
+                      <th>指标数</th>
+                      <th>状态</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(goalCards.data ?? []).map((record) => (
+                      <tr key={record.id}>
+                        <td className="mono">{record.payload.personId.slice(0, 8)}</td>
+                        <td>
+                          {record.payload.period} · {record.payload.roleCode}
+                        </td>
+                        <td>{record.payload.metrics.length}</td>
+                        <td><Badge status={record.payload.status} /></td>
+                        <td className="cell-actions">
+                          {record.payload.status !== "LOCKED" ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => lockGoalCard(record)}
+                            >
+                              锁定
+                            </Button>
+                          ) : (
+                            <span className="muted">已锁定</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+
+            <Panel
+              title="正式评分"
+              subtitle="选择已锁定目标卡，录入测量值；确定性引擎输出 S、Kp 与 N/A 归一化结果"
+            >
+              <form onSubmit={runOfficialScore}>
+                <div className="form-grid">
+                  <FormField label="目标卡">
+                    <Select
+                      value={scoreCardId}
+                      onChange={(event) => setScoreCardId(event.target.value)}
+                      required
+                    >
+                      <option value="">请选择</option>
+                      {(goalCards.data ?? [])
+                        .filter((record) => record.payload.status === "LOCKED")
+                        .map((record) => (
+                          <option key={record.id} value={record.id}>
+                            {record.payload.personId.slice(0, 8)} · {record.payload.period} · {record.payload.roleCode}
+                          </option>
+                        ))}
+                    </Select>
+                  </FormField>
+                </div>
+                <FormField
+                  label="测量值 JSON"
+                  hint='例如 [{"metricId":"Q-S-001","rawValue":"120","applicable":true}]；不适用项传 applicable:false'
+                >
+                  <Textarea
+                    rows={6}
+                    value={measurementsText}
+                    onChange={(event) => setMeasurementsText(event.target.value)}
+                  />
+                </FormField>
+                {scoreError ? <InfoNotice tone="warning">{scoreError}</InfoNotice> : null}
+                <div className="form-actions">
+                  <Button type="submit" loading={scoreSaving}>
+                    生成正式评分
+                  </Button>
+                </div>
+              </form>
+            </Panel>
+
+            <Panel title="评分记录" flush>
+              {scoreRecords.loading ? (
+                <div style={{ padding: 16 }}><LoadingRows /></div>
+              ) : (scoreRecords.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="暂无评分记录"
+                  description="正式评分会写入制度计算留痕，可按人员与周期查询。"
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>人员</th>
+                      <th>周期</th>
+                      <th>综合得分</th>
+                      <th>Kp</th>
+                      <th>状态</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(scoreRecords.data ?? []).map((record) => (
+                      <tr key={record.id}>
+                        <td className="mono">{record.personId?.slice(0, 8)}</td>
+                        <td>{record.period ?? "—"}</td>
+                        <td className="mono">{record.payload.result?.finalScore ?? "—"}</td>
+                        <td className="mono">{record.payload.result?.kp ?? "—"}</td>
+                        <td><Badge status={record.status} /></td>
+                        <td className="nowrap">{formatDateTime(record.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+          </div>
         ) : null}
       </div>
 

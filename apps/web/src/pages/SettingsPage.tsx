@@ -25,7 +25,7 @@ import {
 import { useAuth } from "../contexts/AuthContext.js";
 import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
-import { api, DEFAULT_SESSION } from "../lib/api.js";
+import { ApiError, api, DEFAULT_SESSION } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -74,6 +74,19 @@ export function SettingsPage() {
   );
   const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
+  const [dpiaOpen, setDpiaOpen] = useState(false);
+  const [dpiaType, setDpiaType] = useState("DPIA");
+  const [dpiaScope, setDpiaScope] = useState("");
+  const [dpiaRisk, setDpiaRisk] = useState("{}");
+  const [dpiaError, setDpiaError] = useState<string | null>(null);
+  const [dsarOpen, setDsarOpen] = useState(false);
+  const [dsarPerson, setDsarPerson] = useState(session.personId);
+  const [dsarType, setDsarType] = useState("ACCESS");
+  const [dsarError, setDsarError] = useState<string | null>(null);
+  const [resolveTarget, setResolveTarget] = useState<DsarRequest | null>(null);
+  const [resolveStatus, setResolveStatus] = useState("RESOLVED");
+  const [resolveRef, setResolveRef] = useState("");
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
   const retentionReport = useApiQuery<{
     generatedAt: string;
@@ -390,6 +403,79 @@ export function SettingsPage() {
       },
     ]);
     setSourceError(null);
+  }
+
+  async function createDpia(event: FormEvent) {
+    event.preventDefault();
+    setDpiaError(null);
+    try {
+      await api("/api/v1/dpia-records", {
+        method: "POST",
+        body: {
+          assessmentType: dpiaType,
+          scope: dpiaScope.trim(),
+          riskSummary: JSON.parse(dpiaRisk) as Record<string, unknown>,
+        },
+      });
+      toast.success("评估已创建", dpiaScope.trim());
+      setDpiaOpen(false);
+      dpias.reload();
+    } catch (caught) {
+      setDpiaError(
+        caught instanceof ApiError ? caught.message : "创建评估失败",
+      );
+    }
+  }
+
+  async function approveDpia(record: DpiaRecord) {
+    try {
+      await api(`/api/v1/dpia-records/${record.id}/approve`, {
+        method: "POST",
+        body: { approvedBy: session.personId },
+      });
+      toast.success("评估已批准", shortId(record.id, 8));
+      dpias.reload();
+    } catch (caught) {
+      toast.error(
+        "批准失败",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    }
+  }
+
+  async function createDsar(event: FormEvent) {
+    event.preventDefault();
+    setDsarError(null);
+    try {
+      await api("/api/v1/dsar-requests", {
+        method: "POST",
+        body: { personId: dsarPerson, requestType: dsarType },
+      });
+      toast.success("请求已创建", dsarType);
+      setDsarOpen(false);
+      dsars.reload();
+    } catch (caught) {
+      setDsarError(caught instanceof ApiError ? caught.message : "创建请求失败");
+    }
+  }
+
+  async function resolveDsar(event: FormEvent) {
+    event.preventDefault();
+    if (!resolveTarget) return;
+    setResolveError(null);
+    try {
+      await api(`/api/v1/dsar-requests/${resolveTarget.id}/resolve`, {
+        method: "POST",
+        body: { resolution: resolveStatus, resolutionRef: resolveRef.trim() },
+      });
+      toast.success("请求已处理", resolveStatus);
+      setResolveTarget(null);
+      dsars.reload();
+    } catch (caught) {
+      setResolveError(
+        caught instanceof ApiError ? caught.message : "处理请求失败",
+      );
+    }
   }
 
   function openRetentionForm(preset?: RetentionRecommendation) {
@@ -1522,7 +1608,14 @@ export function SettingsPage() {
         <Panel
           title="DPIAs"
           subtitle="数据保护影响评估"
-          action={<Badge tone="neutral" dot={false}>{dpias.data?.length ?? 0}</Badge>}
+          action={
+            <div className="row-actions">
+              <Badge tone="neutral" dot={false}>{dpias.data?.length ?? 0}</Badge>
+              <Button size="sm" variant="secondary" icon="plus" onClick={() => setDpiaOpen(true)}>
+                新建评估
+              </Button>
+            </div>
+          }
           flush
         >
           {dpias.error ? (
@@ -1548,6 +1641,7 @@ export function SettingsPage() {
                     <th>范围</th>
                     <th>状态</th>
                     <th>已批准</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -1570,6 +1664,17 @@ export function SettingsPage() {
                           ? formatDate(record.approvedAt)
                           : "—"}
                       </td>
+                      <td className="cell-actions">
+                        {record.status === "DRAFT" ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void approveDpia(record)}
+                          >
+                            批准
+                          </Button>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1581,7 +1686,14 @@ export function SettingsPage() {
         <Panel
           title="个人数据请求"
           subtitle={`${openDsars.length} open · ${overdueDsars.length} overdue`}
-          action={<Badge tone={overdueDsars.length > 0 ? "danger" : "neutral"} dot={false}>{dsars.data?.length ?? 0}</Badge>}
+          action={
+            <div className="row-actions">
+              <Badge tone={overdueDsars.length > 0 ? "danger" : "neutral"} dot={false}>{dsars.data?.length ?? 0}</Badge>
+              <Button size="sm" variant="secondary" icon="plus" onClick={() => setDsarOpen(true)}>
+                新建请求
+              </Button>
+            </div>
+          }
           flush
         >
           {dsars.error ? (
@@ -1607,6 +1719,7 @@ export function SettingsPage() {
                     <th>人员</th>
                     <th>状态</th>
                     <th>截止</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -1629,6 +1742,22 @@ export function SettingsPage() {
                         </td>
                         <td className={overdue ? "text-danger nowrap" : "nowrap"}>
                           {request.dueAt ? formatDate(request.dueAt) : "—"}
+                        </td>
+                        <td className="cell-actions">
+                          {request.status === "OPEN" ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setResolveTarget(request);
+                                setResolveStatus("RESOLVED");
+                                setResolveRef("");
+                                setResolveError(null);
+                              }}
+                            >
+                              处理
+                            </Button>
+                          ) : null}
                         </td>
                       </tr>
                     );
@@ -4784,15 +4913,135 @@ export function SettingsPage() {
       </Modal>
 
       <InfoNotice>
-        <Icon name="shield" size={15} /> Automated retention deletion is not
-        enabled. A retention policy records the rule and legal hold; disposal
-        remains a reviewed, manual operation.
+        <Icon name="shield" size={15} /> 自动保留删除未启用；保留策略只记录规则与法务保留，
+        实际处置仍需审批后人工执行。
       </InfoNotice>
 
-      <p className="subtle" style={{ fontSize: 11.5, marginTop: 18 }}>
-        Session context is stored in this browser for development. Person{" "}
-        {shortId(session.personId, 12)}.
-      </p>
+      <Modal
+        open={dpiaOpen}
+        title="新建数据保护影响评估"
+        onClose={() => setDpiaOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDpiaOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="dpia-form">
+              创建
+            </Button>
+          </>
+        }
+      >
+        <form id="dpia-form" onSubmit={createDpia} className="form-grid">
+          {dpiaError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{dpiaError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="评估类型">
+            <Select
+              value={dpiaType}
+              onChange={(event) => setDpiaType(event.target.value)}
+            >
+              <option value="DPIA">DPIA</option>
+              <option value="PIPIA">PIPIA</option>
+            </Select>
+          </FormField>
+          <FormField label="评估范围" className="field--full">
+            <TextInput
+              value={dpiaScope}
+              onChange={(event) => setDpiaScope(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="风险摘要 JSON" className="field--full">
+            <Textarea
+              rows={5}
+              value={dpiaRisk}
+              onChange={(event) => setDpiaRisk(event.target.value)}
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={dsarOpen}
+        title="新建个人数据请求"
+        onClose={() => setDsarOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDsarOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="dsar-form">
+              创建
+            </Button>
+          </>
+        }
+      >
+        <form id="dsar-form" onSubmit={createDsar} className="form-grid">
+          {dsarError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{dsarError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="人员">
+            <PersonSelect value={dsarPerson} onChange={setDsarPerson} />
+          </FormField>
+          <FormField label="请求类型">
+            <Select
+              value={dsarType}
+              onChange={(event) => setDsarType(event.target.value)}
+            >
+              <option value="ACCESS">查询</option>
+              <option value="CORRECTION">更正</option>
+              <option value="DELETION">删除</option>
+              <option value="EXPLANATION">说明</option>
+              <option value="OBJECTION">异议</option>
+            </Select>
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(resolveTarget)}
+        title="处理个人数据请求"
+        onClose={() => setResolveTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setResolveTarget(null)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="dsar-resolve-form">
+              确认
+            </Button>
+          </>
+        }
+      >
+        <form id="dsar-resolve-form" onSubmit={resolveDsar} className="form-grid">
+          {resolveError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{resolveError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="处理结论">
+            <Select
+              value={resolveStatus}
+              onChange={(event) => setResolveStatus(event.target.value)}
+            >
+              <option value="RESOLVED">已解决</option>
+              <option value="REJECTED">驳回</option>
+            </Select>
+          </FormField>
+          <FormField label="处理依据 / 引用" className="field--full">
+            <TextInput
+              value={resolveRef}
+              onChange={(event) => setResolveRef(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
     </>
   );
 }

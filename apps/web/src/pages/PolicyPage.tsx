@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -62,6 +62,13 @@ export function PolicyPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState("readiness");
   const [running, setRunning] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
+  const [testCode, setTestCode] = useState("");
+  const [testCategory, setTestCategory] = useState("BOUNDARY");
+  const [testInput, setTestInput] = useState("{}");
+  const [testExpected, setTestExpected] = useState("{}");
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testBusy, setTestBusy] = useState<string | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
   const [policyApproved, setPolicyApproved] = useState(false);
   const [minimumWageChecked, setMinimumWageChecked] = useState(false);
@@ -270,6 +277,69 @@ export function PolicyPage() {
       );
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function createTestCase(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedId) return;
+    setTestError(null);
+    try {
+      await api("/api/v1/policy-test-cases", {
+        method: "POST",
+        body: {
+          policyVersionId: selectedId,
+          caseCode: testCode.trim(),
+          category: testCategory,
+          input: JSON.parse(testInput) as Record<string, unknown>,
+          expectedOutput: JSON.parse(testExpected) as Record<string, unknown>,
+        },
+      });
+      toast.success("回归用例已创建", testCode.trim());
+      setTestOpen(false);
+      setTestCode("");
+      tests.reload();
+      readiness.reload();
+    } catch (caught) {
+      setTestError(caught instanceof Error ? caught.message : "创建失败");
+    }
+  }
+
+  async function runTestCase(testCase: PolicyTestCase) {
+    setTestBusy(testCase.id);
+    try {
+      await api(`/api/v1/policy-test-cases/${testCase.id}/run`, {
+        method: "POST",
+      });
+      toast.success("用例已运行", testCase.caseCode);
+      tests.reload();
+      readiness.reload();
+    } catch (caught) {
+      toast.error(
+        "用例运行失败",
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setTestBusy(null);
+    }
+  }
+
+  async function retireTestCase(testCase: PolicyTestCase) {
+    setTestBusy(testCase.id);
+    try {
+      await api(`/api/v1/policy-test-cases/${testCase.id}/retire`, {
+        method: "POST",
+      });
+      toast.success("用例已停用", testCase.caseCode);
+      tests.reload();
+      readiness.reload();
+    } catch (caught) {
+      toast.error(
+        "停用失败",
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setTestBusy(null);
     }
   }
 
@@ -896,16 +966,30 @@ export function PolicyPage() {
             title="回归用例集"
             subtitle="所选版本的边界/异常/历史用例"
             action={
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="play"
-                onClick={runSuite}
-                loading={running}
-                disabled={!selectedId}
-              >
-                运行用例集
-              </Button>
+              <div className="row-actions">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="plus"
+                  onClick={() => {
+                    setTestError(null);
+                    setTestOpen(true);
+                  }}
+                  disabled={!selectedId}
+                >
+                  新建用例
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="play"
+                  onClick={runSuite}
+                  loading={running}
+                  disabled={!selectedId}
+                >
+                  运行用例集
+                </Button>
+              </div>
             }
             flush
           >
@@ -934,6 +1018,7 @@ export function PolicyPage() {
                       <th>结果</th>
                       <th>最近运行</th>
                       <th>哈希</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -969,6 +1054,30 @@ export function PolicyPage() {
                               ? shortId(testCase.lastRunResultHash, 10)
                               : "—"}
                           </span>
+                        </td>
+                        <td className="cell-actions">
+                          <div className="row-actions">
+                            {testCase.status !== "RETIRED" ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  loading={testBusy === testCase.id}
+                                  onClick={() => void runTestCase(testCase)}
+                                >
+                                  运行
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  loading={testBusy === testCase.id}
+                                  onClick={() => void retireTestCase(testCase)}
+                                >
+                                  停用
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -3079,6 +3188,62 @@ export function PolicyPage() {
             </p>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={testOpen}
+        title="新建回归用例"
+        onClose={() => setTestOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setTestOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="test-case-form">
+              创建
+            </Button>
+          </>
+        }
+      >
+        <form id="test-case-form" onSubmit={createTestCase} className="form-grid">
+          {testError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{testError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="用例编码">
+            <TextInput
+              value={testCode}
+              onChange={(event) => setTestCode(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="类别">
+            <Select
+              value={testCategory}
+              onChange={(event) => setTestCategory(event.target.value)}
+            >
+              <option value="NORMAL">正常</option>
+              <option value="BOUNDARY">边界</option>
+              <option value="EXCEPTION">异常</option>
+              <option value="HISTORICAL">历史回放</option>
+            </Select>
+          </FormField>
+          <FormField label="输入 JSON" className="field--full">
+            <Textarea
+              rows={6}
+              value={testInput}
+              onChange={(event) => setTestInput(event.target.value)}
+            />
+          </FormField>
+          <FormField label="期望输出 JSON" className="field--full">
+            <Textarea
+              rows={6}
+              value={testExpected}
+              onChange={(event) => setTestExpected(event.target.value)}
+            />
+          </FormField>
+        </form>
       </Modal>
 
     </>

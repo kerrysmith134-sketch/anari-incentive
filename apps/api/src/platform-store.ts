@@ -58,6 +58,8 @@ import type {
   ModelPrompt,
   ModelProviderPolicy,
   PolicyEngineRecord,
+  IncentiveAwardBatch,
+  IncentiveAwardType,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -1311,6 +1313,44 @@ export interface PlatformStore {
     status?: string;
     version?: number;
   }): Promise<PolicyEngineRecord>;
+  createIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchNo: string;
+    awardType: IncentiveAwardType;
+    period: string;
+    cycleId?: string;
+    currency: string;
+    createdBy: string;
+    sourceRecordIds?: string[];
+    lines: Array<{
+      personId: string;
+      amount: string;
+      sourceRecordId?: string;
+      sourceLineRef?: string;
+      note?: string;
+    }>;
+  }): Promise<IncentiveAwardBatch>;
+  listIncentiveAwardBatches(
+    tenantId: string,
+    filter?: { awardType?: string; period?: string; status?: string },
+  ): Promise<IncentiveAwardBatch[]>;
+  getIncentiveAwardBatch(
+    tenantId: string,
+    batchId: string,
+  ): Promise<IncentiveAwardBatch>;
+  commandIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchId: string;
+    command:
+      | "SUBMIT"
+      | "APPROVE"
+      | "LOCK"
+      | "EXPORT"
+      | "ACKNOWLEDGE"
+      | "CANCEL";
+    actorPersonId: string;
+    paymentRef?: string;
+  }): Promise<IncentiveAwardBatch>;
   createEmploymentContract(input: {
     tenantId: string;
     personId: string;
@@ -1705,6 +1745,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly equityExercises = new Map<string, EquityExercise>();
   private readonly bounties = new Map<string, Bounty>();
   private readonly policyEngineRecords = new Map<string, PolicyEngineRecord>();
+  private readonly incentiveAwardBatches = new Map<string, IncentiveAwardBatch>();
   private readonly employmentContracts = new Map<
     string,
     EmploymentContract
@@ -6849,6 +6890,194 @@ export class MemoryPlatformStore implements PlatformStore {
       version: record.version + 1,
     };
     this.policyEngineRecords.set(updated.id, updated);
+    return updated;
+  }
+
+  async createIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchNo: string;
+    awardType: IncentiveAwardType;
+    period: string;
+    cycleId?: string;
+    currency: string;
+    createdBy: string;
+    sourceRecordIds?: string[];
+    lines: Array<{
+      personId: string;
+      amount: string;
+      sourceRecordId?: string;
+      sourceLineRef?: string;
+      note?: string;
+    }>;
+  }): Promise<IncentiveAwardBatch> {
+    if (
+      [...this.incentiveAwardBatches.values()].some(
+        (batch) =>
+          batch.tenantId === input.tenantId && batch.batchNo === input.batchNo,
+      )
+    ) {
+      throw new ConflictError(
+        `incentive award batch ${input.batchNo} already exists`,
+      );
+    }
+    if (input.lines.length === 0) {
+      throw new ConflictError("incentive award batch requires at least one line");
+    }
+    const sourceRecordIds = [
+      ...new Set([
+        ...(input.sourceRecordIds ?? []),
+        ...input.lines
+          .map((line) => line.sourceRecordId)
+          .filter((value): value is string => Boolean(value)),
+      ]),
+    ];
+    const usedSource = [...this.incentiveAwardBatches.values()].find(
+      (batch) =>
+        batch.tenantId === input.tenantId &&
+        batch.status !== "CANCELLED" &&
+        batch.sourceRecordIds.some((id) => sourceRecordIds.includes(id)),
+    );
+    if (usedSource) {
+      throw new ConflictError(
+        `source record already used by award batch ${usedSource.batchNo}`,
+      );
+    }
+    const seenLines = new Set<string>();
+    let total = 0n;
+    const batchId = randomUUID();
+    const lines = input.lines.map((line) => {
+      const key = `${line.personId}:${line.sourceLineRef ?? ""}`;
+      if (seenLines.has(key)) {
+        throw new ConflictError(`duplicate award line ${key}`);
+      }
+      seenLines.add(key);
+      const amount = parseDecimal(line.amount);
+      if (amount <= 0n) {
+        throw new ConflictError("incentive award line amount must be positive");
+      }
+      total += amount;
+      return {
+        id: randomUUID(),
+        batchId,
+        personId: line.personId,
+        amount: formatDecimal(amount),
+        currency: input.currency.toUpperCase(),
+        sourceRecordId: line.sourceRecordId,
+        sourceLineRef: line.sourceLineRef,
+        note: line.note,
+      };
+    });
+    const timestamp = now();
+    const batch: IncentiveAwardBatch = {
+      id: batchId,
+      tenantId: input.tenantId,
+      batchNo: input.batchNo,
+      awardType: input.awardType,
+      period: input.period,
+      cycleId: input.cycleId,
+      currency: input.currency.toUpperCase(),
+      status: "DRAFT",
+      totalAmount: formatDecimal(total),
+      lineCount: lines.length,
+      sourceRecordIds,
+      createdBy: input.createdBy,
+      lines,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    this.incentiveAwardBatches.set(batch.id, batch);
+    return batch;
+  }
+
+  async listIncentiveAwardBatches(
+    tenantId: string,
+    filter?: { awardType?: string; period?: string; status?: string },
+  ): Promise<IncentiveAwardBatch[]> {
+    return [...this.incentiveAwardBatches.values()]
+      .filter((batch) => batch.tenantId === tenantId)
+      .filter(
+        (batch) =>
+          (!filter?.awardType || batch.awardType === filter.awardType) &&
+          (!filter?.period || batch.period === filter.period) &&
+          (!filter?.status || batch.status === filter.status),
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async getIncentiveAwardBatch(
+    tenantId: string,
+    batchId: string,
+  ): Promise<IncentiveAwardBatch> {
+    const batch = this.incentiveAwardBatches.get(batchId);
+    if (!batch || batch.tenantId !== tenantId) {
+      notFound("IncentiveAwardBatch", batchId);
+    }
+    return batch;
+  }
+
+  async commandIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchId: string;
+    command:
+      | "SUBMIT"
+      | "APPROVE"
+      | "LOCK"
+      | "EXPORT"
+      | "ACKNOWLEDGE"
+      | "CANCEL";
+    actorPersonId: string;
+    paymentRef?: string;
+  }): Promise<IncentiveAwardBatch> {
+    const batch = await this.getIncentiveAwardBatch(
+      input.tenantId,
+      input.batchId,
+    );
+    const timestamp = now();
+    const transition: Record<string, [string, string]> = {
+      SUBMIT: ["DRAFT", "PENDING_APPROVAL"],
+      APPROVE: ["PENDING_APPROVAL", "APPROVED"],
+      LOCK: ["APPROVED", "LOCKED"],
+      EXPORT: ["LOCKED", "EXPORTED"],
+      ACKNOWLEDGE: ["EXPORTED", "ACKNOWLEDGED"],
+      CANCEL: [batch.status, "CANCELLED"],
+    };
+    const expected = transition[input.command];
+    if (!expected || batch.status !== expected[0]) {
+      throw new ConflictError(
+        `cannot ${input.command} incentive award batch in status ${batch.status}`,
+      );
+    }
+    if (
+      input.command === "APPROVE" &&
+      input.actorPersonId === batch.createdBy
+    ) {
+      throw new ConflictError(
+        "AWARD_BATCH_SELF_APPROVAL: creator cannot approve the batch",
+      );
+    }
+    if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
+      throw new ConflictError("payment reference is required to acknowledge");
+    }
+    const updated: IncentiveAwardBatch = {
+      ...batch,
+      status: expected[1] as IncentiveAwardBatch["status"],
+      approvedBy:
+        input.command === "APPROVE" ? input.actorPersonId : batch.approvedBy,
+      approvedAt:
+        input.command === "APPROVE" ? timestamp : batch.approvedAt,
+      lockedAt: input.command === "LOCK" ? timestamp : batch.lockedAt,
+      exportedAt: input.command === "EXPORT" ? timestamp : batch.exportedAt,
+      acknowledgedAt:
+        input.command === "ACKNOWLEDGE" ? timestamp : batch.acknowledgedAt,
+      paymentRef:
+        input.command === "ACKNOWLEDGE"
+          ? input.paymentRef?.trim()
+          : batch.paymentRef,
+      updatedAt: timestamp,
+      version: batch.version + 1,
+    };
+    this.incentiveAwardBatches.set(updated.id, updated);
     return updated;
   }
 
@@ -17126,6 +17355,268 @@ export class PgPlatformStore implements PlatformStore {
       ],
     );
     return this.mapPolicyEngineRecord(rows[0]!);
+  }
+
+  async createIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchNo: string;
+    awardType: IncentiveAwardType;
+    period: string;
+    cycleId?: string;
+    currency: string;
+    createdBy: string;
+    sourceRecordIds?: string[];
+    lines: Array<{
+      personId: string;
+      amount: string;
+      sourceRecordId?: string;
+      sourceLineRef?: string;
+      note?: string;
+    }>;
+  }): Promise<IncentiveAwardBatch> {
+    await this.assertTenant(input.tenantId);
+    if (input.lines.length === 0) {
+      throw new ConflictError("incentive award batch requires at least one line");
+    }
+    const sourceRecordIds = [
+      ...new Set([
+        ...(input.sourceRecordIds ?? []),
+        ...input.lines
+          .map((line) => line.sourceRecordId)
+          .filter((value): value is string => Boolean(value)),
+      ]),
+    ];
+    if (sourceRecordIds.length > 0) {
+      const { rows } = await this.pool.query(
+        `SELECT batch_no FROM incentive_award_batches
+          WHERE tenant_id=$1 AND status <> 'CANCELLED'
+            AND source_record_ids ?| $2::text[]
+          LIMIT 1`,
+        [input.tenantId, sourceRecordIds],
+      );
+      if (rows[0]) {
+        throw new ConflictError(
+          `source record already used by award batch ${rows[0].batch_no}`,
+        );
+      }
+    }
+    const seen = new Set<string>();
+    let total = 0n;
+    for (const line of input.lines) {
+      const key = `${line.personId}:${line.sourceLineRef ?? ""}`;
+      if (seen.has(key)) throw new ConflictError(`duplicate award line ${key}`);
+      seen.add(key);
+      const amount = parseDecimal(line.amount);
+      if (amount <= 0n) {
+        throw new ConflictError("incentive award line amount must be positive");
+      }
+      total += amount;
+    }
+    const batchId = randomUUID();
+    return this.transaction(async (client) => {
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO incentive_award_batches
+            (id, tenant_id, batch_no, award_type, period, cycle_id, currency,
+             status, total_amount, line_count, source_record_ids, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'DRAFT',$8,$9,$10::jsonb,$11)
+           RETURNING *`,
+          [
+            batchId,
+            input.tenantId,
+            input.batchNo,
+            input.awardType,
+            input.period,
+            input.cycleId ?? null,
+            input.currency.toUpperCase(),
+            formatDecimal(total),
+            input.lines.length,
+            JSON.stringify(sourceRecordIds),
+            input.createdBy,
+          ],
+        );
+        for (const line of input.lines) {
+          await client.query(
+            `INSERT INTO incentive_award_lines
+              (id, tenant_id, batch_id, person_id, amount, currency,
+               source_record_id, source_line_ref, note)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [
+              randomUUID(),
+              input.tenantId,
+              batchId,
+              line.personId,
+              formatDecimal(parseDecimal(line.amount)),
+              input.currency.toUpperCase(),
+              line.sourceRecordId ?? null,
+              line.sourceLineRef ?? null,
+              line.note ?? null,
+            ],
+          );
+        }
+        return this.loadIncentiveAwardBatch(client, rows[0]!);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23505") {
+          throw new ConflictError(
+            `incentive award batch ${input.batchNo} already exists or duplicate line`,
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
+  async listIncentiveAwardBatches(
+    tenantId: string,
+    filter?: { awardType?: string; period?: string; status?: string },
+  ): Promise<IncentiveAwardBatch[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM incentive_award_batches WHERE tenant_id=$1";
+    if (filter?.awardType) {
+      params.push(filter.awardType);
+      sql += ` AND award_type=$${params.length}`;
+    }
+    if (filter?.period) {
+      params.push(filter.period);
+      sql += ` AND period=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    const batches: IncentiveAwardBatch[] = [];
+    for (const row of rows) {
+      batches.push(await this.loadIncentiveAwardBatch(this.pool, row));
+    }
+    return batches;
+  }
+
+  async getIncentiveAwardBatch(
+    tenantId: string,
+    batchId: string,
+  ): Promise<IncentiveAwardBatch> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
+      [tenantId, batchId],
+    );
+    if (!rows[0]) notFound("IncentiveAwardBatch", batchId);
+    return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
+  }
+
+  async commandIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchId: string;
+    command:
+      | "SUBMIT"
+      | "APPROVE"
+      | "LOCK"
+      | "EXPORT"
+      | "ACKNOWLEDGE"
+      | "CANCEL";
+    actorPersonId: string;
+    paymentRef?: string;
+  }): Promise<IncentiveAwardBatch> {
+    const batch = await this.getIncentiveAwardBatch(
+      input.tenantId,
+      input.batchId,
+    );
+    const transition: Record<string, [string, string]> = {
+      SUBMIT: ["DRAFT", "PENDING_APPROVAL"],
+      APPROVE: ["PENDING_APPROVAL", "APPROVED"],
+      LOCK: ["APPROVED", "LOCKED"],
+      EXPORT: ["LOCKED", "EXPORTED"],
+      ACKNOWLEDGE: ["EXPORTED", "ACKNOWLEDGED"],
+      CANCEL: [batch.status, "CANCELLED"],
+    };
+    const expected = transition[input.command];
+    if (!expected || batch.status !== expected[0]) {
+      throw new ConflictError(
+        `cannot ${input.command} incentive award batch in status ${batch.status}`,
+      );
+    }
+    if (
+      input.command === "APPROVE" &&
+      input.actorPersonId === batch.createdBy
+    ) {
+      throw new ConflictError(
+        "AWARD_BATCH_SELF_APPROVAL: creator cannot approve the batch",
+      );
+    }
+    if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
+      throw new ConflictError("payment reference is required to acknowledge");
+    }
+    const { rows } = await this.pool.query(
+      `UPDATE incentive_award_batches
+          SET status=$3,
+              approved_by = CASE WHEN $4='APPROVE' THEN $5 ELSE approved_by END,
+              approved_at = CASE WHEN $4='APPROVE' THEN now() ELSE approved_at END,
+              locked_at = CASE WHEN $4='LOCK' THEN now() ELSE locked_at END,
+              exported_at = CASE WHEN $4='EXPORT' THEN now() ELSE exported_at END,
+              acknowledged_at = CASE WHEN $4='ACKNOWLEDGE' THEN now() ELSE acknowledged_at END,
+              payment_ref = CASE WHEN $4='ACKNOWLEDGE' THEN $6 ELSE payment_ref END,
+              updated_at=now(),
+              version=version+1
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.batchId,
+        expected[1],
+        input.command,
+        input.actorPersonId,
+        input.paymentRef?.trim() ?? null,
+      ],
+    );
+    return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
+  }
+
+  private async loadIncentiveAwardBatch(
+    queryable: Pool | PoolClient,
+    row: QueryResultRow,
+  ): Promise<IncentiveAwardBatch> {
+    const { rows: lines } = await queryable.query(
+      `SELECT * FROM incentive_award_lines
+        WHERE tenant_id=$1 AND batch_id=$2
+        ORDER BY created_at, id`,
+      [row.tenant_id, row.id],
+    );
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      batchNo: row.batch_no,
+      awardType: row.award_type,
+      period: row.period,
+      cycleId: row.cycle_id ?? undefined,
+      currency: row.currency,
+      status: row.status,
+      totalAmount: decimalText(String(row.total_amount)) ?? "0",
+      lineCount: Number(row.line_count),
+      sourceRecordIds: (row.source_record_ids ?? []) as string[],
+      createdBy: row.created_by,
+      approvedBy: row.approved_by ?? undefined,
+      approvedAt: iso(row.approved_at),
+      lockedAt: iso(row.locked_at),
+      exportedAt: iso(row.exported_at),
+      acknowledgedAt: iso(row.acknowledged_at),
+      paymentRef: row.payment_ref ?? undefined,
+      lines: lines.map((line) => ({
+        id: line.id,
+        batchId: line.batch_id,
+        personId: line.person_id,
+        amount: decimalText(String(line.amount)) ?? "0",
+        currency: line.currency,
+        sourceRecordId: line.source_record_id ?? undefined,
+        sourceLineRef: line.source_line_ref ?? undefined,
+        note: line.note ?? undefined,
+      })),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
+    };
   }
 
   private mapPolicyEngineRecord(row: QueryResultRow): PolicyEngineRecord {

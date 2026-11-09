@@ -50,6 +50,16 @@ const TIMEZONES = [
   "America/New_York",
 ];
 
+const NEXT_CYCLE_STATUS: Record<string, string | undefined> = {
+  DRAFT: "COLLECTING",
+  COLLECTING: "AI_PRE_REVIEW",
+  AI_PRE_REVIEW: "HUMAN_REVIEW",
+  HUMAN_REVIEW: "DECIDED",
+  DECIDED: "CALCULATING",
+  CALCULATING: "SETTLED",
+  SETTLED: undefined,
+};
+
 export function CyclesPage() {
   useDocumentTitle("考核周期");
   const { session } = useAuth();
@@ -74,6 +84,9 @@ export function CyclesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [advanceReason, setAdvanceReason] = useState("");
+  const [cycleActionError, setCycleActionError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportScopeOpen, setExportScopeOpen] = useState(false);
   const [exportLegalEntity, setExportLegalEntity] = useState("");
@@ -309,6 +322,74 @@ export function CyclesPage() {
     }
   }
 
+  async function runPreReview() {
+    if (!selectedId) return;
+    setCycleActionError(null);
+    setAdvancing(true);
+    try {
+      const result = await api<{
+        created: unknown[];
+        skipped: unknown[];
+        note?: string;
+      }>(`/api/v1/evaluation-cycles/${selectedId}/pre-review`, {
+        method: "POST",
+        body: {},
+      });
+      toast.success(
+        "AI 预审已执行",
+        `生成 ${result.created?.length ?? 0} 份草稿${
+          result.skipped?.length ? `，跳过 ${result.skipped.length} 项` : ""
+        }${result.note ? `。${result.note}` : ""}`,
+      );
+      drafts.reload();
+      cycles.reload();
+    } catch (caught) {
+      const message =
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "预审失败";
+      setCycleActionError(message);
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
+  async function advanceCycle(target: string) {
+    if (!selectedId) return;
+    setCycleActionError(null);
+    setAdvancing(true);
+    try {
+      await api(`/api/v1/evaluation-cycles/${selectedId}/advance`, {
+        method: "POST",
+        body: {
+          status: target,
+          reason: advanceReason.trim() || "控制台推进",
+        },
+      });
+      toast.success("周期已推进", titleCase(target));
+      setAdvanceReason("");
+      cycles.reload();
+      readiness.reload();
+    } catch (caught) {
+      const message =
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "推进失败";
+      setCycleActionError(message);
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
+  function openCycleReport() {
+    if (!selectedId) return;
+    window.open(`/api/v1/reports/cycles/${selectedId}/report`, "_blank");
+  }
+
   async function submitDraft(draft: EvaluationDraft) {
     setBusy(draft.id);
     try {
@@ -438,6 +519,14 @@ export function CyclesPage() {
               disabled={!selectedId}
             >
               证据包
+            </Button>
+            <Button
+              variant="secondary"
+              icon="download"
+              onClick={openCycleReport}
+              disabled={!selectedId}
+            >
+              周期报告
             </Button>
             <Button variant="primary" icon="plus" onClick={openCreate}>
               新建周期
@@ -636,6 +725,64 @@ export function CyclesPage() {
                     </div>
                   )}
                 </>
+              )}
+            </Panel>
+
+            <Panel
+              title="周期流程"
+              subtitle="数据采集 → AI 预审 → 人工复核 → 决策 → 计算 → 结算"
+              action={
+                selected ? <Badge status={selected.status} /> : undefined
+              }
+            >
+              {!selected ? (
+                <EmptyState
+                  icon="clock"
+                  title="请选择周期"
+                  description="在左侧选择一个考核周期后推进流程。"
+                />
+              ) : (
+                <div className="stack">
+                  {cycleActionError ? (
+                    <InfoNotice tone="warning">{cycleActionError}</InfoNotice>
+                  ) : null}
+                  <div className="muted">
+                    当前状态：<strong>{titleCase(selected.status)}</strong>
+                    {NEXT_CYCLE_STATUS[selected.status]
+                      ? `；下一步：${titleCase(NEXT_CYCLE_STATUS[selected.status]!)}`
+                      : "；已到终态"}
+                  </div>
+                  <div className="form-grid">
+                    <FormField label="推进说明" hint="会写入周期审计事件">
+                      <TextInput
+                        value={advanceReason}
+                        onChange={(event) => setAdvanceReason(event.target.value)}
+                        placeholder="例如：收集期结束，进入 AI 预审"
+                      />
+                    </FormField>
+                  </div>
+                  <div className="form-actions">
+                    <Button
+                      variant="secondary"
+                      onClick={runPreReview}
+                      loading={advancing}
+                      disabled={!["COLLECTING", "AI_PRE_REVIEW"].includes(selected.status)}
+                    >
+                      运行 AI 预审
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => advanceCycle(NEXT_CYCLE_STATUS[selected.status]!)}
+                      loading={advancing}
+                      disabled={!NEXT_CYCLE_STATUS[selected.status]}
+                    >
+                      推进到 {NEXT_CYCLE_STATUS[selected.status] ? titleCase(NEXT_CYCLE_STATUS[selected.status]!) : "终态"}
+                    </Button>
+                  </div>
+                  <InfoNotice tone="info">
+                    HUMAN_REVIEW 前必须有 AGENT 预审草稿；DECIDED 前所有草稿必须已决策。门禁不满足时后端会返回 409，不会跳过。
+                  </InfoNotice>
+                </div>
               )}
             </Panel>
 

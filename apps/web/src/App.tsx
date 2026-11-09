@@ -62,6 +62,11 @@ const TaskPodPage = lazy(() =>
     default: module.TaskPodPage,
   })),
 );
+const AwardBatchPage = lazy(() =>
+  import("./pages/AwardBatchPage.js").then((module) => ({
+    default: module.AwardBatchPage,
+  })),
+);
 const SignupPage = lazy(() =>
   import("./pages/SignupPage.js").then((module) => ({
     default: module.SignupPage,
@@ -255,6 +260,7 @@ export function App() {
                     <Route path="/bounty" element={<BountyPage />} />
                     <Route path="/institutions" element={<InstitutionsPage />} />
                     <Route path="/task-pods" element={<TaskPodPage />} />
+                    <Route path="/award-batches" element={<AwardBatchPage />} />
                     <Route path="/payroll" element={<PayrollPage />} />
                     <Route path="/rewards" element={<RewardsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />

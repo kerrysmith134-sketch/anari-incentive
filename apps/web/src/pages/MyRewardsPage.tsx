@@ -215,6 +215,37 @@ export function MyRewardsPage() {
     }
   }
 
+  async function confirmCalculation(
+    run: RunView,
+    decision: "VIEWED" | "CONFIRMED" | "OBJECTED",
+  ) {
+    try {
+      await api("/api/v1/employee-confirmations", {
+        method: "POST",
+        body: {
+          personId: me,
+          targetType: "CALCULATION",
+          targetId: run.id,
+          decision,
+          reason:
+            decision === "OBJECTED" ? "员工对计算结果提出异议" : undefined,
+        },
+      });
+      toast.success(
+        decision === "CONFIRMED"
+          ? "已确认计算结果"
+          : decision === "OBJECTED"
+            ? "已提出异议"
+            : "已标记查看",
+      );
+    } catch (caught) {
+      toast.error(
+        "操作失败",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    }
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -384,6 +415,7 @@ export function MyRewardsPage() {
                     <th>模式</th>
                     <th>状态</th>
                     <th>我的金额</th>
+                    <th>确认</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -402,6 +434,24 @@ export function MyRewardsPage() {
                         </td>
                         <td className="mono">
                           {mine?.amount ?? mine?.netAmount ?? "—"}
+                        </td>
+                        <td className="cell-actions">
+                          <div className="row-actions">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void confirmCalculation(run, "CONFIRMED")}
+                            >
+                              确认
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void confirmCalculation(run, "OBJECTED")}
+                            >
+                              异议
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );

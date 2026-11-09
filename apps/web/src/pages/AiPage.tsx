@@ -99,6 +99,17 @@ export function AiPage() {
   const [secondStartedAt, setSecondStartedAt] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [promptDetail, setPromptDetail] = useState<ModelPrompt | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptCode, setPromptCode] = useState("");
+  const [promptVersion, setPromptVersion] = useState("1");
+  const [promptPurpose, setPromptPurpose] = useState("");
+  const [promptProvider, setPromptProvider] = useState("openai");
+  const [promptModel, setPromptModel] = useState("");
+  const [promptTemplate, setPromptTemplate] = useState("");
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const [activateTarget, setActivateTarget] = useState<ModelPrompt | null>(null);
+  const [activateRunId, setActivateRunId] = useState("");
+  const [activateError, setActivateError] = useState<string | null>(null);
   const [evaluationDetail, setEvaluationDetail] =
     useState<ModelEvaluationRun | null>(null);
   const [auditTarget, setAuditTarget] = useState<AiScoreProposal | null>(null);
@@ -654,6 +665,65 @@ async function saveRefresh(event: FormEvent) {
     }
   }
 
+  async function createPrompt(event: FormEvent) {
+    event.preventDefault();
+    setPromptError(null);
+    try {
+      await api("/api/v1/model-prompts", {
+        method: "POST",
+        body: {
+          promptCode: promptCode.trim(),
+          version: Number(promptVersion),
+          purpose: promptPurpose.trim(),
+          modelProvider: promptProvider.trim(),
+          modelName: promptModel.trim(),
+          template: promptTemplate,
+        },
+      });
+      toast.success("提示词已登记", promptCode.trim());
+      setPromptOpen(false);
+      prompts.reload();
+    } catch (caught) {
+      setPromptError(
+        caught instanceof ApiError ? caught.message : "登记提示词失败",
+      );
+    }
+  }
+
+  async function activatePrompt(event: FormEvent) {
+    event.preventDefault();
+    if (!activateTarget) return;
+    setActivateError(null);
+    try {
+      await api(`/api/v1/model-prompts/${activateTarget.id}/activate`, {
+        method: "POST",
+        body: { evaluationRunId: activateRunId.trim() },
+      });
+      toast.success("提示词已激活", activateTarget.promptCode);
+      setActivateTarget(null);
+      prompts.reload();
+    } catch (caught) {
+      setActivateError(
+        caught instanceof ApiError ? caught.message : "激活失败",
+      );
+    }
+  }
+
+  async function retirePrompt(prompt: ModelPrompt) {
+    try {
+      await api(`/api/v1/model-prompts/${prompt.id}/retire`, {
+        method: "POST",
+      });
+      toast.success("提示词已退役", prompt.promptCode);
+      prompts.reload();
+    } catch (caught) {
+      toast.error(
+        "退役失败",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -894,6 +964,11 @@ async function saveRefresh(event: FormEvent) {
           <Panel
             title="提示词登记簿"
             subtitle="提示词仅在评测通过后激活"
+            action={
+              <Button size="sm" variant="secondary" icon="plus" onClick={() => setPromptOpen(true)}>
+                登记提示词
+              </Button>
+            }
             flush
           >
             {prompts.error ? (
@@ -950,13 +1025,37 @@ async function saveRefresh(event: FormEvent) {
                             : "—"}
                         </td>
                         <td className="cell-actions">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setPromptDetail(prompt)}
-                          >
-                            查看
-                          </Button>
+                          <div className="row-actions">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setPromptDetail(prompt)}
+                            >
+                              查看
+                            </Button>
+                            {prompt.status === "DRAFT" ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setActivateTarget(prompt);
+                                  setActivateRunId("");
+                                  setActivateError(null);
+                                }}
+                              >
+                                激活
+                              </Button>
+                            ) : null}
+                            {prompt.status !== "RETIRED" ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => void retirePrompt(prompt)}
+                              >
+                                退役
+                              </Button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2579,6 +2678,83 @@ async function saveRefresh(event: FormEvent) {
             </div>
           ) : null}
         </div>
+      </Modal>
+
+      <Modal
+        open={promptOpen}
+        title="登记提示词版本"
+        onClose={() => setPromptOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPromptOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="prompt-form">
+              登记
+            </Button>
+          </>
+        }
+      >
+        <form id="prompt-form" onSubmit={createPrompt} className="form-grid">
+          {promptError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{promptError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="提示词编码">
+            <TextInput value={promptCode} onChange={(event) => setPromptCode(event.target.value)} required />
+          </FormField>
+          <FormField label="版本号">
+            <TextInput value={promptVersion} onChange={(event) => setPromptVersion(event.target.value)} required />
+          </FormField>
+          <FormField label="用途">
+            <TextInput value={promptPurpose} onChange={(event) => setPromptPurpose(event.target.value)} required />
+          </FormField>
+          <FormField label="模型供应商">
+            <TextInput value={promptProvider} onChange={(event) => setPromptProvider(event.target.value)} required />
+          </FormField>
+          <FormField label="模型名称">
+            <TextInput value={promptModel} onChange={(event) => setPromptModel(event.target.value)} required />
+          </FormField>
+          <FormField label="提示词模板" className="field--full">
+            <Textarea rows={8} value={promptTemplate} onChange={(event) => setPromptTemplate(event.target.value)} required />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(activateTarget)}
+        title={`激活提示词 · ${activateTarget?.promptCode ?? ""}`}
+        onClose={() => setActivateTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setActivateTarget(null)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="prompt-activate-form">
+              激活
+            </Button>
+          </>
+        }
+      >
+        <form id="prompt-activate-form" onSubmit={activatePrompt} className="form-grid">
+          {activateError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{activateError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="通过的评测运行 ID"
+            className="field--full"
+            hint="只能引用评测通过的运行；未通过评测的提示词不能激活"
+          >
+            <TextInput
+              value={activateRunId}
+              onChange={(event) => setActivateRunId(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
       </Modal>
     </>
   );

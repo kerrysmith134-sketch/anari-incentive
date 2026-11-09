@@ -44,14 +44,10 @@ export function NotificationsPage() {
   }
 
   async function markAllRead() {
-    for (const item of filtered.filter((row) => !row.readAt)) {
-      try {
-        await api(`/api/v1/notifications/${item.id}/read`, {
-          method: "POST",
-        });
-      } catch {
-        // 单条失败不中断
-      }
+    try {
+      await api("/api/v1/notifications/read-all", { method: "POST" });
+    } catch {
+      // 失败时仍刷新以展示真实状态
     }
     notifications.reload();
   }

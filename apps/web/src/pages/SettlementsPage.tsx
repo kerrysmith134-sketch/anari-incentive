@@ -178,6 +178,17 @@ export function SettlementsPage() {
   const [approvedBy, setApprovedBy] = useState(session.personId);
   const [approveTarget, setApproveTarget] = useState<BudgetPool | null>(null);
   const [allocationBusy, setAllocationBusy] = useState<string | null>(null);
+  const [allocationOpen, setAllocationOpen] = useState(false);
+  const [allocationTargetType, setAllocationTargetType] = useState("CALCULATION_RUN");
+  const [allocationTargetId, setAllocationTargetId] = useState("");
+  const [allocationAmount, setAllocationAmount] = useState("");
+  const [allocationError, setAllocationError] = useState<string | null>(null);
+  const [ledgerTarget, setLedgerTarget] = useState<LedgerEntry | null>(null);
+  const [ledgerAction, setLedgerAction] = useState<"adjust" | "reverse">("adjust");
+  const [ledgerAmount, setLedgerAmount] = useState("");
+  const [ledgerReasonCode, setLedgerReasonCode] = useState("DATA_CORRECTION");
+  const [ledgerExplanation, setLedgerExplanation] = useState("");
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
   const cashGates = useApiQuery<CashGateInputView[]>("/api/v1/cash-gate-inputs");
   const financialFacts = useApiQuery<FinancialFactView[]>(
     "/api/v1/financial-facts",
@@ -423,6 +434,84 @@ export function SettlementsPage() {
       );
     } finally {
       setAllocationBusy(null);
+    }
+  }
+
+  async function createAllocation(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedPoolId) return;
+    setAllocationError(null);
+    try {
+      await api(`/api/v1/budget-pools/${selectedPoolId}/allocations`, {
+        method: "POST",
+        body: {
+          targetType: allocationTargetType,
+          targetId: allocationTargetId.trim(),
+          amount: allocationAmount,
+        },
+      });
+      toast.success("预算分配已创建", "已占用资金池额度");
+      setAllocationOpen(false);
+      setAllocationTargetId("");
+      setAllocationAmount("");
+      allocations.reload();
+      pools.reload();
+    } catch (caught) {
+      setAllocationError(
+        caught instanceof ApiError ? caught.message : "创建分配失败",
+      );
+    }
+  }
+
+  function openLedgerAction(
+    entry: LedgerEntry,
+    action: "adjust" | "reverse",
+  ) {
+    setLedgerTarget(entry);
+    setLedgerAction(action);
+    setLedgerAmount(action === "adjust" ? entry.amount : "");
+    setLedgerReasonCode(action === "adjust" ? "DATA_CORRECTION" : "REVERSAL");
+    setLedgerExplanation("");
+    setLedgerError(null);
+  }
+
+  async function submitLedgerAction(event: FormEvent) {
+    event.preventDefault();
+    if (!ledgerTarget) return;
+    setLedgerError(null);
+    try {
+      if (ledgerAction === "adjust") {
+        await api(`/api/v1/ledger/${ledgerTarget.id}/adjustments`, {
+          method: "POST",
+          body: {
+            amount: ledgerAmount,
+            reasonCode: ledgerReasonCode,
+            explanation: ledgerExplanation.trim(),
+            approvedBy: session.personId,
+            idempotencyKey: `adjust-${ledgerTarget.id}-${Date.now()}`,
+          },
+        });
+      } else {
+        await api(`/api/v1/ledger/${ledgerTarget.id}/reverse`, {
+          method: "POST",
+          body: {
+            reason: ledgerExplanation.trim(),
+            approvedBy: session.personId,
+            idempotencyKey: `reverse-${ledgerTarget.id}-${Date.now()}`,
+          },
+        });
+      }
+      toast.success(
+        ledgerAction === "adjust" ? "调整已入账" : "冲销已入账",
+        "追加式账本保留原记录",
+      );
+      setLedgerTarget(null);
+      ledger.reload();
+      adjustmentRecords.reload();
+    } catch (caught) {
+      setLedgerError(
+        caught instanceof ApiError ? caught.message : "账本操作失败",
+      );
     }
   }
 
@@ -858,6 +947,7 @@ export function SettlementsPage() {
                       <th>状态</th>
                       <th className="cell-num">金额</th>
                       <th>创建时间</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -883,6 +973,26 @@ export function SettlementsPage() {
                         </td>
                         <td className="nowrap">
                           {formatDateTime(entry.createdAt)}
+                        </td>
+                        <td className="cell-actions">
+                          {entry.status === "LOCKED" ? (
+                            <div className="row-actions">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openLedgerAction(entry, "adjust")}
+                              >
+                                调整
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openLedgerAction(entry, "reverse")}
+                              >
+                                冲销
+                              </Button>
+                            </div>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
@@ -988,7 +1098,20 @@ export function SettlementsPage() {
                   ? `${selectedPool.code} · ${shortId(selectedPool.cycleId)}`
                   : "Select a pool to inspect allocations"
               }
-              action={selectedPool ? <Badge status={selectedPool.status} /> : null}
+              action={
+                selectedPool ? (
+                  <div className="row-actions">
+                    <Badge status={selectedPool.status} />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setAllocationOpen(true)}
+                    >
+                      新建分配
+                    </Button>
+                  </div>
+                ) : null
+              }
             >
               {!selectedPool ? (
                 <EmptyState
@@ -1881,6 +2004,108 @@ export function SettlementsPage() {
             />
           </FormField>
         </div>
+      </Modal>
+
+      {/* 新建预算分配 */}
+      <Modal
+        open={allocationOpen}
+        title="新建预算分配"
+        onClose={() => setAllocationOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAllocationOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="allocation-form">
+              占用额度
+            </Button>
+          </>
+        }
+      >
+        <form id="allocation-form" onSubmit={createAllocation} className="form-grid">
+          {allocationError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{allocationError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="目标类型">
+            <Select
+              value={allocationTargetType}
+              onChange={(event) => setAllocationTargetType(event.target.value)}
+            >
+              <option value="CALCULATION_RUN">计算批次</option>
+              <option value="SETTLEMENT_BATCH">结算批次</option>
+              <option value="STRATEGIC_POOL_CASE">战略池案例</option>
+            </Select>
+          </FormField>
+          <FormField label="目标 ID">
+            <TextInput
+              value={allocationTargetId}
+              onChange={(event) => setAllocationTargetId(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="分配金额">
+            <TextInput
+              value={allocationAmount}
+              onChange={(event) => setAllocationAmount(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      {/* 账本调整 / 冲销 */}
+      <Modal
+        open={Boolean(ledgerTarget)}
+        title={ledgerAction === "adjust" ? "账本调整" : "账本冲销"}
+        onClose={() => setLedgerTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLedgerTarget(null)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="ledger-action-form">
+              提交
+            </Button>
+          </>
+        }
+      >
+        <form id="ledger-action-form" onSubmit={submitLedgerAction} className="form-grid">
+          {ledgerError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{ledgerError}</InfoNotice>
+            </div>
+          ) : null}
+          <div className="field--full muted">
+            原账本条目 {shortId(ledgerTarget?.id ?? "", 12)} · 锁定后不可修改，只能追加调整/冲销。
+          </div>
+          {ledgerAction === "adjust" ? (
+            <>
+              <FormField label="调整金额" hint="正数补发、负数扣回">
+                <TextInput
+                  value={ledgerAmount}
+                  onChange={(event) => setLedgerAmount(event.target.value)}
+                  required
+                />
+              </FormField>
+              <FormField label="原因代码">
+                <TextInput
+                  value={ledgerReasonCode}
+                  onChange={(event) => setLedgerReasonCode(event.target.value)}
+                  required
+                />
+              </FormField>
+            </>
+          ) : null}
+          <FormField label="说明" className="field--full">
+            <TextInput
+              value={ledgerExplanation}
+              onChange={(event) => setLedgerExplanation(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
       </Modal>
     </>
   );

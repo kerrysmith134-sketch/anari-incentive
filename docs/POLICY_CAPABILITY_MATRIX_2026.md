@@ -14,6 +14,7 @@
 | --- | --- | --- |
 | 制度计算中心 | `/console/institutions`（2026 制度中心） | `/api/v1/policy/*` |
 | 任务制组织 | `/console/task-pods`（任务制组织） | `/api/v1/task-pods`、`/api/v1/ai-members`、`/api/v1/personal-task-inventories` |
+| 奖励发放 | `/console/award-batches`（奖励发放） | `/api/v1/incentive-award-batches`（提交→审批→锁定→导出→回执） |
 | 绩效评分/目标卡/月明星 | 制度中心「绩效计分」 | `/policy/performance/*` |
 | 激励分配 | 制度中心「激励分配」「专项奖励」 | `/policy/incentive/*` |
 | 股权测算/授予流程 | 制度中心「股权测算」+ 期权股权页 | `/policy/equity/*` + `/equity-*` |
@@ -140,7 +141,7 @@ version / createdAt / updatedAt`，可审计、可追溯、不可静默覆盖。
    M-002 正式考试成绩、SLA、客户满意度、KA 资格等由对应系统/业务确认后传入。
 2. **人工判断**：M-003 事件认定、贡献归因、验收、过错认定、差异化增授、特殊技术贡献、
    战略级项目方案等必须由主管/总经理/股东会确认；AI 仅提示。
-3. **支付执行**：本系统输出应发金额与计算留痕；实际银行支付、个税申报由薪酬/财务流程执行。
+3. **支付执行**：订单提成走 calculation run→ledger→settlement；制度激励（DBCP 提成、职能季度奖金、年度利润分享、月明星、技术中心、海外销售、悬赏核定）走 `/incentive-award-batches` 批次，提交→审批→锁定→导出→回执，来源 record 只允许进入一个非取消批次，避免重复发放；实际银行支付与个税申报由财务/薪酬流程执行。
 4. **报告导出**：结算单/周期报告已支持中文 HTML；股权年度报告、饱和度报告可按
    Cap Table 数据扩展导出。
 5. **版本治理**：制度参数变更通过既有政策版本/规则变更单流程；计算记录不原地覆盖。

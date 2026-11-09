@@ -770,3 +770,68 @@ export interface PolicyEngineRecord {
   updatedAt: string;
   version: number;
 }
+
+// ---------------------------------------------------------------------------
+// Incentive award batches (016/008/003 payout shell)
+// ---------------------------------------------------------------------------
+
+export type IncentiveAwardType =
+  | "BUSINESS_UNIT_COMMISSION"
+  | "FUNCTIONAL_QUARTERLY_BONUS"
+  | "ANNUAL_PROFIT_SHARING"
+  | "MONTHLY_STAR"
+  | "TECH_CENTER_AWARD"
+  | "OVERSEAS_SALES_AWARD"
+  | "BOUNTY_SETTLEMENT"
+  | "MANUAL";
+
+export type IncentiveAwardBatchStatus =
+  | "DRAFT"
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "LOCKED"
+  | "EXPORTED"
+  | "ACKNOWLEDGED"
+  | "CANCELLED";
+
+export interface IncentiveAwardLine {
+  id: UUID;
+  batchId: UUID;
+  personId: UUID;
+  amount: DecimalString;
+  currency: string;
+  sourceRecordId?: UUID;
+  sourceLineRef?: string;
+  note?: string;
+}
+
+/**
+ * 制度激励发放批次：把政策计算器结果变成可审批、可锁定、可导出、
+ * 可回执的应付批次。金额事实不写入订单计算账本，避免与业务提成
+ * 的 settlement/payroll 通道重复出账；来源 record 只允许被一个
+ * 非取消批次引用。
+ */
+export interface IncentiveAwardBatch {
+  id: UUID;
+  tenantId: UUID;
+  batchNo: string;
+  awardType: IncentiveAwardType;
+  period: string;
+  cycleId?: UUID;
+  currency: string;
+  status: IncentiveAwardBatchStatus;
+  totalAmount: DecimalString;
+  lineCount: number;
+  sourceRecordIds: UUID[];
+  createdBy: UUID;
+  approvedBy?: UUID;
+  approvedAt?: string;
+  lockedAt?: string;
+  exportedAt?: string;
+  acknowledgedAt?: string;
+  paymentRef?: string;
+  lines: IncentiveAwardLine[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}

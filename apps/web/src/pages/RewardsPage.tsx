@@ -128,8 +128,9 @@ export function RewardsPage() {
 
       <Tabs
         items={[
-          { id: "equity", label: "Equity", count: grantList.length },
-          { id: "bounties", label: "Bounties", count: bountyList.length },
+          { id: "equity", label: "股权", count: grantList.length },
+          { id: "bounties", label: "悬赏", count: bountyList.length },
+          { id: "pools", label: "战略池" },
         ]}
         active={tab}
         onChange={setTab}

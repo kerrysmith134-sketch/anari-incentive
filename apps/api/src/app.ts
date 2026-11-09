@@ -2242,6 +2242,21 @@ export function buildApp(
     );
   });
 
+  app.post("/api/v1/notifications/read-all", async (request) => {
+    const person = personFilter(request);
+    const notifications = await storeFor(request).listNotifications(
+      person ? { recipientPersonId: person } : {},
+    );
+    let marked = 0;
+    for (const notification of notifications) {
+      if (notification.status === "UNREAD") {
+        await storeFor(request).markNotificationRead(notification.id);
+        marked += 1;
+      }
+    }
+    return data({ marked }, request);
+  });
+
   app.post("/api/v1/notifications/:id/read", async (request) => {
     const person = personFilter(request);
     if (person) {
@@ -13333,6 +13348,169 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       return data(updated, request);
     },
   );
+
+  // 制度激励发放批次：计算 → 提交 → 审批 → 锁定 → 导出 → 回执。
+  app.post("/api/v1/incentive-award-batches", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = policyBody(request);
+    const lines = body.lines;
+    if (!Array.isArray(lines) || lines.length === 0) {
+      throw new BadRequestError("INVALID_INPUT", "lines 必须为非空数组");
+    }
+    const createdBy =
+      typeof body.createdBy === "string"
+        ? body.createdBy
+        : ownPersonId(request) ?? "system";
+    const batch = await platformStore.createIncentiveAwardBatch({
+      tenantId: tenantOf(request),
+      batchNo: requireString(body, "batchNo"),
+      awardType: requireString(body, "awardType") as Parameters<
+        typeof platformStore.createIncentiveAwardBatch
+      >[0]["awardType"],
+      period: requireString(body, "period"),
+      cycleId: typeof body.cycleId === "string" ? body.cycleId : undefined,
+      currency: requireString(body, "currency"),
+      createdBy,
+      sourceRecordIds: Array.isArray(body.sourceRecordIds)
+        ? (body.sourceRecordIds as string[])
+        : undefined,
+      lines: lines as Array<{
+        personId: string;
+        amount: string;
+        sourceRecordId?: string;
+        sourceLineRef?: string;
+        note?: string;
+      }>,
+    });
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? createdBy,
+        action: "INCENTIVE_AWARD_BATCH_CREATED",
+        objectType: "INCENTIVE_AWARD_BATCH",
+        objectId: batch.id,
+        reason: `${batch.awardType}:${batch.batchNo}`,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    return reply.status(201).send(data(batch, request));
+  });
+
+  app.get("/api/v1/incentive-award-batches", async (request) => {
+    const query = request.query as {
+      awardType?: string;
+      period?: string;
+      status?: string;
+    };
+    return data(
+      await platformStore.listIncentiveAwardBatches(tenantOf(request), query),
+      request,
+    );
+  });
+
+  app.get("/api/v1/incentive-award-batches/:id", async (request) => {
+    return data(
+      await platformStore.getIncentiveAwardBatch(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/incentive-award-batches/:id/commands", async (request) => {
+      requireRoles(request, "finance");
+      const body = policyBody(request);
+      const command = requireString(body, "command") as Parameters<
+        typeof platformStore.commandIncentiveAwardBatch
+      >[0]["command"];
+      if (
+        ![
+          "SUBMIT",
+          "APPROVE",
+          "LOCK",
+          "EXPORT",
+          "ACKNOWLEDGE",
+          "CANCEL",
+        ].includes(command)
+      ) {
+        throw new BadRequestError("INVALID_COMMAND", `不支持的命令 ${command}`);
+      }
+      const batch = await platformStore.commandIncentiveAwardBatch({
+        tenantId: tenantOf(request),
+        batchId: idOf(request),
+        command,
+        actorPersonId: ownPersonId(request) ?? "system",
+        paymentRef:
+          typeof body.paymentRef === "string" ? body.paymentRef : undefined,
+      });
+      try {
+        await storeFor(request).recordAuditEvent({
+          actorType: "USER",
+          actorId: ownPersonId(request),
+          action: `INCENTIVE_AWARD_BATCH_${command}`,
+          objectType: "INCENTIVE_AWARD_BATCH",
+          objectId: batch.id,
+          reason: `${batch.batchNo}:${batch.status}`,
+        });
+      } catch {
+        /* audit is best-effort */
+      }
+      return data(batch, request);
+    },
+  );
+
+  app.get("/api/v1/incentive-award-batches/:id/export", async (request, reply) => {
+    requireRoles(request, "finance");
+    const batch = await platformStore.getIncentiveAwardBatch(
+      tenantOf(request),
+      idOf(request),
+    );
+    if (!["EXPORTED", "ACKNOWLEDGED"].includes(batch.status)) {
+      throw new ConflictError(
+        `award batch must be EXPORTED before downloading (current ${batch.status})`,
+      );
+    }
+    assertExportAllowed(request);
+    const escape = (value: unknown): string => {
+      const text = String(value ?? "");
+      const guarded = /^[=+\-@]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)
+        ? `'${text}`
+        : text;
+      return `"${guarded.replace(/"/g, '""')}"`;
+    };
+    const rows = [
+      ["批次号", "奖项类型", "周期", "币种", "人员ID", "金额", "来源记录", "来源行", "备注"],
+      ...batch.lines.map((line) => [
+        batch.batchNo,
+        batch.awardType,
+        batch.period,
+        batch.currency,
+        line.personId,
+        line.amount,
+        line.sourceRecordId ?? "",
+        line.sourceLineRef ?? "",
+        line.note ?? "",
+      ]),
+    ];
+    const csv = `\uFEFF${rows
+      .map((row) => row.map(escape).join(","))
+      .join("\r\n")}\r\n`;
+    const query = request.query as { approvalRequestId?: string };
+    await assertExportDlp(
+      request,
+      csv,
+      "INCENTIVE_AWARD_BATCH",
+      batch.id,
+      query.approvalRequestId,
+    );
+    return reply
+      .header("content-type", "text/csv; charset=utf-8")
+      .header("content-disposition", `attachment; filename="${batch.batchNo}.csv"`)
+      .headers(exportHeaders(request, csv, "CONFIDENTIAL_PAYROLL"))
+      .send(csv);
+  });
 
   return app;
 }

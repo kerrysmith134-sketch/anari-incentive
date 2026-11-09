@@ -8,6 +8,7 @@ import {
   Panel,
   Select,
   Tabs,
+  Textarea,
   TextInput,
 } from "../components/ui.js";
 import { PersonSelect } from "../components/PersonSelect.js";
@@ -164,6 +165,39 @@ interface RepurchaseResult {
   installmentAllowed: boolean;
   annualCapApplied: boolean;
   note?: string;
+}
+
+interface MonthlyWageResult {
+  floatingRatePercent: string;
+  performanceWageStandard: string;
+  kp: string;
+  payable: string;
+  cappedAtOnePointOne: boolean;
+}
+
+interface FunctionalBonusResult {
+  quarterlyScore: string;
+  kq: string;
+  eligible: boolean;
+  baseAmount: string;
+  amount: string;
+}
+
+interface StrikeResult {
+  strikePrice: string;
+  discountRatePercent: string;
+}
+
+interface CapTableResult {
+  totalGrantedPercent: string;
+  poolRemainingPercent: string;
+  saturation: Array<{
+    personId: string;
+    positionLevel: string;
+    cumulativePercent: string;
+    capPercent: string;
+    saturated: boolean;
+  }>;
 }
 
 const MONTHLY_METRICS = [
@@ -326,6 +360,20 @@ export function InstitutionsPage() {
   const [latestPrice, setLatestPrice] = useState("10");
   const [shareCount, setShareCount] = useState("10000");
   const [repurchaseResult, setRepurchaseResult] = useState<RepurchaseResult | null>(null);
+  const [wageTotal, setWageTotal] = useState("30000");
+  const [wageBand, setWageBand] = useState("BASE");
+  const [wageScore, setWageScore] = useState("105");
+  const [wageResult, setWageResult] = useState<MonthlyWageResult | null>(null);
+  const [bonusWage, setBonusWage] = useState("10000");
+  const [bonusScore, setBonusScore] = useState("120");
+  const [bonusResult, setBonusResult] = useState<FunctionalBonusResult | null>(null);
+  const [strikePrice, setStrikePrice] = useState("50");
+  const [strikeStage, setStrikeStage] = useState("A");
+  const [strikeResult, setStrikeResult] = useState<StrikeResult | null>(null);
+  const [capTableText, setCapTableText] = useState(
+    '{"totalShares":"1000000","grants":[{"personId":"00000000-0000-4000-8000-000000000001","positionLevel":"L1","instrument":"LP_SHARE","grantedPercent":"4","vestedPercent":"4"}]}',
+  );
+  const [capTableResult, setCapTableResult] = useState<CapTableResult | null>(null);
   const [taxDeferred, setTaxDeferred] = useState("no");
   const [taxStrike, setTaxStrike] = useState("1");
   const [taxFair, setTaxFair] = useState("5");
@@ -619,6 +667,72 @@ export function InstitutionsPage() {
     }
   }
 
+  async function runWage(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setWageResult(
+        await api<MonthlyWageResult>(
+          "/api/v1/policy/performance/monthly-wage",
+          {
+            method: "POST",
+            body: {
+              monthlyTotalWage: wageTotal,
+              wageBand,
+              monthlyScore: wageScore,
+            },
+          },
+        ),
+      );
+    } catch (error) {
+      fail(error, "月度绩效工资测算失败");
+    }
+  }
+
+  async function runFunctionalBonus(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setBonusResult(
+        await api<FunctionalBonusResult>(
+          "/api/v1/policy/performance/functional-quarterly-bonus",
+          {
+            method: "POST",
+            body: { fixedMonthlyWage: bonusWage, quarterlyScore: bonusScore },
+          },
+        ),
+      );
+    } catch (error) {
+      fail(error, "职能季度奖金测算失败");
+    }
+  }
+
+  async function runStrike(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setStrikeResult(
+        await api<StrikeResult>("/api/v1/policy/equity/option-strike", {
+          method: "POST",
+          body: { latestPreferredPrice: strikePrice, stage: strikeStage },
+        }),
+      );
+    } catch (error) {
+      fail(error, "行权价测算失败");
+    }
+  }
+
+  async function runCapTable(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setCapTableResult(
+        await api<CapTableResult>("/api/v1/policy/equity/cap-table", {
+          method: "POST",
+          body: JSON.parse(capTableText) as Record<string, unknown>,
+        }),
+      );
+    } catch (error) {
+      fail(error, "Cap Table 计算失败");
+    }
+  }
+
   async function runRepurchase(event: FormEvent) {
     event.preventDefault();
     try {
@@ -835,6 +949,47 @@ export function InstitutionsPage() {
               ) : null}
             </Panel>
 
+            <Panel title="月度绩效工资（月工资总额 × 职级比例 × 月度 Kp）">
+              <form onSubmit={runWage}>
+                <div className="form-grid">
+                  <FormField label="月度工资总额"><TextInput value={wageTotal} onChange={(event) => setWageTotal(event.target.value)} /></FormField>
+                  <FormField label="职级">
+                    <Select value={wageBand} onChange={(event) => setWageBand(event.target.value)}>
+                      <option value="BASE">基层（20%）</option>
+                      <option value="MANAGER">经理级及以上（30%）</option>
+                      <option value="DIRECTOR">总监级及以上（40%）</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="月度综合得分 S"><TextInput value={wageScore} onChange={(event) => setWageScore(event.target.value)} /></FormField>
+                </div>
+                <div className="form-actions"><Button type="submit">测算绩效工资</Button></div>
+              </form>
+              {wageResult ? (
+                <div className="stat-grid stat-grid--three">
+                  <div className="stat-card"><span>绩效工资标准</span><strong>{wageResult.performanceWageStandard}</strong></div>
+                  <div className="stat-card"><span>月度 Kp</span><strong>{wageResult.kp}</strong></div>
+                  <div className="stat-card"><span>实发绩效工资</span><strong>{wageResult.payable}</strong></div>
+                </div>
+              ) : null}
+            </Panel>
+
+            <Panel title="职能部门季度奖金（固定月工资 × 10% × Kq）">
+              <form onSubmit={runFunctionalBonus}>
+                <div className="form-grid">
+                  <FormField label="固定月工资基数"><TextInput value={bonusWage} onChange={(event) => setBonusWage(event.target.value)} /></FormField>
+                  <FormField label="季度综合得分 S" hint="S>100 才具备奖金资格"><TextInput value={bonusScore} onChange={(event) => setBonusScore(event.target.value)} /></FormField>
+                </div>
+                <div className="form-actions"><Button type="submit">测算季度奖金</Button></div>
+              </form>
+              {bonusResult ? (
+                <div className="stat-grid stat-grid--three">
+                  <div className="stat-card"><span>奖金基数</span><strong>{bonusResult.baseAmount}</strong></div>
+                  <div className="stat-card"><span>Kq</span><strong>{bonusResult.kq}</strong></div>
+                  <div className="stat-card"><span>应发 / 资格</span><strong>{bonusResult.amount} · {bonusResult.eligible ? "具备" : "不具备"}</strong></div>
+                </div>
+              ) : null}
+            </Panel>
+
             <Panel title="执行总监管理补差（G = DBCP × 2% × K管理 − M）">
               <form onSubmit={runSupplement}>
                 <div className="form-grid">
@@ -1024,6 +1179,63 @@ export function InstitutionsPage() {
                   <div className="stat-card"><span>岗位基准</span><strong>{grantResult.positionBasePercent}%</strong></div>
                   <div className="stat-card"><span>本次授予</span><strong>{grantResult.grantPercent}%</strong></div>
                   <div className="stat-card"><span>累计 / 饱和上限</span><strong>{grantResult.cumulativePercent}% / {grantResult.saturationCapPercent}%</strong></div>
+                </div>
+              ) : null}
+            </Panel>
+
+            <Panel title="期权行权价（最近优先股价格 × (1−折扣率)）">
+              <form onSubmit={runStrike}>
+                <div className="form-grid">
+                  <FormField label="最近一轮优先股每股价格"><TextInput value={strikePrice} onChange={(event) => setStrikePrice(event.target.value)} /></FormField>
+                  <FormField label="融资阶段">
+                    <Select value={strikeStage} onChange={(event) => setStrikeStage(event.target.value)}>
+                      <option value="PRE_A">Pre-A/天使</option>
+                      <option value="A">A 轮</option>
+                      <option value="B">B 轮</option>
+                      <option value="C_PRE_IPO">C 轮/Pre-IPO</option>
+                      <option value="POST_IPO">上市后</option>
+                    </Select>
+                  </FormField>
+                </div>
+                <div className="form-actions"><Button type="submit">计算行权价</Button></div>
+              </form>
+              {strikeResult ? (
+                <div className="stat-grid stat-grid--three">
+                  <div className="stat-card"><span>折扣率</span><strong>{strikeResult.discountRatePercent}%</strong></div>
+                  <div className="stat-card"><span>行权价</span><strong>{strikeResult.strikePrice}</strong></div>
+                </div>
+              ) : null}
+            </Panel>
+
+            <Panel title="Cap Table 与饱和度">
+              <form onSubmit={runCapTable}>
+                <FormField label="Cap Table 输入 JSON" hint="grants: personId / positionLevel / instrument / grantedPercent / vestedPercent">
+                  <Textarea rows={8} value={capTableText} onChange={(event) => setCapTableText(event.target.value)} />
+                </FormField>
+                <div className="form-actions"><Button type="submit">生成 Cap Table 快照</Button></div>
+              </form>
+              {capTableResult ? (
+                <div className="stack">
+                  <div className="stat-grid stat-grid--three">
+                    <div className="stat-card"><span>累计授予</span><strong>{capTableResult.totalGrantedPercent}%</strong></div>
+                    <div className="stat-card"><span>池剩余</span><strong>{capTableResult.poolRemainingPercent}%</strong></div>
+                  </div>
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>人员</th><th>等级</th><th>累计</th><th>上限</th><th>饱和</th></tr></thead>
+                      <tbody>
+                        {capTableResult.saturation.map((row) => (
+                          <tr key={row.personId}>
+                            <td className="mono">{row.personId.slice(0, 8)}</td>
+                            <td>{row.positionLevel}</td>
+                            <td>{row.cumulativePercent}%</td>
+                            <td>{row.capPercent}%</td>
+                            <td>{row.saturated ? <Badge tone="warning">已饱和</Badge> : <Badge tone="success">可继续</Badge>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : null}
             </Panel>
