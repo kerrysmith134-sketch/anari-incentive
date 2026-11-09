@@ -2569,6 +2569,21 @@ evidenceOpened: 1,rationale: "Self",
       idempotencyKey,
     });
     expect(adjusted.entry.entryType).toBe("ADJUSTMENT");
+    // Clawback recoveries must be typed RECOVERY, otherwise payslips label them
+    // as plain adjustments and RECOVERY priority/type caps never bind.
+    const memberEntry = (await store.listLedger()).find(
+      (entry) =>
+        entry.personId === MEMBER && entry.entryType === "INCENTIVE",
+    );
+    const recovery = await store.adjustLedgerEntry(memberEntry!.id, {
+      amount: "-200",
+      reasonCode: "CLAWBACK_RECOVERY",
+      explanation: "Clawback case pg-test",
+      approvedBy: ADJUDICATOR,
+      idempotencyKey: `pg-recovery-adjustment-${memberEntry!.id}`,
+      entryType: "RECOVERY",
+    });
+    expect(recovery.entry.entryType).toBe("RECOVERY");
     expect(adjusted.entry.status).toBe("LOCKED");
     expect(adjusted.entry.sourceEntryId).toBe(original!.id);
     expect(adjusted.record.originalLedgerId).toBe(original!.id);
