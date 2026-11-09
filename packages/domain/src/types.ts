@@ -450,6 +450,19 @@ export interface ModelCanaryRun {
   createdAt: string;
 }
 
+export interface ModelEvaluationSampleRecord {
+  sampleId: string;
+  subgroup: string;
+  humanScoreA: number;
+  humanScoreB: number;
+  aiScore: number;
+  counterfactualScores: number[];
+  promptInjectionPassed: boolean;
+  holdout: boolean;
+  labelSource?: string;
+  labelerIds?: string[];
+}
+
 export interface ModelEvaluationDataset {
   id: UUID;
   tenantId: UUID;
@@ -464,6 +477,7 @@ export interface ModelEvaluationDataset {
   refreshedAt: string;
   nextRefreshDueAt?: string;
   contentHash?: string;
+  samples?: ModelEvaluationSampleRecord[];
   retiredAt?: string;
   createdAt: string;
   updatedAt: string;

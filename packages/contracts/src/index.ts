@@ -1032,7 +1032,7 @@ export const runModelEvaluationSchema = z.object({
   modelName: z.string().min(1),
   promptVersion: z.string().min(1),
   datasetRef: z.string().min(1),
-  samples: z.array(modelEvaluationSampleSchema).min(1),
+  samples: z.array(modelEvaluationSampleSchema).default([]),
   thresholds: modelEvaluationThresholdsSchema.optional(),
 });
 export type RunModelEvaluationBody = z.infer<
@@ -1332,10 +1332,15 @@ export const createEmploymentContractSchema = z.object({
   deductionCapRate: decimal.default("0.2"),
   variableShareCapRate: decimal.default("1"),
   deductionOrder: z
-    .array(z.enum(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]))
+    .array(z.string().min(1))
     .default(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]),
   deductionTypeCaps: z.record(decimal).default({}),
   smoothingThresholdRate: decimal.default("1"),
+  smoothingMode: z
+    .enum(["NONE", "BLOCK", "MOVING_AVERAGE", "RAMP"])
+    .default("BLOCK"),
+  smoothingWindowPeriods: z.number().int().positive().max(24).default(3),
+  smoothingMaxStepRate: decimal.default("0.5"),
   compensationTemplateCode: z.string().min(1).optional(),
   bankAccountRef: z.string().min(1).optional(),
   consentSignatureRef: z.string().min(1),
@@ -1352,11 +1357,12 @@ export const amendEmploymentContractSchema = z.object({
   socialInsuranceRate: decimal,
   deductionCapRate: decimal,
   variableShareCapRate: decimal,
-  deductionOrder: z
-    .array(z.enum(["RECOVERY", "REVERSAL", "ADJUSTMENT", "OTHER"]))
-    .optional(),
+  deductionOrder: z.array(z.string().min(1)).optional(),
   deductionTypeCaps: z.record(decimal).optional(),
   smoothingThresholdRate: decimal.optional(),
+  smoothingMode: z.enum(["NONE", "BLOCK", "MOVING_AVERAGE", "RAMP"]).optional(),
+  smoothingWindowPeriods: z.number().int().positive().max(24).optional(),
+  smoothingMaxStepRate: decimal.optional(),
   compensationTemplateCode: z.string().min(1).optional(),
   bankAccountRef: z.string().min(1).optional(),
   effectiveFrom: z.string().datetime(),

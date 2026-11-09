@@ -660,6 +660,7 @@ export interface PlatformStore {
     refreshedAt?: string;
     nextRefreshDueAt?: string;
     contentHash?: string;
+    samples?: ModelEvaluationDataset["samples"];
   }): Promise<ModelEvaluationDataset>;
   listModelEvaluationDatasets(
     tenantId: string,
@@ -1370,6 +1371,9 @@ export interface PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
@@ -1394,6 +1398,9 @@ export interface PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
@@ -4046,6 +4053,7 @@ export class MemoryPlatformStore implements PlatformStore {
     refreshedAt?: string;
     nextRefreshDueAt?: string;
     contentHash?: string;
+    samples?: ModelEvaluationDataset["samples"];
   }): Promise<ModelEvaluationDataset> {
     if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
     const owner = this.persons.get(input.ownerPersonId);
@@ -4084,6 +4092,7 @@ export class MemoryPlatformStore implements PlatformStore {
       refreshedAt: input.refreshedAt ?? timestamp,
       nextRefreshDueAt: input.nextRefreshDueAt,
       contentHash: input.contentHash,
+      samples: input.samples,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -7100,6 +7109,9 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
@@ -7213,6 +7225,11 @@ export class MemoryPlatformStore implements PlatformStore {
         ]),
       ),
       smoothingThresholdRate: formatDecimal(smoothingRate),
+      smoothingMode: input.smoothingMode ?? "BLOCK",
+      smoothingWindowPeriods: input.smoothingWindowPeriods ?? 3,
+      smoothingMaxStepRate: formatDecimal(
+        parseDecimal(input.smoothingMaxStepRate ?? "0.5"),
+      ),
       compensationTemplateCode: input.compensationTemplateCode,
       bankAccountRef: input.bankAccountRef,
       payPlanVersion: 1,
@@ -7239,6 +7256,9 @@ export class MemoryPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
@@ -7293,6 +7313,9 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
       smoothingThresholdRate: contract.smoothingThresholdRate,
+      smoothingMode: contract.smoothingMode,
+      smoothingWindowPeriods: contract.smoothingWindowPeriods,
+      smoothingMaxStepRate: contract.smoothingMaxStepRate,
       compensationTemplateCode: contract.compensationTemplateCode,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
@@ -7376,6 +7399,14 @@ export class MemoryPlatformStore implements PlatformStore {
     contract.smoothingThresholdRate = formatDecimal(
       parseDecimal(input.smoothingThresholdRate),
     );
+    contract.smoothingMode = input.smoothingMode ?? contract.smoothingMode;
+    contract.smoothingWindowPeriods =
+      input.smoothingWindowPeriods ?? contract.smoothingWindowPeriods;
+    contract.smoothingMaxStepRate = formatDecimal(
+      parseDecimal(
+        input.smoothingMaxStepRate ?? contract.smoothingMaxStepRate ?? "0.5",
+      ),
+    );
     if (input.compensationTemplateCode !== undefined) {
       contract.compensationTemplateCode = input.compensationTemplateCode;
     }
@@ -7403,6 +7434,9 @@ export class MemoryPlatformStore implements PlatformStore {
       deductionOrder: [...contract.deductionOrder],
       deductionTypeCaps: { ...contract.deductionTypeCaps },
       smoothingThresholdRate: contract.smoothingThresholdRate,
+      smoothingMode: contract.smoothingMode,
+      smoothingWindowPeriods: contract.smoothingWindowPeriods,
+      smoothingMaxStepRate: contract.smoothingMaxStepRate,
       compensationTemplateCode: contract.compensationTemplateCode,
       bankAccountRef: contract.bankAccountRef,
       payPlanVersion: contract.payPlanVersion,
@@ -11017,6 +11051,7 @@ export class PgPlatformStore implements PlatformStore {
     refreshedAt?: string;
     nextRefreshDueAt?: string;
     contentHash?: string;
+    samples?: ModelEvaluationDataset["samples"];
   }): Promise<ModelEvaluationDataset> {
     if (input.holdoutSize >= input.sampleSize) {
       throw new ConflictError(
@@ -11028,8 +11063,8 @@ export class PgPlatformStore implements PlatformStore {
         `INSERT INTO model_evaluation_datasets
           (id, tenant_id, code, version, name, sample_size, holdout_size,
            label_source, owner_person_id, refreshed_at,
-           next_refresh_due_at, content_hash)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()),$11,$12)
+           next_refresh_due_at, content_hash, samples)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10, now()),$11,$12,$13::jsonb)
          RETURNING *`,
         [
           randomUUID(),
@@ -11044,6 +11079,7 @@ export class PgPlatformStore implements PlatformStore {
           input.refreshedAt ?? null,
           input.nextRefreshDueAt ?? null,
           input.contentHash ?? null,
+          JSON.stringify(input.samples ?? []),
         ],
       );
       return this.mapModelEvaluationDataset(rows[0]);
@@ -14437,6 +14473,9 @@ export class PgPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     consentSignatureRef: string;
@@ -14488,9 +14527,10 @@ export class PgPlatformStore implements PlatformStore {
            fixed_monthly_salary, minimum_monthly_wage, tax_rate,
            social_insurance_rate, deduction_cap_rate, variable_share_cap_rate,
            deduction_order, deduction_type_caps, smoothing_threshold_rate,
+           smoothing_mode, smoothing_window_periods, smoothing_max_step_rate,
            compensation_template_code, bank_account_ref, pay_plan_version,
            consent_signature_ref, consent_signed_at, status, version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,1,$22,$23,'ACTIVE',1)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$23,$24,1,$25,$26,'ACTIVE',1)
          RETURNING *`,
         [
           randomUUID(),
@@ -14516,6 +14556,9 @@ export class PgPlatformStore implements PlatformStore {
           ),
           JSON.stringify(input.deductionTypeCaps),
           input.smoothingThresholdRate,
+          input.smoothingMode ?? "BLOCK",
+          input.smoothingWindowPeriods ?? 3,
+          input.smoothingMaxStepRate ?? "0.5",
           input.compensationTemplateCode ?? null,
           input.bankAccountRef ?? null,
           input.consentSignatureRef,
@@ -14548,6 +14591,9 @@ export class PgPlatformStore implements PlatformStore {
     deductionOrder: string[];
     deductionTypeCaps: Record<string, string>;
     smoothingThresholdRate: string;
+    smoothingMode?: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP";
+    smoothingWindowPeriods?: number;
+    smoothingMaxStepRate?: string;
     compensationTemplateCode?: string;
     bankAccountRef?: string;
     effectiveFrom: string;
@@ -14677,6 +14723,11 @@ export class PgPlatformStore implements PlatformStore {
         smoothingThresholdRate: decimalText(
           String(row.smoothing_threshold_rate),
         ),
+        smoothingMode: (row.smoothing_mode as string | null) ?? "BLOCK",
+        smoothingWindowPeriods: Number(row.smoothing_window_periods ?? 3),
+        smoothingMaxStepRate: decimalText(
+          String(row.smoothing_max_step_rate ?? "0.5"),
+        ),
         compensationTemplateCode: row.compensation_template_code ?? undefined,
         bankAccountRef: row.bank_account_ref ?? undefined,
         payPlanVersion: Number(row.pay_plan_version ?? 1),
@@ -14699,6 +14750,8 @@ export class PgPlatformStore implements PlatformStore {
                 variable_share_cap_rate=$8, deduction_order=$9::jsonb,
                 deduction_type_caps=$10::jsonb,
                 smoothing_threshold_rate=$11,
+                smoothing_mode=$17, smoothing_window_periods=$18,
+                smoothing_max_step_rate=$19,
                 compensation_template_code=$12, bank_account_ref=$13,
                 pay_plan_version=$14, consent_signature_ref=$15,
                 consent_signed_at=$16, version=version+1, updated_at=now()
@@ -14731,6 +14784,12 @@ export class PgPlatformStore implements PlatformStore {
           payPlanVersion,
           input.consentSignatureRef,
           input.effectiveFrom,
+          input.smoothingMode ??
+            ((row.smoothing_mode as string | null) ?? "BLOCK"),
+          input.smoothingWindowPeriods ??
+            Number(row.smoothing_window_periods ?? 3),
+          input.smoothingMaxStepRate ??
+            String(row.smoothing_max_step_rate ?? "0.5"),
         ],
       );
       const afterTerms = {
@@ -14757,6 +14816,11 @@ export class PgPlatformStore implements PlatformStore {
           {},
         smoothingThresholdRate: decimalText(
           String(updated[0]?.smoothing_threshold_rate),
+        ),
+        smoothingMode: (updated[0]?.smoothing_mode as string | null) ?? "BLOCK",
+        smoothingWindowPeriods: Number(updated[0]?.smoothing_window_periods ?? 3),
+        smoothingMaxStepRate: decimalText(
+          String(updated[0]?.smoothing_max_step_rate ?? "0.5"),
         ),
         compensationTemplateCode:
           updated[0]?.compensation_template_code ?? undefined,
@@ -14825,6 +14889,9 @@ export class PgPlatformStore implements PlatformStore {
                   pay_plan_version=$11,
                   consent_signature_ref=$12,
                   consent_signed_at=$13,
+                  smoothing_mode=$14,
+                  smoothing_window_periods=$15,
+                  smoothing_max_step_rate=$16,
                   version=version+1,
                   updated_at=now()
             WHERE tenant_id=$1 AND id=$2`,
@@ -14844,6 +14911,9 @@ export class PgPlatformStore implements PlatformStore {
             Number(row.pay_plan_version),
             row.consent_signature_ref,
             row.effective_from,
+            String(terms.smoothingMode ?? row.smoothing_mode ?? "BLOCK"),
+            Number(terms.smoothingWindowPeriods ?? row.smoothing_window_periods ?? 3),
+            String(terms.smoothingMaxStepRate ?? row.smoothing_max_step_rate ?? "0.5"),
           ],
         );
         const { rows: updated } = await client.query(
@@ -15286,8 +15356,11 @@ export class PgPlatformStore implements PlatformStore {
              smoothing_threshold_rate, smoothing_passed, bank_account_ref,
              notice_acknowledgement_passed, notice_acknowledgement_missing,
              tax_calculation_mode, ytd_taxable_income, ytd_tax_withheld,
-             iit_rate_percent, iit_quick_deduction)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30,$31,$32::jsonb,$33,$34,$35,$36,$37)`,
+             iit_rate_percent, iit_quick_deduction,
+             raw_incentive_amount, smoothed_incentive_amount,
+             smoothing_delta, smoothing_mode,
+             deduction_legal_basis_passed, deduction_legal_basis_missing)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25::jsonb,$26,$27,$28,$29,$30,$31,$32::jsonb,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43::text[])`,
           [
             randomUUID(),
             input.tenantId,
@@ -15326,6 +15399,12 @@ export class PgPlatformStore implements PlatformStore {
             line.ytdTaxWithheld ?? null,
             line.iitRatePercent ?? null,
             line.iitQuickDeduction ?? null,
+            line.rawIncentiveAmount ?? line.incentiveAmount,
+            line.smoothedIncentiveAmount ?? line.incentiveAmount,
+            line.smoothingDelta ?? "0",
+            line.smoothingMode ?? "BLOCK",
+            line.deductionLegalBasisPassed ?? true,
+            line.deductionLegalBasisMissing ?? [],
           ],
         );
       }
@@ -16283,6 +16362,7 @@ export class PgPlatformStore implements PlatformStore {
       refreshedAt: iso(row.refreshed_at) ?? new Date().toISOString(),
       nextRefreshDueAt: iso(row.next_refresh_due_at),
       contentHash: row.content_hash ?? undefined,
+      samples: (row.samples as ModelEvaluationDataset["samples"] | null) ?? [],
       retiredAt: iso(row.retired_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
@@ -17057,6 +17137,10 @@ export class PgPlatformStore implements PlatformStore {
         (row.deduction_type_caps as Record<string, string> | null) ?? {},
       smoothingThresholdRate:
         decimalText(String(row.smoothing_threshold_rate)) ?? "1",
+      smoothingMode: (row.smoothing_mode as string | null) ?? "BLOCK",
+      smoothingWindowPeriods: Number(row.smoothing_window_periods ?? 3),
+      smoothingMaxStepRate:
+        decimalText(String(row.smoothing_max_step_rate ?? "0.5")) ?? "0.5",
       compensationTemplateCode: row.compensation_template_code ?? undefined,
       bankAccountRef: row.bank_account_ref ?? undefined,
       payPlanVersion: Number(row.pay_plan_version ?? 1),
@@ -17128,6 +17212,10 @@ export class PgPlatformStore implements PlatformStore {
       deductionTypeCapPassed: row.deduction_type_cap_passed,
       deductionTypeCapBreaches:
         (row.deduction_type_cap_breaches as string[] | null) ?? [],
+      deductionLegalBasisPassed:
+        row.deduction_legal_basis_passed ?? true,
+      deductionLegalBasisMissing:
+        (row.deduction_legal_basis_missing as string[] | null) ?? [],
       priorIncentiveAmount:
         decimalText(String(row.prior_incentive_amount)) ?? "0",
       incentiveChangeRate:
@@ -17135,6 +17223,15 @@ export class PgPlatformStore implements PlatformStore {
       smoothingThresholdRate:
         decimalText(String(row.smoothing_threshold_rate)) ?? "1",
       smoothingPassed: row.smoothing_passed,
+      rawIncentiveAmount:
+        decimalText(String(row.raw_incentive_amount ?? row.incentive_amount)) ??
+        "0",
+      smoothedIncentiveAmount:
+        decimalText(
+          String(row.smoothed_incentive_amount ?? row.incentive_amount),
+        ) ?? "0",
+      smoothingDelta: decimalText(String(row.smoothing_delta ?? "0")) ?? "0",
+      smoothingMode: (row.smoothing_mode as string | null) ?? "BLOCK",
       noticeAcknowledgementPassed:
         row.notice_acknowledgement_passed ?? true,
       noticeAcknowledgementMissing:

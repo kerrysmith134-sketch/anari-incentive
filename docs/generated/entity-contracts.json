@@ -642,10 +642,31 @@
           "exposed": true
         },
         {
+          "column": "smoothing_max_step_rate",
+          "field": "smoothingMaxStepRate",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true
+        },
+        {
+          "column": "smoothing_mode",
+          "field": "smoothingMode",
+          "tsType": "string",
+          "optional": true,
+          "exposed": true
+        },
+        {
           "column": "smoothing_threshold_rate",
           "field": "smoothingThresholdRate",
           "tsType": "DecimalString",
           "optional": false,
+          "exposed": true
+        },
+        {
+          "column": "smoothing_window_periods",
+          "field": "smoothingWindowPeriods",
+          "tsType": "number",
+          "optional": true,
           "exposed": true
         },
         {
@@ -787,6 +808,20 @@
           "exposed": true
         },
         {
+          "column": "deduction_legal_basis_missing",
+          "field": "deductionLegalBasisMissing",
+          "tsType": "string[]",
+          "optional": true,
+          "exposed": true
+        },
+        {
+          "column": "deduction_legal_basis_passed",
+          "field": "deductionLegalBasisPassed",
+          "tsType": "boolean",
+          "optional": true,
+          "exposed": true
+        },
+        {
           "column": "deduction_type_cap_breaches",
           "field": "deductionTypeCapBreaches",
           "tsType": "string[]",
@@ -904,10 +939,41 @@
           "classification": "FINANCIAL"
         },
         {
+          "column": "raw_incentive_amount",
+          "field": "rawIncentiveAmount",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true,
+          "classification": "FINANCIAL"
+        },
+        {
           "column": "run_id",
           "field": "runId",
           "tsType": "UUID",
           "optional": false,
+          "exposed": true
+        },
+        {
+          "column": "smoothed_incentive_amount",
+          "field": "smoothedIncentiveAmount",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "column": "smoothing_delta",
+          "field": "smoothingDelta",
+          "tsType": "DecimalString",
+          "optional": true,
+          "exposed": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "column": "smoothing_mode",
+          "field": "smoothingMode",
+          "tsType": "string",
+          "optional": true,
           "exposed": true
         },
         {

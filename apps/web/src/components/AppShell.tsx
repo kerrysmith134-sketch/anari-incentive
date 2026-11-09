@@ -75,6 +75,7 @@ const NAV: NavGroup[] = [
         icon: "wallet",
         allowed: ["manager", "finance", "admin"],
       },
+      { to: "/privacy", label: "隐私与数据", icon: "shield" },
       {
         to: "/commission",
         label: "奖金提成",
@@ -220,6 +221,7 @@ const TITLES: Record<string, string> = {
   "/institutions": "2026 制度中心",
   "/task-pods": "任务制组织",
   "/award-batches": "奖励发放",
+  "/privacy": "隐私与数据",
   "/commission": "奖金提成",
   "/equity": "期权股权",
   "/bounty": "悬赏任务",

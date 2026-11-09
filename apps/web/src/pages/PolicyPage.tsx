@@ -199,6 +199,28 @@ export function PolicyPage() {
       : null,
     selectedId,
   );
+  const reviewReports = useApiQuery<PolicyReviewReport>(
+    "/api/v1/reports/policy-review",
+  );
+  const reviewSnapshots = useApiQuery<
+    Array<{ id: string; status?: string; period?: string; createdAt: string }>
+  >("/api/v1/reports/policy-review/snapshots");
+  const reviewerAgreement = useApiQuery<{
+    pairCount: number;
+    exactAgreementRate: number | null;
+    withinOneRate: number | null;
+    cohenKappa: number | null;
+    insufficient: boolean;
+    pairs: Array<{
+      personId: string;
+      cycleId: string;
+      reviewerA: string;
+      reviewerB: string;
+      exactAgreementRate: number;
+      withinOneRate: number;
+    }>;
+  }>("/api/v1/reports/reviewer-agreement");
+  const [reportBusy, setReportBusy] = useState<string | null>(null);
   const review = useApiQuery<PolicyReviewReport>(
     tab === "annual" ? "/api/v1/reports/policy-review" : null,
   );
@@ -706,6 +728,50 @@ export function PolicyPage() {
     }
   }
 
+  async function finalizeAnnualReport() {
+    if (!reviewReports.data) return;
+    setReportBusy("annual");
+    try {
+      const now = new Date();
+      await api("/api/v1/reports/policy-review:finalize", {
+        method: "POST",
+        body: {
+          from: new Date(now.getTime() - 365 * 864e5).toISOString(),
+          to: now.toISOString(),
+          report: reviewReports.data,
+          signedOffBy: session.personId,
+        },
+      });
+      toast.success("年度审查快照已生成", "已记录哈希与签核人");
+      reviewSnapshots.reload();
+    } catch (caught) {
+      toast.error(
+        "生成失败",
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
+  async function snapshotAgreement() {
+    setReportBusy("agreement");
+    try {
+      await api("/api/v1/reports/reviewer-agreement:snapshot", {
+        method: "POST",
+      });
+      toast.success("评审一致性快照已生成");
+      reviewerAgreement.reload();
+    } catch (caught) {
+      toast.error(
+        "生成失败",
+        caught instanceof Error ? caught.message : undefined,
+      );
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -953,6 +1019,7 @@ export function PolicyPage() {
           },
           { id: "coverage", label: "运营覆盖" },
           { id: "annual", label: "年度审查" },
+          { id: "reports", label: "审计报告" },
           { id: "governance", label: "治理" },
         ]}
         active={tab}
@@ -1771,7 +1838,7 @@ export function PolicyPage() {
               </>
             )}
           </Panel>
-        ) : (
+        ) : tab === "governance" ? (
           <>
             <Panel
               title="政策模拟"
@@ -2329,7 +2396,113 @@ export function PolicyPage() {
               )}
             </Panel>
           </>
-        )}
+        ) : tab === "reports" ? (
+          <div className="stack">
+            <Panel
+              title="年度审查快照"
+              subtitle="生成不可变快照；记录报告哈希与签核人"
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={reportBusy === "annual"}
+                  onClick={() => void finalizeAnnualReport()}
+                  disabled={!reviewReports.data}
+                >
+                  生成年度快照
+                </Button>
+              }
+              flush
+            >
+              {reviewSnapshots.loading ? (
+                <div style={{ padding: 16 }}><LoadingRows /></div>
+              ) : (reviewSnapshots.data ?? []).length === 0 ? (
+                <EmptyState
+                  icon="policy"
+                  title="暂无年度快照"
+                  description="年度审查完成后生成快照，供审计/仲裁导出。"
+                />
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr><th>周期</th><th>状态</th><th>生成时间</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {(reviewSnapshots.data ?? []).map((record) => (
+                      <tr key={record.id}>
+                        <td>{record.period ?? "—"}</td>
+                        <td><Badge status={record.status} /></td>
+                        <td className="nowrap">{formatDateTime(record.createdAt)}</td>
+                        <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              window.open(
+                                `/api/v1/reports/policy-review/snapshots/${record.id}/export`,
+                                "_blank",
+                              )
+                            }
+                          >
+                            导出 HTML
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Panel>
+
+            <Panel
+              title="评审人一致性（ATT-09）"
+              subtitle="同一对象多评审的成对一致率与 Cohen's kappa"
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={reportBusy === "agreement"}
+                  onClick={() => void snapshotAgreement()}
+                >
+                  保存一致性快照
+                </Button>
+              }
+            >
+              {reviewerAgreement.loading ? (
+                <LoadingRows />
+              ) : reviewerAgreement.data?.insufficient ? (
+                <InfoNotice tone="warning">
+                  配对评审样本不足，无法计算 kappa。需同一周期同一对象至少两名不同评审人。
+                </InfoNotice>
+              ) : (
+                <>
+                  <div className="stat-grid stat-grid--three">
+                    <div className="stat-card"><span>配对数</span><strong>{reviewerAgreement.data?.pairCount ?? 0}</strong></div>
+                    <div className="stat-card"><span>完全一致率</span><strong>{reviewerAgreement.data?.exactAgreementRate ?? "—"}</strong></div>
+                    <div className="stat-card"><span>Cohen's kappa</span><strong>{reviewerAgreement.data?.cohenKappa ?? "—"}</strong></div>
+                  </div>
+                  <table className="table">
+                    <thead>
+                      <tr><th>对象</th><th>周期</th><th>评审人 A</th><th>评审人 B</th><th>完全一致</th><th>±1 一致</th></tr>
+                    </thead>
+                    <tbody>
+                      {(reviewerAgreement.data?.pairs ?? []).map((pair, index) => (
+                        <tr key={`${pair.personId}-${pair.reviewerA}-${pair.reviewerB}-${index}`}>
+                          <td className="mono">{pair.personId.slice(0, 8)}</td>
+                          <td className="mono">{pair.cycleId.slice(0, 8)}</td>
+                          <td className="mono">{pair.reviewerA.slice(0, 8)}</td>
+                          <td className="mono">{pair.reviewerB.slice(0, 8)}</td>
+                          <td>{pair.exactAgreementRate}</td>
+                          <td>{pair.withinOneRate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </Panel>
+          </div>
+        ) : null}
       </div>
 
       <Modal

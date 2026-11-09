@@ -129,6 +129,7 @@ export function PayrollPage() {
           { id: "runs", label: "薪酬批次", count: runList.length },
           { id: "contracts", label: "合同", count: contractList.length },
           { id: "tax", label: "个税工作台" },
+          { id: "statutory", label: "法定扣款类型" },
         ]}
         active={tab}
         onChange={setTab}
@@ -156,6 +157,7 @@ export function PayrollPage() {
           />
         ) : null}
         {tab === "tax" ? <TaxStudio /> : null}
+        {tab === "statutory" ? <StatutoryDeductionStudio /> : null}
       </div>
     </>
   );
@@ -1055,6 +1057,9 @@ function ContractsTab({
   );
   const [deductionTypeCaps, setDeductionTypeCaps] = useState("");
   const [smoothingPercent, setSmoothingPercent] = useState("100");
+  const [smoothingMode, setSmoothingMode] = useState("BLOCK");
+  const [smoothingWindow, setSmoothingWindow] = useState("3");
+  const [smoothingMaxStep, setSmoothingMaxStep] = useState("50");
   const [compensationTemplate, setCompensationTemplate] = useState("");
   const [consentSignatureRef, setConsentSignatureRef] = useState("");
   const [bankAccountRef, setBankAccountRef] = useState("");
@@ -1185,6 +1190,9 @@ function ContractsTab({
               .filter(([type, rate]) => Boolean(type) && Boolean(rate)),
           ),
           smoothingThresholdRate: String(toNumber(smoothingPercent) / 100),
+          smoothingMode,
+          smoothingWindowPeriods: Number(smoothingWindow) || 3,
+          smoothingMaxStepRate: String(toNumber(smoothingMaxStep) / 100),
           compensationTemplateCode: compensationTemplate.trim() || undefined,
           bankAccountRef: bankAccountRef.trim() || undefined,
           consentSignatureRef: consentSignatureRef.trim(),
@@ -1678,6 +1686,43 @@ function ContractsTab({
               step="0.01"
               value={smoothingPercent}
               onChange={(event) => setSmoothingPercent(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="平滑模式"
+            htmlFor="contract-smoothing-mode"
+            hint="BLOCK：超阈值阻断；MOVING_AVERAGE：按历史均值平滑；RAMP：单期变化限幅；NONE：不平滑。"
+          >
+            <Select
+              id="contract-smoothing-mode"
+              value={smoothingMode}
+              onChange={(event) => setSmoothingMode(event.target.value)}
+            >
+              <option value="BLOCK">阻断（BLOCK）</option>
+              <option value="MOVING_AVERAGE">移动平均（MOVING_AVERAGE）</option>
+              <option value="RAMP">限幅爬坡（RAMP）</option>
+              <option value="NONE">不平滑（NONE）</option>
+            </Select>
+          </FormField>
+          <FormField label="移动平均窗口（期）" htmlFor="contract-smoothing-window">
+            <TextInput
+              id="contract-smoothing-window"
+              type="number"
+              min="1"
+              max="24"
+              value={smoothingWindow}
+              onChange={(event) => setSmoothingWindow(event.target.value)}
+            />
+          </FormField>
+          <FormField label="单期最大变化（%）" htmlFor="contract-smoothing-step">
+            <TextInput
+              id="contract-smoothing-step"
+              type="number"
+              min="0"
+              max="1000"
+              step="0.01"
+              value={smoothingMaxStep}
+              onChange={(event) => setSmoothingMaxStep(event.target.value)}
             />
           </FormField>
           <FormField
@@ -2266,6 +2311,104 @@ function TaxStudio() {
           </div>
         </Panel>
       </div>
+    </div>
+  );
+}
+
+
+function StatutoryDeductionStudio() {
+  const toast = useToast();
+  const types = useApiQuery<Array<Record<string, unknown>>>(
+    "/api/v1/statutory-deduction-types",
+  );
+  const bases = useApiQuery<Record<string, unknown>>(
+    "/api/v1/deduction-legal-bases",
+  );
+  const [typesText, setTypesText] = useState("");
+  const [basesText, setBasesText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function loadTypes() {
+    setTypesText(JSON.stringify(types.data ?? [], null, 2));
+  }
+  function loadBases() {
+    setBasesText(JSON.stringify(bases.data ?? {}, null, 2));
+  }
+
+  async function saveTypes() {
+    setError(null);
+    try {
+      await api("/api/v1/statutory-deduction-types", {
+        method: "PUT",
+        body: { types: JSON.parse(typesText) },
+      });
+      toast.success("法定扣款类型已保存");
+      types.reload();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "保存失败");
+    }
+  }
+
+  async function saveBases() {
+    setError(null);
+    try {
+      await api("/api/v1/deduction-legal-bases", {
+        method: "PUT",
+        body: { bases: JSON.parse(basesText) },
+      });
+      toast.success("执行令/同意依据已保存");
+      bases.reload();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "保存失败");
+    }
+  }
+
+  return (
+    <div className="stack">
+      {error ? <InfoNotice tone="warning">{error}</InfoNotice> : null}
+      <Panel
+        title="法定扣款类型"
+        subtitle="type / priority / capRate / requiresCourtOrder / requiresConsent / legalBasis"
+        action={
+          <Button size="sm" variant="secondary" onClick={loadTypes}>
+            载入当前配置
+          </Button>
+        }
+      >
+        <FormField label="类型 JSON">
+          <Textarea
+            rows={10}
+            value={typesText}
+            onChange={(event) => setTypesText(event.target.value)}
+            placeholder='[{"type":"COURT_ORDER","priority":0,"capRate":"0.5","requiresCourtOrder":true}]'
+          />
+        </FormField>
+        <div className="form-actions">
+          <Button onClick={() => void saveTypes()}>保存类型</Button>
+        </div>
+      </Panel>
+
+      <Panel
+        title="执行令 / 员工同意依据"
+        subtitle="按扣款类型登记 courtOrderRef / consentRef；缺少依据时薪酬行会被阻断"
+        action={
+          <Button size="sm" variant="secondary" onClick={loadBases}>
+            载入当前依据
+          </Button>
+        }
+      >
+        <FormField label="依据 JSON">
+          <Textarea
+            rows={8}
+            value={basesText}
+            onChange={(event) => setBasesText(event.target.value)}
+            placeholder='{"COURT_ORDER":{"courtOrderRef":"(2026)粤0305执123号"}}'
+          />
+        </FormField>
+        <div className="form-actions">
+          <Button onClick={() => void saveBases()}>保存依据</Button>
+        </div>
+      </Panel>
     </div>
   );
 }

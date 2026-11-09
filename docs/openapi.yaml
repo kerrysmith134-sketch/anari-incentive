@@ -9590,6 +9590,238 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/statutory-deduction-types:
+    get:
+      tags: [Payroll]
+      summary: 查询法定扣款类型
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    put:
+      tags: [Payroll]
+      summary: 保存法定扣款类型与上限
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/v1/deduction-legal-bases:
+    get:
+      tags: [Payroll]
+      summary: 查询执行令/员工同意依据
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    put:
+      tags: [Payroll]
+      summary: 保存执行令/员工同意依据
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+# 2026 audit and AI evaluation extensions
+  /api/v1/model-evaluation-datasets/{id}/samples:
+    get:
+      tags: [Policy]
+      summary: 查询金标集样本
+      description: 返回已登记样本，支持 datasetRef 复跑
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/export-dlp-rules:
+    get:
+      tags: [Policy]
+      summary: 查询导出DLP规则
+      description: 按租户返回自定义正则规则
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    put:
+      tags: [Policy]
+      summary: 保存导出DLP规则
+      description: 校验正则并写入租户设置
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/policy-review:finalize:
+    post:
+      tags: [Policy]
+      summary: 生成年度审查快照
+      description: 保存报告哈希、签核人与不可变记录
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/policy-review/snapshots:
+    get:
+      tags: [Policy]
+      summary: 查询年度审查快照
+      description: 返回签核记录列表
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/policy-review/snapshots/{id}/export:
+    get:
+      tags: [Policy]
+      summary: 导出年度审查报告
+      description: 导出带哈希/水印的 HTML
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/reviewer-agreement:
+    get:
+      tags: [Policy]
+      summary: 评审人一致性报告
+      description: 同一对象多评审的成对一致率与 kappa
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/reviewer-agreement:snapshot:
+    post:
+      tags: [Policy]
+      summary: 保存评审一致性快照
+      description: 生成季度审计快照
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/reports/reviewer-agreement/snapshots:
+    get:
+      tags: [Policy]
+      summary: 查询评审一致性快照
+      description: 返回历史快照
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/gold-label-tasks:
+    get:
+      tags: [Policy]
+      summary: 查询标注任务
+      description: 按状态返回标注队列
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 创建标注任务
+      description: 分派样本给标注人并设置截止
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/gold-label-tasks/{id}/complete:
+    post:
+      tags: [Policy]
+      summary: 完成标注任务
+      description: 记录评分与仲裁人
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/model-training-runs:
+    get:
+      tags: [Policy]
+      summary: 查询训练运行
+      description: 返回训练运行与指标
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 创建训练运行
+      description: 登记数据集、基础模型与提示词版本
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/model-training-runs/{id}/callback:
+    post:
+      tags: [Policy]
+      summary: 训练回调
+      description: 记录成功/失败、指标与制品引用
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
 components:
   securitySchemes:
@@ -11473,12 +11705,20 @@ components:
           type: array
           items:
             type: string
-            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
         deductionTypeCaps:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Decimal"
         smoothingThresholdRate:
+          $ref: "#/components/schemas/Decimal"
+        smoothingMode:
+          type: string
+          enum: [NONE, BLOCK, MOVING_AVERAGE, RAMP]
+        smoothingWindowPeriods:
+          type: integer
+          minimum: 1
+          maximum: 24
+        smoothingMaxStepRate:
           $ref: "#/components/schemas/Decimal"
         compensationTemplateCode:
           type: string
@@ -11553,7 +11793,6 @@ components:
           type: array
           items:
             type: string
-            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
         deductionTypeCaps:
           type: object
           additionalProperties:
@@ -11588,12 +11827,20 @@ components:
           type: array
           items:
             type: string
-            enum: [RECOVERY, REVERSAL, ADJUSTMENT, OTHER]
         deductionTypeCaps:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Decimal"
         smoothingThresholdRate:
+          $ref: "#/components/schemas/Decimal"
+        smoothingMode:
+          type: string
+          enum: [NONE, BLOCK, MOVING_AVERAGE, RAMP]
+        smoothingWindowPeriods:
+          type: integer
+          minimum: 1
+          maximum: 24
+        smoothingMaxStepRate:
           $ref: "#/components/schemas/Decimal"
         compensationTemplateCode:
           type: string

@@ -200,6 +200,7 @@ import {
   InvariantViolationError,
   assertPolicyApplicability,
   confirmationBlockers,
+  dataGovernanceCoverage,
   legalGateBlockers,
   type AiMember,
   type AuditEvent,
@@ -1244,12 +1245,26 @@ export function findActivityMonitoringText(value: unknown): string[] {
 }
 
 /** Detect common unmasked identifiers in an export payload. */
-export function scanExportDlp(text: string): string[] {
+export function scanExportDlp(
+  text: string,
+  extraRules: Array<{ code: string; pattern: string; flags?: string }> = [],
+): string[] {
   const patterns: Array<{ code: string; pattern: RegExp }> = [
     { code: "CHINESE_ID", pattern: /\b\d{17}[\dXx]\b/g },
     { code: "BANK_CARD", pattern: /\b\d{16,19}\b/g },
     { code: "PHONE", pattern: /\b1[3-9]\d{9}\b/g },
+    { code: "EMAIL", pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
   ];
+  for (const rule of extraRules) {
+    try {
+      patterns.push({
+        code: rule.code || "CUSTOM",
+        pattern: new RegExp(rule.pattern, rule.flags ?? "g"),
+      });
+    } catch {
+      /* invalid tenant rule is ignored; management API validates on write */
+    }
+  }
   const findings = new Set<string>();
   for (const { code, pattern } of patterns) {
     if (pattern.test(text)) findings.add(code);
@@ -1638,7 +1653,22 @@ export function buildApp(
       enabled = true;
     }
     if (!enabled) return;
-    const findings = scanExportDlp(text);
+    let extraRules: Array<{ code: string; pattern: string; flags?: string }> = [];
+    try {
+      const tenant = await platformStore.getTenant(tenantOf(request));
+      const configured = (tenant.settings as { exportDlpRules?: unknown })
+        .exportDlpRules;
+      if (Array.isArray(configured)) {
+        extraRules = configured as Array<{
+          code: string;
+          pattern: string;
+          flags?: string;
+        }>;
+      }
+    } catch {
+      extraRules = [];
+    }
+    const findings = scanExportDlp(text, extraRules);
     if (findings.length === 0) return;
     if (!approvalRequestId) {
       throw new ConflictError(
@@ -6489,6 +6519,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       refreshedAt: body.refreshedAt,
       nextRefreshDueAt: body.nextRefreshDueAt,
       contentHash,
+      samples: body.samples.map((sample) => ({
+        ...sample,
+        counterfactualScores: sample.counterfactualScores ?? [],
+        holdout: sample.holdout ?? false,
+        labelSource: body.labelSource,
+      })),
     });
     countEvent("gold_set_imported");
     return reply.status(201).send(
@@ -6598,12 +6634,30 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       refreshedAt: body.refreshedAt,
       nextRefreshDueAt: body.nextRefreshDueAt,
       contentHash: body.contentHash,
+      samples: current.samples,
     });
     await platformStore.retireModelEvaluationDataset({
       tenantId,
       datasetId: current.id,
     });
     return data(refreshed, request);
+  });
+
+  app.get("/api/v1/model-evaluation-datasets/:id/samples", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const datasets = await platformStore.listModelEvaluationDatasets(
+      tenantOf(request),
+    );
+    const dataset = datasets.find((candidate) => candidate.id === idOf(request));
+    if (!dataset) {
+      throw new NotFoundError(
+        `ModelEvaluationDataset ${idOf(request)} not found`,
+      );
+    }
+    return data(
+      { datasetId: dataset.id, code: dataset.code, samples: dataset.samples ?? [] },
+      request,
+    );
   });
 
   app.get("/api/v1/model-evaluation-datasets", async (request) => {
@@ -7360,26 +7414,41 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return { ...payload, packageHash: sha256(payload) };
   }
 
-  app.get("/api/v1/me/data-package", async (request) => {
+  app.get("/api/v1/me/data-package", async (request, reply) => {
     assertExportAllowed(request);
     const personId = ownPersonId(request);
     if (!personId) {
       throw new ForbiddenError("employee identity is required");
     }
-    return data(await buildPersonDataPackage(request, personId), request);
+    const payload = await buildPersonDataPackage(request, personId);
+    const text = JSON.stringify(payload);
+    const findings = scanExportDlp(text);
+    return reply
+      .headers(exportHeaders(request, text, "PERSONAL_DATA"))
+      .header("x-export-dlp-findings", findings.join(","))
+      .send(data(payload, request));
   });
 
-  app.get("/api/v1/dsar-requests/:id/package", async (request) => {
+  app.get("/api/v1/dsar-requests/:id/package", async (request, reply) => {
     requireRoles(request, "admin", "finance");
     assertExportAllowed(request);
     const dsar = await platformStore.getDsar(
       tenantOf(request),
       idOf(request),
     );
-    return data(
-      await buildPersonDataPackage(request, dsar.personId),
+    const payload = await buildPersonDataPackage(request, dsar.personId);
+    const text = JSON.stringify(payload);
+    const query = request.query as { approvalRequestId?: string };
+    await assertExportDlp(
       request,
+      text,
+      "DSAR_PACKAGE",
+      idOf(request),
+      query.approvalRequestId,
     );
+    return reply
+      .headers(exportHeaders(request, text, "PERSONAL_DATA"))
+      .send(data(payload, request));
   });
 
   app.post("/api/v1/dsar-requests", async (request, reply) => {
@@ -7693,6 +7762,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
             .length,
           openDataRequests: dsars.filter((dsar) => dsar.status === "OPEN")
             .length,
+          entityPiiCoverage: dataGovernanceCoverage(),
         },
         sources: mapped,
         retentionPolicies: retention,
@@ -8963,11 +9033,25 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     requireRoles(request, "manager", "finance");
     const body = parse(runModelEvaluationSchema, request.body);
     await assertRegisteredGoldSet(request, body.datasetRef);
+    let samples: NonNullable<typeof body.samples> = body.samples ?? [];
+    if (samples.length === 0) {
+      const registered = await platformStore.getActiveModelEvaluationDataset(
+        tenantOf(request),
+        body.datasetRef,
+      );
+      samples = registered?.samples ?? [];
+    }
+    if (samples.length === 0) {
+      throw new BadRequestError(
+        "GOLD_SET_SAMPLES_REQUIRED",
+        "datasetRef 未登记样本，必须上传 samples",
+      );
+    }
     const thresholds = {
       ...DEFAULT_THRESHOLDS,
       ...(body.thresholds ?? {}),
     };
-    const gate = evaluateGate(body.samples, thresholds);
+    const gate = evaluateGate(samples, thresholds);
     const evaluation = await platformStore.createModelEvaluationRun({
       tenantId: tenantOf(request),
       evaluationType: body.evaluationType,
@@ -10386,6 +10470,9 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           ],
           deductionTypeCaps: body.deductionTypeCaps ?? {},
           smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
+          smoothingMode: body.smoothingMode,
+          smoothingWindowPeriods: body.smoothingWindowPeriods,
+          smoothingMaxStepRate: body.smoothingMaxStepRate,
           compensationTemplateCode: body.compensationTemplateCode,
           bankAccountRef: body.bankAccountRef,
           consentSignatureRef: body.consentSignatureRef,
@@ -10842,6 +10929,14 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           capRate?: string;
         }[])
       : undefined;
+    const deductionLegalBases =
+      tenantSettings.deductionLegalBases &&
+      typeof tenantSettings.deductionLegalBases === "object"
+        ? (tenantSettings.deductionLegalBases as Record<
+            string,
+            { courtOrderRef?: string; consentRef?: string }
+          >)
+        : undefined;
     const calculation = calculatePayroll({
       contracts,
       ledger,
@@ -10849,6 +10944,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       unacknowledgedNoticesByPerson,
       taxMode,
       statutoryDeductionTypes,
+      deductionLegalBases,
       priorYtd: taxMode === "STATUTORY_CN" ? priorYtd : undefined,
       cycleId: run.cycleId,
       currency: run.currency,
@@ -11944,6 +12040,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       );
     }
     const result = await store.commandSettlementBatch(idOf(request), body);
+    if (body.command === "EXPORT" && result.csv) {
+      await assertExportDlp(
+        request,
+        result.csv,
+        "SETTLEMENT_BATCH",
+        idOf(request),
+        body.approvalRequestId,
+      );
+    }
     countEvent(`settlement_${body.command.toLowerCase()}`);
     if (body.command === "REQUIRE_ADJUSTMENT") {
       await notifyBestEffort(store, {
@@ -13510,6 +13615,446 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       .header("content-disposition", `attachment; filename="${batch.batchNo}.csv"`)
       .headers(exportHeaders(request, csv, "CONFIDENTIAL_PAYROLL"))
       .send(csv);
+  });
+
+  app.get("/api/v1/statutory-deduction-types", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    const types = Array.isArray(tenant.settings?.statutoryDeductionTypes)
+      ? tenant.settings.statutoryDeductionTypes
+      : [];
+    return data(types, request);
+  });
+
+  app.put("/api/v1/statutory-deduction-types", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = policyBody(request);
+    if (!Array.isArray(body.types)) {
+      throw new BadRequestError("INVALID_INPUT", "types 必须为数组");
+    }
+    for (const rule of body.types as Array<Record<string, unknown>>) {
+      if (typeof rule.type !== "string" || !rule.type.trim()) {
+        throw new BadRequestError("INVALID_INPUT", "扣款类型必须非空");
+      }
+      if (
+        typeof rule.priority !== "number" ||
+        !Number.isInteger(rule.priority) ||
+        rule.priority < 0
+      ) {
+        throw new BadRequestError("INVALID_INPUT", "priority 必须为非负整数");
+      }
+      if (rule.capRate !== undefined) {
+        const cap = parseDecimal(String(rule.capRate));
+        if (cap < 0n || cap > parseDecimal("1")) {
+          throw new BadRequestError("INVALID_INPUT", "capRate 必须在 0-1 之间");
+        }
+      }
+    }
+    const tenant = await platformStore.updateTenantSettings({
+      tenantId: tenantOf(request),
+      settings: { statutoryDeductionTypes: body.types },
+    });
+    return data(tenant.settings?.statutoryDeductionTypes ?? [], request);
+  });
+
+  app.get("/api/v1/deduction-legal-bases", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    return data(tenant.settings?.deductionLegalBases ?? {}, request);
+  });
+
+  app.put("/api/v1/deduction-legal-bases", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = policyBody(request);
+    if (!body.bases || typeof body.bases !== "object") {
+      throw new BadRequestError("INVALID_INPUT", "bases 必须为对象");
+    }
+    const tenant = await platformStore.updateTenantSettings({
+      tenantId: tenantOf(request),
+      settings: { deductionLegalBases: body.bases },
+    });
+    return data(tenant.settings?.deductionLegalBases ?? {}, request);
+  });
+
+  app.get("/api/v1/export-dlp-rules", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const tenant = await platformStore.getTenant(tenantOf(request));
+    return data(tenant.settings?.exportDlpRules ?? [], request);
+  });
+
+  app.put("/api/v1/export-dlp-rules", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = policyBody(request);
+    if (!Array.isArray(body.rules)) {
+      throw new BadRequestError("INVALID_INPUT", "rules 必须为数组");
+    }
+    for (const rule of body.rules as Array<Record<string, unknown>>) {
+      if (typeof rule.code !== "string" || !rule.code.trim()) {
+        throw new BadRequestError("INVALID_INPUT", "规则 code 必须非空");
+      }
+      if (typeof rule.pattern !== "string" || !rule.pattern) {
+        throw new BadRequestError("INVALID_INPUT", "规则 pattern 必须非空");
+      }
+      try {
+        new RegExp(rule.pattern, typeof rule.flags === "string" ? rule.flags : "g");
+      } catch {
+        throw new BadRequestError(
+          "INVALID_INPUT",
+          `规则 ${rule.code} 的正则无效`,
+        );
+      }
+    }
+    const tenant = await platformStore.updateTenantSettings({
+      tenantId: tenantOf(request),
+      settings: { exportDlpRules: body.rules },
+    });
+    return data(tenant.settings?.exportDlpRules ?? [], request);
+  });
+
+  app.post("/api/v1/reports/policy-review:finalize", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = policyBody(request);
+    const from = requireString(body, "from");
+    const to = requireString(body, "to");
+    if (!body.report || typeof body.report !== "object") {
+      throw new BadRequestError("INVALID_INPUT", "report 必须为对象");
+    }
+    const report = body.report as Record<string, unknown>;
+    const reportHash = sha256(report);
+    const signedOffBy =
+      typeof body.signedOffBy === "string" ? body.signedOffBy : undefined;
+    const record = await platformStore.savePolicyEngineRecord({
+      tenantId: tenantOf(request),
+      recordType: "POLICY_ANNUAL_REVIEW",
+      period: `${from}..${to}`,
+      status: signedOffBy ? "FINAL" : "DRAFT",
+      payload: {
+        from,
+        to,
+        report,
+        reportHash,
+        signedOffBy,
+        signedAt: signedOffBy ? new Date().toISOString() : undefined,
+      },
+    });
+    return reply.status(201).send(data(record, request));
+  });
+
+  app.get("/api/v1/reports/policy-review/snapshots", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    return data(
+      await platformStore.listPolicyEngineRecords(tenantOf(request), {
+        recordType: "POLICY_ANNUAL_REVIEW",
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/reports/policy-review/snapshots/:id/export", async (request, reply) => {
+      requireRoles(request, "manager", "finance", "admin");
+      const record = await platformStore.getPolicyEngineRecord(
+        tenantOf(request),
+        idOf(request),
+      );
+      if (record.recordType !== "POLICY_ANNUAL_REVIEW") {
+        throw new NotFoundError(`AnnualReview ${idOf(request)} 不存在`);
+      }
+      const payload = record.payload as {
+        from?: string;
+        to?: string;
+        reportHash?: string;
+        signedOffBy?: string;
+        signedAt?: string;
+        report?: Record<string, unknown>;
+      };
+      const escape = (value: unknown) =>
+        String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>年度制度审查报告</title>
+<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;line-height:1.7;color:#222}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6px 8px;text-align:left}pre{white-space:pre-wrap;background:#f6f6f6;padding:12px}</style></head><body>
+<h1>年度制度审查报告</h1>
+<p>周期：${escape(payload.from)} 至 ${escape(payload.to)}</p>
+<p>状态：${escape(record.status)} · 报告哈希：<code>${escape(payload.reportHash)}</code></p>
+<p>签核人：${escape(payload.signedOffBy ?? "未签核")} · 签核时间：${escape(payload.signedAt ?? "—")}</p>
+<h2>报告内容</h2><pre>${escape(JSON.stringify(payload.report, null, 2))}</pre>
+</body></html>`;
+      assertExportAllowed(request);
+      await assertExportDlp(request, html, "POLICY_ANNUAL_REVIEW", record.id);
+      return reply
+        .header("content-type", "text/html; charset=utf-8")
+        .header(
+          "content-disposition",
+          `attachment; filename="policy-review-${record.id}.html"`,
+        )
+        .headers(exportHeaders(request, html, "CONFIDENTIAL_GOVERNANCE"))
+        .send(html);
+    },
+  );
+
+  async function buildReviewerAgreementReport(request: FastifyRequest): Promise<{
+    pairCount: number;
+    exactAgreementRate: number | null;
+    withinOneRate: number | null;
+    cohenKappa: number | null;
+    insufficient: boolean;
+    pairs: Array<{
+      personId: string;
+      cycleId: string;
+      reviewerA: string;
+      reviewerB: string;
+      exactAgreementRate: number;
+      withinOneRate: number;
+    }>;
+  }> {
+    const decisions = (
+      await storeFor(request).listEvaluationDecisions()
+    ).filter((decision) =>
+      ["APPROVED", "SUPERSEDED"].includes(decision.status),
+    );
+    const groups = new Map<string, typeof decisions>();
+    for (const decision of decisions) {
+      const key = `${decision.cycleId}:${decision.personId}`;
+      groups.set(key, [...(groups.get(key) ?? []), decision]);
+    }
+    const pairs: Array<{
+      personId: string;
+      cycleId: string;
+      reviewerA: string;
+      reviewerB: string;
+      exactAgreementRate: number;
+      withinOneRate: number;
+    }> = [];
+    let exactTotal = 0;
+    let withinOneTotal = 0;
+    let ratingCount = 0;
+    const observedRatings: Array<[number, number]> = [];
+    for (const group of groups.values()) {
+      for (let left = 0; left < group.length; left += 1) {
+        for (let right = left + 1; right < group.length; right += 1) {
+          const a = group[left]!;
+          const b = group[right]!;
+          if (a.reviewerPersonId === b.reviewerPersonId) continue;
+          const dimensions = [
+            ...new Set([
+              ...Object.keys(a.scores ?? {}),
+              ...Object.keys(b.scores ?? {}),
+            ]),
+          ];
+          if (dimensions.length === 0) continue;
+          let exact = 0;
+          let withinOne = 0;
+          for (const dimension of dimensions) {
+            const scoreA = a.scores[dimension];
+            const scoreB = b.scores[dimension];
+            if (scoreA === undefined || scoreB === undefined) continue;
+            ratingCount += 1;
+            observedRatings.push([scoreA, scoreB]);
+            if (scoreA === scoreB) exact += 1;
+            if (Math.abs(scoreA - scoreB) <= 1) withinOne += 1;
+          }
+          exactTotal += exact;
+          withinOneTotal += withinOne;
+          pairs.push({
+            personId: a.personId,
+            cycleId: a.cycleId,
+            reviewerA: a.reviewerPersonId,
+            reviewerB: b.reviewerPersonId,
+            exactAgreementRate: ratio(exact, dimensions.length),
+            withinOneRate: ratio(withinOne, dimensions.length),
+          });
+        }
+      }
+    }
+    const exactAgreementRate = ratingCount === 0 ? null : ratio(exactTotal, ratingCount);
+    const withinOneRate = ratingCount === 0 ? null : ratio(withinOneTotal, ratingCount);
+    let cohenKappa: number | null = null;
+    if (ratingCount > 0) {
+      const categories = [
+        ...new Set(observedRatings.flatMap(([a, b]) => [a, b])),
+      ];
+      let expected = 0;
+      for (const category of categories) {
+        const pA =
+          observedRatings.filter(([a]) => a === category).length / ratingCount;
+        const pB =
+          observedRatings.filter(([, b]) => b === category).length / ratingCount;
+        expected += pA * pB;
+      }
+      cohenKappa =
+        expected === 1
+          ? 1
+          : Math.round(((exactAgreementRate! - expected) / (1 - expected)) * 10_000) /
+            10_000;
+    }
+    return {
+      pairCount: pairs.length,
+      exactAgreementRate,
+      withinOneRate,
+      cohenKappa,
+      insufficient: pairs.length === 0,
+      pairs,
+    };
+  }
+
+  app.get("/api/v1/reports/reviewer-agreement", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    return data(await buildReviewerAgreementReport(request), request);
+  });
+
+  app.post("/api/v1/reports/reviewer-agreement:snapshot", async (request, reply) => {
+      requireRoles(request, "finance", "admin");
+      const report = await buildReviewerAgreementReport(request);
+      const record = await platformStore.savePolicyEngineRecord({
+        tenantId: tenantOf(request),
+        recordType: "REVIEWER_AGREEMENT_AUDIT",
+        period: new Date().toISOString().slice(0, 10),
+        status: report.insufficient ? "INSUFFICIENT" : "GENERATED",
+        payload: report,
+      });
+      return reply.status(201).send(data(record, request));
+    },
+  );
+
+  app.get("/api/v1/reports/reviewer-agreement/snapshots", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    return data(
+      await platformStore.listPolicyEngineRecords(tenantOf(request), {
+        recordType: "REVIEWER_AGREEMENT_AUDIT",
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/gold-label-tasks", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = policyBody(request);
+    if (!Array.isArray(body.sampleIds) || body.sampleIds.length === 0) {
+      throw new BadRequestError("INVALID_INPUT", "sampleIds 必须为非空数组");
+    }
+    const record = await platformStore.savePolicyEngineRecord({
+      tenantId: tenantOf(request),
+      recordType: "GOLD_LABEL_TASK",
+      personId: typeof body.assigneePersonId === "string"
+        ? body.assigneePersonId
+        : undefined,
+      status: "OPEN",
+      payload: {
+        datasetId: requireString(body, "datasetId"),
+        sampleIds: body.sampleIds,
+        assigneePersonId: requireString(body, "assigneePersonId"),
+        dueAt: typeof body.dueAt === "string" ? body.dueAt : undefined,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    return reply.status(201).send(data(record, request));
+  });
+
+  app.get("/api/v1/gold-label-tasks", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    const query = request.query as { status?: string };
+    return data(
+      await platformStore.listPolicyEngineRecords(tenantOf(request), {
+        recordType: "GOLD_LABEL_TASK",
+        status: query.status,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/gold-label-tasks/:id/complete", async (request) => {
+    requireRoles(request, "manager");
+    const record = await platformStore.getPolicyEngineRecord(
+      tenantOf(request),
+      idOf(request),
+    );
+    if (record.recordType !== "GOLD_LABEL_TASK") {
+      throw new NotFoundError(`GoldLabelTask ${idOf(request)} 不存在`);
+    }
+    const body = policyBody(request);
+    return data(
+      await platformStore.updatePolicyEngineRecord({
+        tenantId: tenantOf(request),
+        recordId: record.id,
+        status: "COMPLETED",
+        payload: {
+          ...record.payload,
+          completedBy:
+            typeof body.completedBy === "string"
+              ? body.completedBy
+              : ownPersonId(request),
+          completedAt: new Date().toISOString(),
+          adjudicatedBy:
+            typeof body.adjudicatedBy === "string"
+              ? body.adjudicatedBy
+              : undefined,
+          scores: body.scores ?? {},
+        },
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-training-runs", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = policyBody(request);
+    const record = await platformStore.savePolicyEngineRecord({
+      tenantId: tenantOf(request),
+      recordType: "MODEL_TRAINING_RUN",
+      status: "RUNNING",
+      payload: {
+        datasetId: requireString(body, "datasetId"),
+        baseModel: requireString(body, "baseModel"),
+        promptVersion: requireString(body, "promptVersion"),
+        externalRunId:
+          typeof body.externalRunId === "string" ? body.externalRunId : undefined,
+        startedAt: new Date().toISOString(),
+      },
+    });
+    return reply.status(201).send(data(record, request));
+  });
+
+  app.get("/api/v1/model-training-runs", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    return data(
+      await platformStore.listPolicyEngineRecords(tenantOf(request), {
+        recordType: "MODEL_TRAINING_RUN",
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/model-training-runs/:id/callback", async (request) => {
+    requireRoles(request, "manager");
+    const record = await platformStore.getPolicyEngineRecord(
+      tenantOf(request),
+      idOf(request),
+    );
+    if (record.recordType !== "MODEL_TRAINING_RUN") {
+      throw new NotFoundError(`ModelTrainingRun ${idOf(request)} 不存在`);
+    }
+    const body = policyBody(request);
+    const status = requireString(body, "status");
+    if (!["SUCCEEDED", "FAILED"].includes(status)) {
+      throw new BadRequestError("INVALID_STATUS", `不支持的训练状态 ${status}`);
+    }
+    return data(
+      await platformStore.updatePolicyEngineRecord({
+        tenantId: tenantOf(request),
+        recordId: record.id,
+        status,
+        payload: {
+          ...record.payload,
+          status,
+          metrics: body.metrics ?? {},
+          artifactRef:
+            typeof body.artifactRef === "string" ? body.artifactRef : undefined,
+          finishedAt: new Date().toISOString(),
+        },
+      }),
+      request,
+    );
   });
 
   return app;

@@ -139,6 +139,9 @@ export function AiPage() {
   const [datasetSaving, setDatasetSaving] = useState(false);
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const [datasetCode, setDatasetCode] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
   const [datasetVersion, setDatasetVersion] = useState("1");
   const [datasetName, setDatasetName] = useState("");
   const [datasetSample, setDatasetSample] = useState("100");
@@ -330,6 +333,25 @@ async function saveRefresh(event: FormEvent) {
       );
     } finally {
       setRedTeamSaving(false);
+    }
+  }
+
+  async function importGoldSet(event: FormEvent) {
+    event.preventDefault();
+    setImportError(null);
+    try {
+      const payload = JSON.parse(importText) as Record<string, unknown>;
+      await api("/api/v1/model-evaluation-datasets:import", {
+        method: "POST",
+        body: payload,
+      });
+      toast.success("金标集已导入", "样本已落库，可直接按 datasetRef 复跑");
+      setImportOpen(false);
+      datasets.reload();
+    } catch (caught) {
+      setImportError(
+        caught instanceof ApiError ? caught.message : "导入失败",
+      );
     }
   }
 
@@ -1265,14 +1287,27 @@ async function saveRefresh(event: FormEvent) {
             title="金标集"
             subtitle="带留出集与刷新跟踪的版本化评测数据集"
             action={
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="plus"
-                onClick={openDatasetForm}
-              >
-                登记金标集
-              </Button>
+              <div className="row-actions">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="plus"
+                  onClick={openDatasetForm}
+                >
+                  登记金标集
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    setImportText("");
+                    setImportError(null);
+                    setImportOpen(true);
+                  }}
+                >
+                  导入金标集
+                </Button>
+              </div>
             }
             flush
           >
@@ -2752,6 +2787,41 @@ async function saveRefresh(event: FormEvent) {
               value={activateRunId}
               onChange={(event) => setActivateRunId(event.target.value)}
               required
+            />
+          </FormField>
+        </form>
+      </Modal>
+      <Modal
+        open={importOpen}
+        title="导入金标集样本"
+        onClose={() => setImportOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setImportOpen(false)}>
+              取消
+            </Button>
+            <Button variant="primary" type="submit" form="gold-import-form">
+              导入
+            </Button>
+          </>
+        }
+      >
+        <form id="gold-import-form" onSubmit={importGoldSet} className="form-grid">
+          {importError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">{importError}</InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="导入 JSON"
+            className="field--full"
+            hint="包含 code/name/labelSource/ownerPersonId/refreshedAt/nextRefreshDueAt/samples（至少 2 条）"
+          >
+            <Textarea
+              rows={14}
+              value={importText}
+              onChange={(event) => setImportText(event.target.value)}
+              placeholder='{"code":"GOLD-2026Q4","name":"Q4金标集","labelSource":"专家双评","ownerPersonId":"…","refreshedAt":"2026-11-01T00:00:00Z","nextRefreshDueAt":"2027-02-01T00:00:00Z","samples":[…] }'
             />
           </FormField>
         </form>

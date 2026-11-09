@@ -463,11 +463,32 @@
 35. **LG-06**：注册过的法定扣款类型不再被折叠为 OTHER，逐类型上限与执行令/
     同意标记可以命中（仍需法务确认类型与依据字段）。
 
-仍存在、下一阶段需继续补的代码缺口：
-- INC-03：真正的平滑算法（移动平均/ramp/跨期分摊）与原始值/平滑值双列；
-- LG-06：执行令/员工同意的强制门禁与法定类型管理 API/页面；
-- SEC-04：统一导出 DLP 规则、JSON 包水印/哈希、跨实例批量导出限流；
-- AI-02：金标集样本持久化、仅凭 datasetRef 复跑、标注任务/训练运行；
-- INC-12：年度审查快照/签核/HTML 导出；
-- ATT-09：多评审成对一致率/kappa 与季度审计快照；
-- DATA-05：实体契约 PII 列与数据源登记的自动对账门禁。
+以上代码缺口已在同一轮关闭：
+- INC-03：`smoothingMode`（NONE/BLOCK/MOVING_AVERAGE/RAMP）+ 窗口/单期限幅；payroll line 增加 raw/smoothed/delta/mode 双值与 UI；
+- LG-06：法定扣款类型注册表 API/页面、执行令/同意依据 API/页面，缺少依据时薪酬行阻断；
+- SEC-04：租户自定义 DLP 规则、JSON 数据包 DLP/水印/哈希、结算导出 DLP、导出规则管理 API；
+- AI-02：金标集样本落库、`/:id/samples`、仅凭 datasetRef 复跑、标注任务与训练运行/回调 API；
+- INC-12：年度审查快照 `:finalize`、签核、哈希、HTML 导出；
+- ATT-09：多评审成对一致率/±1 一致率/Cohen's kappa、季度快照 API 与页面；
+- DATA-05：`RESOURCE_RETENTION_CATEGORY` + `dataGovernanceCoverage()` CI 门禁、数据地图暴露覆盖、员工隐私中心页面。
+
+
+# 2026-11-09 全功能审计第三阶段（代码缺口清零）
+
+36. **INC-03**：合同支持 NONE/BLOCK/MOVING_AVERAGE/RAMP；移动平均按窗口取历史，
+    RAMP 按单期最大变化限幅；薪酬行同时保存原始值、平滑值、差额与模式；
+    合同表单与薪酬行 UI 可见。
+37. **LG-06**：新增 `/statutory-deduction-types` 与 `/deduction-legal-bases`
+    读写 API/页面；注册类型不再折叠 OTHER；requiresCourtOrder/requiresConsent
+    缺少依据时 `deductionLegalBasisPassed=false` 并阻断薪酬行。
+38. **SEC-04**：DLP 支持租户自定义正则；个人数据包与 DSAR 包做 DLP/水印/哈希；
+    结算导出补 DLP；新增 `/export-dlp-rules` 管理 API。
+39. **AI-02**：金标集样本持久化（迁移 076）；支持 `GET /datasets/:id/samples`；
+    评测只传 datasetRef 即可复跑；新增标注任务与训练运行/回调接口；AI 页支持导入 JSON。
+40. **INC-12**：年度审查 `:finalize` 生成哈希快照与签核，列表与 HTML 导出；Policy 页新增“审计报告”。
+41. **ATT-09**：按周期+对象聚合多评审，计算完全一致率、±1 一致率与 Cohen's kappa；
+    样本不足显式 `INSUFFICIENT`；支持季度快照。
+42. **DATA-05**：核心实体表→保留类别静态映射与 `dataGovernanceCoverage()`，
+    测试确保每个 PII 列所在表有保留映射；数据地图返回覆盖；新增员工隐私中心 `/console/privacy`。
+43. **验证**：676 单测/API + 67 PG 全绿，typecheck 0，web build 通过；新增 5 条审计闭包测试、
+    平滑/法定门禁/数据治理测试；真实服务冒烟新页面与年度导出通过。

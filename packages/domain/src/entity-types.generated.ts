@@ -26,6 +26,9 @@ export interface EmploymentContractPersisted {
   payPlanVersion: number;
   personId: UUID;
   smoothingThresholdRate: DecimalString;
+  smoothingMode?: string;
+  smoothingWindowPeriods?: number;
+  smoothingMaxStepRate?: DecimalString;
   socialInsuranceRate: DecimalString;
   startDate: string;
   status: EmploymentContractStatus;
@@ -76,12 +79,18 @@ export interface PayrollLinePersisted {
   deductionCapRate: DecimalString;
   deductionTypeCapBreaches: string[];
   deductionTypeCapPassed: boolean;
+  deductionLegalBasisPassed?: boolean;
+  deductionLegalBasisMissing?: string[];
   fixedAmount: DecimalString;
   grossAmount: DecimalString;
   id: UUID;
   iitQuickDeduction?: DecimalString;
   iitRatePercent?: number;
   incentiveAmount: DecimalString;
+  rawIncentiveAmount?: DecimalString;
+  smoothedIncentiveAmount?: DecimalString;
+  smoothingDelta?: DecimalString;
+  smoothingMode?: string;
   incentiveChangeRate: DecimalString;
   minimumMonthlyWage: DecimalString;
   minimumWagePassed: boolean;

@@ -53,6 +53,8 @@ export function calculatePayroll(input: {
   contracts: EmploymentContract[];
   ledger: AmountLedgerEntry[];
   priorIncentives?: Record<string, string>;
+  /** Prior period incentive amounts, oldest → newest, for moving average. */
+  priorIncentiveHistory?: Record<string, string[]>;
   /** Required notices the person has not acknowledged, by person id. */
   unacknowledgedNoticesByPerson?: Record<string, string[]>;
   /**
@@ -67,6 +69,11 @@ export function calculatePayroll(input: {
   >;
   /** Statutory deduction type registry from tenant settings (LG-06). */
   statutoryDeductionTypes?: StatutoryDeductionTypeRule[];
+  /** Court order / employee consent evidence by deduction type (LG-06). */
+  deductionLegalBases?: Record<
+    string,
+    { courtOrderRef?: string; consentRef?: string }
+  >;
   cycleId: string;
   currency: string;
   periodStart: string;
@@ -145,6 +152,35 @@ export function calculatePayroll(input: {
         priority: priorityOf(entry.entryType),
       });
     }
+    const rawIncentive = incentive;
+    const priorIncentive = parseDecimal(
+      input.priorIncentives?.[contract.id] ?? "0",
+    );
+    const smoothingMode = contract.smoothingMode ?? "BLOCK";
+    const history = input.priorIncentiveHistory?.[contract.id] ?? [];
+    let smoothedIncentive = rawIncentive;
+    if (smoothingMode === "MOVING_AVERAGE") {
+      const window = Math.max(1, contract.smoothingWindowPeriods ?? 3);
+      const samples = [
+        ...history.slice(-(window - 1)).map((value) => parseDecimal(value)),
+        rawIncentive,
+      ];
+      smoothedIncentive =
+        samples.reduce((total, value) => total + value, 0n) /
+        BigInt(samples.length);
+    } else if (smoothingMode === "RAMP" && priorIncentive > 0n) {
+      const stepRate = parseDecimal(contract.smoothingMaxStepRate ?? "0.5");
+      const maxStep = (priorIncentive * stepRate) / 1_000_000n;
+      const upper = priorIncentive + maxStep;
+      const lower = priorIncentive > maxStep ? priorIncentive - maxStep : 0n;
+      smoothedIncentive =
+        rawIncentive > upper
+          ? upper
+          : rawIncentive < lower
+            ? lower
+            : rawIncentive;
+    }
+    incentive = smoothedIncentive;
     const fixed = parseDecimal(contract.fixedMonthlySalary);
     const gross = fixed + incentive;
     const socialInsurance =
@@ -193,6 +229,7 @@ export function calculatePayroll(input: {
       (gross * variableShareCapRate) / 1_000_000n;
     const variableSharePassed = incentive <= variableShareCapAmount;
     const deductionTypeCapBreaches: string[] = [];
+    const deductionLegalBasisMissing: string[] = [];
     for (const [type, value] of breakdown.entries()) {
       const rule = input.statutoryDeductionTypes?.find(
         (candidate) => candidate.type === type,
@@ -202,6 +239,13 @@ export function calculatePayroll(input: {
         value.requiresCourtOrder = rule.requiresCourtOrder ?? false;
         value.requiresConsent = rule.requiresConsent ?? false;
         value.priority = rule.priority;
+        const basis = input.deductionLegalBases?.[type];
+        if (rule.requiresCourtOrder && !basis?.courtOrderRef) {
+          deductionLegalBasisMissing.push(`${type}:COURT_ORDER`);
+        }
+        if (rule.requiresConsent && !basis?.consentRef) {
+          deductionLegalBasisMissing.push(`${type}:EMPLOYEE_CONSENT`);
+        }
       }
       const rate = contract.deductionTypeCaps[type] ?? rule?.capRate;
       if (!rate) continue;
@@ -213,23 +257,23 @@ export function calculatePayroll(input: {
     }
     const deductionTypeCapPassed =
       deductionTypeCapBreaches.length === 0;
-    const priorIncentive = parseDecimal(
-      input.priorIncentives?.[contract.id] ?? "0",
-    );
+    const deductionLegalBasisPassed =
+      deductionLegalBasisMissing.length === 0;
     const incentiveChangeRate =
       priorIncentive === 0n
-        ? incentive > 0n
+        ? rawIncentive > 0n
           ? 1_000_000n
           : 0n
-        : ((incentive >= priorIncentive
-            ? incentive - priorIncentive
-            : priorIncentive - incentive) *
+        : ((rawIncentive >= priorIncentive
+            ? rawIncentive - priorIncentive
+            : priorIncentive - rawIncentive) *
             1_000_000n) /
           priorIncentive;
     const smoothingThresholdRate = parseDecimal(
       contract.smoothingThresholdRate || "1",
     );
     const smoothingPassed =
+      smoothingMode !== "BLOCK" ||
       priorIncentive === 0n ||
       incentiveChangeRate <= smoothingThresholdRate;
     const minimumWagePassed = net >= minimum;
@@ -242,6 +286,7 @@ export function calculatePayroll(input: {
       deductionCapPassed &&
       variableSharePassed &&
       deductionTypeCapPassed &&
+      deductionLegalBasisPassed &&
       smoothingPassed &&
       noticeAcknowledgementPassed;
     if (!passed) blockedCount += 1;
@@ -255,7 +300,11 @@ export function calculatePayroll(input: {
       contractId: contract.id,
       currency: contract.currency,
       fixedAmount: formatDecimal(fixed),
-      incentiveAmount: formatDecimal(incentive),
+      incentiveAmount: formatDecimal(smoothedIncentive),
+      rawIncentiveAmount: formatDecimal(rawIncentive),
+      smoothedIncentiveAmount: formatDecimal(smoothedIncentive),
+      smoothingDelta: formatDecimal(smoothedIncentive - rawIncentive),
+      smoothingMode,
       grossAmount: formatDecimal(gross),
       deductionAmount: formatDecimal(deductions),
       taxAmount: formatDecimal(tax),
@@ -272,6 +321,8 @@ export function calculatePayroll(input: {
       variableSharePassed,
       deductionTypeCapPassed,
       deductionTypeCapBreaches,
+      deductionLegalBasisPassed,
+      deductionLegalBasisMissing,
       priorIncentiveAmount: formatDecimal(priorIncentive),
       incentiveChangeRate: formatDecimal(incentiveChangeRate),
       smoothingThresholdRate: formatDecimal(smoothingThresholdRate),

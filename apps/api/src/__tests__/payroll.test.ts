@@ -266,3 +266,110 @@ describe("payroll statutory CN tax mode", () => {
     expect(result.lines[0]!.taxAmount).toBe("800");
   });
 });
+
+describe("INC-03 incentive smoothing modes", () => {
+  function smooth(
+    mode: "NONE" | "BLOCK" | "MOVING_AVERAGE" | "RAMP",
+    extra: Partial<EmploymentContract> = {},
+  ) {
+    return calculatePayroll({
+      contracts: [
+        {
+          ...contract,
+          smoothingMode: mode,
+          smoothingWindowPeriods: 3,
+          smoothingMaxStepRate: "0.5",
+          ...extra,
+        },
+      ],
+      ledger: [ledger("5000")],
+      priorIncentives: { [contract.id]: "1000" },
+      priorIncentiveHistory: { [contract.id]: ["800", "900", "1000"] },
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+  }
+
+  it("NONE passes the raw incentive through", () => {
+    const line = smooth("NONE").lines[0]!;
+    expect(line.rawIncentiveAmount).toBe("5000");
+    expect(line.smoothedIncentiveAmount).toBe("5000");
+    expect(line.incentiveAmount).toBe("5000");
+    expect(line.smoothingDelta).toBe("0");
+  });
+
+  it("MOVING_AVERAGE averages the configured history window", () => {
+    const line = smooth("MOVING_AVERAGE").lines[0]!;
+    // window 3: last 2 history (900,1000) + raw 5000 = 6900/3 = 2300
+    expect(line.smoothedIncentiveAmount).toBe("2300");
+    expect(line.rawIncentiveAmount).toBe("5000");
+    expect(line.smoothingDelta).toBe("-2700");
+  });
+
+  it("RAMP caps the step change per period", () => {
+    const line = smooth("RAMP").lines[0]!;
+    // prior 1000, max step 50% → upper 1500
+    expect(line.smoothedIncentiveAmount).toBe("1500");
+    expect(line.grossAmount).toBe("9500");
+    expect(line.smoothingDelta).toBe("-3500");
+  });
+
+  it("BLOCK keeps raw amount but marks the line blocked", () => {
+    const result = smooth("BLOCK", { smoothingThresholdRate: "0.2" });
+    const line = result.lines[0]!;
+    expect(line.smoothedIncentiveAmount).toBe("5000");
+    expect(line.smoothingPassed).toBe(false);
+    expect(result.blockedCount).toBe(1);
+  });
+});
+
+describe("LG-06 court order / consent gate", () => {
+  const courtContract = {
+    ...contract,
+    deductionOrder: ["COURT_ORDER", "RECOVERY"],
+  } as EmploymentContract;
+  const courtEntry = {
+    ...ledger("-100"),
+    id: "court-ledger",
+    entryType: "COURT_ORDER",
+  } as unknown as AmountLedgerEntry;
+
+  it("blocks when a court order is required but no legal basis is recorded", () => {
+    const result = calculatePayroll({
+      contracts: [courtContract],
+      ledger: [courtEntry],
+      statutoryDeductionTypes: [
+        { type: "COURT_ORDER", priority: 0, requiresCourtOrder: true },
+      ],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    const line = result.lines[0]!;
+    expect(line.deductionLegalBasisPassed).toBe(false);
+    expect(line.deductionLegalBasisMissing).toEqual(["COURT_ORDER:COURT_ORDER"]);
+    expect(result.blockedCount).toBe(1);
+  });
+
+  it("passes when the court order reference is recorded", () => {
+    const result = calculatePayroll({
+      contracts: [courtContract],
+      ledger: [courtEntry],
+      statutoryDeductionTypes: [
+        { type: "COURT_ORDER", priority: 0, requiresCourtOrder: true },
+      ],
+      deductionLegalBases: {
+        COURT_ORDER: { courtOrderRef: "(2026)粤0305执123号" },
+      },
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "CNY",
+      periodStart: "2026-10-01T00:00:00.000Z",
+      periodEnd: "2026-10-31T23:59:59.000Z",
+    });
+    expect(result.lines[0]!.deductionLegalBasisPassed).toBe(true);
+    expect(result.blockedCount).toBe(0);
+  });
+});
