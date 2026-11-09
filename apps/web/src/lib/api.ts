@@ -80,7 +80,10 @@ function headers(extra?: HeadersInit): Headers {
   result.set("x-tenant-id", session.tenantId);
   result.set("x-user-id", session.userId);
   result.set("x-person-id", session.personId);
-  if (session.token) result.set("authorization", `Bearer ${session.token}`);
+  // S1-73: the API (AUTH_MODE=dev) never parses the bearer token, so sending it
+  // bought nothing and broke the nginx basic-auth gate: fetch()'s explicit
+  // Authorization header replaces the browser's cached Basic credentials.
+  if (session.token) result.set("x-session-token", session.token);
   return result;
 }
 
