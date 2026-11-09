@@ -544,7 +544,7 @@ export function CyclesPage() {
           <div className="stat-tile__detail">
             {cycleList.filter((cycle) => !["CLOSED", "ARCHIVED"].includes(cycle.status))
               .length}{" "}
-            not closed
+            未关闭
           </div>
         </div>
         <div className="stat-tile stat-tile--warning">
@@ -706,8 +706,7 @@ export function CyclesPage() {
                       <div>
                         <strong>结算就绪</strong>
                         <p>
-                          A formal locked calculation satisfies the recorded
-                          readiness checks.
+                          正式计算已锁定，且已满足全部就绪检查。
                         </p>
                       </div>
                     </div>
@@ -717,9 +716,7 @@ export function CyclesPage() {
                       <div>
                         <strong>未就绪</strong>
                         <p>
-                          No explicit blocker is recorded, but the cycle still
-                          needs a formal locked calculation and its downstream
-                          checks.
+                          未记录明确阻断项，但周期仍需完成正式计算锁定及其后续检查。
                         </p>
                       </div>
                     </div>
@@ -984,7 +981,7 @@ export function CyclesPage() {
 
           <Panel
             title="计算批次"
-            subtitle={selected ? `Formal and shadow runs for ${selected.name}` : undefined}
+            subtitle={selected ? `${selected.name} 的正式/影子计算批次` : undefined}
             flush
             action={
               <Button size="sm" variant="primary" icon="plus" onClick={openRunModal}>
@@ -1187,7 +1184,7 @@ export function CyclesPage() {
               form="create-cycle-form"
               loading={submitting}
             >
-              新建周期
+              创建
             </Button>
           </>
         }
@@ -1198,7 +1195,7 @@ export function CyclesPage() {
               <InfoNotice tone="warning">{formError}</InfoNotice>
             </div>
           ) : null}
-          <FormField label="名称" htmlFor="cycle-name" className="field--full">
+          <FormField label="周期名称" htmlFor="cycle-name" className="field--full">
             <TextInput
               id="cycle-name"
               value={name}
@@ -1215,7 +1212,14 @@ export function CyclesPage() {
             >
               {CYCLE_TYPES.map((type) => (
                 <option key={type} value={type}>
-                  {titleCase(type)}
+                  {
+                    {
+                      MONTHLY: "月度",
+                      QUARTERLY: "季度",
+                      ANNUAL: "年度",
+                      CUSTOM: "自定义",
+                    }[type] ?? type
+                  }
                 </option>
               ))}
             </Select>
@@ -1233,7 +1237,7 @@ export function CyclesPage() {
               ))}
             </Select>
           </FormField>
-          <FormField label="开始" htmlFor="cycle-start">
+          <FormField label="开始日期" htmlFor="cycle-start">
             <TextInput
               id="cycle-start"
               type="date"
@@ -1242,7 +1246,7 @@ export function CyclesPage() {
               required
             />
           </FormField>
-          <FormField label="Ends" htmlFor="cycle-end">
+          <FormField label="结束日期" htmlFor="cycle-end">
             <TextInput
               id="cycle-end"
               type="date"

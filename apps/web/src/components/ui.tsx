@@ -1,10 +1,13 @@
 import {
+  cloneElement,
+  isValidElement,
   useEffect,
   useId,
   useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -356,12 +359,24 @@ export function FormField({
   children: ReactNode;
   className?: string;
 }) {
+  const autoId = useId();
+  const controlId = htmlFor ?? autoId;
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<{ id?: string; "aria-label"?: string }>, {
+        id:
+          (children.props as { id?: string }).id ??
+          controlId,
+        "aria-label":
+          (children.props as { "aria-label"?: string })["aria-label"] ??
+          label,
+      })
+    : children;
   return (
     <div className={`field ${className}`.trim()}>
-      <label className="field__label" htmlFor={htmlFor}>
+      <label className="field__label" htmlFor={controlId}>
         {label}
       </label>
-      {children}
+      {control}
       {error ? (
         <span className="field__error" role="alert">
           {error}

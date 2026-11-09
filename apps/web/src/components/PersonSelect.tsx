@@ -67,7 +67,7 @@ export function PersonSelect({
             {person.employeeCode} · {person.displayName}
           </option>
         ))}
-        <option value="__manual__">Enter a person id…</option>
+        <option value="__manual__">手动输入人员 ID…</option>
       </Select>
     );
   }

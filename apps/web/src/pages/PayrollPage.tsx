@@ -107,7 +107,7 @@ export function PayrollPage() {
     <>
       <PageHeader
         eyebrow="激励结算"
-        title="薪酬"
+        title="薪酬发放"
         description="已申报合同、最低工资门禁、个税代扣与银行代发结算——内置中国法定个税计算器。"
         actions={
           <Button

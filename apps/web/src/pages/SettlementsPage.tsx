@@ -669,14 +669,14 @@ export function SettlementsPage() {
             )}
           </div>
           <div className="stat-tile__detail">
-            {ledgerEntries.length} append-only entries
+            {ledgerEntries.length} 条追加式账本记录
           </div>
         </div>
       </div>
 
       <Tabs
         items={[
-          { id: "batches", label: "Batches", count: batchList.length },
+          { id: "batches", label: "批次", count: batchList.length },
           { id: "ledger", label: "账本", count: ledgerEntries.length },
           { id: "budgets", label: "预算", count: poolList.length },
           {

@@ -696,7 +696,7 @@ export function ContributionPage() {
     <>
       <PageHeader
         eyebrow="贡献证据"
-        title="贡献"
+        title="贡献认定"
         description="工作包冻结承诺快照；申报引用证据；由非申报人的裁决人记录认定决策。每一步都版本化。"
         actions={
           <Button

@@ -473,7 +473,14 @@ export function PerformancePage() {
                       <td>
                         <strong>{cycle.name ?? cycle.id.slice(0, 8)}</strong>
                       </td>
-                      <td>{cycle.cycleType ?? "—"}</td>
+                      <td>
+                        {{
+                          MONTHLY: "月度",
+                          QUARTERLY: "季度",
+                          ANNUAL: "年度",
+                          CUSTOM: "自定义",
+                        }[cycle.cycleType ?? ""] ?? cycle.cycleType ?? "—"}
+                      </td>
                       <td className="mono">
                         {(cycle.startsAt ?? "").slice(0, 10)} →{" "}
                         {(cycle.endsAt ?? "").slice(0, 10)}

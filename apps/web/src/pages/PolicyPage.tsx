@@ -920,9 +920,8 @@ export function PolicyPage() {
                   </div>
                 ) : (
                   <InfoNotice tone="warning">
-                    This policy has no recorded applicability. New publications
-                    require legal entity, jurisdictions, work locations, employee
-                    categories and work-time types.
+                    该政策未记录适用范围。新发布政策必须声明法人、法域、工作地、
+                    员工类别与工时类型。
                   </InfoNotice>
                 )}
                 <div className="coverage-grid">
@@ -938,8 +937,7 @@ export function PolicyPage() {
                       )}
                     </div>
                     <div className="coverage-cell__sub">
-                      {readiness.data.legalGate.blockers.length} blocker
-                      {readiness.data.legalGate.blockers.length === 1 ? "" : "s"}
+                      {readiness.data.legalGate.blockers.length} 项阻断
                     </div>
                   </div>
                   <div className="coverage-cell">
@@ -948,17 +946,17 @@ export function PolicyPage() {
                       {readiness.data.tests.passed}/{readiness.data.tests.active}
                     </div>
                     <div className="coverage-cell__sub">
-                      {readiness.data.tests.failed} failed ·{" "}
-                      {readiness.data.tests.notRun} not run
+                      {readiness.data.tests.failed} 失败 ·{" "}
+                      {readiness.data.tests.notRun} 未运行
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Notice complete</div>
+                    <div className="coverage-cell__label">告知完成</div>
                     <div className="coverage-cell__value">
                       {readiness.data.notices.complete}/{readiness.data.notices.linked}
                     </div>
                     <div className="coverage-cell__sub">
-                      {readiness.data.notices.acknowledgementRequired} require ack
+                      {readiness.data.notices.acknowledgementRequired} 需签收
                     </div>
                   </div>
                   <div className="coverage-cell">

@@ -508,3 +508,29 @@ DLP、法定扣款类型与执行令/同意门禁、年度报告哈希/签核、
 
 统计：80 轮新增用例（24 引擎 + 20 API + 20 API + 16 引擎/API），2 个缺陷修复后
 **最后连续 36 轮零缺陷**；全量 756 单测/API + 67 PG 全绿，typecheck 0。
+
+# 2026-11-09 前端/UI/UX TDD（64 条 E2E）
+
+真实 Chromium（Playwright 1248）跑通控制台，覆盖 31 个路由、侧边栏/移动端导航、
+品牌 logo 自然尺寸、登录三模式、26 个新增制度页面与关键业务流程。发现并修复
+4 个真实 UI/UX 缺陷：
+
+1. **表单控件未与 label 关联**：FormField 多数调用未传 htmlFor，3 个页面共 24 个
+   可见 input/select/textarea 无可访问名称；FormField 现在用 useId 自动生成 id
+   并补齐 aria-label。
+2. **周期弹窗中英混排/文案漂移**：名称/开始/Ends、Monthly/Quarterly/Annual、
+   弹窗提交按钮“新建周期”均改为中文“周期名称/开始日期/结束日期/月度/季度/年度/
+   自定义/创建”。
+3. **页面 H1 与导航不一致**：贡献页“贡献”→“贡献认定”，薪酬页“薪酬”→“薪酬发放”。
+4. **可见英文残留**：`append-only entries`、`Batches`、`Enter a person id`、
+   周期就绪/政策就绪英文段落、`NOTICE COMPLETE/require ack/not run` 等改为中文。
+
+新增 E2E：
+- `e2e/console.spec.ts`：31 路由、导航、logo、移动端、登录、legacy redirect；
+- `e2e/ux.spec.ts`：制度中心 4 tabs、目标卡模板、周期创建+推进、股权流程、
+  发放批次创建→提交→批准→锁定→导出、法定扣款保存、年度快照、金标集导入、
+  任务组创建、隐私下载+DSAR、按钮可访问名、表单 label、单 h1；
+- `e2e/chinese-ux.spec.ts`：14 个核心页面可见英文残留扫描 + 移动端横向溢出。
+
+结果：**64/64 E2E 全绿**；全量 763 单测/API + 67 PG 全绿；前后端 typecheck 0；
+web build 通过。
