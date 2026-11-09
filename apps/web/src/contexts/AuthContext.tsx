@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clearStoredSession,
   loadSession,
   saveSession,
   setApiSession,
@@ -16,6 +17,7 @@ import {
 interface AuthContextValue {
   session: Session;
   updateSession: (next: Session) => void;
+  clearSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -34,6 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateSession: (next) => {
         setApiSession(next);
         setSession(next);
+      },
+      clearSession: () => {
+        clearStoredSession();
+        setApiSession(loadSession());
+        setSession(loadSession());
       },
     }),
     [session],

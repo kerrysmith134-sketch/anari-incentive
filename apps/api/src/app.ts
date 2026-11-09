@@ -166,6 +166,7 @@ import {
   decideEvaluationDraftSchema,
   createWorkPackageSchema,
   workPackageCommandSchema,
+  agentCommandSchema,
   enqueueAgentTaskSchema,
   ingestionBatchSchema,
   linkPersonUserSchema,
@@ -295,7 +296,10 @@ import {
 } from "./store.js";
 import type { IncentiveStore } from "./store-interface.js";
 import { createAgentRuntime } from "./agent.js";
-import { syncFeishuDirectory } from "./feishu-sync.js";
+import {
+  seatsRemainingFor,
+  syncFeishuDirectory,
+} from "./feishu-sync.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { ApiMetrics } from "./metrics.js";
 import {
@@ -3237,6 +3241,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         personId = undefined;
       }
       if (!personId) {
+        // 自动建号受订阅席位硬约束（与目录同步同一口径）。
+        const seatsRemaining = await seatsRemainingFor(platformStore, tenantId);
+        if (seatsRemaining !== null && seatsRemaining <= 0) {
+          return feishuLoginError(
+            "订阅席位已满：请联系管理员扩容或在平台管理中调整席位后再试",
+          );
+        }
         const person = await platformStore.createPerson({
           tenantId,
           employeeCode: `FS-${profile.open_id.replace(/-/g, "").slice(-8)}`,
@@ -3249,6 +3260,22 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       const jwt = new SessionJwt(options.feishu.sessionSecret);
       const token = await jwt.sign({ tenantId, userId: user.id, personId, roles });
       countEvent("feishu_login_completed");
+      // 登录即同步：把本人的部门/汇报线落到组织树（best-effort，不阻塞登录）。
+      // feishu-integration skill：组织事实只进目录字段，不碰角色/权限。
+      if (process.env.FEISHU_LOGIN_SYNC !== "0") {
+        void syncFeishuDirectory(platformStore, {
+          tenantId,
+          appId: options.feishu.appId,
+          appSecret: options.feishu.appSecret,
+          dryRun: false,
+          allowCreate: true,
+        }).catch((syncError) => {
+          request.log.warn(
+            { err: syncError },
+            "post-login feishu directory sync failed",
+          );
+        });
+      }
       const base = feishuRedirectBase(request);
       return reply.redirect(
         `${base}/console/login#feishu-token=${token}&postLoginPath=${encodeURIComponent(stateEntry.postLoginPath)}`,
@@ -3606,11 +3633,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       throw new ForbiddenError("authentication is required");
     }
     return data(
-      await platformStore.resolveIdentity({
+      {
+        ...(await platformStore.resolveIdentity({
+          tenantId: context.tenantId,
+          userId: context.userId,
+          personId: context.personId,
+        })),
+        // 前端会话只需 token；tenantId 由服务端回填，禁止客户端自报。
         tenantId: context.tenantId,
-        userId: context.userId,
-        personId: context.personId,
-      }),
+      },
       request,
     );
   });
@@ -3784,6 +3815,104 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     requireRoles(request, "manager");
     return data(await runtimeFor(request).list(), request);
   });
+  // 智能指令台（无 LLM）：命令 → 现有 skill 任务；T0-T2 自动执行，
+  // T3 一律等待人工批准（publish_policy），执行全部走既有状态机。
+  const AGENT_COMMANDS: Record<
+    string,
+    { agentType: Parameters<ReturnType<typeof runtimeFor>["enqueue"]>[0]["agentType"]; input?: (params: Record<string, unknown>) => Record<string, unknown> }
+  > = {
+    scan_evidence_gaps: { agentType: "EVIDENCE_GAP" },
+    scan_contribution_anomalies: { agentType: "CONTRIBUTION_ANOMALY" },
+    scan_data_quality: { agentType: "DATA_QUALITY" },
+    check_settlement_readiness: {
+      agentType: "SETTLEMENT_READINESS",
+      input: (params) => params,
+    },
+    run_cycle_pre_review: { agentType: "CYCLE_PRE_REVIEW" },
+    check_appeal_sla: {
+      agentType: "APPEAL_SLA",
+      input: (params) => params,
+    },
+    propose_policy_change: { agentType: "POLICY_PROPOSAL" },
+    draft_evaluations: { agentType: "EVALUATION_DRAFT" },
+  };
+
+  app.post("/api/v1/agent-command", async (request, reply) => {
+    requireRoles(request, "manager");
+    const body = parse(agentCommandSchema, request.body);
+    const command = AGENT_COMMANDS[body.command];
+    if (!command) {
+      throw new BadRequestError(
+        "UNKNOWN_AGENT_COMMAND",
+        `未知指令 ${body.command}`,
+      );
+    }
+    const tenantId = tenantOf(request);
+    const runtime = runtimeFor(request);
+    const params = body.params ?? {};
+    const idempotencyKey =
+      typeof params.idempotencyKey === "string" && params.idempotencyKey.trim()
+        ? params.idempotencyKey
+        : `${body.command}:${Date.now()}`;
+    const task = await runtime.enqueue({
+      tenantId,
+      agentType: command.agentType,
+      triggerType: "MANUAL",
+      triggerRef: body.command,
+      input: command.input ? command.input(params) : params,
+      idempotencyKey,
+      actorRole: "ACTOR",
+    });
+    const executed = await runtime.run(task.id);
+    countEvent("agent_command_dispatched");
+    return reply.status(201).send(data(executed, request));
+  });
+
+  // 统一审批收件箱：agent 待批动作 + 业务审批 + 评分提案 三源聚合。
+  app.get("/api/v1/agent-inbox", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    const tenantId = tenantOf(request);
+    const [tasks, approvals, proposals] = await Promise.all([
+      runtimeFor(request).list(),
+      platformStore.listApprovalRequests(tenantId),
+      platformStore.listAiScoreProposals(tenantId),
+    ]);
+    const items = [
+      ...tasks
+        .filter((task) => task.status === "WAITING_APPROVAL")
+        .map((task) => ({
+          source: "AGENT_TASK" as const,
+          id: task.id,
+          title: task.agentType,
+          status: task.status,
+          riskTier: task.riskTier,
+          createdAt: task.createdAt,
+          href: "/console/agent-ops",
+        })),
+      ...approvals
+        .filter((approval) => approval.status === "PENDING")
+        .map((approval) => ({
+          source: "APPROVAL_REQUEST" as const,
+          id: approval.id,
+          title: approval.actionType,
+          status: approval.status,
+          createdAt: approval.createdAt,
+          href: "/console/approvals",
+        })),
+      ...proposals
+        .filter((proposal) => proposal.status === "PENDING")
+        .map((proposal) => ({
+          source: "SCORE_PROPOSAL" as const,
+          id: proposal.id,
+          title: "AI 评分提案复核",
+          status: proposal.status,
+          createdAt: proposal.createdAt,
+          href: "/console/ai",
+        })),
+    ].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    return data({ items, total: items.length }, request);
+  });
+
 
   app.get("/api/v1/agent-tasks/:id", async (request) => {
     requireRoles(request, "manager");

@@ -1681,6 +1681,7 @@ export const enqueueAgentTaskSchema = z.object({
     "DATA_QUALITY",
     "APPEAL_SLA",
     "EVALUATION_DRAFT",
+    "CYCLE_PRE_REVIEW",
   ]),
   triggerType: z.enum(["EVENT", "SCHEDULE", "MANUAL", "THRESHOLD"]),
   triggerRef: z.string().optional(),
@@ -1690,6 +1691,22 @@ export const enqueueAgentTaskSchema = z.object({
   actorRole: z.enum(["READER", "ACTOR"]).optional(),
 });
 export type EnqueueAgentTaskBody = z.input<typeof enqueueAgentTaskSchema>;
+
+/** 智能指令台（无 LLM）：命令 → 现有 skill 任务；执行一律走 T0-T3 状态机。 */
+export const agentCommandSchema = z.object({
+  command: z.enum([
+    "scan_evidence_gaps",
+    "scan_contribution_anomalies",
+    "scan_data_quality",
+    "check_settlement_readiness",
+    "run_cycle_pre_review",
+    "check_appeal_sla",
+    "propose_policy_change",
+    "draft_evaluations",
+  ]),
+  params: z.record(z.unknown()).default({}),
+});
+export type AgentCommandBody = z.infer<typeof agentCommandSchema>;
 
 export const approveAgentActionSchema = z.object({
   actionId: uuidSchema,

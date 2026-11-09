@@ -76,7 +76,7 @@ const SECTIONS = [
 ];
 
 export function GovernanceHubPage() {
-  useDocumentTitle("治理");
+  useDocumentTitle("治理中心");
   return (
     <>
       <PageHeader

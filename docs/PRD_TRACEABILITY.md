@@ -548,3 +548,51 @@ Modal 键盘与焦点、跳过导航、aria-current、404、品牌图、通知�
 
 结果：32/32 通过；与前三套 E2E 合计 **96/96 全绿**；核心单测/API 147 条定向回归
 全绿；前后端 typecheck 0；web build 通过。
+
+# 2026-11-09 前端/登录/Agentic 全面重做
+
+## A. 导航与品牌
+1. **导航唯一事实来源**：`apps/web/src/config/navigation.ts` 定义 6 组
+   （工作台/考核与认定/激励/制度与组织/智能与治理/系统），分组可折叠
+   （localStorage 持久化、激活组自动展开）、侧边栏可收起为图标模式；
+   面包屑 = 分组 › 页面（最长 href 匹配）。
+2. **单一身份卡**：删除旧 env-card + 两个 user-chip 三块混乱 UI，
+   统一为一张用户卡（姓名/工作区/角色 + 设置 + 登出/登录）。
+3. **主题三态**：顶栏按钮 system → light → dark 循环并可回到 system，
+   aria-label 说明当前模式；token 对齐 skill（--canvas/--surface-2/
+   --danger/--success 别名、正文 15px、顶栏 56px）。
+4. **守卫测试**：`tests/ui-colour-tokens.test.ts` 禁止组件层 #hex 与
+   var() 字符串拼接颜色；ThemeContext 内 hex 清除。
+
+## B. 统一登录与飞书组织同步
+5. **一套会话**：前端仅存 token，身份/租户由 `GET /platform/identity`
+   回填（服务端回填 tenantId，禁客户端自报）；带 token 时不再发送
+   x-user-id/x-person-id 伪造头。
+6. **登录页重做**：飞书企业账号为主入口（大按钮），账号密码为后备
+   （折叠展开），删除手填 OIDC 令牌入口；提供"创建企业工作区"链接。
+7. **飞书登录修复**：自动建 person 受订阅席位硬约束
+   （`seatsRemainingFor`，与目录同步同口径）；修复前端 userId 兜底
+   "feishu-user"；登录成功后 best-effort 触发全量目录同步
+   （`FEISHU_LOGIN_SYNC=0` 可关）。
+8. **定时组织同步**：worker 支持 `FEISHU_SYNC_SCHEDULED=1`，默认每周
+   全量同步（间隔可调），走 API 审计路径。
+
+## C. Agentic 工作台（第一阶段：无 LLM）
+9. **指令路由** `POST /agent-command`：8 条命令映射到既有 skill
+   （证据缺口/贡献异常/数据质量/结算就绪/周期预审/申诉SLA/政策提案/
+   评价草稿）；T0-T2 自动执行，T3 一律等待人工批准；CYCLE_PRE_REVIEW
+   加入白名单。
+10. **统一审批收件箱** `GET /agent-inbox`：Agent 待批动作 + 业务审批 +
+    评分提案 三源聚合；审批页顶部聚合面板 + 全局助手抽屉内收件箱。
+11. **全局 AI 助手抽屉**（skill §6 规范）：brand 实色 FAB + spark、
+    引擎角标“规则引擎 · 无 LLM”、指令 chips、任务卡（发现/风险徽章/
+    批准/驳回）、路由切换自动收起。
+12. **治理红线不变**：LLM 不写金额、评分仍被 ai-gate 封锁、执行一律走
+    既有 T0-T3 状态机与审批路径。
+
+## 验证
+- **105/105 E2E 全绿**（31 路由 + 移动端 + 登录 + 折叠/收起/面包屑/
+  身份卡/主题循环 + AI 助手抽屉/任务卡/收件箱）；
+- 定向回归：api.test 135 + 批次回归（policy/audit/hardening/acceptance/
+  tdd rounds/packages）共 500+ 全绿；PG 67 全绿；
+- 前后端 typecheck 0；web build 通过。

@@ -22,6 +22,11 @@ const tenantId =
 const databaseUrl = process.env.DATABASE_URL;
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 5000);
 const scanIntervalMs = Number(process.env.SCAN_INTERVAL_MS ?? 15 * 60 * 1000);
+// 组织架构定时同步（feishu-integration skill）：默认关闭，显式开启。
+const feishuSyncEnabled = process.env.FEISHU_SYNC_SCHEDULED === "1";
+const feishuSyncIntervalMs = Number(
+  process.env.FEISHU_SYNC_INTERVAL_MS ?? 7 * 24 * 60 * 60 * 1000,
+);
 
 if (!databaseUrl) {
   console.error("DATABASE_URL is required for the agent worker (outbox).");
@@ -198,6 +203,28 @@ async function advanceDueCycles(): Promise<number> {
 let lastCycleAdvanceMs = 0;
 const CYCLE_ADVANCE_INTERVAL_MS = 30 * 60 * 1000;
 
+let lastFeishuSyncMs = 0;
+async function runFeishuDirectorySync(): Promise<void> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-tenant-id": tenantId,
+  };
+  const token = await tokenProvider?.getToken();
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/platform/feishu/sync-directory`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ dryRun: false, allowCreate: true }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`feishu sync failed: HTTP ${response.status}`);
+  }
+  console.log("agent worker: feishu directory sync completed");
+}
+
 while (running) {
   try {
     const scheduled = await scheduler.tick();
@@ -210,6 +237,17 @@ while (running) {
       lastCycleAdvanceMs = Date.now();
       const advanced = await advanceDueCycles();
       if (advanced > 0) console.log(`agent worker: cycles advanced=${advanced}`);
+    }
+    if (
+      feishuSyncEnabled &&
+      Date.now() - lastFeishuSyncMs >= feishuSyncIntervalMs
+    ) {
+      lastFeishuSyncMs = Date.now();
+      try {
+        await runFeishuDirectorySync();
+      } catch (syncError) {
+        console.error("agent worker: feishu sync failed", syncError);
+      }
     }
     if (scheduled.length + events.length + retried.length > 0) {
       console.log(

@@ -20,7 +20,12 @@
   /* Brand (extracted from the official logo; do not edit) */
   --brand: #1877f2;
   --brand-press: #1464cc;
-  --brand-soft: #e8f1fd;
+  --brand-soft: rgba(24, 119, 242, 0.1);
+  /* skill 对齐别名：语义命名 */
+  --canvas: var(--bg);
+  --surface-2: var(--surface-hover);
+  --danger: var(--critical);
+  --success: var(--good);
   --brand-soft-strong: #cfe2fb;
   --brand-ink: #ffffff;
   --brand-bright: #4d94f7;
@@ -86,7 +91,8 @@
   --radius-pill: 999px;
 
   --focus: 0 0 0 3px rgba(24, 119, 242, 0.24);
-  --topbar-height: 64px;
+  --topbar-height: 56px;
+  --shadow-card: var(--shadow-sm);
   --sidebar-width: 252px;
 }
 
@@ -101,6 +107,10 @@
   --brand-link: #6ea8ff;
 
   --bg: #0d0f12;
+  --canvas: var(--bg);
+  --surface-2: var(--surface-hover);
+  --danger: var(--critical);
+  --success: var(--good);
   --bg-glow: rgba(77, 148, 247, 0.05);
   --surface: #15181d;
   --surface-raised: #191d23;
@@ -162,6 +172,10 @@
     --brand-link: #6ea8ff;
 
     --bg: #0d0f12;
+  --canvas: var(--bg);
+  --surface-2: var(--surface-hover);
+  --danger: var(--critical);
+  --success: var(--good);
     --bg-glow: rgba(77, 148, 247, 0.05);
     --surface: #15181d;
     --surface-raised: #191d23;
@@ -230,7 +244,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

@@ -9822,6 +9822,28 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/agent-command:
+    post:
+      tags: [Agent]
+      summary: 智能指令台（无 LLM）
+      description: 命令映射到既有 skill 任务；T0-T2 自动执行，T3 等待人工批准
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /api/v1/agent-inbox:
+    get:
+      tags: [Agent]
+      summary: 统一审批收件箱
+      description: Agent 待批动作 + 业务审批 + 评分提案 三源聚合
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
 
 components:
   securitySchemes:

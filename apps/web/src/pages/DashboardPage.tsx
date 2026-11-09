@@ -52,7 +52,7 @@ const CLOSED_CYCLE_STATUSES = new Set([
 ]);
 
 export function DashboardPage() {
-  useDocumentTitle("Overview");
+  useDocumentTitle("工作台");
   const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
   const privileged = Boolean(
     identity.data?.roles.some((role) =>

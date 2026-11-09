@@ -7,7 +7,7 @@ const PAGES: Array<{ path: string; heading: string }> = [
   { path: "/console/contribution", heading: "贡献认定" },
   { path: "/console/performance", heading: "绩效管理" },
   { path: "/console/institutions", heading: "2026 制度中心" },
-  { path: "/console/task-pods", heading: "任务制与 AI 原生组织" },
+  { path: "/console/task-pods", heading: "任务制组织" },
   { path: "/console/award-batches", heading: "奖励发放" },
   { path: "/console/privacy", heading: "隐私与数据" },
   { path: "/console/my-rewards", heading: "我的激励" },
@@ -117,20 +117,19 @@ test.describe("responsive navigation", () => {
 });
 
 test.describe("authentication surface", () => {
-  test("login exposes password, Feishu and OIDC modes", async ({ page }) => {
+  test("unified login: Feishu primary + password fallback", async ({ page }) => {
     await page.goto("/console/login");
     await expect(
       page.getByRole("heading", { level: 1, name: "登录 Anari N-Perform" }),
     ).toBeVisible();
-    const loginMode = page.locator("#login-mode");
-    await expect(loginMode).toBeVisible();
-    await expect(loginMode.locator("option")).toHaveCount(3);
+    await expect(
+      page.getByRole("link", { name: "使用飞书企业账号登录" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("企业邮箱")).toHaveCount(0);
+    await page.getByRole("button", { name: "使用账号密码登录" }).click();
     await expect(page.getByLabel("企业邮箱")).toBeVisible();
     await expect(page.getByLabel("密码")).toBeVisible();
-    await loginMode.selectOption("feishu");
-    await expect(page.getByRole("link", { name: "使用飞书登录" })).toBeVisible();
-    await loginMode.selectOption("token");
-    await expect(page.getByLabel("租户 ID")).toBeVisible();
+    await expect(page.getByRole("link", { name: "创建企业工作区" })).toBeVisible();
   });
 });
 

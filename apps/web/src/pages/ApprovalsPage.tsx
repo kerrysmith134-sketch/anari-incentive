@@ -51,6 +51,17 @@ export function ApprovalsPage() {
   const { session } = useAuth();
   const toast = useToast();
   const approvals = useApiQuery<ApprovalRequest[]>("/api/v1/approval-requests");
+  const agentInbox = useApiQuery<{
+    items: Array<{
+      source: string;
+      id: string;
+      title: string;
+      status: string;
+      createdAt: string;
+      href: string;
+    }>;
+    total: number;
+  }>("/api/v1/agent-inbox");
   const [tab, setTab] = useState("PENDING");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<ApprovalRequest | null>(null);
@@ -196,6 +207,49 @@ export function ApprovalsPage() {
           </Button>
         }
       />
+
+      {agentInbox.data && agentInbox.data.total > 0 ? (
+        <Panel
+          title={`统一审批收件箱 · ${agentInbox.data.total}`}
+          subtitle="Agent 待批动作 + 业务审批 + 评分提案 三源聚合"
+          className="section-gap"
+          flush
+        >
+          <div className="stack" style={{ gap: 0 }}>
+            {agentInbox.data.items.slice(0, 12).map((item) => (
+              <div
+                key={`${item.source}-${item.id}`}
+                className="inline"
+                style={{
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "10px 16px",
+                  borderBottom: "1px solid var(--line)",
+                }}
+              >
+                <span>
+                  <strong style={{ fontWeight: 600 }}>{item.title}</strong>
+                  <span className="subtle">
+                    {" "}
+                    · {item.source === "AGENT_TASK"
+                      ? "Agent 动作"
+                      : item.source === "APPROVAL_REQUEST"
+                        ? "业务审批"
+                        : "评分提案"}{" "}
+                    · {formatRelative(item.createdAt)}
+                  </span>
+                </span>
+                <span className="cell-actions">
+                  <Badge status={item.status} />
+                  <a className="btn btn--secondary btn--sm" href={item.href}>
+                    前往处理
+                  </a>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <div className="stat-grid stat-grid--three">
         <div className="stat-tile stat-tile--warning">

@@ -47,7 +47,7 @@ interface MemberRow {
 }
 
 export function ContributionPage() {
-  useDocumentTitle("贡献");
+  useDocumentTitle("贡献认定");
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();

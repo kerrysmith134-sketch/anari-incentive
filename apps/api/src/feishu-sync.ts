@@ -59,6 +59,27 @@ function today(): string {
   return new Date().toISOString();
 }
 
+/**
+ * 订阅席位剩余量（null = 无上限）。feishu 登录自动建 person 与目录同步
+ * 必须使用同一口径（feishu-integration skill：自动建号受席位硬约束）。
+ */
+export async function seatsRemainingFor(
+  platformStore: PlatformStore,
+  tenantId: string,
+): Promise<number | null> {
+  const subscription = await platformStore.getTenantSubscription(tenantId);
+  if (!subscription || subscription.status === "CANCELED") return null;
+  const plan = (await platformStore.listSubscriptionPlans()).find(
+    (candidate) => candidate.code === subscription.planCode,
+  );
+  if (!plan || plan.seatLimit < 0) return null;
+  const persons = await platformStore.listPersons(tenantId);
+  const active = persons.filter(
+    (candidate) => candidate.employmentStatus === "ACTIVE",
+  ).length;
+  return Math.max(plan.seatLimit - active, 0);
+}
+
 export async function syncFeishuDirectory(
   platformStore: PlatformStore,
   options: FeishuSyncOptions,

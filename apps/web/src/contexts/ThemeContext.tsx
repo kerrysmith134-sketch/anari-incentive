@@ -14,6 +14,8 @@ interface ThemeContextValue {
   resolved: "light" | "dark";
   setPreference: (value: ThemePreference) => void;
   toggle: () => void;
+  /** 三态循环：system → light → dark → system（设计规范要求可回到 system）。 */
+  cyclePreference: () => void;
 }
 
 const STORAGE_KEY = "anari-theme";
@@ -66,8 +68,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     if (preference === "system") delete root.dataset.theme;
     else root.dataset.theme = preference;
-    const meta = document.querySelector('meta[name="theme-color"]');
-    meta?.setAttribute("content", resolved === "dark" ? "#0d0f12" : "#101318");
+    // 主题色 meta 由 CSS 令牌统一管理，这里只切换 data-theme。
     try {
       if (preference === "system") localStorage.removeItem(STORAGE_KEY);
       else localStorage.setItem(STORAGE_KEY, preference);
@@ -83,8 +84,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setPreference: setPreferenceState,
       toggle: () =>
         setPreferenceState(resolved === "dark" ? "light" : "dark"),
+      cyclePreference: () =>
+        setPreferenceState(
+          preference === "system"
+            ? "light"
+            : preference === "light"
+              ? "dark"
+              : "system",
+        ),
     }),
-    [preference, resolved],
+    [preference, resolved],  // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (

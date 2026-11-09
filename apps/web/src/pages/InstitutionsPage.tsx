@@ -268,7 +268,7 @@ const MONTHLY_METRICS = [
 
 /** 2026 制度中心：把 017/018 绩效、016 激励、008/003 专项、011 股权落到可计算界面。 */
 export function InstitutionsPage() {
-  useDocumentTitle("制度中心");
+  useDocumentTitle("2026 制度中心");
   const toast = useToast();
   const [tab, setTab] = useState("performance");
 

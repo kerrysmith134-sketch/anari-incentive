@@ -40,6 +40,15 @@ export function saveSession(session: Session): void {
   }
 }
 
+/** 登出：清除持久化会话；组件随后重载到登录页。 */
+export function clearStoredSession(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 let session: Session = loadSession();
 
 export function setApiSession(next: Session): void {
@@ -78,12 +87,16 @@ function headers(extra?: HeadersInit): Headers {
   const result = new Headers(extra);
   result.set("accept", "application/json");
   result.set("x-tenant-id", session.tenantId);
+  // dev 部署（AUTH_MODE=dev + nginx basic-auth 代理）依赖 dev 头做身份；
+  // S1-73：会话 token 走 x-session-token，避免 fetch 的 Authorization
+  // 覆盖浏览器缓存的 Basic 凭据。
   result.set("x-user-id", session.userId);
   result.set("x-person-id", session.personId);
-  // S1-73: the API (AUTH_MODE=dev) never parses the bearer token, so sending it
-  // bought nothing and broke the nginx basic-auth gate: fetch()'s explicit
-  // Authorization header replaces the browser's cached Basic credentials.
-  if (session.token) result.set("x-session-token", session.token);
+  if (session.token) {
+    result.set("x-session-token", session.token);
+    // AUTH_MODE=oidc / SessionAuthenticator 部署仍需标准 Bearer。
+    result.set("authorization", `Bearer ${session.token}`);
+  }
   return result;
 }
 

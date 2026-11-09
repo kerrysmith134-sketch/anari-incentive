@@ -260,7 +260,7 @@ export function TaskPodPage() {
     <div className="page">
       <PageHeader
         eyebrow="组织方式"
-        title="任务制与 AI 原生组织"
+        title="任务制组织"
         description="围绕任务组建 Task Pod，发起人对结果负责；AI 成员有名字、职责与版本；个人任务清单逐项标注人 / AI / 人机协同，并锁定本季度 AI 化改造对象。"
       />
       <Tabs
