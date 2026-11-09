@@ -252,6 +252,7 @@ export interface MonthlyStarCandidate {
   personId: UUID;
   rank: number;
   monthlyScore: DecimalString;
+  /** 价值观单项得分；月明星评选按 20 分制填报。 */
   m003Score: DecimalString;
   verifiedPositiveEvents: number;
   seriousViolation: boolean;

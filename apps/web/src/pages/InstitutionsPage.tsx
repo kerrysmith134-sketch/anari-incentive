@@ -786,7 +786,7 @@ export function InstitutionsPage() {
                   <FormField label="员工"><PersonSelect value={personId} onChange={setPersonId} /></FormField>
                   <FormField label="公司月度排名"><TextInput value={starRank} onChange={(event) => setStarRank(event.target.value)} /></FormField>
                   <FormField label="月度综合得分" hint="月明星要求总分不低于 110"><TextInput value={starScore} onChange={(event) => setStarScore(event.target.value)} /></FormField>
-                  <FormField label="M-003 价值观单项得分" hint="价值观单项门槛不低于 20 分；总分门槛 110 分"><TextInput value={starM003} onChange={(event) => setStarM003(event.target.value)} /></FormField>
+                  <FormField label="价值观单项得分（20 分制）" hint="月明星单独填报：价值观单项≥20 分，月度总分≥110 分"><TextInput value={starM003} onChange={(event) => setStarM003(event.target.value)} /></FormField>
                   <FormField label="已核实突出正向事件数"><TextInput value={starEvents} onChange={(event) => setStarEvents(event.target.value)} /></FormField>
                   <FormField label="连续满足条件的自然月数"><TextInput value={starConsecutive} onChange={(event) => setStarConsecutive(event.target.value)} /></FormField>
                   <FormField label="本年度已获次数"><TextInput value={starAwarded} onChange={(event) => setStarAwarded(event.target.value)} /></FormField>
