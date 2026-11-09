@@ -354,10 +354,12 @@
         $("result").hidden = false;
         $("runTitle").textContent = `计算明细 · ${currentRun.mode}`;
         $("runStatus").textContent = currentRun.status;
+        const me = $("personId").value.trim();
+        const short = (value) => (value ? String(value).slice(0, 8) : "—");
         $("lines").innerHTML = (currentRun.lines || []).map((line) => `
           <tr>
-            <td>${escapeHtml(line.personId)}</td>
-            <td>${escapeHtml(line.workPackageId)}</td>
+            <td>${line.personId === me ? "我" : escapeHtml(short(line.personId))}</td>
+            <td>${escapeHtml(short(line.workPackageId))}</td>
             <td>${escapeHtml(line.incentiveType)}</td>
             <td class="num">${escapeHtml(line.roundedAmount)} ${escapeHtml(line.currency)}</td>
           </tr>`).join("");
