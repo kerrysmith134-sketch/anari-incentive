@@ -229,10 +229,10 @@ function NotFoundPage() {
   return (
     <div className="empty-state" style={{ minHeight: "60vh" }}>
       <span className="eyebrow">404</span>
-      <h3>That view does not exist</h3>
-      <p>The console only exposes the routes in the sidebar.</p>
+      <h3>页面不存在</h3>
+      <p>控制台仅提供侧边栏中列出的页面。</p>
       <Link to="/" className="btn btn--primary empty-state__action">
-        Back to overview
+        返回总览
       </Link>
     </div>
   );
@@ -245,7 +245,7 @@ export function App() {
         <ToastProvider>
           <BrowserRouter basename="/console">
             <a className="skip-link" href="#main">
-              Skip to content
+              跳到主要内容
             </a>
             <AppShell>
               <ErrorBoundary>
