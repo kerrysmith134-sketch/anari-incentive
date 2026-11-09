@@ -512,7 +512,12 @@ export interface DiscretionaryPoolReview {
   createdAt: string;
 }
 
-export type ClawbackStatus = "DRAFT" | "APPROVED" | "WAIVED" | "CANCELLED";
+export type ClawbackStatus =
+  | "DRAFT"
+  | "APPROVED"
+  | "RECOVERY_GENERATED"
+  | "WAIVED"
+  | "CANCELLED";
 
 /** Recorded clawback terms and consent; execution remains a settlement-recovery action. */
 export interface ClawbackCase {

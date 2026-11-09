@@ -2593,6 +2593,10 @@ export class PgStore implements IncentiveStore {
           WHERE al.tenant_id = $1
             AND al.cycle_id = $2
             AND al.status = 'LOCKED'
+            AND NOT EXISTS (
+              SELECT 1 FROM ledger_exclusions ex
+               WHERE ex.tenant_id = $1 AND ex.ledger_id = al.id
+            )
             AND ($3::text IS DISTINCT FROM 'RECOVERY' OR al.amount < 0)
             AND NOT EXISTS (
               SELECT 1

@@ -6429,6 +6429,19 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       } catch {
         // Notification hygiene must not block the waiver itself.
       }
+      // Keep the reversed pair out of later recovery sweeps: otherwise every
+      // future RECOVERY batch re-collects it (net zero, but still visible).
+      const waivedEntryId = ledger.find(
+        (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
+      )?.id;
+      await platformStore.excludeLedgerFromSettlement({
+        tenantId,
+        ledgerIds: [recovery.id, waivedEntryId].filter(
+          (value): value is string => Boolean(value),
+        ),
+        reason: `clawback case ${clawback.id} waived`,
+        actorPersonId: body.actorPersonId,
+      });
       await notifyBestEffort(store, {
         recipientPersonId: clawback.personId,
         audience: "PERSON",
@@ -6680,10 +6693,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         });
       }
     }
+    const stamped = await platformStore.markClawbackRecoveryGenerated({
+      tenantId,
+      caseId: clawback.id,
+    });
     countEvent("clawback_recovery_generated");
     return data(
       {
         caseId: clawback.id,
+        caseStatus: stamped.status,
         adjustmentRecordId: record.id,
         ledgerEntryId: entry.id,
         recoveryBatch: batch,

@@ -615,6 +615,16 @@ export interface PlatformStore {
     reason: string;
     actorPersonId: string;
   }): Promise<ClawbackCase>;
+  markClawbackRecoveryGenerated(input: {
+    tenantId: string;
+    caseId: string;
+  }): Promise<ClawbackCase>;
+  excludeLedgerFromSettlement(input: {
+    tenantId: string;
+    ledgerIds: string[];
+    reason: string;
+    actorPersonId: string;
+  }): Promise<number>;
   createDiscretionaryPoolReview(input: {
     tenantId: string;
     poolId: string;
@@ -3853,6 +3863,33 @@ export class MemoryPlatformStore implements PlatformStore {
     return clawback;
   }
 
+  async excludeLedgerFromSettlement(input: {
+    tenantId: string;
+    ledgerIds: string[];
+    reason: string;
+    actorPersonId: string;
+  }): Promise<number> {
+    // Memory store: no settlement sweep runs, so nothing to exclude.
+    void input;
+    return 0;
+  }
+
+  async markClawbackRecoveryGenerated(input: {
+    tenantId: string;
+    caseId: string;
+  }): Promise<ClawbackCase> {
+    const clawback = this.clawbackCases.get(input.caseId);
+    if (!clawback || clawback.tenantId !== input.tenantId) {
+      notFound("ClawbackCase", input.caseId);
+    }
+    if (clawback.status !== "APPROVED") {
+      throw new ConflictError(`clawback case is ${clawback.status}`);
+    }
+    clawback.status = "RECOVERY_GENERATED";
+    clawback.updatedAt = now();
+    return clawback;
+  }
+
   async closeClawbackCase(input: {
     tenantId: string;
     caseId: string;
@@ -3864,7 +3901,7 @@ export class MemoryPlatformStore implements PlatformStore {
     if (!clawback || clawback.tenantId !== input.tenantId) {
       notFound("ClawbackCase", input.caseId);
     }
-    if (!["DRAFT", "APPROVED"].includes(clawback.status)) {
+    if (!["DRAFT", "APPROVED", "RECOVERY_GENERATED"].includes(clawback.status)) {
       throw new ConflictError(`clawback case is ${clawback.status}`);
     }
     const actor = this.persons.get(input.actorPersonId);
@@ -10827,6 +10864,44 @@ export class PgPlatformStore implements PlatformStore {
     });
   }
 
+  async excludeLedgerFromSettlement(input: {
+    tenantId: string;
+    ledgerIds: string[];
+    reason: string;
+    actorPersonId: string;
+  }): Promise<number> {
+    if (input.ledgerIds.length === 0) return 0;
+    const { rowCount } = await this.pool.query(
+      `INSERT INTO ledger_exclusions (tenant_id, ledger_id, reason, created_by)
+       SELECT $1, unnest($2::uuid[]), $3, $4
+       ON CONFLICT (tenant_id, ledger_id) DO NOTHING`,
+      [input.tenantId, input.ledgerIds, input.reason, input.actorPersonId],
+    );
+    return rowCount ?? 0;
+  }
+
+  async markClawbackRecoveryGenerated(input: {
+    tenantId: string;
+    caseId: string;
+  }): Promise<ClawbackCase> {
+    const { rows } = await this.pool.query(
+      `UPDATE clawback_cases
+          SET status='RECOVERY_GENERATED', updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND status='APPROVED'
+        RETURNING *`,
+      [input.tenantId, input.caseId],
+    );
+    if (!rows[0]) {
+      const current = await this.pool.query(
+        "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, input.caseId],
+      );
+      if (!current.rows[0]) notFound("ClawbackCase", input.caseId);
+      throw new ConflictError(`clawback case is ${current.rows[0].status}`);
+    }
+    return this.mapClawbackCase(rows[0]);
+  }
+
   async closeClawbackCase(input: {
     tenantId: string;
     caseId: string;
@@ -10844,7 +10919,7 @@ export class PgPlatformStore implements PlatformStore {
               cancel_reason=CASE WHEN $4 THEN cancel_reason ELSE $5 END,
               updated_at=now()
         WHERE tenant_id=$1 AND id=$2
-          AND status IN ('DRAFT','APPROVED')
+          AND status IN ('DRAFT','APPROVED','RECOVERY_GENERATED')
         RETURNING *`,
       [
         input.tenantId,

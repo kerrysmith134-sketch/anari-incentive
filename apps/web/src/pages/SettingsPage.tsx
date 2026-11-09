@@ -3822,7 +3822,8 @@ export function SettingsPage() {
                           </>
                         ) : null}
                         {clawback.status === "DRAFT" ||
-                        clawback.status === "APPROVED" ? (
+                        clawback.status === "APPROVED" ||
+                        clawback.status === "RECOVERY_GENERATED" ? (
                           <Button
                             size="sm"
                             variant="ghost"

@@ -53,6 +53,7 @@ const STATUS_ZH: Record<string, string> = {
   REOPENED: "重新打开",
   ASSIGNED: "已指派",
   IN_PROGRESS: "处理中",
+  RECOVERY_GENERATED: "已生成追回",
   WAIVED: "已豁免",
   NEEDS_EVIDENCE: "待补证",
   CONFIRMED_REVIEW: "已复核",
