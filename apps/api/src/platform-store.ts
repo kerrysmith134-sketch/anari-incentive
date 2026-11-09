@@ -1656,6 +1656,7 @@ function aggregateSurveyReport(
 }
 
 export class MemoryPlatformStore implements PlatformStore {
+  private readonly commandLocks = new Map<string, Promise<void>>();
   private readonly tenants = new Map<string, PlatformTenant>();
   private readonly users = new Map<string, PlatformUser>();
   private readonly memberships = new Map<string, PlatformMembership>();
@@ -7062,7 +7063,47 @@ export class MemoryPlatformStore implements PlatformStore {
     return batch;
   }
 
+  private async withCommandLock<T>(
+    key: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.commandLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.then(() => gate);
+    this.commandLocks.set(key, chained);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.commandLocks.get(key) === chained) {
+        this.commandLocks.delete(key);
+      }
+    }
+  }
+
   async commandIncentiveAwardBatch(input: {
+    tenantId: string;
+    batchId: string;
+    command:
+      | "SUBMIT"
+      | "APPROVE"
+      | "LOCK"
+      | "EXPORT"
+      | "ACKNOWLEDGE"
+      | "CANCEL";
+    actorPersonId: string;
+    paymentRef?: string;
+  }): Promise<IncentiveAwardBatch> {
+    return this.withCommandLock(`award:${input.tenantId}:${input.batchId}`, () =>
+      this.commandIncentiveAwardBatchUnlocked(input),
+    );
+  }
+
+  private async commandIncentiveAwardBatchUnlocked(input: {
     tenantId: string;
     batchId: string;
     command:
@@ -17748,7 +17789,7 @@ export class PgPlatformStore implements PlatformStore {
               payment_ref = CASE WHEN $4='ACKNOWLEDGE' THEN $6 ELSE payment_ref END,
               updated_at=now(),
               version=version+1
-        WHERE tenant_id=$1 AND id=$2
+        WHERE tenant_id=$1 AND id=$2 AND status=$7
         RETURNING *`,
       [
         input.tenantId,
@@ -17757,9 +17798,16 @@ export class PgPlatformStore implements PlatformStore {
         input.command,
         input.actorPersonId,
         input.paymentRef?.trim() ?? null,
+        expected[0],
       ],
     );
-    return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
+    if (!rows[0]) {
+      // A concurrent command won the transition; treat it like a stale state.
+      throw new ConflictError(
+        `incentive award batch ${input.batchId} changed concurrently; retry the command`,
+      );
+    }
+    return this.loadIncentiveAwardBatch(this.pool, rows[0]);
   }
 
   private async loadIncentiveAwardBatch(

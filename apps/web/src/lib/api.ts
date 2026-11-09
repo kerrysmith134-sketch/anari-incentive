@@ -59,6 +59,21 @@ export function getApiSession(): Session {
   return session;
 }
 
+/** Expired/invalid sessions must return to the login page, not leave a dead shell. */
+function handleUnauthorized(path: string): void {
+  if (path.startsWith("/api/v1/auth/") || path.startsWith("/api/v1/public/")) {
+    return;
+  }
+  clearStoredSession();
+  setApiSession(DEFAULT_SESSION);
+  if (
+    typeof window !== "undefined" &&
+    !window.location.pathname.startsWith("/login")
+  ) {
+    window.location.assign("/login");
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -128,6 +143,7 @@ export async function api<T>(
     }
   }
   if (!response.ok) {
+    if (response.status === 401) handleUnauthorized(path);
     const error = (payload as {
       error?: { code?: string; message?: string; details?: unknown };
     })?.error;
@@ -152,6 +168,7 @@ export async function downloadFile(
 ): Promise<void> {
   const response = await fetch(path, { headers: headers() });
   if (!response.ok) {
+    if (response.status === 401) handleUnauthorized(path);
     throw new ApiError(
       response.status,
       `HTTP_${response.status}`,

@@ -60,7 +60,7 @@ const primaryAuthenticator =
         personId:
           process.env.DEFAULT_PERSON_ID ??
           "00000000-0000-4000-8000-000000000001",
-        roles: ["admin"],
+        roles: ["admin", "platform_admin"],
       });
 
 // Feishu OAuth issues local session tokens; accept them alongside the

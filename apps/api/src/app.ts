@@ -36,6 +36,7 @@ import {
   withdrawPilotEnrollmentSchema,
   createBreakGlassGrantSchema,
   createClawbackCaseSchema,
+  createIncentiveAwardBatchSchema,
   generateClawbackRecoverySchema,
   createStrategicPoolCaseSchema,
   strategicPoolCostReviewSchema,
@@ -500,6 +501,61 @@ function isPrivileged(request: FastifyRequest): boolean {
   return roles.some((role) =>
     ["admin", "manager", "finance"].includes(role),
   );
+}
+
+/** Reversed or cancelled runs must never produce a payable file. */
+function assertPayrollExportable(run: PayrollRun): void {
+  if (run.status === "REVERSED" || run.status === "CANCELLED") {
+    throw new ConflictError(
+      `PAYROLL_RUN_${run.status}: a closed payroll run cannot be exported`,
+    );
+  }
+}
+
+/** Platform operators only; a tenant `admin` is not a platform operator. */
+function isPlatformAdmin(request: FastifyRequest): boolean {
+  return (request.authContext?.roles ?? []).includes("platform_admin");
+}
+
+function requirePlatformAdmin(request: FastifyRequest): void {
+  if (!isPlatformAdmin(request)) {
+    throw new ForbiddenError("requires platform_admin");
+  }
+}
+
+/** Platform operators, or the admin of the tenant being addressed. */
+function requireTenantAdmin(request: FastifyRequest, tenantId: string): void {
+  if (isPlatformAdmin(request)) return;
+  const roles = request.authContext?.roles ?? [];
+  if (roles.includes("admin") && tenantId === tenantOf(request)) return;
+  throw new ForbiddenError(
+    "requires platform_admin or the admin of this tenant",
+  );
+}
+
+/** Any signed-in member of the tenant may read its basic people directory. */
+function requireTenantMember(request: FastifyRequest, tenantId: string): void {
+  if (isPlatformAdmin(request)) return;
+  if (tenantId !== tenantOf(request)) {
+    throw new ForbiddenError("cannot read another tenant's directory");
+  }
+}
+
+/** Owner, members and privileged staff may drive a work package forward. */
+async function assertWorkPackageParticipant(
+  request: FastifyRequest,
+  store: IncentiveStore,
+  workPackageId: string,
+): Promise<void> {
+  const person = ownPersonId(request);
+  if (!person || isPrivileged(request)) return;
+  const workPackage = await store.getWorkPackage(workPackageId);
+  if (
+    workPackage.ownerPersonId !== person &&
+    !workPackage.members.some((member) => member.personId === person)
+  ) {
+    throw new ForbiddenError("work package is not visible to this person");
+  }
 }
 
 function ownPersonId(request: FastifyRequest): string | undefined {
@@ -1292,6 +1348,45 @@ export function scanExportDlp(
   return [...findings];
 }
 
+/** Parameters the model may pass per command; everything else is dropped. */
+const AGENT_CHAT_PARAM_KEYS: Record<string, string[]> = {
+  check_settlement_readiness: ["runId"],
+  check_appeal_sla: [],
+  propose_policy_change: [],
+  scan_evidence_gaps: [],
+  scan_contribution_anomalies: [],
+  scan_data_quality: [],
+  run_cycle_pre_review: [],
+  draft_evaluations: [],
+};
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The command name is already whitelisted; the payload must be too. Without
+ * this the model could hand the POLICY_PROPOSAL skill an attacker-authored
+ * policy body and samples.
+ */
+export function sanitizeAgentChatParams(
+  command: string,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  const allowed = new Set([
+    "idempotencyKey",
+    ...(AGENT_CHAT_PARAM_KEYS[command] ?? []),
+  ]);
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (!allowed.has(key)) continue;
+    if (key === "runId" && (typeof value !== "string" || !UUID_PATTERN.test(value))) {
+      continue;
+    }
+    if (key === "idempotencyKey" && typeof value !== "string") continue;
+    clean[key] = value;
+  }
+  return clean;
+}
+
 const AGENT_COMMANDS: Record<
     string,
     { agentType: Parameters<AgentRuntime["enqueue"]>[0]["agentType"]; input?: (params: Record<string, unknown>) => Record<string, unknown> }
@@ -1319,7 +1414,7 @@ export function buildApp(
     tenantId: "tenant-demo",
     userId: "dev-user",
     personId: "00000000-0000-4000-8000-000000000001",
-    roles: ["admin"],
+    roles: ["admin", "platform_admin"],
   }),
   platformStore: PlatformStore = new MemoryPlatformStore({
     demoTenant: {
@@ -1720,6 +1815,28 @@ export function buildApp(
       targetType,
       targetId,
     });
+  }
+
+  /** Who exported which sensitive artifact, for the immutable audit trail. */
+  async function auditExport(
+    request: FastifyRequest,
+    action: string,
+    objectType: string,
+    objectId: string,
+    detail?: string,
+  ): Promise<void> {
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? request.authContext?.userId,
+        action,
+        objectType,
+        objectId,
+        reason: detail,
+      });
+    } catch {
+      /* audit must not break the download */
+    }
   }
 
   function exportHeaders(
@@ -2302,6 +2419,52 @@ export function buildApp(
         meta: { correlation_id: request.id },
       });
     }
+    // Fastify body-parser failures (invalid/empty JSON, unsupported media type)
+    // carry a 4xx statusCode; without this they fell through to 500.
+    const httpStatus = (error as { statusCode?: number }).statusCode;
+    if (httpStatus === 400 || httpStatus === 415) {
+      const status = httpStatus;
+      return reply.status(status).send({
+        ...errorBody(
+          status === 415 ? "UNSUPPORTED_MEDIA_TYPE" : "VALIDATION_ERROR",
+          status === 415
+            ? "unsupported media type"
+            : "malformed or empty request body",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    // Remaining PostgreSQL integrity errors must not surface as 500s.
+    const pgCode = (error as { code?: string }).code;
+    if (pgCode === "23503") {
+      return reply.status(404).send({
+        ...errorBody("NOT_FOUND", "referenced record does not exist"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (pgCode === "23505") {
+      return reply.status(409).send({
+        ...errorBody("CONFLICT", "duplicate value violates a unique constraint"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (pgCode === "23514" || pgCode === "23502" || pgCode === "22003") {
+      return reply.status(400).send({
+        ...errorBody(
+          "VALIDATION_ERROR",
+          pgCode === "22003"
+            ? "numeric value is out of range"
+            : "value violates a database constraint",
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    if (pgCode === "22007" || pgCode === "22008") {
+      return reply.status(400).send({
+        ...errorBody("VALIDATION_ERROR", "invalid date value"),
+        meta: { correlation_id: request.id },
+      });
+    }
     console.error(`[api] ${request.method} ${request.url} failed`, error);
     return reply.status(500).send({
       ...errorBody("INTERNAL_ERROR", "internal server error"),
@@ -2540,7 +2703,21 @@ export function buildApp(
   app.get("/api/v1/settlement-batches/:id/report", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const store = storeFor(request);
-    const batch = await store.getSettlementBatch(idOf(request));
+    const storedBatch = await store.getSettlementBatch(idOf(request));
+    // The printable report is an export: apply the same field matrix as the
+    // JSON read routes instead of rendering raw salary/amount columns.
+    const roles = request.authContext?.roles ?? [];
+    let batch = storedBatch;
+    if (!roles.includes("admin")) {
+      const policies = await fieldPoliciesFor(request);
+      const matchContext = await fieldMatchContextFor(request, policies);
+      batch = redactSettlementBatchFields(storedBatch, {
+        personId: ownPersonId(request),
+        roles,
+        policies,
+        matchContext,
+      });
+    }
     const active = (batch.lines ?? []).filter((line) => line.active);
     const total = active.reduce((sum, line) => sum + Number(line.amount), 0);
     const esc = (v: unknown): string =>
@@ -2576,6 +2753,12 @@ export function buildApp(
 </table>
 <p class="meta no-print">使用浏览器打印（Ctrl/Cmd+P）另存为 PDF。本单由系统确定性引擎生成，哈希与审计链可验证。</p>
 </body></html>`;
+    await auditExport(
+      request,
+      "SETTLEMENT_REPORT_VIEWED",
+      "SETTLEMENT_BATCH",
+      batch.id,
+    );
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
@@ -2684,8 +2867,11 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         node.evidenceType === body.evidenceType &&
         Date.parse(node.observedAt) >= windowStart &&
         Date.parse(node.observedAt) <= windowEnd &&
-        node.qualityStatus === "VALID" ||
-        node.qualityStatus === "UNVERIFIED",
+        // Parenthesised: UNVERIFIED evidence still has to match source, type
+        // and observation window. The old precedence admitted every
+        // UNVERIFIED node on the tenant.
+        (node.qualityStatus === "VALID" ||
+          node.qualityStatus === "UNVERIFIED"),
     );
     if (evidence.length === 0) {
       return data(
@@ -2766,6 +2952,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
             },
           ],
         } as never);
+        materializedOrderIds.add(externalId);
         created.push({
           runId: run.id,
           evidenceId: node.id,
@@ -2981,20 +3168,27 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       });
     }
     const body = parse(publicSignupSchema, request.body);
+    // Signing up with an address that already has an account must never touch
+    // that account: otherwise anyone could reset a stranger's password.
+    const existingUser =
+      (await platformStore.findUserByAuthSubject(body.adminEmail)) ??
+      (await platformStore.getUserPasswordHashByEmail(body.adminEmail)
+        ? { id: "existing" }
+        : null);
+    if (existingUser) {
+      throw new ConflictError(
+        "EMAIL_ALREADY_REGISTERED: this email already has an account; sign in and create a workspace from there",
+      );
+    }
     const tenant = await platformStore.createTenant({
       name: body.companyName,
       slug: body.slug ?? slugify(body.companyName),
     });
-    const existingUser = await platformStore.findUserByAuthSubject(
-      body.adminEmail,
-    );
-    const user = existingUser
-      ? existingUser
-      : await platformStore.createUser({
-          authSubject: body.adminEmail,
-          displayName: body.adminDisplayName,
-          email: body.adminEmail,
-        });
+    const user = await platformStore.createUser({
+      authSubject: body.adminEmail,
+      displayName: body.adminDisplayName,
+      email: body.adminEmail,
+    });
     if (body.password) {
       await platformStore.setUserPassword(user.id, hashPassword(body.password));
     }
@@ -3151,13 +3345,28 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/users/set-password", async (request) => {
-    requireRoles(request, "platform_admin", "admin");
     if (!sessionSecret) {
       throw new ConflictError(
         "PASSWORD_LOGIN_NOT_CONFIGURED: set SESSION_SECRET to enable password login",
       );
     }
     const body = parse(setPasswordSchema, request.body);
+    if (!isPlatformAdmin(request)) {
+      // A tenant admin may only reset users who belong to their own tenant.
+      requireTenantAdmin(request, tenantOf(request));
+      const memberships = await platformStore.listMembershipsByUser(
+        body.userId,
+      );
+      if (
+        !memberships.some(
+          (membership) => membership.tenantId === tenantOf(request),
+        )
+      ) {
+        throw new ForbiddenError(
+          "cannot set a password for a user outside this tenant",
+        );
+      }
+    }
     await platformStore.setUserPassword(body.userId, hashPassword(body.password));
     countEvent("password_set");
     return data({ ok: true }, request);
@@ -3360,7 +3569,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     const body = parse(createPlatformTenantSchema, request.body);
     return reply
       .status(201)
@@ -3368,14 +3577,19 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants", async (request) => {
-    requireRoles(request, "platform_admin");
+    if (!isPlatformAdmin(request)) {
+      // Tenant admins may see their own workspace only, never the portfolio.
+      requireTenantAdmin(request, tenantOf(request));
+      const own = await platformStore.getTenant(tenantOf(request));
+      return data([own], request);
+    }
     return data(await platformStore.listTenants(), request);
   });
 
   app.post("/api/v1/platform/tenants/:id/settings", async (request) => {
-    requireRoles(request, "platform_admin");
-    const body = parse(updateTenantSettingsSchema, request.body);
     const tenantId = idOf(request);
+    requireTenantAdmin(request, tenantId);
+    const body = parse(updateTenantSettingsSchema, request.body);
     const tenant = await platformStore.getTenant(tenantId);
     const before = (
       tenant.settings as { fieldAccessPolicies?: unknown }
@@ -3407,7 +3621,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/users", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     const body = parse(createPlatformUserSchema, request.body);
     return reply
       .status(201)
@@ -3415,12 +3629,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/users", async (request) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     return data(await platformStore.listUsers(), request);
   });
 
   app.post("/api/v1/platform/tenants/:id/memberships", async (request, reply) => {
-      requireRoles(request, "platform_admin");
+      requireTenantAdmin(request, idOf(request));
       const body = parse(addMembershipSchema, request.body);
       return reply.status(201).send(
         data(
@@ -3435,7 +3649,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants/:id/memberships", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     return data(
       await platformStore.listMemberships(idOf(request)),
       request,
@@ -3443,7 +3657,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants/:id/persons", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(createPlatformPersonSchema, request.body);
     const tenantId = idOf(request);
     const subscription =
@@ -3484,12 +3698,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants/:id/persons", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantMember(request, idOf(request));
     return data(await platformStore.listPersons(idOf(request)), request);
   });
 
   app.post("/api/v1/platform/feishu/sync-directory", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     if (!options.feishu) {
       return reply.status(501).send({
         ...errorBody(
@@ -3522,7 +3736,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/plans", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     const body = parse(createSubscriptionPlanSchema, request.body);
     return reply
       .status(201)
@@ -3538,12 +3752,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/plans", async (request) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     return data(await platformStore.listSubscriptionPlans(false), request);
   });
 
   app.get("/api/v1/platform/tenants/:id/subscription", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const subscription = await platformStore.getTenantSubscription(
       idOf(request),
     );
@@ -3552,7 +3766,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.put("/api/v1/platform/tenants/:id/subscription", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(setTenantSubscriptionSchema, request.body);
     return data(
       await platformStore.setTenantSubscription({
@@ -3564,7 +3778,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants/:id/invoices", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(createTenantInvoiceSchema, request.body);
     return reply
       .status(201)
@@ -3580,12 +3794,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants/:id/invoices", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     return data(await platformStore.listInvoices(idOf(request)), request);
   });
 
   app.post("/api/v1/platform/invoices/:id/status", async (request) => {
-    requireRoles(request, "platform_admin");
+    requirePlatformAdmin(request);
     const body = parse(setTenantInvoiceStatusSchema, request.body);
     return data(
       await platformStore.setInvoiceStatus({
@@ -3614,7 +3828,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants/:id/org-nodes", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(createOrgNodeSchema, request.body);
     return reply.status(201).send(
       data(
@@ -3630,12 +3844,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants/:id/org-nodes", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantMember(request, idOf(request));
     return data(await platformStore.listOrgNodes(idOf(request)), request);
   });
 
   app.post("/api/v1/platform/tenants/:id/persons/:personId/org-assignments", async (request, reply) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(assignPersonOrgSchema, request.body);
     return reply.status(201).send(
       data(
@@ -3653,7 +3867,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/platform/tenants/:id/persons/:personId/org-assignments", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     return data(
       await platformStore.listOrgAssignments(
         idOf(request),
@@ -3664,7 +3878,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants/:id/persons/:personId/manager", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(setPersonManagerSchema, request.body);
     return data(
       await platformStore.setPersonManager({
@@ -3677,7 +3891,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.post("/api/v1/platform/tenants/:id/persons/:personId/link-user", async (request) => {
-    requireRoles(request, "platform_admin");
+    requireTenantAdmin(request, idOf(request));
     const body = parse(linkPersonUserSchema, request.body);
     return data(
       await platformStore.linkPersonUser({
@@ -3694,13 +3908,20 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     if (!context) {
       throw new ForbiddenError("authentication is required");
     }
+    const identity = await platformStore.resolveIdentity({
+      tenantId: context.tenantId,
+      userId: context.userId,
+      personId: context.personId,
+    });
+    // Session tokens and the dev authenticator carry authoritative roles. When
+    // membership lookup returns none, fall back to the authenticated roles so
+    // the console does not treat a signed-in operator as role-less.
+    const roles =
+      identity.roles.length > 0 ? identity.roles : context.roles;
     return data(
       {
-        ...(await platformStore.resolveIdentity({
-          tenantId: context.tenantId,
-          userId: context.userId,
-          personId: context.personId,
-        })),
+        ...identity,
+        roles,
         // 前端会话只需 token；tenantId 由服务端回填，禁止客户端自报。
         tenantId: context.tenantId,
       },
@@ -3966,10 +4187,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     }
     const tenantId = tenantOf(request);
     const runtime = runtimeFor(request);
-    const params =
+    const params = sanitizeAgentChatParams(
+      commandName,
       parsed.params && typeof parsed.params === "object"
         ? (parsed.params as Record<string, unknown>)
-        : {};
+        : {},
+    );
     const idempotencyKey =
       typeof params.idempotencyKey === "string" && params.idempotencyKey.trim()
         ? params.idempotencyKey
@@ -4563,18 +4786,20 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     requireRoles(request, "manager", "finance");
     const query = request.query as { from?: string; to?: string };
     const to = query.to ?? new Date().toISOString();
+    const toMs = Date.parse(to);
+    // Validate `to` before deriving the default `from`: new Date(NaN)
+    // .toISOString() throws a RangeError before the guard can run.
+    if (!Number.isFinite(toMs)) {
+      throw new BadRequestError(
+        "INVALID_REPORT_WINDOW",
+        "from/to must be valid ISO dates and from <= to",
+      );
+    }
     const from =
       query.from ??
-      new Date(
-        new Date(to).getTime() - 365 * 24 * 60 * 60 * 1000,
-      ).toISOString();
+      new Date(toMs - 365 * 24 * 60 * 60 * 1000).toISOString();
     const fromMs = Date.parse(from);
-    const toMs = Date.parse(to);
-    if (
-      !Number.isFinite(fromMs) ||
-      !Number.isFinite(toMs) ||
-      fromMs > toMs
-    ) {
+    if (!Number.isFinite(fromMs) || fromMs > toMs) {
       throw new BadRequestError(
         "INVALID_REPORT_WINDOW",
         "from/to must be valid ISO dates and from <= to",
@@ -5813,30 +6038,30 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
 
   app.post("/api/v1/work-packages/:id/commit", async (request) => {
     const body = parse(commitWorkPackageSchema, request.body);
+    const store = storeFor(request);
+    await assertWorkPackageParticipant(request, store, idOf(request));
     return data(
-      await storeFor(request).commitWorkPackage(idOf(request), body.expectedVersion),
+      await store.commitWorkPackage(idOf(request), body.expectedVersion),
       request,
     );
   });
 
   app.post("/api/v1/work-packages/:id/start", async (request) => {
     const body = parse(workPackageCommandSchema, request.body ?? {});
+    const store = storeFor(request);
+    await assertWorkPackageParticipant(request, store, idOf(request));
     return data(
-      await storeFor(request).startWorkPackage(
-        idOf(request),
-        body.expectedVersion,
-      ),
+      await store.startWorkPackage(idOf(request), body.expectedVersion),
       request,
     );
   });
 
   app.post("/api/v1/work-packages/:id/submit", async (request) => {
     const body = parse(workPackageCommandSchema, request.body ?? {});
+    const store = storeFor(request);
+    await assertWorkPackageParticipant(request, store, idOf(request));
     return data(
-      await storeFor(request).submitWorkPackage(
-        idOf(request),
-        body.expectedVersion,
-      ),
+      await store.submitWorkPackage(idOf(request), body.expectedVersion),
       request,
     );
   });
@@ -5914,9 +6139,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(claim, request);
   });
 
-  app.post("/api/v1/contribution-claims/:id/submit", async (request) =>
-    data(await storeFor(request).submitClaim(idOf(request)), request),
-  );
+  app.post("/api/v1/contribution-claims/:id/submit", async (request) => {
+    const store = storeFor(request);
+    const claim = await store.getClaim(idOf(request));
+    const person = personFilter(request);
+    if (person && claim.claimantPersonId !== person) {
+      throw new ForbiddenError("cannot submit another person's claim");
+    }
+    return data(await store.submitClaim(idOf(request)), request);
+  });
 
   app.post("/api/v1/contribution-attestations", async (request, reply) => {
     const body = parse(createContributionAttestationSchema, request.body);
@@ -6290,6 +6521,24 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/clawback-cases", async (request, reply) => {
     requireRoles(request, "finance");
     const body = parse(createClawbackCaseSchema, request.body);
+    // One written consent authorises one debt. Re-submitting the same consent
+    // used to create a second case that could be recovered again.
+    const existingCases = await platformStore.listClawbackCases(
+      tenantOf(request),
+      body.personId,
+    );
+    const duplicate = existingCases.find(
+      (candidate) =>
+        candidate.currency === body.currency &&
+        candidate.consentSignatureRef.trim().toLowerCase() ===
+          body.consentSignatureRef.trim().toLowerCase() &&
+        !["CANCELLED", "WAIVED"].includes(candidate.status),
+    );
+    if (duplicate) {
+      throw new ConflictError(
+        `CLAWBACK_CONSENT_ALREADY_USED: consent ${body.consentSignatureRef} already backs case ${duplicate.id}`,
+      );
+    }
     return reply.status(201).send(
       data(
         await platformStore.createClawbackCase({
@@ -6758,6 +7007,34 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     if (source.cycleId !== body.cycleId) {
       throw new ConflictError(
         `CLAWBACK_CYCLE_MISMATCH: entry belongs to cycle ${source.cycleId}, not ${body.cycleId}`,
+      );
+    }
+    // Never recover more than the award still holds. Waived recoveries are
+    // netted out through their reversal entries.
+    const recoveryEntries = ledger.filter(
+      (entry) =>
+        entry.entryType === "RECOVERY" &&
+        entry.sourceEntryId === source.id,
+    );
+    let alreadyRecovered = 0n;
+    for (const entry of recoveryEntries) {
+      alreadyRecovered += -parseDecimal(entry.amount);
+    }
+    const recoveryIds = new Set(recoveryEntries.map((entry) => entry.id));
+    for (const entry of ledger) {
+      if (
+        entry.entryType === "REVERSAL" &&
+        entry.sourceEntryId &&
+        recoveryIds.has(entry.sourceEntryId)
+      ) {
+        alreadyRecovered -= parseDecimal(entry.amount);
+      }
+    }
+    const remaining = parseDecimal(source.amount) -
+      (alreadyRecovered > 0n ? alreadyRecovered : 0n);
+    if (parseDecimal(clawback.amount) > remaining) {
+      throw new ConflictError(
+        `CLAWBACK_EXCEEDS_REMAINING: case is ${clawback.amount}, only ${formatDecimal(remaining > 0n ? remaining : 0n)} remains recoverable on this entry`,
       );
     }
     const { entry, record } = await store.adjustLedgerEntry(
@@ -7953,6 +8230,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       idOf(request),
       query.approvalRequestId,
     );
+    await auditExport(
+      request,
+      "DSAR_PACKAGE_EXPORTED",
+      "DSAR_REQUEST",
+      idOf(request),
+    );
     return reply
       .headers(exportHeaders(request, text, "PERSONAL_DATA"))
       .send(data(payload, request));
@@ -8112,14 +8395,18 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/retention-policies/:id/legal-hold", async (request) => {
     requireRoles(request, "admin");
     const body = parse(setRetentionLegalHoldSchema, request.body);
-    return data(
-      await platformStore.setRetentionLegalHold({
-        tenantId: tenantOf(request),
-        retentionPolicyId: idOf(request),
-        legalHold: body.legalHold,
-      }),
+    const updated = await platformStore.setRetentionLegalHold({
+      tenantId: tenantOf(request),
+      retentionPolicyId: idOf(request),
+      legalHold: body.legalHold,
+    });
+    await auditExport(
       request,
+      body.legalHold ? "LEGAL_HOLD_SET" : "LEGAL_HOLD_RELEASED",
+      "RETENTION_POLICY",
+      idOf(request),
     );
+    return data(updated, request);
   });
 
   app.post("/api/v1/data-sources", async (request, reply) => {
@@ -8738,14 +9025,17 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/approval-requests", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createApprovalRequestSchema, request.body);
+    // The requester identity comes from the session, not the body: otherwise a
+    // caller can claim requestedByType=SYSTEM and then approve their own action.
+    const requesterPersonId = ownPersonId(request);
     const approval = await platformStore.createApprovalRequest({
       tenantId: tenantOf(request),
       actionType: body.actionType,
       targetType: body.targetType,
       targetId: body.targetId,
       targetVersion: body.targetVersion ?? 1,
-      requestedByType: body.requestedByType,
-      requestedById: body.requestedById,
+      requestedByType: requesterPersonId ? "USER" : body.requestedByType,
+      requestedById: requesterPersonId ?? body.requestedById,
       riskTier: body.riskTier,
       requiredApprovals: body.requiredApprovals ?? 1,
       expiresAt: body.expiresAt,
@@ -8804,6 +9094,16 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/approval-requests/:id/decide", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(decideApprovalRequestSchema, request.body);
+    const person = ownPersonId(request);
+    if (person && !isPlatformAdmin(request) && body.approverPersonId !== person) {
+      throw new ForbiddenError(
+        "approvals must be decided under your own identity",
+      );
+    }
+    const persons = await platformStore.listPersons(tenantOf(request));
+    if (!persons.some((candidate) => candidate.id === body.approverPersonId)) {
+      throw new NotFoundError(`Person ${body.approverPersonId} not found`);
+    }
     const decided = await platformStore.decideApprovalRequest({
       tenantId: tenantOf(request),
       requestId: idOf(request),
@@ -8824,6 +9124,10 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/approval-requests/:id/consume", async (request) => {
     requireRoles(request, "finance");
     const body = parse(consumeApprovalRequestSchema, request.body);
+    const person = ownPersonId(request);
+    if (person && !isPlatformAdmin(request) && body.consumedBy !== person) {
+      throw new ForbiddenError("approvals must be consumed under your own identity");
+    }
     const consumed = await platformStore.consumeApprovalRequest({
       tenantId: tenantOf(request),
       requestId: idOf(request),
@@ -10593,11 +10897,22 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       }
     }
     const query = request.query as { asOf?: string };
+    let asOf: string | undefined;
+    if (query.asOf !== undefined) {
+      const parsed = Date.parse(query.asOf);
+      if (!Number.isFinite(parsed)) {
+        throw new BadRequestError(
+          "INVALID_AS_OF",
+          "asOf 必须是有效日期（ISO 8601）",
+        );
+      }
+      asOf = new Date(parsed).toISOString();
+    }
     return data(
       await platformStore.getEquityVesting(
         tenantOf(request),
         idOf(request),
-        query.asOf,
+        asOf,
       ),
       request,
     );
@@ -10951,6 +11266,24 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         );
       }
     }
+    const existingContracts = await platformStore.listEmploymentContracts(
+      tenantOf(request),
+      body.personId,
+    );
+    const newStart = Date.parse(body.startDate);
+    const newEnd = body.endDate ? Date.parse(body.endDate) : Infinity;
+    const overlapping = existingContracts.find(
+      (contract) =>
+        contract.status === "ACTIVE" &&
+        contract.currency === body.currency &&
+        Date.parse(contract.startDate) <= newEnd &&
+        (!contract.endDate || Date.parse(contract.endDate) >= newStart),
+    );
+    if (overlapping) {
+      throw new ConflictError(
+        `EMPLOYMENT_CONTRACT_OVERLAP: ${overlapping.contractCode} already covers this person and period`,
+      );
+    }
     return reply.status(201).send(
       data(
         await platformStore.createEmploymentContract({
@@ -11171,6 +11504,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         idOf(request),
       ),
     );
+    assertPayrollExportable(run);
     const csv = payrollCsv(run);
     await assertExportDlp(
       request,
@@ -11178,6 +11512,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       "PAYROLL_RUN",
       run.id,
       query.dlpApprovalRequestId,
+    );
+    await auditExport(
+      request,
+      "PAYROLL_RUN_EXPORTED",
+      "PAYROLL_RUN",
+      run.id,
+      `rows=${run.lineCount ?? ""}`,
     );
     return reply
       .type("text/csv; charset=utf-8")
@@ -11213,6 +11554,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       tenantOf(request),
       idOf(request),
     );
+    assertPayrollExportable(run);
     const format = (
       (request.query as { format?: string }).format ?? "GENERIC"
     ).toUpperCase();
@@ -11235,6 +11577,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       "PAYROLL_RUN",
       run.id,
       query.dlpApprovalRequestId,
+    );
+    await auditExport(
+      request,
+      "PAYROLL_BANK_FILE_EXPORTED",
+      "PAYROLL_RUN",
+      run.id,
+      `format=${format}`,
     );
     return reply
       .type("text/csv; charset=utf-8")
@@ -11270,6 +11619,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       tenantOf(request),
       idOf(request),
     );
+    assertPayrollExportable(run);
     const csv = payrollTaxFilingCsv(run);
     await assertExportDlp(
       request,
@@ -11279,6 +11629,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       query.dlpApprovalRequestId,
     );
     countEvent("payroll_tax_filing_exported");
+    await auditExport(
+      request,
+      "PAYROLL_TAX_FILING_EXPORTED",
+      "PAYROLL_RUN",
+      run.id,
+    );
     return reply
       .type("text/csv; charset=utf-8")
       .headers(exportHeaders(request, csv, "RESTRICTED"))
@@ -11291,17 +11647,35 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
 
   app.get("/api/v1/payroll-runs/:id/payslips/:personId", async (request, reply) => {
     requireRoles(request, "manager", "finance");
-    const run = await platformStore.getPayrollRun(
+    const targetPersonId = paramOf(request, "personId");
+    const own = ownPersonId(request);
+    const roles = request.authContext?.roles ?? [];
+    if (
+      !roles.includes("admin") &&
+      !roles.includes("finance") &&
+      own !== targetPersonId
+    ) {
+      // Managers may print payslips for their direct reports only.
+      const persons = await platformStore.listPersons(tenantOf(request));
+      const target = persons.find((person) => person.id === targetPersonId);
+      if (!target || !own || target.managerPersonId !== own) {
+        throw new ForbiddenError(
+          "managers may only view payslips of their direct reports",
+        );
+      }
+    }
+    const stored = await platformStore.getPayrollRun(
       tenantOf(request),
       idOf(request),
     );
+    // Same field-policy redaction as the JSON payroll routes: a printable
+    // payslip must not expose bank details the viewer cannot see elsewhere.
+    const run = await payrollRunForViewer(request, stored);
     const line = (run.lines ?? []).find(
-      (candidate) => candidate.personId === paramOf(request, "personId"),
+      (candidate) => candidate.personId === targetPersonId,
     );
     if (!line) {
-      throw new NotFoundError(
-        `PayrollLine ${paramOf(request, "personId")} not found`,
-      );
+      throw new NotFoundError(`PayrollLine ${targetPersonId} not found`);
     }
     return reply.type("text/html; charset=utf-8").send(
       payrollPayslipHtml(run, line),
@@ -11319,21 +11693,51 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     const contracts = await platformStore.listEmploymentContracts(
       tenantId,
     );
+    // One person must not be paid twice for the same period. Overlapping
+    // ACTIVE contracts would each collect the same ledger entries.
+    const periodStart = Date.parse(run.periodStart);
+    const periodEnd = Date.parse(run.periodEnd);
+    const activeByPerson = new Map<string, string>();
+    for (const contract of contracts) {
+      if (contract.status !== "ACTIVE") continue;
+      if (contract.currency !== run.currency) continue;
+      if (Date.parse(contract.startDate) > periodEnd) continue;
+      if (contract.endDate && Date.parse(contract.endDate) < periodStart) {
+        continue;
+      }
+      const key = `${contract.personId}:${contract.currency}`;
+      const existing = activeByPerson.get(key);
+      if (existing) {
+        throw new ConflictError(
+          `PAYROLL_DUPLICATE_ACTIVE_CONTRACT: person ${contract.personId} has contracts ${existing} and ${contract.id} covering this period`,
+        );
+      }
+      activeByPerson.set(key, contract.id);
+    }
     const allRuns = await platformStore.listPayrollRuns(tenantId);
-    const priorRun = allRuns
+    const priorRuns = allRuns
       .filter(
         (candidate) =>
           candidate.id !== run.id &&
           Date.parse(candidate.periodEnd) < Date.parse(run.periodStart) &&
           ["CALCULATED", "APPROVED", "PAID"].includes(candidate.status),
       )
-      .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0];
-    const priorIncentives: Record<string, string> = {};
-    if (priorRun) {
-      const detail = await platformStore.getPayrollRun(tenantId, priorRun.id);
+      .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))
+      .slice(0, 12);
+    // Oldest first so the last value per contract is the most recent period.
+    const priorIncentiveHistory: Record<string, string[]> = {};
+    for (const prior of [...priorRuns].reverse()) {
+      const detail = await platformStore.getPayrollRun(tenantId, prior.id);
       for (const line of detail.lines ?? []) {
-        priorIncentives[line.contractId] = line.incentiveAmount;
+        (priorIncentiveHistory[line.contractId] ??= []).push(
+          line.incentiveAmount,
+        );
       }
+    }
+    const priorIncentives: Record<string, string> = {};
+    for (const [contractId, values] of Object.entries(priorIncentiveHistory)) {
+      const latest = values[values.length - 1];
+      if (latest !== undefined) priorIncentives[contractId] = latest;
     }
     const ledger = await storeFor(request).listLedger();
     const unacknowledgedNoticesByPerson: Record<string, string[]> = {};
@@ -11448,6 +11852,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       contracts,
       ledger,
       priorIncentives,
+      priorIncentiveHistory,
       unacknowledgedNoticesByPerson,
       taxMode,
       statutoryDeductionTypes,
@@ -13726,10 +14131,11 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       period?: string;
       status?: string;
     };
+    const person = personFilter(request);
     return data(
       await platformStore.listPolicyEngineRecords(tenantOf(request), {
         recordType: "PERFORMANCE_GOAL_CARD",
-        personId: query.personId,
+        personId: person ?? query.personId,
         period: query.period,
         status: query.status,
       }),
@@ -13842,10 +14248,11 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
 
   app.get("/api/v1/policy/equity/grant-cases", async (request) => {
     const query = request.query as { personId?: string; status?: string };
+    const person = personFilter(request);
     return data(
       await platformStore.listPolicyEngineRecords(tenantOf(request), {
         recordType: "EQUITY_GRANT_CASE",
-        personId: query.personId,
+        personId: person ?? query.personId,
         status: query.status,
       }),
       request,
@@ -13969,35 +14376,18 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   // 制度激励发放批次：计算 → 提交 → 审批 → 锁定 → 导出 → 回执。
   app.post("/api/v1/incentive-award-batches", async (request, reply) => {
     requireRoles(request, "manager", "finance");
-    const body = policyBody(request);
-    const lines = body.lines;
-    if (!Array.isArray(lines) || lines.length === 0) {
-      throw new BadRequestError("INVALID_INPUT", "lines 必须为非空数组");
-    }
-    const createdBy =
-      typeof body.createdBy === "string"
-        ? body.createdBy
-        : ownPersonId(request) ?? "system";
+    const body = parse(createIncentiveAwardBatchSchema, request.body);
+    const createdBy = body.createdBy ?? ownPersonId(request) ?? "system";
     const batch = await platformStore.createIncentiveAwardBatch({
       tenantId: tenantOf(request),
-      batchNo: requireString(body, "batchNo"),
-      awardType: requireString(body, "awardType") as Parameters<
-        typeof platformStore.createIncentiveAwardBatch
-      >[0]["awardType"],
-      period: requireString(body, "period"),
-      cycleId: typeof body.cycleId === "string" ? body.cycleId : undefined,
-      currency: requireString(body, "currency"),
+      batchNo: body.batchNo,
+      awardType: body.awardType,
+      period: body.period,
+      cycleId: body.cycleId,
+      currency: body.currency,
       createdBy,
-      sourceRecordIds: Array.isArray(body.sourceRecordIds)
-        ? (body.sourceRecordIds as string[])
-        : undefined,
-      lines: lines as Array<{
-        personId: string;
-        amount: string;
-        sourceRecordId?: string;
-        sourceLineRef?: string;
-        note?: string;
-      }>,
+      sourceRecordIds: body.sourceRecordIds,
+      lines: body.lines,
     });
     try {
       await storeFor(request).recordAuditEvent({
@@ -14015,6 +14405,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/incentive-award-batches", async (request) => {
+    requireRoles(request, "manager", "finance");
     const query = request.query as {
       awardType?: string;
       period?: string;
@@ -14027,6 +14418,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
   app.get("/api/v1/incentive-award-batches/:id", async (request) => {
+    requireRoles(request, "manager", "finance");
     return data(
       await platformStore.getIncentiveAwardBatch(
         tenantOf(request),
@@ -14121,6 +14513,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       "INCENTIVE_AWARD_BATCH",
       batch.id,
       query.approvalRequestId,
+    );
+    await auditExport(
+      request,
+      "AWARD_BATCH_EXPORTED",
+      "INCENTIVE_AWARD_BATCH",
+      batch.id,
+      `lines=${batch.lineCount}`,
     );
     return reply
       .header("content-type", "text/csv; charset=utf-8")

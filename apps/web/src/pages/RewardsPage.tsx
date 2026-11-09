@@ -66,6 +66,21 @@ export function RewardsPage() {
     (bounty) => bounty.status === "OPEN" || bounty.status === "CLAIMED",
   );
 
+  // Bounties can be priced in different currencies; never sum them together.
+  const bountyTotalsLabel = (() => {
+    const totals = openBounties.reduce<Record<string, number>>((acc, bounty) => {
+      const currency = bounty.currency || "CNY";
+      acc[currency] = (acc[currency] ?? 0) + toNumber(bounty.rewardAmount);
+      return acc;
+    }, {});
+    const entries = Object.entries(totals);
+    return entries.length === 0
+      ? formatMoney(0, "CNY", { compact: true })
+      : entries
+          .map(([currency, total]) => formatMoney(total, currency, { compact: true }))
+          .join(" · ");
+  })();
+
   return (
     <>
       <PageHeader
@@ -113,15 +128,8 @@ export function RewardsPage() {
           </div>
           <div className="stat-tile__value">{openBounties.length}</div>
           <div className="stat-tile__detail">
-            {formatMoney(
-              openBounties.reduce(
-                (total, bounty) => total + toNumber(bounty.rewardAmount),
-                0,
-              ),
-              openBounties[0]?.currency ?? "CNY",
-              { compact: true },
-            )}{" "}
-            committed
+            {bountyTotalsLabel}{" "}
+            已承诺
           </div>
         </div>
       </div>
@@ -215,7 +223,7 @@ function StrategicPoolsTab() {
           rationale: rationale.trim(),
         },
       });
-      toast.success("Strategic pool case created");
+      toast.success("战略池案件已创建");
       setOpen(false);
       cases.reload();
     } catch (caught) {
@@ -252,7 +260,7 @@ function StrategicPoolsTab() {
         method: "POST",
         body,
       });
-      toast.success("Strategic pool updated", command);
+      toast.success("战略池已更新", command);
       cases.reload();
     } catch (caught) {
       toast.error(

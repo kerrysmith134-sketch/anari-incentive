@@ -28,7 +28,6 @@ import {
   formatMoney,
   formatRelative,
   shortId,
-  sum,
   titleCase,
 } from "../lib/format.js";
 import type {
@@ -251,11 +250,22 @@ export function SettlementsPage() {
         .some((value) => String(value).toLowerCase().includes(query));
     });
   }, [ledgerEntries, ledgerSearch, ledgerStatus]);
-  const lockedTotal = sum(
-    ledgerEntries
-      .filter((entry) => entry.status === "LOCKED")
-      .map((entry) => entry.amount),
-  );
+  // Never add different currencies together: show one total per currency.
+  const lockedByCurrency = ledgerEntries
+    .filter((entry) => entry.status === "LOCKED")
+    .reduce<Record<string, number>>((totals, entry) => {
+      const currency = entry.currency || "CNY";
+      totals[currency] = (totals[currency] ?? 0) + Number(entry.amount);
+      return totals;
+    }, {});
+  const lockedTotalLabel =
+    Object.keys(lockedByCurrency).length === 0
+      ? formatMoney(0, "CNY", { compact: true })
+      : Object.entries(lockedByCurrency)
+          .map(([currency, total]) =>
+            formatMoney(total, currency, { compact: true }),
+          )
+          .join(" · ");
 
   function openCreate() {
     setCycleId(cycles.data?.[0]?.id ?? "");
@@ -280,7 +290,7 @@ export function SettlementsPage() {
           batchNo: batchNo.trim() || undefined,
         },
       });
-      toast.success("Settlement batch created", created.batchNo);
+      toast.success("结算批次已创建", created.batchNo);
       setCreateOpen(false);
       setSelectedBatchId(created.id);
       batches.reload();
@@ -384,7 +394,7 @@ export function SettlementsPage() {
           approvedAmount: poolAmount,
         },
       });
-      toast.success("Budget pool created", poolName);
+      toast.success("预算池已创建", poolName);
       setSelectedPoolId(created.id);
       setPoolCreateOpen(false);
       pools.reload();
@@ -405,7 +415,7 @@ export function SettlementsPage() {
         method: "POST",
         body: { approvedBy },
       });
-      toast.success("Budget pool approved", approveTarget.name);
+      toast.success("预算池已批准", approveTarget.name);
       setApproveTarget(null);
       pools.reload();
     } catch (caught) {
@@ -646,9 +656,7 @@ export function SettlementsPage() {
             <span className="stat-tile__label">锁定账本合计</span>
           </div>
           <div className="stat-tile__value">
-            {formatMoney(lockedTotal, ledgerEntries[0]?.currency ?? "CNY", {
-              compact: true,
-            })}
+            {lockedTotalLabel}
           </div>
           <div className="stat-tile__detail">
             {ledgerEntries.filter((entry) => entry.status === "LOCKED").length}{" "}

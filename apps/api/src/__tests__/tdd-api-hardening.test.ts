@@ -112,7 +112,7 @@ describe("API hardening rounds 25-44", () => {
       "/api/v1/incentive-award-batches",
       batchPayload("R25", "s25", "0"),
     );
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(400);
   });
 
   it("26: rejects duplicate person + source line inside one batch", async () => {

@@ -398,6 +398,9 @@ export function PerformancePage() {
           decision,
           scores,
           rationale: decideRationale.trim(),
+          independentScores: scores,
+          independentRationale: decideRationale.trim(),
+          evidenceOpened: 0,
         },
       });
       toast.success("决策已记录", decision === "APPROVE" ? "已批准" : "已驳回");

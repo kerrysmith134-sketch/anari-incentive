@@ -698,7 +698,10 @@ describe("011 equity engine", () => {
       tenureStage: "A",
       existingGrantPercent: "4.5",
     });
-    expect(result.cumulativePercent).toBe("5.5");
+    // The requested 1.0% would exceed the 5% cap, so it is clamped to the
+    // 0.5% headroom instead of being granted in full.
+    expect(result.grantPercent).toBe("0.5");
+    expect(result.cumulativePercent).toBe("5");
     expect(result.saturationCapPercent).toBe("5");
     expect(result.withinSaturation).toBe(false);
   });

@@ -889,6 +889,7 @@ describe("incentive award batches", () => {
       currency: "CNY",
       lines: [{ personId: MEMBER, amount: "-1" }],
     });
-    expect(negative.status).toBe(409);
+    // Input validation (not a domain conflict): 400 with field details.
+    expect(negative.status).toBe(400);
   });
 });

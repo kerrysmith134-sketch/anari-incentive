@@ -249,14 +249,22 @@ export function DashboardPage() {
           value={bounties.loading ? "…" : openBounties.length}
           detail={
             openBounties.length > 0
-              ? `${formatMoney(
-                  openBounties.reduce(
-                    (total, bounty) => total + Number(bounty.rewardAmount || 0),
-                    0,
+              ? Object.entries(
+                  openBounties.reduce<Record<string, number>>(
+                    (totals, bounty) => {
+                      const currency = bounty.currency || "CNY";
+                      totals[currency] =
+                        (totals[currency] ?? 0) +
+                        Number(bounty.rewardAmount || 0);
+                      return totals;
+                    },
+                    {},
                   ),
-                  openBounties[0]?.currency ?? "CNY",
-                  { compact: true },
-                )} committed`
+                )
+                  .map(([currency, total]) =>
+                    formatMoney(total, currency, { compact: true }),
+                  )
+                  .join(" · ")
               : "暂无进行中悬赏"
           }
           icon="rewards"

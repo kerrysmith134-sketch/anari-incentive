@@ -53,7 +53,7 @@ const DQ_COMMAND_COPY: Record<DqCommand, string> = {
   ASSIGN: "指派负责人",
   START: "开始整改",
   RESOLVE: "解决问题",
-  WAIVE: "Waive with approval",
+  WAIVE: "审批后豁免",
   REOPEN: "重新打开问题",
   ESCALATE: "Escalate",
 };
@@ -381,7 +381,7 @@ export function ExceptionsPage() {
           { id: "appeals", label: "申诉", count: appealList.length },
           {
             id: "recalculation",
-            label: "Recalculation",
+            label: "重新计算",
             count: recalcList.length,
           },
         ]}
@@ -546,7 +546,7 @@ export function ExceptionsPage() {
                         <td>
                           <Badge status={appeal.status} />
                           <span className="cell-sub">
-                            opened {formatRelative(appeal.createdAt)}
+                            开启于 {formatRelative(appeal.createdAt)}
                           </span>
                         </td>
                         <td
@@ -558,7 +558,7 @@ export function ExceptionsPage() {
                               : "nowrap"
                           }
                         >
-                          {appeal.dueAt ? formatDate(appeal.dueAt) : "No SLA"}
+                          {appeal.dueAt ? formatDate(appeal.dueAt) : "无时效"}
                         </td>
                         <td>
                           {appeal.reviewerPersonId

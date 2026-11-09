@@ -193,7 +193,7 @@ export function AgentOpsPage() {
           currentStep: workflowStep.trim() || undefined,
         },
       });
-      toast.success("Workflow run recorded", workflowName);
+      toast.success("工作流运行已记录", workflowName);
       setWorkflowOpen(false);
       workflows.reload();
     } catch (caught) {

@@ -218,7 +218,7 @@ export function AgentAssistant() {
         if (!reason) return;
         await api(`/api/v1/agent-tasks/${task.id}/reject`, {
           method: "POST",
-          body: { actionId: action.id, rejecterPersonId: approver, reason },
+          body: { actionId: action.id, approverPersonId: approver, reason },
         });
       }
       setMessages((current) => [

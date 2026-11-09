@@ -260,7 +260,7 @@ export function PolicyPage() {
           approvalRequestId: gateApprovalId.trim() || undefined,
         },
       });
-      toast.success("Legal gate recorded", selected?.code);
+      toast.success("法律门禁已记录", selected?.code);
       setGateOpen(false);
       readiness.reload();
     } catch (caught) {
@@ -393,7 +393,7 @@ export function PolicyPage() {
           requestedBy: session.personId,
         },
       });
-      toast.success("Rule change order created", rulePolicyCode);
+      toast.success("规则变更单已创建", rulePolicyCode);
       setRuleOpen(false);
       ruleChanges.reload();
     } catch (caught) {
@@ -455,7 +455,7 @@ export function PolicyPage() {
           acknowledgementRequired: noticeAckRequired,
         },
       });
-      toast.success("Notice published", noticeTitle);
+      toast.success("通知已发布", noticeTitle);
       setNoticeOpen(false);
       notices.reload();
     } catch (caught) {
@@ -670,7 +670,7 @@ export function PolicyPage() {
           audience: {},
         },
       });
-      toast.success("Notice linked to policy", shortId(linkNoticeId));
+      toast.success("通知已关联政策", shortId(linkNoticeId));
       setLinkOpen(false);
       policyNotices.reload();
     } catch (caught) {

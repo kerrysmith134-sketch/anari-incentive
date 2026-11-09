@@ -106,7 +106,10 @@ function normalizeAmount(value: string): string {
   const unsigned = negative ? value.slice(1) : value;
   const [whole, fraction = ""] = unsigned.split(".");
   const normalized = `${whole}.${(fraction + "000000").slice(0, 6)}`;
-  return negative ? `-${normalized}` : normalized;
+  // PostgreSQL numeric has no negative zero; hashing "-0.000000" would break
+  // the ledger chain the moment the value reads back as "0.000000".
+  const isZero = /^0+$/.test(normalized.replace(".", ""));
+  return negative && !isZero ? `-${normalized}` : normalized;
 }
 
 /** Human/API-facing amount: drop trailing zeros, e.g. 20520.000000 -> 20520. */
@@ -2724,7 +2727,9 @@ export class PgStore implements IncentiveStore {
     input: SettlementCommandInput,
   ): Promise<SettlementCommandResult> {
     return this.tx(async (client) => {
-      const batch = await this.loadSettlementBatch(client, id);
+      // Serialise commands on the batch row so two concurrent transitions
+      // cannot both validate against the same stale status.
+      const batch = await this.loadSettlementBatch(client, id, true);
       const transition = (to: SettlementBatch["status"]) =>
         assertTransition(
           settlementBatchTransitions,
@@ -2939,9 +2944,12 @@ export class PgStore implements IncentiveStore {
   private async loadSettlementBatch(
     client: PoolClient,
     id: string,
+    forUpdate = false,
   ): Promise<SettlementBatch> {
     const { rows } = await client.query(
-      `SELECT * FROM settlement_batches WHERE tenant_id=$1 AND id=$2`,
+      `SELECT * FROM settlement_batches WHERE tenant_id=$1 AND id=$2${
+        forUpdate ? " FOR UPDATE" : ""
+      }`,
       [this.tenantId, id],
     );
     if (!rows[0]) notFound("SettlementBatch", id);
@@ -3143,7 +3151,20 @@ export class PgStore implements IncentiveStore {
           WHERE tenant_id=$1 AND idempotency_key=$2`,
         [this.tenantId, input.idempotencyKey],
       );
-      if (existing.rows[0]) return this.mapLedger(existing.rows[0]);
+      if (existing.rows[0]) {
+        const replay = existing.rows[0];
+        // A reused key that points at a different entry (or is not a reversal
+        // of this one) must fail, not masquerade as a successful reversal.
+        if (
+          replay.entry_type !== "REVERSAL" ||
+          replay.source_entry_id !== id
+        ) {
+          throw new ConflictError(
+            "IDEMPOTENCY_KEY_REUSED: the idempotency key belongs to a different ledger entry",
+          );
+        }
+        return this.mapLedger(replay);
+      }
 
       const last = await client.query(
         `SELECT entry_hash FROM amount_ledger

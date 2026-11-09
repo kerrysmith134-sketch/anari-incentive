@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { buildApp } from "../app.js";
+import { buildApp, sanitizeAgentChatParams } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
 
@@ -63,6 +63,30 @@ async function call(
     },
   };
 }
+
+describe("agent-chat parameter whitelist", () => {
+  it("drops model-authored policy bodies and samples", () => {
+    const clean = sanitizeAgentChatParams("propose_policy_change", {
+      proposedPolicy: { poolRate: "99" },
+      samples: [{ personId: "p1", input: {} }],
+      rationale: "invented",
+      idempotencyKey: "chat-policy-1",
+    });
+    expect(clean).toEqual({ idempotencyKey: "chat-policy-1" });
+  });
+
+  it("keeps a valid run id and drops malformed ones", () => {
+    const runId = "00000000-0000-4000-8000-0000000000aa";
+    expect(
+      sanitizeAgentChatParams("check_settlement_readiness", { runId }),
+    ).toEqual({ runId });
+    expect(
+      sanitizeAgentChatParams("check_settlement_readiness", {
+        runId: "not-a-uuid",
+      }),
+    ).toEqual({});
+  });
+});
 
 describe("agent-chat (LLM intent parsing)", () => {
   it("maps an LLM-selected command onto the agent task state machine", async () => {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const PAGES: Array<{ path: string; heading: string }> = [
-  { path: "/console/", heading: "我的工作台" },
+  { path: "/console/", heading: "运营总览" },
   { path: "/console/approvals", heading: "审批" },
   { path: "/console/cycles", heading: "考核周期" },
   { path: "/console/contribution", heading: "贡献认定" },
@@ -46,7 +46,7 @@ test.describe("console shell", () => {
   test("renders the overview with brand logo and navigation", async ({ page }) => {
     await page.goto("/console/");
     await expect(
-      page.getByRole("heading", { level: 1, name: "我的工作台" }),
+      page.getByRole("heading", { level: 1, name: "运营总览" }),
     ).toBeVisible();
     const logo = page.locator('img[src="/brand/logo-icon.png"]');
     await expect(logo).toBeVisible();

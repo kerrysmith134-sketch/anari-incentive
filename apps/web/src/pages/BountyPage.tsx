@@ -39,10 +39,11 @@ export function BountyPage() {
   const toast = useToast();
   const { session } = useAuth();
   const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
-  const privileged =
-    identity.data?.roles.some((role) =>
-      ["admin", "manager", "finance"].includes(role),
-    ) ?? false;
+  const roles = identity.data?.roles ?? [];
+  const privileged = roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+  const isAdmin = roles.includes("admin");
   const bounties = useApiQuery<BountyView[]>("/api/v1/bounties");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -240,7 +241,7 @@ export function BountyPage() {
                           验收
                         </Button>
                       ) : null}
-                      {privileged &&
+                      {isAdmin &&
                       (bounty.status === "OPEN" || bounty.status === "CLAIMED") ? (
                         <Button
                           size="sm"

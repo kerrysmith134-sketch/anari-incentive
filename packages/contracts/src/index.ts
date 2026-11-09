@@ -2474,6 +2474,45 @@ export type PublicSignupBody = z.infer<typeof publicSignupSchema>;
  * Single source for documented request bodies. Add a schema here and the
  * generated contract manifest plus OpenAPI drift test pick it up.
  */
+const awardMoney = z
+  .string()
+  .regex(/^\d{1,14}(\.\d{1,6})?$/, "expected a positive decimal with <= 14 integer digits")
+  .refine((value) => Number(value) > 0, "must be greater than 0");
+
+export const createIncentiveAwardBatchSchema = z.object({
+  batchNo: z.string().min(1).max(64),
+  awardType: z.enum([
+    "BUSINESS_UNIT_COMMISSION",
+    "FUNCTIONAL_QUARTERLY_BONUS",
+    "ANNUAL_PROFIT_SHARING",
+    "MONTHLY_STAR",
+    "TECH_CENTER_AWARD",
+    "OVERSEAS_SALES_AWARD",
+    "BOUNTY_SETTLEMENT",
+    "MANUAL",
+  ]),
+  period: z.string().min(1).max(64),
+  cycleId: uuidSchema.optional(),
+  currency: z.string().length(3),
+  createdBy: uuidSchema.optional(),
+  sourceRecordIds: z.array(z.string().min(1).max(200)).max(1000).optional(),
+  lines: z
+    .array(
+      z.object({
+        personId: uuidSchema,
+        amount: awardMoney,
+        sourceRecordId: z.string().min(1).max(200).optional(),
+        sourceLineRef: z.string().min(1).max(200).optional(),
+        note: z.string().max(500).optional(),
+      }),
+    )
+    .min(1)
+    .max(5000),
+});
+export type CreateIncentiveAwardBatchBody = z.infer<
+  typeof createIncentiveAwardBatchSchema
+>;
+
 export const requestSchemaRegistry = {
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,

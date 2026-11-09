@@ -245,10 +245,10 @@ export function AuditPage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon="clock"
-            title={list.length === 0 ? "No audit event" : "无匹配"}
+            title={list.length === 0 ? "暂无审计事件" : "无匹配"}
             description={
               list.length === 0
-                ? "Sensitive commands such as policy publication, legal gates, calculation locks and settlement transitions append events here."
+                ? "政策发布、法律门禁、计算锁定与结算状态变更等敏感操作都会在这里追加审计事件。"
                 : "换个动作或清空搜索试试。"
             }
           />

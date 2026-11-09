@@ -398,8 +398,8 @@ export function PeoplePage() {
               <InfoNotice tone="warning">{actionError}</InfoNotice>
             ) : null}
             <InfoNotice>
-              关联中 <strong>{linkTarget.displayName}</strong> (
-              {linkTarget.employeeCode}) to a platform user id.
+              正在把 <strong>{linkTarget.displayName}</strong>（
+              {linkTarget.employeeCode}）关联到平台用户 ID。
             </InfoNotice>
             <FormField label="平台用户 ID" htmlFor="link-user-id">
               <TextInput
@@ -452,8 +452,9 @@ export function PeoplePage() {
               </Select>
             </FormField>
             <p className="muted" style={{ fontSize: 12 }}>
-              Updating manager for{" "}
-              <strong>{managerTarget.displayName}</strong>.
+              正在调整{" "}
+              <strong>{managerTarget.displayName}</strong>{" "}
+              的直属上级。
             </p>
           </div>
         ) : null}

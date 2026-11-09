@@ -29,7 +29,15 @@ export function calculateTiered(
   if (grossProfit < 0n) {
     throw new Error("Gross profit cannot be negative");
   }
-  const tiers = policy.tiers ?? [];
+  // Bracket math walks lowerBound forward, so unsorted or duplicated `upTo`
+  // values silently change the payout. Sort numerically; null (∞) last.
+  const tiers = [...(policy.tiers ?? [])].sort((left, right) => {
+    if (left.upTo === null) return right.upTo === null ? 0 : 1;
+    if (right.upTo === null) return -1;
+    const leftValue = parseDecimal(left.upTo);
+    const rightValue = parseDecimal(right.upTo);
+    return leftValue === rightValue ? 0 : leftValue < rightValue ? -1 : 1;
+  });
   if (tiers.length === 0) {
     throw new Error("TIERED policy requires at least one tier");
   }

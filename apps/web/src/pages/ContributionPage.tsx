@@ -227,7 +227,7 @@ export function ContributionPage() {
           !member.expectedOutput.trim(),
       )
     ) {
-      setFormError("Every member needs a person, responsibility and output.");
+      setFormError("每位成员都必须填写人员、职责和交付物。");
       return;
     }
     setSubmitting(true);
@@ -248,7 +248,7 @@ export function ContributionPage() {
           dueAt: dueAt ? toIsoDate(dueAt) : undefined,
         },
       });
-      toast.success("Work package created", title);
+      toast.success("工作包已创建", title);
       setCreateOpen(false);
       packages.reload();
     } catch (caught) {
@@ -309,14 +309,14 @@ export function ContributionPage() {
       }
       toast.success(
         kind === "commit"
-          ? "Package committed"
+          ? "工作包已提交承诺"
           : kind === "start"
-            ? "Work started"
+            ? "工作已开始"
             : kind === "submit"
-              ? "Package submitted"
+              ? "工作包已提交"
               : reviewDecision === "ACCEPT"
-                ? "Package accepted"
-                : "Package rejected",
+                ? "工作包已验收"
+                : "工作包已驳回",
         workPackage.title,
       );
       setPackageAction(null);
@@ -338,7 +338,7 @@ export function ContributionPage() {
   function openClaimForm() {
     if (claimablePackages.length === 0) {
       toast.error(
-        "No accepted work package",
+        "暂无已验收工作包",
         "发起申报前请先验收已提交的工作包。",
       );
       return;
@@ -642,7 +642,7 @@ export function ContributionPage() {
           comments: acceptComments.trim() || undefined,
         },
       });
-      toast.success("Deliverable reviewed", acceptTarget.title);
+      toast.success("交付物已验收", acceptTarget.title);
       setAcceptTarget(null);
       deliverables.reload();
     } catch (caught) {
@@ -682,7 +682,7 @@ export function ContributionPage() {
           submittedBy: session.personId,
         },
       });
-      toast.success("Evidence recorded", evidenceType);
+      toast.success("证据已登记", evidenceType);
       setEvidenceOpen(false);
       evidence.reload();
     } catch (caught) {
@@ -1390,7 +1390,7 @@ export function ContributionPage() {
                 id="package-criteria"
                 value={criteria}
                 onChange={(event) => setCriteria(event.target.value)}
-                placeholder={"Customer accepts the delivery\nEvidence attached for each milestone"}
+                placeholder={"客户验收交付\n每个里程碑均附证据"}
                 required
               />
             </FormField>
@@ -1509,13 +1509,13 @@ export function ContributionPage() {
                   label: "截止",
                   value: selectedPackage.dueAt
                     ? formatDate(selectedPackage.dueAt)
-                    : "No due date",
+                    : "无到期日",
                 },
                 {
                   label: "Commitment",
                   value: selectedPackage.commitmentSnapshot
                     ? `${shortId(selectedPackage.commitmentSnapshot.contentHash, 16)} · ${formatDateTime(selectedPackage.commitmentSnapshot.capturedAt)}`
-                    : "Not committed yet",
+                    : "尚未提交承诺",
                 },
               ]}
             />
@@ -1649,12 +1649,12 @@ export function ContributionPage() {
         title={
           packageAction
             ? packageAction.kind === "review"
-              ? "Review work package"
+              ? "验收工作包"
               : packageAction.kind === "commit"
                 ? "提交工作包承诺"
                 : packageAction.kind === "start"
                   ? "开始"
-                  : "Submit work package"
+                  : "提交工作包"
             : ""
         }
         description={
@@ -1748,7 +1748,7 @@ export function ContributionPage() {
                 {packageAction.kind === "commit"
                   ? "提交承诺会把目标、成员与验收标准冻结为快照。"
                   : packageAction.kind === "start"
-                    ? "Start execution once the package is committed."
+                    ? "提交承诺后即可开始执行。"
                     : "提交后工作包即可由负责人验收。"}
               </InfoNotice>
             )}

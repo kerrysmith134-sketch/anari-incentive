@@ -240,7 +240,7 @@ export function AiPage() {
       });
       setSummaryResult(response.summary);
       toast.success(
-        "Model summary generated",
+        "模型摘要已生成",
         "已记录为建议性 AI 建议；绝不进入资金路径。",
       );
     } catch (error) {
@@ -322,7 +322,7 @@ async function saveRefresh(event: FormEvent) {
           createdBy: redTeamCreator,
         },
       });
-      toast.success("Red-team run recorded");
+      toast.success("红队演练已记录");
       setRedTeamOpen(false);
       redTeam.reload();
     } catch (error) {
@@ -478,11 +478,11 @@ async function saveRefresh(event: FormEvent) {
         Number(independentScores[dimension]) > 5,
     );
     if (missing) {
-      setActionError("Score every dimension from 0 to 5 before revealing AI output.");
+      setActionError("在查看 AI 输出前，请先为每个维度打 0–5 分。");
       return;
     }
     if (independentRationale.trim().length < 3) {
-      setActionError("Record your independent rationale before revealing AI output.");
+      setActionError("在查看 AI 输出前，请先记录你的独立判断理由。");
       return;
     }
     setActionError(null);
@@ -538,7 +538,7 @@ async function saveRefresh(event: FormEvent) {
       );
       toast.success(
         "审计复核已记录",
-        "The second review is stored without changing the original decision.",
+        "第二次复核会单独留痕，不改变原决定。",
       );
       setAuditTarget(null);
       auditQueue.reload();
@@ -570,7 +570,7 @@ async function saveRefresh(event: FormEvent) {
     }
     if (selected.secondReviewRequired) {
       if (!secondReviewer) {
-        setActionError("Select a second reviewer for this high-risk proposal.");
+        setActionError("高风险提案必须选择第二位复核人。");
         return;
       }
       if (secondRationale.trim().length < 3) {
@@ -825,7 +825,7 @@ async function saveRefresh(event: FormEvent) {
                 )} override · ${formatPercent(
                   reviewMetrics.data.acceptanceRate,
                 )} accepted`
-              : "No review metrics yet"}
+              : "暂无评审指标"}
           </div>
         </div>
       </div>
@@ -908,7 +908,7 @@ async function saveRefresh(event: FormEvent) {
             ) : visible.length === 0 ? (
               <EmptyState
                 icon="ai"
-                title={statusFilter === "PENDING" ? "No proposal waiting" : "No proposal in this view"}
+                title={statusFilter === "PENDING" ? "暂无待处理提案" : "当前视图暂无提案"}
                 description="提案仅在模型评测通过后创建；采纳的评分归属到人工复核人。"
               />
             ) : (

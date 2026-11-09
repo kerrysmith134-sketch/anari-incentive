@@ -110,8 +110,13 @@ export function calculateEquityGrant(
   } else {
     grantPercent = mul(mul(positionBase, performance), tenure);
   }
+  const headroom = cap > existing ? cap - existing : ZERO;
+  const requestedGrant = grantPercent;
+  const withinSaturation = requestedGrant <= headroom;
+  // The engine must not hand out an over-cap grant: clamp to the remaining
+  // headroom so downstream awards cannot exceed the level's saturation cap.
+  grantPercent = withinSaturation ? requestedGrant : headroom;
   const cumulative = existing + grantPercent;
-  const withinSaturation = cumulative <= cap;
   return {
     positionBasePercent: formatDecimal(roundTo(positionBase, 4, "HALF_UP")),
     performanceCoefficient: formatDecimal(performance),

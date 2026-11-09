@@ -405,6 +405,12 @@ export interface TechCenterAwardInput {
   approvedAmount?: DecimalString;
   /** 个人贡献分配比例 0-1。 */
   personalShare?: DecimalString;
+  /** 月度 SLA 是否达标；提供 false 时不予发放。 */
+  slaMet?: boolean;
+  /** 客户满意度得分（百分制）；提供且 <90 时季度奖不予发放。 */
+  satisfactionScore?: DecimalString;
+  /** 团队卓越奖所需的半年度评审证据；提供 false 时不予发放。 */
+  halfYearEvidence?: boolean;
 }
 
 export interface TechCenterAwardResult {
@@ -448,6 +454,13 @@ export interface OverseasSalesAwardInput {
     | "QUARTERLY_CHAMPION"
     | "ANNUAL_CHAMPION";
   newCustomerCount?: number;
+  /**
+   * 达标新客户数：每个客户首单≥10 万元且回款周期≤50 天后再计入。
+   * 提供时优先于 newCustomerCount，使资格门禁可以被真实数据执行。
+   */
+  qualifiedNewCustomerCount?: number;
+  /** KA 客户是否满足行业前 50/地区头部资格；false 时不发放突破奖。 */
+  kaQualified?: boolean;
   annualCustomerOrderAmount?: DecimalString;
   firstSigning?: boolean;
   rank?: number;

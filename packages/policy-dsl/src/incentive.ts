@@ -30,6 +30,8 @@ import {
 
 const HUNDRED = parseDecimal("100");
 const ZERO = parseDecimal("0");
+const clamp = (value: bigint, lower: bigint, upper: bigint): bigint =>
+  value < lower ? lower : value > upper ? upper : value;
 
 /** 016 第六条：业务中心可分配贡献利润（DBCP）。 */
 export function calculateDbcp(input: DbcpStatementInput): DbcpStatementResult {
@@ -225,9 +227,12 @@ export function calculateBountySettlement(
     2,
     "HALF_UP",
   );
+  // Quality FAILED zeroes the current settlement, so `amount` cannot cap the
+  // recovery. The already-paid reward is the upper bound (never recover more
+  // than was actually paid).
   const recoverable =
     qualityCoefficient === 0n && input.paidAmount
-      ? min(parseDecimal(input.paidAmount), amount)
+      ? max(parseDecimal(input.paidAmount), ZERO)
       : ZERO;
   return {
     timeCoefficient: formatDecimal(timeCoefficient),
@@ -269,21 +274,50 @@ export function calculateTechCenterAward(
   const fixed = TECH_AWARD_FIXED[input.awardType];
   if (fixed) {
     gross = mul(parseDecimal(fixed), parseDecimal(quantity.toString()));
+    if (input.awardType === "SLA_MONTH" && input.slaMet === false) {
+      gross = ZERO;
+      note = "SLA 未达标，本月不计奖";
+    }
+    if (
+      input.awardType === "CUSTOMER_SATISFACTION_QUARTER" &&
+      input.satisfactionScore !== undefined &&
+      parseDecimal(input.satisfactionScore) < parseDecimal("90")
+    ) {
+      gross = ZERO;
+      note = "客户满意度低于 90%，季度奖不予发放";
+    }
+    if (
+      input.awardType === "TEAM_EXCELLENCE" &&
+      input.halfYearEvidence === false
+    ) {
+      gross = ZERO;
+      note = "缺少半年度评审证据，团队卓越奖不予发放";
+    }
   } else {
     switch (input.awardType) {
       case "CUSTOM_PROJECT": {
-        const rate = parseDecimal(input.approvedAmount ?? "30");
+        // 制度区间 30%-50%：低于下限按 30%，高于上限按 50%。
+        const rate = clamp(
+          parseDecimal(input.approvedAmount ?? "30"),
+          parseDecimal("30"),
+          parseDecimal("50"),
+        );
         gross = div(
-          mul(parseDecimal(input.baseAmount ?? "0"), min(rate, parseDecimal("50"))),
+          mul(parseDecimal(input.baseAmount ?? "0"), rate),
           HUNDRED,
         );
         note = "定制费 30%-50%，默认按下限 30%，由技术中心负责人核定";
         break;
       }
       case "COST_OPTIMIZATION": {
-        const rate = parseDecimal(input.approvedAmount ?? "1");
+        // 制度区间 1%-2%，上限 10000 元。
+        const rate = clamp(
+          parseDecimal(input.approvedAmount ?? "1"),
+          parseDecimal("1"),
+          parseDecimal("2"),
+        );
         gross = min(
-          div(mul(parseDecimal(input.baseAmount ?? "0"), min(rate, parseDecimal("2"))), HUNDRED),
+          div(mul(parseDecimal(input.baseAmount ?? "0"), rate), HUNDRED),
           parseDecimal("10000"),
         );
         cappable = true;
@@ -291,12 +325,20 @@ export function calculateTechCenterAward(
         break;
       }
       case "SOFTWARE_GA_STABLE": {
-        gross = parseDecimal(input.approvedAmount ?? "3000");
+        gross = clamp(
+          parseDecimal(input.approvedAmount ?? "3000"),
+          parseDecimal("3000"),
+          parseDecimal("5000"),
+        );
         note = "GA 稳定运行 30 天奖励 3000-5000 元，默认下限";
         break;
       }
       case "KNOWLEDGE_CONTRIBUTION": {
-        const perItem = parseDecimal(input.approvedAmount ?? "50");
+        const perItem = clamp(
+          parseDecimal(input.approvedAmount ?? "50"),
+          parseDecimal("50"),
+          parseDecimal("100"),
+        );
         gross = min(
           mul(perItem, parseDecimal(quantity.toString())),
           parseDecimal("1000"),
@@ -306,7 +348,11 @@ export function calculateTechCenterAward(
         break;
       }
       case "STRATEGIC_CUSTOMER_SUPPORT": {
-        gross = parseDecimal(input.approvedAmount ?? "1000");
+        gross = clamp(
+          parseDecimal(input.approvedAmount ?? "1000"),
+          parseDecimal("1000"),
+          parseDecimal("3000"),
+        );
         note = "1000-3000 元，需业务团队书面确认";
         break;
       }
@@ -410,13 +456,23 @@ export function calculateOverseasSalesAward(
   let gross = ZERO;
   let note: string | undefined;
   switch (input.awardType) {
-    case "NEW_CUSTOMER_STAR":
-      if ((input.newCustomerCount ?? 0) >= 8) {
+    case "NEW_CUSTOMER_STAR": {
+      // 达标客户数（首单≥10 万、回款≤50 天）优先；旧调用方仍可只传总数。
+      const qualified =
+        input.qualifiedNewCustomerCount ?? input.newCustomerCount ?? 0;
+      if (qualified >= 8) {
         gross = parseDecimal("10000");
-        note = "每季度成功开发 8 个及以上新客户（首单≥10 万元且回款周期≤50 天）";
+        note = "每季度成功开发 8 个及以上达标新客户（首单≥10 万元且回款周期≤50 天）";
+      } else if ((input.newCustomerCount ?? 0) >= 8) {
+        note = "新客户数量达到 8 个，但达标客户数不足（首单≥10 万、回款≤50 天）";
       }
       break;
+    }
     case "KA_BREAKTHROUGH": {
+      if (input.kaQualified === false) {
+        note = "未满足 KA 行业前 50/地区头部资格，不予发放突破奖";
+        break;
+      }
       const amount = parseDecimal(input.annualCustomerOrderAmount ?? "0");
       if (input.firstSigning && amount >= parseDecimal("10000000")) {
         gross = parseDecimal("50000");

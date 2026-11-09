@@ -353,8 +353,15 @@ export function scorePerformance(
   if (applicableWeightTotal <= 0n) {
     throw new Error("applicable metric weights must be positive");
   }
+  // Only a genuine N/A removal justifies renormalising. A weight set that is
+  // merely incomplete must not masquerade as an N/A evaluation.
   const renormalized =
-    applicableWeightTotal !== HUNDRED;
+    naMetricIds.length > 0 && applicableWeightTotal !== HUNDRED;
+  if (applicableWeightTotal !== HUNDRED && naMetricIds.length === 0) {
+    throw new Error(
+      `metric weights must total 100% (got ${formatDecimal(applicableWeightTotal)}) unless metrics are marked N/A`,
+    );
+  }
 
   let weightedScore = ZERO;
   for (const entry of applicableMetrics) {
@@ -427,7 +434,8 @@ export function calculateMonthlyPerformanceWage(
   );
   const standard = div(mul(parseDecimal(input.monthlyTotalWage), ratePercent), HUNDRED);
   const rawKp = div(parseDecimal(input.monthlyScore), HUNDRED);
-  const cappedKp = min(rawKp, parseDecimal("1.1"));
+  // Kp is a multiplier: a negative score must never turn into a negative wage.
+  const cappedKp = clamp(rawKp, ZERO, parseDecimal("1.1"));
   const payable = div(mul(standard, cappedKp), parseDecimal("1"));
   return {
     floatingRatePercent: formatDecimal(ratePercent),

@@ -63,17 +63,17 @@ const ACTION_COPY: Record<
     confirm: "批准批次",
   },
   pay: {
-    title: "Mark payroll paid",
+    title: "标记工资已发放",
     description:
       "银行代发执行后再标记已支付；之后仍可冲销。",
     confirm: "标记已支付",
     danger: true,
   },
   reverse: {
-    title: "Reverse payroll run",
+    title: "冲销工资批次",
     description:
-      "Reversal is an append-only correction. The reason is retained against the run.",
-    confirm: "Reverse run",
+      "冲销是追加式更正，原因会保留在批次上。",
+    confirm: "冲销批次",
     danger: true,
   },
   cancel: {
@@ -242,7 +242,7 @@ function RunsTab({
           preparedBy,
         },
       });
-      toast.success("Draft payroll run created", shortId(created.id));
+      toast.success("工资批次草稿已创建", shortId(created.id));
       setCreateOpen(false);
       onSelect(created.id);
       reload();
@@ -329,7 +329,7 @@ function RunsTab({
       );
     } catch (caught) {
       toast.error(
-        "Export failed",
+        "导出失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -346,7 +346,7 @@ function RunsTab({
       );
     } catch (caught) {
       toast.error(
-        "Payslip download failed",
+        "工资单下载失败",
         caught instanceof Error ? caught.message : undefined,
       );
     } finally {
@@ -531,7 +531,7 @@ function RunsTab({
                     },
                     selected.reversalReason
                       ? {
-                          label: "Reversal reason",
+                          label: "冲销原因",
                           value: selected.reversalReason,
                         }
                       : { label: "版本", value: `v${selected.version}` },
@@ -731,15 +731,15 @@ function RunsTab({
                                   tone={line.deductionCapPassed ? "success" : "danger"}
                                 >
                                   {line.deductionCapPassed
-                                    ? "Within deduction cap"
-                                    : "Deduction cap exceeded"}
+                                    ? "扣款上限内"
+                                    : "超出扣款上限"}
                                 </Badge>
                                 <Badge
                                   tone={line.variableSharePassed ? "success" : "danger"}
                                 >
                                   {line.variableSharePassed
-                                    ? "Variable share within cap"
-                                    : "Variable share exceeded"}
+                                    ? "浮动占比在上限内"
+                                    : "浮动占比超限"}
                                 </Badge>
                                 <Badge
                                   tone={
@@ -749,8 +749,8 @@ function RunsTab({
                                   }
                                 >
                                   {line.noticeAcknowledgementPassed
-                                    ? "Notices acknowledged"
-                                    : `Unacknowledged notices: ${
+                                    ? "通知已确认"
+                                    : `未确认通知：${
                                         line.noticeAcknowledgementMissing
                                           .length
                                       }`}
@@ -770,18 +770,18 @@ function RunsTab({
                                 ) : null}
                                 {line.deductionTypeCapPassed ? null : (
                                   <Badge tone="danger">
-                                    Type cap:{" "}
+                                    类型上限：{" "}
                                     {line.deductionTypeCapBreaches.join(", ")}
                                   </Badge>
                                 )}
                                 {line.smoothingPassed ? null : (
                                   <Badge tone="warning">
-                                    Smoothing:{" "}
+                                    平滑调整：{" "}
                                     {formatPercent(
                                       toNumber(line.incentiveChangeRate),
                                       0,
                                     )}{" "}
-                                    change
+                                    变动
                                   </Badge>
                                 )}
                               </div>
@@ -843,8 +843,8 @@ function RunsTab({
             htmlFor="run-cycle"
             hint={
               cycles.length === 0
-                ? "No cycle exists yet — paste an existing cycle UUID."
-                : "Links this settlement to a cycle."
+                ? "尚无考核周期，请粘贴已有周期 UUID。"
+                : "将结算关联到考核周期。"
             }
             className="field--full"
           >
@@ -961,7 +961,7 @@ function RunsTab({
                   value: `${formatDate(pendingAction.run.periodStart)} – ${formatDate(pendingAction.run.periodEnd)}`,
                 },
                 {
-                  label: "Current status",
+                  label: "当前状态",
                   value: <Badge status={pendingAction.run.status} />,
                 },
               ]}
@@ -972,7 +972,7 @@ function RunsTab({
                 htmlFor="run-approver"
                 hint={
                   pendingAction.run.preparedBy === approvedBy
-                    ? "This is the preparer — separation of duties will reject it."
+                    ? "这是编制人，职责分离会拒绝该操作。"
                     : "贡献认定将记录到该人员名下。"
                 }
               >
@@ -1121,7 +1121,7 @@ function ContractsTab({
           signerPersonId: esignSigner,
         },
       });
-      toast.success("E-sign envelope registered", esignRef);
+      toast.success("电子签信封已登记", esignRef);
       setEsignOpen(false);
       envelopes.reload();
     } catch (caught) {
@@ -1298,8 +1298,8 @@ function ContractsTab({
                   { method: "POST" },
                 );
                 toast.success(
-                  "Due amendments applied",
-                  `${applied.length} contract(s) updated`,
+                  "到期修订已应用",
+                  `已更新 ${applied.length} 份合同`,
                 );
                 reload();
               } catch (caught) {
@@ -2070,8 +2070,8 @@ function TaxStudio() {
       );
       setResult(calculated);
       toast.success(
-        "Tax estimate updated",
-        `Period withholding ${formatMoney(calculated.taxForPeriod, "CNY")}`,
+        "个税测算已更新",
+        `本期预扣 ${formatMoney(calculated.taxForPeriod, "CNY")}`,
       );
     } catch (caught) {
       setError(
@@ -2271,8 +2271,8 @@ function TaxStudio() {
                 </div>
               </div>
               <p className="subtle" style={{ fontSize: 11.5 }}>
-                Quick deduction {formatMoney(result.quickDeduction, "CNY")} ·
-                Estimate only; verify against the statutory filing before use.
+                速算扣除数 {formatMoney(result.quickDeduction, "CNY")} ·
+                仅供估算，使用前请以法定申报口径复核。
               </p>
             </div>
           ) : (

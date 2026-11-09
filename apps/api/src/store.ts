@@ -163,6 +163,7 @@ export class Store implements IncentiveStore {
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
   private readonly settlementExclusions = new Set<string>();
+  private readonly commandLocks = new Map<string, Promise<void>>();
   private readonly appeals = new Map<string, AppealCase>();
   private readonly recalculations = new Map<string, RecalculationRequest>();
   private readonly adjustmentRecords = new Map<string, AdjustmentRecord>();
@@ -909,7 +910,7 @@ export class Store implements IncentiveStore {
         subjectId: event.subjectId,
         sourceSystem: batch.sourceSystem,
         sourceUri: event.sourceUri,
-        observedAt: event.occurredAt,
+        observedAt: event.occurredAt ?? now(),
         qualityStatus: event.qualityStatus,
         normalizedPayload: event.payload,
       });
@@ -2003,7 +2004,38 @@ export class Store implements IncentiveStore {
     }));
   }
 
+  private async withCommandLock<T>(
+    key: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.commandLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.then(() => gate);
+    this.commandLocks.set(key, chained);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.commandLocks.get(key) === chained) {
+        this.commandLocks.delete(key);
+      }
+    }
+  }
+
   async commandSettlementBatch(
+    id: string,
+    input: SettlementCommandInput,
+  ): Promise<SettlementCommandResult> {
+    return this.withCommandLock(`settlement:${this.tenantId}:${id}`, () =>
+      this.commandSettlementBatchUnlocked(id, input),
+    );
+  }
+
+  private async commandSettlementBatchUnlocked(
     id: string,
     input: SettlementCommandInput,
   ): Promise<SettlementCommandResult> {

@@ -9015,6 +9015,13 @@ paths:
       tags: [Policy]
       summary: 计算绩效得分
       description: 按锁定指标与测量值计算综合得分、Kp 与 N/A 归一化结果
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9041,6 +9048,13 @@ paths:
       tags: [Policy]
       summary: 测算月度绩效工资
       description: 月度工资总额 × 职级比例 × 月度 Kp（上限 1.10）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9054,6 +9068,13 @@ paths:
       tags: [Policy]
       summary: 测算职能季度奖金
       description: 固定月工资 × 10% × Kq，S>100 才有资格
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9067,6 +9088,13 @@ paths:
       tags: [Policy]
       summary: 计算年度计分卡
       description: 20/30/20/30 加权，单项封顶 120，公司分封顶 105
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9080,6 +9108,13 @@ paths:
       tags: [Policy]
       summary: 测算年度利润分享
       description: P_y≥T_NP 且 P_y>0 时的池子与个人分配点数
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9093,6 +9128,13 @@ paths:
       tags: [Policy]
       summary: 评选月明星
       description: 排名第一、M-003 阈值、正向事件证据与严重违规校验
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9106,6 +9148,13 @@ paths:
       tags: [Policy]
       summary: 计算 M-001 有效闭环率
       description: 按任务等级权重、按期验收与证据从工作包取数
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9131,6 +9180,13 @@ paths:
       tags: [Policy]
       summary: 创建季度目标卡
       description: 校验指标权重合计 100% 并保存草稿
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9144,6 +9200,13 @@ paths:
       tags: [Policy]
       summary: 锁定季度目标卡
       description: 锁定后不得静默覆盖
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9157,6 +9220,13 @@ paths:
       tags: [Policy]
       summary: 核算 DBCP
       description: 毛利扣减业务费用、人工、分摊与 5% 管理计提及
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9170,6 +9240,13 @@ paths:
       tags: [Policy]
       summary: 核算业务中心提成
       description: 按 DBCP 利润率档位对净回款整体计提，不乘 Kp
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9183,6 +9260,13 @@ paths:
       tags: [Policy]
       summary: 核算执行总监管理补差
       description: G=DBCP×2%×K管理−M
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9196,6 +9280,13 @@ paths:
       tags: [Policy]
       summary: 核算业务中心内部份额
       description: R=B−M−G，比例合计 100%，未分配留存
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9209,6 +9300,13 @@ paths:
       tags: [Policy]
       summary: 核定悬赏金额
       description: 基础奖励 × 时间系数 × 质量系数 × 个人贡献比例
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9222,6 +9320,13 @@ paths:
       tags: [Policy]
       summary: 计算产品技术中心专项奖励
       description: 专利、技术突破、定制、降本、交付、SLA 等标准
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9235,6 +9340,13 @@ paths:
       tags: [Policy]
       summary: 计算产品技术中心季度池
       description: 业务提成 19% 池，岗位系数、项目贡献、绩效与负责人考核
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9248,6 +9360,13 @@ paths:
       tags: [Policy]
       summary: 计算海外销售奖励
       description: 开发明星、KA、重要客户、销冠与追回规则
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9261,6 +9380,13 @@ paths:
       tags: [Policy]
       summary: 计算四维配股
       description: 岗位基准 × 绩效系数 × 司龄系数与饱和检查
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9274,6 +9400,13 @@ paths:
       tags: [Policy]
       summary: 计算期权行权价
       description: 最近优先股价格 × (1−融资阶段折扣率)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9287,6 +9420,13 @@ paths:
       tags: [Policy]
       summary: 测算归属进度
       description: 4 年、1 年 cliff、按月 1/48 与加速条款
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9300,6 +9440,13 @@ paths:
       tags: [Policy]
       summary: 测算股权回购
       description: 情形矩阵、公允价值三级、流动性折扣与最低价
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9313,6 +9460,13 @@ paths:
       tags: [Policy]
       summary: 生成 Cap Table 快照
       description: 累计授予、池剩余与岗位等级饱和度
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9326,6 +9480,13 @@ paths:
       tags: [Policy]
       summary: 测算股权激励税负
       description: 递延纳税备案与未备案两种口径
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9351,6 +9512,13 @@ paths:
       tags: [Policy]
       summary: 创建股权授予流程
       description: 从资格审核开始，记录工具、岗位、融资阶段与授予参数
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9364,6 +9532,13 @@ paths:
       tags: [Policy]
       summary: 推进股权授予流程
       description: 按顺序推进并校验股东会决议、协议、配偶确认、税务备案与台账
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9402,6 +9577,13 @@ paths:
       tags: [Policy]
       summary: 发起任务组
       description: 人人可发起，发起人对结果负责，AI 成员需已登记
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9428,6 +9610,13 @@ paths:
       tags: [Policy]
       summary: 变更任务组状态
       description: 开始、完成、解散或转入下一任务
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9453,6 +9642,13 @@ paths:
       tags: [Policy]
       summary: 登记 AI 成员
       description: 登记名称、角色、版本与职责
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9491,6 +9687,13 @@ paths:
       tags: [Policy]
       summary: 提交个人任务清单
       description: 校验人/AI/人机协同标注与 AI 化改造对象
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9504,6 +9707,13 @@ paths:
       tags: [Policy]
       summary: 变更任务清单状态
       description: 提交、验收或退回任务清单
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9531,6 +9741,13 @@ paths:
       tags: [Policy]
       summary: 创建制度激励发放批次
       description: 将政策计算结果转为可审批、锁定、导出的应付批次
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9557,6 +9774,13 @@ paths:
       tags: [Policy]
       summary: 推进制度激励发放批次
       description: 提交、审批、锁定、导出、回执或取消
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9603,6 +9827,13 @@ paths:
     put:
       tags: [Payroll]
       summary: 保存法定扣款类型与上限
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9622,6 +9853,13 @@ paths:
     put:
       tags: [Payroll]
       summary: 保存执行令/员工同意依据
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9660,6 +9898,13 @@ paths:
       tags: [Policy]
       summary: 保存导出DLP规则
       description: 校验正则并写入租户设置
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9763,6 +10008,13 @@ paths:
       tags: [Policy]
       summary: 创建标注任务
       description: 分派样本给标注人并设置截止
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9776,6 +10028,13 @@ paths:
       tags: [Policy]
       summary: 完成标注任务
       description: 记录评分与仲裁人
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9801,6 +10060,13 @@ paths:
       tags: [Policy]
       summary: 创建训练运行
       description: 登记数据集、基础模型与提示词版本
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9814,6 +10080,13 @@ paths:
       tags: [Policy]
       summary: 训练回调
       description: 记录成功/失败、指标与制品引用
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功
@@ -9827,6 +10100,13 @@ paths:
       tags: [Agent]
       summary: 智能指令台（无 LLM）
       description: 命令映射到既有 skill 任务；T0-T2 自动执行，T3 等待人工批准
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "201":
           description: 成功
@@ -9849,6 +10129,13 @@ paths:
       tags: [Agent]
       summary: 对话式意图解析（LLM）
       description: LLM 只做命令选择与人话回复；命令必须命中白名单，执行走任务状态机
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         "200":
           description: 成功

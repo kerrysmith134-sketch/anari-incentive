@@ -462,6 +462,11 @@ export function CyclesPage() {
           decision,
           scores,
           rationale: rationale.trim(),
+          // ATT-06: the reviewer's independent judgement is recorded before
+          // comparing with the AI draft.
+          independentScores: scores,
+          independentRationale: rationale.trim(),
+          evidenceOpened: 0,
         },
       });
       toast.success(

@@ -364,8 +364,8 @@ export function ApprovalsPage() {
                         <span>{formatRelative(request.createdAt)}</span>
                         <span className="cell-sub">
                           {request.expiresAt
-                            ? `Expires ${formatDateTime(request.expiresAt)}`
-                            : "No expiry"}
+                            ? `到期 ${formatDateTime(request.expiresAt)}`
+                            : "无到期时间"}
                         </span>
                       </td>
                       <td>
@@ -393,7 +393,7 @@ export function ApprovalsPage() {
                           </Button>
                         ) : (
                           <span className="subtle">
-                            {request.consumedAt ? "Consumed" : "—"}
+                            {request.consumedAt ? "已消费" : "—"}
                           </span>
                         )}
                       </td>
@@ -411,7 +411,7 @@ export function ApprovalsPage() {
         title="复核审批请求"
         description={
           selected
-            ? `${titleCase(selected.actionType)} · ${selected.riskTier} risk`
+            ? `${titleCase(selected.actionType)} · 风险 ${selected.riskTier}`
             : undefined
         }
         onClose={() => setSelected(null)}
@@ -468,7 +468,7 @@ export function ApprovalsPage() {
               <div className="detail-section__title">历史决策</div>
               {decisions.loading ? (
                 <div className="loading-inline">
-                  <span className="spinner" /> Loading decisions…
+                  <span className="spinner" /> 正在加载决策…
                 </div>
               ) : decisions.data && decisions.data.length > 0 ? (
                 <div className="stack" style={{ gap: 8 }}>
@@ -565,8 +565,7 @@ export function ApprovalsPage() {
               ]}
             />
             <InfoNotice>
-              Only consume this approval when you are executing the matching
-              action now. The backend will reject a mismatched target or version.
+              仅在你当下就要执行对应动作时消费该审批；目标或版本不匹配时后端会拒绝。
             </InfoNotice>
           </div>
         ) : null}

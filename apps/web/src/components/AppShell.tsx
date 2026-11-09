@@ -53,9 +53,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         ...group,
         items: group.items.filter(
           (item) =>
-            roles.length === 0 ||
             !item.allowed ||
-            item.allowed.some((role) => roles.includes(role)),
+            // Fail closed: until the identity call succeeds we must not show
+            // restricted navigation (a failed load used to reveal every item).
+            (roles.length > 0 &&
+              item.allowed.some((role) => roles.includes(role))),
         ),
       })).filter((group) => group.items.length > 0),
     [roles.join(",")], // eslint-disable-line react-hooks/exhaustive-deps

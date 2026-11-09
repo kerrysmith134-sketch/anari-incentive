@@ -85,10 +85,12 @@ export function EquityPage() {
   const toast = useToast();
   const { session } = useAuth();
   const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
-  const privileged =
-    identity.data?.roles.some((role) =>
-      ["admin", "manager", "finance"].includes(role),
-    ) ?? false;
+  const roles = identity.data?.roles ?? [];
+  const privileged = roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+  const isAdmin = roles.includes("admin");
+  const canSettle = isAdmin || roles.includes("finance");
   const grants = useApiQuery<EquityGrantView[]>("/api/v1/equity-grants");
   const exercises = useApiQuery<ExerciseView[]>("/api/v1/equity-exercises");
   const grantCases = useApiQuery<PolicyRecordView<GrantCasePayload>[]>(
@@ -337,7 +339,7 @@ export function EquityPage() {
           <Panel
             title="授予台账"
             action={
-              privileged ? (
+              isAdmin ? (
                 <Button onClick={() => setGrantOpen(true)}>新建授予</Button>
               ) : null
             }
@@ -441,7 +443,7 @@ export function EquityPage() {
                       </td>
                       <td className="cell-actions">
                         <div className="row-actions">
-                          {privileged && exercise.status === "PENDING" ? (
+                          {isAdmin && exercise.status === "PENDING" ? (
                             <Button
                               size="sm"
                               variant="secondary"
@@ -450,7 +452,7 @@ export function EquityPage() {
                               批准
                             </Button>
                           ) : null}
-                          {privileged && exercise.status === "APPROVED" ? (
+                          {canSettle && exercise.status === "APPROVED" ? (
                             <Button
                               size="sm"
                               variant="primary"

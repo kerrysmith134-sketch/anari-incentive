@@ -228,6 +228,7 @@ describe("rounds 153–155: pre-review + advance gates integration", () => {
 describe("rounds 156–158: calculation runs from ingested orders", () => {
   const order = {
     sourceRecordId: `crm-order-${Date.now()}`,
+    occurredAt: "2026-10-15T00:00:00.000Z",
     eventType: "ORDER_UPDATED",
     subjectType: "WORK_PACKAGE",
     subjectId: CYCLE,

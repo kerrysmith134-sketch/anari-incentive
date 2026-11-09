@@ -97,6 +97,7 @@ export function CommissionPage() {
   // 新建计算
   const [runOpen, setRunOpen] = useState(false);
   const [runCycle, setRunCycle] = useState("");
+  const [runPackage, setRunPackage] = useState("");
   const [runPolicy, setRunPolicy] = useState("");
   const [runMode, setRunMode] = useState<"SHADOW" | "FORMAL">("SHADOW");
   const [orderId, setOrderId] = useState("");
@@ -176,6 +177,10 @@ export function CommissionPage() {
 
   async function createRun(event: FormEvent) {
     event.preventDefault();
+    if (!runPackage) {
+      setRunError("必须选择已验收的工作包：提成认定需要真实的归属对象。");
+      return;
+    }
     setRunError(null);
     setSavingRun(true);
     try {
@@ -193,7 +198,7 @@ export function CommissionPage() {
           participants: [
             {
               personId: participant,
-              workPackageId: runCycle,
+              workPackageId: runPackage,
               attributionWeight: weight,
               role: "OWNER",
             },
@@ -444,7 +449,7 @@ export function CommissionPage() {
                 participants: [
                   {
                     personId: simPerson,
-                    workPackageId: runCycle || cycleList[0]?.id,
+                    workPackageId: runPackage || acceptedPackages[0]?.id || "",
                     attributionWeight: simWeight,
                     role: "OWNER",
                   },
@@ -1110,6 +1115,25 @@ export function CommissionPage() {
               {cycleList.map((cycle) => (
                 <option key={cycle.id} value={cycle.id}>
                   {cycle.name ?? cycle.id.slice(0, 8)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField
+            label="工作包"
+            htmlFor="run-package"
+            hint="提成必须归属到已验收的工作包"
+          >
+            <Select
+              id="run-package"
+              value={runPackage}
+              onChange={(event) => setRunPackage(event.target.value)}
+              required
+            >
+              <option value="">选择已验收工作包…</option>
+              {acceptedPackages.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
                 </option>
               ))}
             </Select>

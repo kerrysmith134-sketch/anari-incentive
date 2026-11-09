@@ -578,7 +578,7 @@ export function SettingsPage() {
             })),
         },
       });
-      toast.success("Data source registered", "The data map has been refreshed.");
+      toast.success("数据源已登记", "数据映射已刷新。");
       setSourceOpen(false);
       resetDataSourceForm();
       dataMap.reload();
@@ -666,7 +666,7 @@ export function SettingsPage() {
             })),
         },
       });
-      toast.success("Trust survey created", "Open it when the questions are ready.");
+      toast.success("信任度调研已创建", "题目准备好后即可发布。");
       setSurveyOpen(false);
       trustSurveys.reload();
     } catch (error) {
@@ -807,7 +807,7 @@ export function SettingsPage() {
           body: { approvedBy: session.personId },
         },
       );
-      toast.success("Retention disposal approved");
+      toast.success("留存销毁已批准");
       disposals.reload();
     } catch (error) {
       toast.error(
@@ -885,7 +885,7 @@ export function SettingsPage() {
           approvedBy: policyApprover,
         },
       });
-      toast.success("Provider policy recorded");
+      toast.success("模型供应商政策已记录");
       setPolicyOpen(false);
       providerPolicies.reload();
     } catch (error) {
@@ -905,7 +905,7 @@ export function SettingsPage() {
       await api(`/api/v1/model-provider-policies/${policy.id}/retire`, {
         method: "POST",
       });
-      toast.success("Provider policy retired");
+      toast.success("模型供应商政策已停用");
       providerPolicies.reload();
     } catch (error) {
       toast.error(
@@ -952,7 +952,7 @@ export function SettingsPage() {
           },
         },
       );
-      toast.success("Discretionary review recorded");
+      toast.success("酌情评审已记录");
       setPoolReviewOpen(false);
       poolReviews.reload();
     } catch (error) {
@@ -1061,17 +1061,17 @@ export function SettingsPage() {
         body: { actorPersonId: session.personId },
       });
       toast.success(
-        "Disposals processed",
-        `${result.processedCount} completed${
+        "销毁处理完成",
+        `已完成 ${result.processedCount} 项${
           result.skipped.length > 0
-            ? `, ${result.skipped.length} skipped (legal hold or guards)`
+            ? `，跳过 ${result.skipped.length} 项（法务保全或门禁）`
             : ""
         }`,
       );
       disposals.reload();
     } catch (error) {
       toast.error(
-        "Could not process disposals",
+        "处理销毁失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -1225,7 +1225,7 @@ export function SettingsPage() {
           consentSignatureRef: pilotConsent.trim(),
         },
       });
-      toast.success("Pilot enrollment recorded");
+      toast.success("试点登记已记录");
       setPilotOpen(false);
       pilots.reload();
     } catch (error) {
@@ -1249,7 +1249,7 @@ export function SettingsPage() {
           reason: "Voluntary withdrawal from the console",
         },
       });
-      toast.success("Pilot enrollment withdrawn");
+      toast.success("试点登记已撤回");
       pilots.reload();
     } catch (error) {
       toast.error(
@@ -1331,7 +1331,7 @@ export function SettingsPage() {
           notes: calibrationNotes.trim() || undefined,
         },
       });
-      toast.success("Calibration session recorded");
+      toast.success("校准会已记录");
       setCalibrationOpen(false);
       calibrations.reload();
     } catch (error) {

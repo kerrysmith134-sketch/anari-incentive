@@ -67,6 +67,14 @@ const STATUS_ACTIONS: Record<string, Array<[string, string]>> = {
 export function AwardBatchPage() {
   useDocumentTitle("奖励发放");
   const toast = useToast();
+  const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
+  const roles = identity.data?.roles ?? [];
+  const canCreate = roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+  const canFinance = roles.some((role) =>
+    ["admin", "finance"].includes(role),
+  );
   const batches = useApiQuery<AwardBatchView[]>(
     "/api/v1/incentive-award-batches",
   );
@@ -205,7 +213,8 @@ export function AwardBatchPage() {
       />
 
       <div className="stack">
-        <Panel title="新建发放批次">
+        {canCreate ? (
+      <Panel title="新建发放批次">
           <form onSubmit={createBatch}>
             <div className="form-grid">
               <FormField label="批次号">
@@ -315,6 +324,7 @@ export function AwardBatchPage() {
             </div>
           </form>
         </Panel>
+      ) : null}
 
         <Panel title="发放批次台账" flush>
           {batches.loading ? (
@@ -365,7 +375,8 @@ export function AwardBatchPage() {
                       <td className="nowrap">{formatDateTime(batch.createdAt)}</td>
                       <td className="cell-actions">
                         <div className="row-actions">
-                          {(STATUS_ACTIONS[batch.status] ?? []).map(
+                          {canFinance &&
+                            (STATUS_ACTIONS[batch.status] ?? []).map(
                             ([action, label]) => (
                               <Button
                                 key={action}
@@ -378,7 +389,7 @@ export function AwardBatchPage() {
                               </Button>
                             ),
                           )}
-                          {batch.status === "EXPORTED" ? (
+                          {canFinance && batch.status === "EXPORTED" ? (
                             <>
                               <Button
                                 size="sm"
