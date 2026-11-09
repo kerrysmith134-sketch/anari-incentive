@@ -77,11 +77,18 @@ if (!process.env.SESSION_SECRET && process.env.AUTH_MODE !== "oidc") {
     "[config] SESSION_SECRET 未设置：使用开发默认会话密钥（仅限本地/演示，生产请配置）",
   );
 }
+/**
+ * REQUIRE_SESSION_TOKEN=true：只认本机签发的会话 JWT，丢弃可伪造的
+ * X-Tenant-Id / X-User-Id 开发身份。公网暴露的部署必须打开。
+ */
+const requireSessionToken = process.env.REQUIRE_SESSION_TOKEN === "true";
 const authenticator = sessionSecret
-  ? new CompositeAuthenticator([
-      new SessionAuthenticator(sessionSecret),
-      primaryAuthenticator,
-    ])
+  ? requireSessionToken
+    ? new CompositeAuthenticator([new SessionAuthenticator(sessionSecret)])
+    : new CompositeAuthenticator([
+        new SessionAuthenticator(sessionSecret),
+        primaryAuthenticator,
+      ])
   : primaryAuthenticator;
 
 const createRuntime: AgentRuntimeFactory | undefined = pool

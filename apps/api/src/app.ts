@@ -2072,8 +2072,16 @@ export function buildApp(
     // Browser OAuth redirects; the callback validates one-time state itself.
     if (request.url.startsWith("/api/v1/auth/")) return;
     try {
+      // 反向代理（nginx basic-auth 等）会改写/吃掉 Authorization 头，
+      // 因此同时接受 x-session-token，两者等价。
+      const sessionHeader = request.headers["x-session-token"];
+      const bearer =
+        request.headers.authorization ??
+        (typeof sessionHeader === "string" && sessionHeader.length > 0
+          ? `Bearer ${sessionHeader}`
+          : undefined);
       request.authContext = await authenticator.authenticate({
-        authorization: request.headers.authorization,
+        authorization: bearer,
         tenantId: request.headers["x-tenant-id"] as string | undefined,
         userId: request.headers["x-user-id"] as string | undefined,
         personId: request.headers["x-person-id"] as string | undefined,
