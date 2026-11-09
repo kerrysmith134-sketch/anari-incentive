@@ -59,8 +59,10 @@ export function resolveLlmConfigFromEnv(env: NodeJS.ProcessEnv = process.env): L
     throw new Error("LLM_PROVIDER=custom 时必须配置 LLM_BASE_URL");
   }
   const preset = provider === "custom" ? undefined : LLM_PRESETS[provider];
-  const baseUrl = env.LLM_BASE_URL ?? preset?.baseUrl;
-  const model = env.LLM_MODEL ?? preset?.defaultModel;
+  // 空字符串要按“未配置”处理：compose 里 ${VAR:-} 默认给的就是空串，
+  // 用 ?? 会让空串盖掉预设值，随后 baseUrl/model 为空直接抛错把 API 拖崩。
+  const baseUrl = env.LLM_BASE_URL || preset?.baseUrl;
+  const model = env.LLM_MODEL || preset?.defaultModel;
   if (!baseUrl || !model) {
     throw new Error("LLM_BASE_URL / LLM_MODEL 缺失");
   }
