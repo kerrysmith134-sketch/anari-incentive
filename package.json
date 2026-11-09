@@ -36,7 +36,8 @@
     "start": "tsx apps/api/src/server.ts",
     "start:worker": "npm run worker",
     "anchor:export": "tsx scripts/anchor-export.ts",
-    "user:password": "tsx scripts/set-password.ts"
+    "user:password": "tsx scripts/set-password.ts",
+    "policy:acceptance": "tsx scripts/policy-acceptance.ts"
   },
   "engines": {
     "node": ">=20"

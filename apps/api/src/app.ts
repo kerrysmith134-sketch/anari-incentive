@@ -265,6 +265,7 @@ import {
   calculateOptionStrikePrice,
   calculateOverseasSalesAward,
   calculateRepurchase,
+  calculateTaskClosureRate,
   calculateTechCenterAward,
   calculateTechCenterPool,
   calculateVestingSchedule,
@@ -13109,6 +13110,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           weight: formatDecimal(weight),
           status: workPackage.status,
           dueAt: due,
+          acceptedAt: accepted ? workPackage.updatedAt : undefined,
           hasEvidence,
           validClosure: accepted && onTime && hasEvidence,
           reason: !accepted
@@ -13120,31 +13122,24 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
                 : undefined,
         };
       });
-    const requiredWeight = tasks.reduce(
-      (total, task) => total + parseDecimal(task.weight),
-      0n,
+    const closure = calculateTaskClosureRate(
+      tasks.map((task) => ({
+        weight: task.weight,
+        status: task.status,
+        dueAt: task.dueAt,
+        acceptedAt: task.acceptedAt,
+        hasEvidence: task.hasEvidence,
+      })),
     );
-    const qualifiedWeight = tasks
-      .filter((task) => task.validClosure)
-      .reduce((total, task) => total + parseDecimal(task.weight), 0n);
-    const rate =
-      requiredWeight === 0n
-        ? "0"
-        : formatDecimal(
-            div(mul(qualifiedWeight, parseDecimal("100")), requiredWeight),
-          );
     const result = {
       personId,
       startsAt,
       endsAt,
       taskCount: tasks.length,
-      requiredWeight: formatDecimal(requiredWeight),
-      qualifiedWeight: formatDecimal(qualifiedWeight),
-      closureRate: rate,
-      note:
-        requiredWeight === 0n
-          ? "当期无应完成任务，M-001 记 N/A，不得直接记 0"
-          : undefined,
+      requiredWeight: closure.requiredWeight,
+      qualifiedWeight: closure.qualifiedWeight,
+      closureRate: closure.rate,
+      note: closure.note,
       tasks,
     };
     const record = await platformStore.savePolicyEngineRecord({
@@ -13153,7 +13148,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       personId,
       period:
         typeof body.period === "string" ? body.period : undefined,
-      status: requiredWeight === 0n ? "NA" : "COMPUTED",
+      status: closure.requiredWeight === "0" ? "NA" : "COMPUTED",
       payload: result,
     });
     return data({ ...result, recordId: record.id }, request);

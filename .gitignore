@@ -12,3 +12,6 @@ coverage/
 # Playwright
 test-results/
 playwright-report/
+
+# generated acceptance reports
+reports/

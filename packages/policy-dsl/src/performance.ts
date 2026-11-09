@@ -29,6 +29,52 @@ import {
 } from "./decimal.js";
 import { sha256 } from "./hash.js";
 
+
+/**
+ * M-001：任务按期有效闭环率 = 按期验收通过任务权重和 ÷ 应完成任务权重和。
+ * 只有“已验收 + 按期 + 有可核验证据”计入有效闭环；无任务时返回 N/A 提示。
+ */
+export function calculateTaskClosureRate(
+  tasks: Array<{
+    weight: string;
+    status: string;
+    dueAt: string;
+    acceptedAt?: string;
+    hasEvidence: boolean;
+  }>,
+): {
+  requiredWeight: string;
+  qualifiedWeight: string;
+  rate: string;
+  note?: string;
+} {
+  let requiredWeight = ZERO;
+  let qualifiedWeight = ZERO;
+  for (const task of tasks) {
+    const weight = parseDecimal(task.weight);
+    requiredWeight += weight;
+    const accepted = task.status === "ACCEPTED";
+    const onTime = accepted && Boolean(task.acceptedAt) && task.acceptedAt! <= task.dueAt;
+    if (accepted && onTime && task.hasEvidence) {
+      qualifiedWeight += weight;
+    }
+  }
+  return {
+    requiredWeight: formatDecimal(requiredWeight),
+    qualifiedWeight: formatDecimal(qualifiedWeight),
+    rate:
+      requiredWeight === 0n
+        ? "0"
+        : formatDecimal(
+            div(mul(qualifiedWeight, HUNDRED), requiredWeight),
+          ),
+    note:
+      requiredWeight === 0n
+        ? "当期无应完成任务，M-001 记 N/A，不得直接记 0"
+        : undefined,
+  };
+}
+
 export const PERFORMANCE_CYCLE_CAPS: Record<PerformancePeriod, string> = {
   MONTHLY: "110",
   QUARTERLY: "150",
