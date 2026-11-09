@@ -3216,7 +3216,7 @@ export class PgStore implements IncentiveStore {
       explanation: string;
       approvedBy: string;
       idempotencyKey: string;
-      entryType?: "ADJUSTMENT" | "REVERSAL";
+      entryType?: "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
     return this.tx(async (client) => {

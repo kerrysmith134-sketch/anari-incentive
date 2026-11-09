@@ -6666,6 +6666,9 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         explanation: `Clawback case ${clawback.id}: ${clawback.reasonCode}`,
         approvedBy: clawback.approvedBy ?? request.authContext!.userId,
         idempotencyKey,
+        // Typed RECOVERY, not ADJUSTMENT: payslips must label it as a clawback
+        // and RECOVERY-specific priority/cap rules must bind.
+        entryType: "RECOVERY",
       },
     );
     let batch = null;
