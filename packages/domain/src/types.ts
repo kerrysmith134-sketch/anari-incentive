@@ -537,6 +537,15 @@ export interface ClawbackCase {
   cancelReason?: string;
   createdAt: string;
   updatedAt: string;
+  /** Reviewer view: where the generated recovery currently sits. */
+  recovery?: {
+    ledgerEntryId: string;
+    amount: string;
+    batchId: string | null;
+    batchNo: string | null;
+    batchStatus: string | null;
+    waivedReversalEntryId: string | null;
+  } | null;
 }
 
 export type BreakGlassScope = "PAYROLL_BANK_ACCOUNT";

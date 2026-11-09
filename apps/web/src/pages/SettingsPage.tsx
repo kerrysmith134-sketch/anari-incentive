@@ -3778,6 +3778,12 @@ export function SettingsPage() {
                     <td className="cell-num">{clawback.installmentMonths}</td>
                     <td>
                       <Badge status={clawback.status} />
+                      {clawback.recovery?.batchNo ? (
+                        <span className="cell-sub">
+                          {clawback.recovery.batchNo} ·{" "}
+                          {clawback.recovery.batchStatus ?? "待分批"}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="cell-actions">
                       <div className="row-actions">
@@ -3964,6 +3970,11 @@ export function SettingsPage() {
       <Modal
         open={Boolean(waiveTarget)}
         title="豁免追回"
+        description={
+          waiveTarget?.recovery
+            ? `该案已生成追回（批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将冲销一笔 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定则会被拒绝。`
+            : "该案尚未生成追回；豁免只关闭案件，不影响账本。"
+        }
         onClose={() => setWaiveTarget(null)}
         footer={
           <>

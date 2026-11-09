@@ -6293,13 +6293,50 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.get("/api/v1/clawback-cases", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { personId?: string };
-    return data(
-      await platformStore.listClawbackCases(
-        tenantOf(request),
-        query.personId,
-      ),
-      request,
+    const cases = await platformStore.listClawbackCases(
+      tenantOf(request),
+      query.personId,
     );
+    // Reviewers need to see whether a case already produced a recovery and
+    // where that deduction currently sits before waiving anything.
+    const store = storeFor(request);
+    const ledger = await store.listLedger();
+    const batches = await store.listSettlementBatches();
+    const linesByBatch = new Map(
+      await Promise.all(
+        batches.map(
+          async (batch) =>
+            [batch.id, await store.listSettlementLines(batch.id)] as const,
+        ),
+      ),
+    );
+    const enriched = cases.map((clawback) => {
+      const recovery = ledger.find(
+        (entry) =>
+          entry.idempotencyKey === `clawback-recovery:${clawback.id}`,
+      );
+      if (!recovery) return clawback;
+      const batch = batches.find((candidate) =>
+        (linesByBatch.get(candidate.id) ?? []).some(
+          (line) => line.ledgerId === recovery.id,
+        ),
+      );
+      return {
+        ...clawback,
+        recovery: {
+          ledgerEntryId: recovery.id,
+          amount: recovery.amount,
+          batchId: batch?.id ?? null,
+          batchNo: batch?.batchNo ?? null,
+          batchStatus: batch?.status ?? null,
+          waivedReversalEntryId:
+            ledger.find(
+              (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
+            )?.id ?? null,
+        },
+      };
+    });
+    return data(enriched, request);
   });
 
   app.post("/api/v1/clawback-cases/:id/approve", async (request) => {
