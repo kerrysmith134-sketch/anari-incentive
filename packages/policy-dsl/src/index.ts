@@ -11,3 +11,7 @@ export * from "./simulate.js";
 export * from "./evaluation.js";
 export * from "./diff.js";
 export * from "./tiered-team.js";
+export * from "./performance.js";
+export * from "./incentive.js";
+export * from "./equity.js";
+export * from "./task-pod.js";

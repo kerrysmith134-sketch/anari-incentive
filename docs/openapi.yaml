@@ -8996,6 +8996,523 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+# 2026 institutional policy set
+  /api/v1/policy/performance/templates:
+    get:
+      tags: [Policy]
+      summary: 绩效指标模板
+      description: 返回月度/季度/年度指标模板
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/score:
+    post:
+      tags: [Policy]
+      summary: 计算绩效得分
+      description: 按锁定指标与测量值计算综合得分、Kp 与 N/A 归一化结果
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/scores:
+    get:
+      tags: [Policy]
+      summary: 查询绩效评分记录
+      description: 按人员、周期、状态查询制度计算留痕
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/monthly-wage:
+    post:
+      tags: [Policy]
+      summary: 测算月度绩效工资
+      description: 月度工资总额 × 职级比例 × 月度 Kp（上限 1.10）
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/functional-quarterly-bonus:
+    post:
+      tags: [Policy]
+      summary: 测算职能季度奖金
+      description: 固定月工资 × 10% × Kq，S>100 才有资格
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/annual-scorecard:
+    post:
+      tags: [Policy]
+      summary: 计算年度计分卡
+      description: 20/30/20/30 加权，单项封顶 120，公司分封顶 105
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/annual-profit-sharing:
+    post:
+      tags: [Policy]
+      summary: 测算年度利润分享
+      description: P_y≥T_NP 且 P_y>0 时的池子与个人分配点数
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/monthly-star/evaluate:
+    post:
+      tags: [Policy]
+      summary: 评选月明星
+      description: 排名第一、M-003 阈值、正向事件证据与严重违规校验
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/closure-rate:
+    post:
+      tags: [Policy]
+      summary: 计算 M-001 有效闭环率
+      description: 按任务等级权重、按期验收与证据从工作包取数
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/goal-cards:
+    get:
+      tags: [Policy]
+      summary: 查询季度目标卡
+      description: 按人员、周期、状态查询目标卡
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 创建季度目标卡
+      description: 校验指标权重合计 100% 并保存草稿
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/performance/goal-cards/{id}/lock:
+    post:
+      tags: [Policy]
+      summary: 锁定季度目标卡
+      description: 锁定后不得静默覆盖
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/dbcp:
+    post:
+      tags: [Policy]
+      summary: 核算 DBCP
+      description: 毛利扣减业务费用、人工、分摊与 5% 管理计提及
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/business-unit-commission:
+    post:
+      tags: [Policy]
+      summary: 核算业务中心提成
+      description: 按 DBCP 利润率档位对净回款整体计提，不乘 Kp
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/executive-supplement:
+    post:
+      tags: [Policy]
+      summary: 核算执行总监管理补差
+      description: G=DBCP×2%×K管理−M
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/internal-split:
+    post:
+      tags: [Policy]
+      summary: 核算业务中心内部份额
+      description: R=B−M−G，比例合计 100%，未分配留存
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/bounty-settlement:
+    post:
+      tags: [Policy]
+      summary: 核定悬赏金额
+      description: 基础奖励 × 时间系数 × 质量系数 × 个人贡献比例
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/tech-center/award:
+    post:
+      tags: [Policy]
+      summary: 计算产品技术中心专项奖励
+      description: 专利、技术突破、定制、降本、交付、SLA 等标准
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/tech-center/pool:
+    post:
+      tags: [Policy]
+      summary: 计算产品技术中心季度池
+      description: 业务提成 19% 池，岗位系数、项目贡献、绩效与负责人考核
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/incentive/overseas-sales/award:
+    post:
+      tags: [Policy]
+      summary: 计算海外销售奖励
+      description: 开发明星、KA、重要客户、销冠与追回规则
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/grant-calc:
+    post:
+      tags: [Policy]
+      summary: 计算四维配股
+      description: 岗位基准 × 绩效系数 × 司龄系数与饱和检查
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/option-strike:
+    post:
+      tags: [Policy]
+      summary: 计算期权行权价
+      description: 最近优先股价格 × (1−融资阶段折扣率)
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/vesting:
+    post:
+      tags: [Policy]
+      summary: 测算归属进度
+      description: 4 年、1 年 cliff、按月 1/48 与加速条款
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/repurchase:
+    post:
+      tags: [Policy]
+      summary: 测算股权回购
+      description: 情形矩阵、公允价值三级、流动性折扣与最低价
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/cap-table:
+    post:
+      tags: [Policy]
+      summary: 生成 Cap Table 快照
+      description: 累计授予、池剩余与岗位等级饱和度
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/tax:
+    post:
+      tags: [Policy]
+      summary: 测算股权激励税负
+      description: 递延纳税备案与未备案两种口径
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/grant-cases:
+    get:
+      tags: [Policy]
+      summary: 查询股权授予流程
+      description: 按人员、状态查询八步授予流程
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 创建股权授予流程
+      description: 从资格审核开始，记录工具、岗位、融资阶段与授予参数
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/equity/grant-cases/{id}/advance:
+    post:
+      tags: [Policy]
+      summary: 推进股权授予流程
+      description: 按顺序推进并校验股东会决议、协议、配偶确认、税务备案与台账
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/policy/records:
+    get:
+      tags: [Policy]
+      summary: 查询制度计算留痕
+      description: 按记录类型、人员、周期、状态查询 versioned records
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/task-pods:
+    get:
+      tags: [Policy]
+      summary: 查询任务组
+      description: 按状态查询任务组台账
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 发起任务组
+      description: 人人可发起，发起人对结果负责，AI 成员需已登记
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/task-pods/{id}:
+    get:
+      tags: [Policy]
+      summary: 查看任务组
+      description: 返回任务组及其 AI 成员版本快照
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/task-pods/{id}/status:
+    post:
+      tags: [Policy]
+      summary: 变更任务组状态
+      description: 开始、完成、解散或转入下一任务
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/ai-members:
+    get:
+      tags: [Policy]
+      summary: 查询 AI 成员登记簿
+      description: 返回 AI 成员名称、职责与版本
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 登记 AI 成员
+      description: 登记名称、角色、版本与职责
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/ai-members/{id}/retire:
+    post:
+      tags: [Policy]
+      summary: 停用 AI 成员
+      description: 停用后不得再加入任务组
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/personal-task-inventories:
+    get:
+      tags: [Policy]
+      summary: 查询个人任务清单
+      description: 按人员、周期查询任务清单
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      tags: [Policy]
+      summary: 提交个人任务清单
+      description: 校验人/AI/人机协同标注与 AI 化改造对象
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/v1/personal-task-inventories/{id}/status:
+    post:
+      tags: [Policy]
+      summary: 变更任务清单状态
+      description: 提交、验收或退回任务清单
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
 components:
   securitySchemes:
     bearerAuth:

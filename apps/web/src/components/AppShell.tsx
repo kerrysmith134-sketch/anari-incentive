@@ -60,6 +60,16 @@ const NAV: NavGroup[] = [
         allowed: ["manager", "finance", "admin"],
       },
       {
+        to: "/institutions",
+        label: "2026 制度中心",
+        icon: "policy",
+      },
+      {
+        to: "/task-pods",
+        label: "任务制组织",
+        icon: "layers",
+      },
+      {
         to: "/commission",
         label: "奖金提成",
         icon: "payroll",
@@ -201,6 +211,8 @@ const TITLES: Record<string, string> = {
   "/my-ai": "我的 AI 记录",
   "/settings": "设置",
   "/performance": "绩效管理",
+  "/institutions": "2026 制度中心",
+  "/task-pods": "任务制组织",
   "/commission": "奖金提成",
   "/equity": "期权股权",
   "/bounty": "悬赏任务",

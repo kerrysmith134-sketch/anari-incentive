@@ -57,6 +57,7 @@ import type {
   ModelRedTeamRun,
   ModelPrompt,
   ModelProviderPolicy,
+  PolicyEngineRecord,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -1281,6 +1282,35 @@ export interface PlatformStore {
     tenantId: string;
     bountyId: string;
   }): Promise<Bounty>;
+  savePolicyEngineRecord(input: {
+    tenantId: string;
+    recordType: string;
+    payload: Record<string, unknown>;
+    personId?: string;
+    period?: string;
+    status?: string;
+    recordId?: string;
+  }): Promise<PolicyEngineRecord>;
+  getPolicyEngineRecord(
+    tenantId: string,
+    recordId: string,
+  ): Promise<PolicyEngineRecord>;
+  listPolicyEngineRecords(
+    tenantId: string,
+    filter?: {
+      recordType?: string;
+      personId?: string;
+      period?: string;
+      status?: string;
+    },
+  ): Promise<PolicyEngineRecord[]>;
+  updatePolicyEngineRecord(input: {
+    tenantId: string;
+    recordId: string;
+    payload?: Record<string, unknown>;
+    status?: string;
+    version?: number;
+  }): Promise<PolicyEngineRecord>;
   createEmploymentContract(input: {
     tenantId: string;
     personId: string;
@@ -1674,6 +1704,7 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly equityGrants = new Map<string, EquityGrant>();
   private readonly equityExercises = new Map<string, EquityExercise>();
   private readonly bounties = new Map<string, Bounty>();
+  private readonly policyEngineRecords = new Map<string, PolicyEngineRecord>();
   private readonly employmentContracts = new Map<
     string,
     EmploymentContract
@@ -6721,6 +6752,104 @@ export class MemoryPlatformStore implements PlatformStore {
     bounty.updatedAt = bounty.cancelledAt;
     bounty.version += 1;
     return bounty;
+  }
+
+  async savePolicyEngineRecord(input: {
+    tenantId: string;
+    recordType: string;
+    payload: Record<string, unknown>;
+    personId?: string;
+    period?: string;
+    status?: string;
+    recordId?: string;
+  }): Promise<PolicyEngineRecord> {
+    const timestamp = now();
+    const existing = input.recordId
+      ? this.policyEngineRecords.get(input.recordId)
+      : undefined;
+    const record: PolicyEngineRecord = existing
+      ? {
+          ...existing,
+          payload: input.payload,
+          status: input.status ?? existing.status,
+          personId: input.personId ?? existing.personId,
+          period: input.period ?? existing.period,
+          updatedAt: timestamp,
+          version: existing.version + 1,
+        }
+      : {
+          id: input.recordId ?? randomUUID(),
+          tenantId: input.tenantId,
+          recordType: input.recordType,
+          personId: input.personId,
+          period: input.period,
+          status: input.status ?? "RECORDED",
+          payload: input.payload,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          version: 1,
+        };
+    this.policyEngineRecords.set(record.id, record);
+    return record;
+  }
+
+  async getPolicyEngineRecord(
+    tenantId: string,
+    recordId: string,
+  ): Promise<PolicyEngineRecord> {
+    const record = this.policyEngineRecords.get(recordId);
+    if (!record || record.tenantId !== tenantId) {
+      notFound("PolicyEngineRecord", recordId);
+    }
+    return record;
+  }
+
+  async listPolicyEngineRecords(
+    tenantId: string,
+    filter?: {
+      recordType?: string;
+      personId?: string;
+      period?: string;
+      status?: string;
+    },
+  ): Promise<PolicyEngineRecord[]> {
+    return [...this.policyEngineRecords.values()]
+      .filter((record) => record.tenantId === tenantId)
+      .filter(
+        (record) =>
+          (!filter?.recordType || record.recordType === filter.recordType) &&
+          (!filter?.personId || record.personId === filter.personId) &&
+          (!filter?.period || record.period === filter.period) &&
+          (!filter?.status || record.status === filter.status),
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async updatePolicyEngineRecord(input: {
+    tenantId: string;
+    recordId: string;
+    payload?: Record<string, unknown>;
+    status?: string;
+    version?: number;
+  }): Promise<PolicyEngineRecord> {
+    const record = await this.getPolicyEngineRecord(
+      input.tenantId,
+      input.recordId,
+    );
+    if (input.version !== undefined && input.version !== record.version) {
+      throw new ConflictError(
+        `policy record version mismatch: expected ${record.version}`,
+      );
+    }
+    const updated: PolicyEngineRecord = {
+      ...record,
+      payload: input.payload ?? record.payload,
+      status: input.status ?? record.status,
+      updatedAt: now(),
+      version: record.version + 1,
+    };
+    this.policyEngineRecords.set(updated.id, updated);
+    return updated;
   }
 
   async createEmploymentContract(input: {
@@ -16876,6 +17005,141 @@ export class PgPlatformStore implements PlatformStore {
       processedAt: iso(row.processed_at),
       status: row.status,
       errorCode: row.error_code ?? undefined,
+    };
+  }
+
+  async savePolicyEngineRecord(input: {
+    tenantId: string;
+    recordType: string;
+    payload: Record<string, unknown>;
+    personId?: string;
+    period?: string;
+    status?: string;
+    recordId?: string;
+  }): Promise<PolicyEngineRecord> {
+    await this.assertTenant(input.tenantId);
+    if (input.recordId) {
+      const existing = await this.getPolicyEngineRecord(
+        input.tenantId,
+        input.recordId,
+      );
+      return this.updatePolicyEngineRecord({
+        tenantId: input.tenantId,
+        recordId: existing.id,
+        payload: input.payload,
+        status: input.status,
+      });
+    }
+    const { rows } = await this.pool.query(
+      `INSERT INTO policy_engine_records
+        (id, tenant_id, record_type, person_id, period, status, payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [
+        randomUUID(),
+        input.tenantId,
+        input.recordType,
+        input.personId ?? null,
+        input.period ?? null,
+        input.status ?? "RECORDED",
+        input.payload,
+      ],
+    );
+    return this.mapPolicyEngineRecord(rows[0]!);
+  }
+
+  async getPolicyEngineRecord(
+    tenantId: string,
+    recordId: string,
+  ): Promise<PolicyEngineRecord> {
+    await this.assertTenant(tenantId);
+    const { rows } = await this.pool.query(
+      "SELECT * FROM policy_engine_records WHERE tenant_id=$1 AND id=$2",
+      [tenantId, recordId],
+    );
+    if (!rows[0]) notFound("PolicyEngineRecord", recordId);
+    return this.mapPolicyEngineRecord(rows[0]!);
+  }
+
+  async listPolicyEngineRecords(
+    tenantId: string,
+    filter?: {
+      recordType?: string;
+      personId?: string;
+      period?: string;
+      status?: string;
+    },
+  ): Promise<PolicyEngineRecord[]> {
+    await this.assertTenant(tenantId);
+    const params: string[] = [tenantId];
+    let sql = "SELECT * FROM policy_engine_records WHERE tenant_id=$1";
+    if (filter?.recordType) {
+      params.push(filter.recordType);
+      sql += ` AND record_type=$${params.length}`;
+    }
+    if (filter?.personId) {
+      params.push(filter.personId);
+      sql += ` AND person_id=$${params.length}`;
+    }
+    if (filter?.period) {
+      params.push(filter.period);
+      sql += ` AND period=$${params.length}`;
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      sql += ` AND status=$${params.length}`;
+    }
+    sql += " ORDER BY created_at DESC";
+    const { rows } = await this.pool.query(sql, params);
+    return rows.map((row) => this.mapPolicyEngineRecord(row));
+  }
+
+  async updatePolicyEngineRecord(input: {
+    tenantId: string;
+    recordId: string;
+    payload?: Record<string, unknown>;
+    status?: string;
+    version?: number;
+  }): Promise<PolicyEngineRecord> {
+    const record = await this.getPolicyEngineRecord(
+      input.tenantId,
+      input.recordId,
+    );
+    if (input.version !== undefined && input.version !== record.version) {
+      throw new ConflictError(
+        `policy record version mismatch: expected ${record.version}`,
+      );
+    }
+    const { rows } = await this.pool.query(
+      `UPDATE policy_engine_records
+          SET payload = COALESCE($3, payload),
+              status = COALESCE($4, status),
+              version = version + 1,
+              updated_at = now()
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING *`,
+      [
+        input.tenantId,
+        input.recordId,
+        input.payload ?? null,
+        input.status ?? null,
+      ],
+    );
+    return this.mapPolicyEngineRecord(rows[0]!);
+  }
+
+  private mapPolicyEngineRecord(row: QueryResultRow): PolicyEngineRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      recordType: row.record_type,
+      personId: row.person_id ?? undefined,
+      period: row.period ?? undefined,
+      status: row.status ?? undefined,
+      payload: row.payload as Record<string, unknown>,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+      version: Number(row.version),
     };
   }
 

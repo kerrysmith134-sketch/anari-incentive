@@ -3864,4 +3864,38 @@ evidenceOpened: 1,rationale: "Self",
       client.release();
     }
   });
+  it("persists policy engine records with optimistic versioning", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const saved = await platform.savePolicyEngineRecord({
+      tenantId: DEMO_TENANT_ID,
+      recordType: "PERFORMANCE_SCORE",
+      personId: OWNER,
+      period: "2026-11",
+      status: "COMPUTED",
+      payload: { finalScore: "95", kp: "0.95" },
+    });
+    expect(saved.version).toBe(1);
+    const listed = await platform.listPolicyEngineRecords(DEMO_TENANT_ID, {
+      recordType: "PERFORMANCE_SCORE",
+      personId: OWNER,
+    });
+    expect(listed.some((record) => record.id === saved.id)).toBe(true);
+    const updated = await platform.updatePolicyEngineRecord({
+      tenantId: DEMO_TENANT_ID,
+      recordId: saved.id,
+      status: "APPROVED",
+      payload: { finalScore: "95", kp: "0.95", approved: true },
+    });
+    expect(updated.version).toBe(2);
+    expect(updated.status).toBe("APPROVED");
+    await expect(
+      platform.updatePolicyEngineRecord({
+        tenantId: DEMO_TENANT_ID,
+        recordId: saved.id,
+        status: "REJECTED",
+        version: 1,
+      }),
+    ).rejects.toThrow(/version mismatch/);
+  });
+
 });

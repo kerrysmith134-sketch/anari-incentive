@@ -52,6 +52,16 @@ const BountyPage = lazy(() =>
     default: module.BountyPage,
   })),
 );
+const InstitutionsPage = lazy(() =>
+  import("./pages/InstitutionsPage.js").then((module) => ({
+    default: module.InstitutionsPage,
+  })),
+);
+const TaskPodPage = lazy(() =>
+  import("./pages/TaskPodPage.js").then((module) => ({
+    default: module.TaskPodPage,
+  })),
+);
 const SignupPage = lazy(() =>
   import("./pages/SignupPage.js").then((module) => ({
     default: module.SignupPage,
@@ -243,6 +253,8 @@ export function App() {
                     <Route path="/commission" element={<CommissionPage />} />
                     <Route path="/equity" element={<EquityPage />} />
                     <Route path="/bounty" element={<BountyPage />} />
+                    <Route path="/institutions" element={<InstitutionsPage />} />
+                    <Route path="/task-pods" element={<TaskPodPage />} />
                     <Route path="/payroll" element={<PayrollPage />} />
                     <Route path="/rewards" element={<RewardsPage />} />
                     <Route path="/registries" element={<RegistriesPage />} />
