@@ -759,8 +759,7 @@
     async function autoDetectRecovery() {
       try {
         const notifications = await api("/api/v1/notifications");
-        const hit = (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH" && item.status === "UNREAD")
-          || (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH");
+        const hit = (notifications || []).find((item) => item.sourceType === "SETTLEMENT_BATCH" && item.status === "UNREAD");
         if (!hit) { $("recoveryHint").textContent = "暂无待确认的扣回批次"; return; }
         $("settlementBatchId").value = hit.sourceId;
         let suffix = "已定位待确认扣回批次，请核对金额后确认或反对";

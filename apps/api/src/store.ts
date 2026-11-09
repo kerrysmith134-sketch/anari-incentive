@@ -2263,6 +2263,7 @@ export class Store implements IncentiveStore {
       explanation: string;
       approvedBy: string;
       idempotencyKey: string;
+      entryType?: "ADJUSTMENT" | "REVERSAL";
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
     const original = (await this.listLedger()).find((entry) => entry.id === id);
@@ -2298,7 +2299,7 @@ export class Store implements IncentiveStore {
       cycleId: original.cycleId,
       calculationRunId: original.calculationRunId,
       calculationLineId: original.calculationLineId,
-      entryType: "ADJUSTMENT",
+      entryType: input.entryType ?? "ADJUSTMENT",
       amount: formatDecimal(amount),
       currency: original.currency,
       sourceEntryId: id,

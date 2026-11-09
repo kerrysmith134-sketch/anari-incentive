@@ -6318,16 +6318,98 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/clawback-cases/:id/waive", async (request) => {
     requireRoles(request, "finance");
     const body = parse(closeClawbackCaseSchema, request.body);
-    return data(
-      await platformStore.closeClawbackCase({
-        tenantId: tenantOf(request),
-        caseId: idOf(request),
-        action: "WAIVE",
-        reason: body.reason,
-        actorPersonId: body.actorPersonId,
-      }),
-      request,
-    );
+    const tenantId = tenantOf(request);
+    const store = storeFor(request);
+    const cases = await platformStore.listClawbackCases(tenantId);
+    const clawback = cases.find((candidate) => candidate.id === idOf(request));
+    if (!clawback) {
+      throw new NotFoundError(`ClawbackCase ${idOf(request)} not found`);
+    }
+    // A waiver must undo an already generated recovery, otherwise the negative
+    // ledger entry and its settlement batch keep running after the case closes.
+    const recoveryKey = `clawback-recovery:${clawback.id}`;
+    const ledger = await store.listLedger();
+    const recovery = ledger.find((entry) => entry.idempotencyKey === recoveryKey);
+    let reversalEntryId: string | undefined;
+    let cancelledBatchId: string | undefined;
+    if (recovery) {
+      // Validate batch state before writing anything: a locked recovery can no
+      // longer be cancelled, so the waiver must be refused while the case is
+      // still open (no half-applied reversal).
+      const carrying: Array<{ id: string; batchNo: string; status: string }> = [];
+      for (const batch of await store.listSettlementBatches()) {
+        if (batch.kind !== "RECOVERY" || batch.status === "CANCELLED") continue;
+        const lines = await store.listSettlementLines(batch.id);
+        if (lines.some((line) => line.active && line.ledgerId === recovery.id)) {
+          carrying.push({ id: batch.id, batchNo: batch.batchNo, status: batch.status });
+        }
+      }
+      const locked = carrying.find((batch) =>
+        ["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status),
+      );
+      if (locked) {
+        throw new ConflictError(
+          `CLAWBACK_RECOVERY_ALREADY_LOCKED: batch ${locked.batchNo} is ${locked.status}; settle the reversal through payroll instead`,
+        );
+      }
+      const waiveKey = `clawback-waive:${clawback.id}`;
+      if (!ledger.some((entry) => entry.idempotencyKey === waiveKey)) {
+        const reversal = await store.adjustLedgerEntry(recovery.id, {
+          amount: clawback.amount,
+          entryType: "REVERSAL",
+          reasonCode: "CLAWBACK_WAIVED",
+          explanation: `Clawback case ${clawback.id} waived: ${body.reason}`,
+          approvedBy: body.actorPersonId,
+          idempotencyKey: waiveKey,
+        });
+        reversalEntryId = reversal.entry.id;
+        countEvent("clawback_waiver_reversal");
+      }
+      for (const batch of carrying) {
+        await store.commandSettlementBatch(batch.id, {
+          command: "CANCEL",
+          actorPersonId: body.actorPersonId,
+          reason: `Clawback case ${clawback.id} waived: ${body.reason}`,
+        });
+        cancelledBatchId = batch.id;
+        countEvent("clawback_recovery_batch_cancelled");
+      }
+      // The recovery notice is obsolete once the case is waived: retire it so
+      // the employee is not prompted to confirm a deduction that no longer exists.
+      try {
+        const notices = await store.listNotifications({
+          recipientPersonId: clawback.personId,
+        });
+        for (const notice of notices) {
+          if (
+            notice.sourceType === "SETTLEMENT_BATCH" &&
+            notice.status === "UNREAD" &&
+            carrying.some((batch) => batch.id === notice.sourceId)
+          ) {
+            await store.markNotificationRead(notice.id);
+          }
+        }
+      } catch {
+        // Notification hygiene must not block the waiver itself.
+      }
+      await notifyBestEffort(store, {
+        recipientPersonId: clawback.personId,
+        audience: "PERSON",
+        title: "Clawback waived",
+        body: `Clawback case ${clawback.id} was waived after review: ${body.reason}. The recovery deduction no longer applies.`,
+        sourceType: "CLAWBACK_CASE",
+        sourceId: clawback.id,
+      });
+    }
+    const updated = await platformStore.closeClawbackCase({
+      tenantId,
+      caseId: idOf(request),
+      action: "WAIVE",
+      reason: body.reason,
+      actorPersonId: body.actorPersonId,
+    });
+    countEvent("clawback_waived");
+    return data({ ...updated, reversalEntryId, cancelledBatchId }, request);
   });
 
   app.post("/api/v1/clawback-cases/:id/cancel", async (request) => {

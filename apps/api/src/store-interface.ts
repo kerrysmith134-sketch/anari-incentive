@@ -209,6 +209,7 @@ export interface IncentiveStore {
       explanation: string;
       approvedBy: string;
       idempotencyKey: string;
+      entryType?: "ADJUSTMENT" | "REVERSAL";
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }>;
   listAdjustmentRecords(): Promise<AdjustmentRecord[]>;
