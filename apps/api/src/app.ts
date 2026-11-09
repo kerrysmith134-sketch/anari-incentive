@@ -2073,13 +2073,16 @@ export function buildApp(
     if (request.url.startsWith("/api/v1/auth/")) return;
     try {
       // 反向代理（nginx basic-auth 等）会改写/吃掉 Authorization 头，
-      // 因此同时接受 x-session-token，两者等价。
+      // 因此同时接受 x-session-token，两者等价。真实 Bearer 优先；
+      // Authorization 若是代理塞进来的 Basic 头，则回退到会话令牌。
       const sessionHeader = request.headers["x-session-token"];
+      const authorization = request.headers.authorization;
       const bearer =
-        request.headers.authorization ??
-        (typeof sessionHeader === "string" && sessionHeader.length > 0
-          ? `Bearer ${sessionHeader}`
-          : undefined);
+        authorization && authorization.startsWith("Bearer ")
+          ? authorization
+          : typeof sessionHeader === "string" && sessionHeader.length > 0
+            ? `Bearer ${sessionHeader}`
+            : authorization;
       request.authContext = await authenticator.authenticate({
         authorization: bearer,
         tenantId: request.headers["x-tenant-id"] as string | undefined,
@@ -2288,6 +2291,14 @@ export function buildApp(
     if (error instanceof ConflictError) {
       return reply.status(409).send({
         ...errorBody(error.code, error.message),
+        meta: { correlation_id: request.id },
+      });
+    }
+    // node-postgres surfaces a malformed UUID as 22P02 before the store can
+    // raise NotFoundError. Treat it as a missing resource, not a server fault.
+    if ((error as { code?: string }).code === "22P02") {
+      return reply.status(404).send({
+        ...errorBody("NOT_FOUND", "malformed resource identifier"),
         meta: { correlation_id: request.id },
       });
     }
@@ -3071,21 +3082,30 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         meta: { correlation_id: request.id },
       });
     }
-    loginAttempts.set(key, {
-      count: (entry?.count ?? 0) + 1,
-      resetAt: entry && entry.resetAt > nowMs ? entry.resetAt : nowMs + 900_000,
-    });
+    // Only failed credentials count towards the limit. Counting every attempt
+    // locked out offices behind one NAT after eleven successful sign-ins.
+    const recordFailure = () => {
+      const current = loginAttempts.get(key);
+      const stamp = Date.now();
+      const stillCounting = Boolean(current && current.resetAt > stamp);
+      loginAttempts.set(key, {
+        count: (stillCounting ? current!.count : 0) + 1,
+        resetAt: stillCounting ? current!.resetAt : stamp + 900_000,
+      });
+    };
     const credential = await platformStore.getUserPasswordHashByEmail(
       body.email,
     );
     const stored = credential?.passwordHash;
     if (!credential || !stored || !verifyPassword(body.password, stored)) {
+      recordFailure();
       // Uniform response: never reveal whether the account exists.
       return reply.status(401).send({
         ...errorBody("INVALID_CREDENTIALS", "邮箱或密码不正确"),
         meta: { correlation_id: request.id },
       });
     }
+    loginAttempts.delete(key);
     const memberships = await platformStore.listMembershipsByUser(
       credential.userId,
     );
@@ -6342,6 +6362,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/clawback-cases/:id/approve", async (request) => {
     requireRoles(request, "finance");
     const body = parse(approveClawbackCaseSchema, request.body);
+    // PostgreSQL does not check the approver row, and the waiver path writes
+    // ledger entries before closing the case; validate the person up front so a
+    // typo cannot leave a reversal behind without an audit trail entry.
+    const persons = await platformStore.listPersons(tenantOf(request));
+    if (!persons.some((person) => person.id === body.approvedBy)) {
+      throw new NotFoundError(`Person ${body.approvedBy} not found`);
+    }
     return data(
       await platformStore.approveClawbackCase({
         tenantId: tenantOf(request),
@@ -6362,6 +6389,10 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     if (!clawback) {
       throw new NotFoundError(`ClawbackCase ${idOf(request)} not found`);
     }
+    const persons = await platformStore.listPersons(tenantId);
+    if (!persons.some((person) => person.id === body.actorPersonId)) {
+      throw new NotFoundError(`Person ${body.actorPersonId} not found`);
+    }
     // A waiver must undo an already generated recovery, otherwise the negative
     // ledger entry and its settlement batch keep running after the case closes.
     const recoveryKey = `clawback-recovery:${clawback.id}`;
@@ -6373,16 +6404,36 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       // Validate batch state before writing anything: a locked recovery can no
       // longer be cancelled, so the waiver must be refused while the case is
       // still open (no half-applied reversal).
-      const carrying: Array<{ id: string; batchNo: string; status: string }> = [];
+      const carrying: Array<{
+        id: string;
+        batchNo: string;
+        status: string;
+        kind: string;
+      }> = [];
       for (const batch of await store.listSettlementBatches()) {
-        if (batch.kind !== "RECOVERY" || batch.status === "CANCELLED") continue;
+        if (batch.status === "CANCELLED") continue;
         const lines = await store.listSettlementLines(batch.id);
         if (lines.some((line) => line.active && line.ledgerId === recovery.id)) {
-          carrying.push({ id: batch.id, batchNo: batch.batchNo, status: batch.status });
+          carrying.push({
+            id: batch.id,
+            batchNo: batch.batchNo,
+            status: batch.status,
+            kind: batch.kind,
+          });
         }
       }
+      // A standard payroll batch cannot be cancelled here without voiding
+      // everyone else's pay, so the waiver must not touch the ledger at all.
+      const standard = carrying.find((batch) => batch.kind !== "RECOVERY");
+      if (standard) {
+        throw new ConflictError(
+          `CLAWBACK_RECOVERY_IN_STANDARD_BATCH: recovery sits in batch ${standard.batchNo}; cancel that batch or reverse its line before waiving`,
+        );
+      }
       const locked = carrying.find((batch) =>
-        ["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status),
+        ["LOCKED", "EXPORTED", "ACKNOWLEDGED", "ADJUSTMENT_REQUIRED"].includes(
+          batch.status,
+        ),
       );
       if (locked) {
         throw new ConflictError(
@@ -6414,13 +6465,12 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       // The recovery notice is obsolete once the case is waived: retire it so
       // the employee is not prompted to confirm a deduction that no longer exists.
       try {
-        const notices = await store.listNotifications({
-          recipientPersonId: clawback.personId,
-        });
+        // A recovery batch can carry other people's deductions, so their
+        // notices must be retired too when the whole batch is cancelled.
+        const notices = await store.listNotifications({ status: "UNREAD" });
         for (const notice of notices) {
           if (
             notice.sourceType === "SETTLEMENT_BATCH" &&
-            notice.status === "UNREAD" &&
             carrying.some((batch) => batch.id === notice.sourceId)
           ) {
             await store.markNotificationRead(notice.id);
@@ -6429,19 +6479,27 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       } catch {
         // Notification hygiene must not block the waiver itself.
       }
-      // Keep the reversed pair out of later recovery sweeps: otherwise every
-      // future RECOVERY batch re-collects it (net zero, but still visible).
-      const waivedEntryId = ledger.find(
-        (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
-      )?.id;
+      // Keep the reversed pair out of later sweeps: otherwise the next sweep
+      // collects the positive reversal on its own and pays the employee the
+      // amount that was just waived. `reversalEntryId` is authoritative for the
+      // first waiver; the ledger lookup only helps an idempotent retry.
+      const waivedEntryId =
+        reversalEntryId ??
+        ledger.find(
+          (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
+        )?.id;
+      const excludedIds = [recovery.id, waivedEntryId].filter(
+        (value): value is string => Boolean(value),
+      );
       await platformStore.excludeLedgerFromSettlement({
         tenantId,
-        ledgerIds: [recovery.id, waivedEntryId].filter(
-          (value): value is string => Boolean(value),
-        ),
+        ledgerIds: excludedIds,
         reason: `clawback case ${clawback.id} waived`,
         actorPersonId: body.actorPersonId,
       });
+      // The in-memory store keeps its own exclusion set; PostgreSQL reads the
+      // shared ledger_exclusions table written above.
+      await store.excludeFromSettlement?.(excludedIds);
       await notifyBestEffort(store, {
         recipientPersonId: clawback.personId,
         audience: "PERSON",
@@ -6465,9 +6523,25 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/clawback-cases/:id/cancel", async (request) => {
     requireRoles(request, "finance");
     const body = parse(closeClawbackCaseSchema, request.body);
+    const tenantId = tenantOf(request);
+    const cases = await platformStore.listClawbackCases(tenantId);
+    const clawback = cases.find((candidate) => candidate.id === idOf(request));
+    if (!clawback) {
+      throw new NotFoundError(`ClawbackCase ${idOf(request)} not found`);
+    }
+    // Cancelling after the recovery was posted would leave the deduction in the
+    // ledger and in any settlement batch with no case pointing at it.
+    const recoveryExists = (await storeFor(request).listLedger()).some(
+      (entry) => entry.idempotencyKey === `clawback-recovery:${clawback.id}`,
+    );
+    if (recoveryExists) {
+      throw new ConflictError(
+        "CLAWBACK_RECOVERY_ALREADY_GENERATED: waive the case instead so the recovery is reversed",
+      );
+    }
     return data(
       await platformStore.closeClawbackCase({
-        tenantId: tenantOf(request),
+        tenantId,
         caseId: idOf(request),
         action: "CANCEL",
         reason: body.reason,
@@ -6650,12 +6724,40 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     }
     // Idempotency: one recovery adjustment per case, ever.
     const idempotencyKey = `clawback-recovery:${clawback.id}`;
-    const duplicate = (await store.listLedger()).some(
+    const ledger = await store.listLedger();
+    const duplicate = ledger.some(
       (entry) => entry.idempotencyKey === idempotencyKey,
     );
     if (duplicate) {
       throw new ConflictError(
         "CLAWBACK_RECOVERY_ALREADY_GENERATED: this case already has a recovery adjustment",
+      );
+    }
+    // A recovery is a negative adjustment on the debtor's own award entry.
+    // Validating the source up front keeps the deduction off someone else's
+    // payslip and out of the wrong cycle/currency.
+    const source = ledger.find((entry) => entry.id === body.ledgerEntryId);
+    if (!source) {
+      throw new NotFoundError(`LedgerEntry ${body.ledgerEntryId} not found`);
+    }
+    if (source.personId !== clawback.personId) {
+      throw new ConflictError(
+        "CLAWBACK_ENTRY_PERSON_MISMATCH: the source entry belongs to another person",
+      );
+    }
+    if (source.currency !== clawback.currency) {
+      throw new ConflictError(
+        `CLAWBACK_CURRENCY_MISMATCH: case is ${clawback.currency}, entry is ${source.currency}`,
+      );
+    }
+    if (parseDecimal(source.amount) <= 0n) {
+      throw new ConflictError(
+        "CLAWBACK_ENTRY_NOT_POSITIVE: the source entry must be a positive award",
+      );
+    }
+    if (source.cycleId !== body.cycleId) {
+      throw new ConflictError(
+        `CLAWBACK_CYCLE_MISMATCH: entry belongs to cycle ${source.cycleId}, not ${body.cycleId}`,
       );
     }
     const { entry, record } = await store.adjustLedgerEntry(
@@ -6690,7 +6792,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           recipientPersonId: personId,
           audience: "PERSON",
           title: "Clawback recovery requires confirmation",
-          body: `Batch ${batch.batchNo} carries a clawback recovery for case ${clawback.id}; please review and confirm or object.`,
+          body: `Batch ${batch.batchNo} carries a clawback recovery; please review and confirm or object.`,
           sourceType: "SETTLEMENT_BATCH",
           sourceId: batch.id,
         });

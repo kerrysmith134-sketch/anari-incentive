@@ -2598,6 +2598,9 @@ export class PgStore implements IncentiveStore {
                WHERE ex.tenant_id = $1 AND ex.ledger_id = al.id
             )
             AND ($3::text IS DISTINCT FROM 'RECOVERY' OR al.amount < 0)
+            -- A recovery must never ride a standard batch: that would skip
+            -- the per-person confirmation gate RECOVERY batches enforce.
+            AND ($3::text = 'RECOVERY' OR al.entry_type <> 'RECOVERY')
             AND NOT EXISTS (
               SELECT 1
                 FROM settlement_lines sl

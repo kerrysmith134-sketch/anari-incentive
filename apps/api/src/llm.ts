@@ -45,6 +45,10 @@ export function resolveLlmConfigFromEnv(env: NodeJS.ProcessEnv = process.env): L
   const provider = (env.LLM_PROVIDER ?? "") as LlmProvider;
   const apiKey = env.LLM_API_KEY;
   if (!apiKey) return undefined;
+  // Empty strings arrive from compose defaults like ${LLM_PROVIDER:-}. A key
+  // without a provider cannot pick an endpoint, so the feature stays off
+  // instead of crashing the whole API at boot.
+  if (!provider) return undefined;
   if (
     provider !== "deepseek" &&
     provider !== "glm" &&

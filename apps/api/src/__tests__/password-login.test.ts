@@ -94,6 +94,25 @@ describe("account password login", () => {
     expect(login.status).toBe(200);
   });
 
+  it("never rate-limits successful sign-ins from the same IP", async () => {
+    await call("POST", "/api/v1/public/signup", {
+      companyName: "Acme",
+      adminDisplayName: "K",
+      adminEmail: "repeat@acme.test",
+      password: "Correct-Horse-1",
+      acceptTerms: true,
+    });
+    // A shared office NAT can produce many legitimate logins in one window;
+    // only failed credentials may count towards the limit.
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const login = await call("POST", "/api/v1/auth/password/login", {
+        email: "repeat@acme.test",
+        password: "Correct-Horse-1",
+      });
+      expect(login.status).toBe(200);
+    }
+  });
+
   it("rejects a wrong password with a uniform 401", async () => {
     await call("POST", "/api/v1/public/signup", {
       companyName: "Acme",

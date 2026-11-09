@@ -810,7 +810,12 @@ export interface ClawbackCase {
   installmentMonths: number;
   hardshipWaiver: boolean;
   hardshipReason?: string;
-  status: "DRAFT" | "APPROVED" | "WAIVED" | "CANCELLED";
+  status:
+    | "DRAFT"
+    | "APPROVED"
+    | "RECOVERY_GENERATED"
+    | "WAIVED"
+    | "CANCELLED";
   requestedBy: Uuid;
   approvedBy?: Uuid;
   approvedAt?: string;
@@ -818,6 +823,15 @@ export interface ClawbackCase {
   waiverReason?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  /** Present once a recovery adjustment exists (reviewer-facing batch state). */
+  recovery?: {
+    ledgerEntryId: Uuid;
+    amount: DecimalString;
+    batchId: Uuid | null;
+    batchNo: string | null;
+    batchStatus: string | null;
+    waivedReversalEntryId: Uuid | null;
+  };
   createdAt: string;
   updatedAt: string;
 }

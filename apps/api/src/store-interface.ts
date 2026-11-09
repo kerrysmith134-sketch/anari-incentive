@@ -344,6 +344,12 @@ export interface IncentiveStore {
     currency?: string;
     batchNo?: string;
   }): Promise<SettlementBatch>;
+  /**
+   * Ledger legs that must never be swept into a batch (e.g. both legs of a
+   * waived clawback). PostgreSQL keeps this in `ledger_exclusions`; the
+   * in-memory store keeps its own set.
+   */
+  excludeFromSettlement?(ledgerIds: string[]): Promise<number>;
   getSettlementBatch(id: string): Promise<SettlementBatch>;
   listSettlementBatches(): Promise<SettlementBatch[]>;
   listSettlementLines(batchId: string): Promise<SettlementLine[]>;

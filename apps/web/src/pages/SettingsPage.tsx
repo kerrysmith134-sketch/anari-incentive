@@ -1034,10 +1034,10 @@ export function SettingsPage() {
         },
       );
       toast.success(
-        "Recovery generated",
+        "追回已生成",
         recoveryCreateBatch
           ? "已创建 RECOVERY 结算批次；受影响人员须确认后才能锁定。"
-          : "The locked ledger adjustment was appended.",
+          : "已追加锁定账本调整分录。",
       );
       setRecoveryTarget(null);
       clawbacks.reload();
@@ -1136,7 +1136,7 @@ export function SettingsPage() {
       clawbacks.reload();
     } catch (error) {
       toast.error(
-        "Could not waive clawback",
+        "豁免追回失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -3973,7 +3973,7 @@ export function SettingsPage() {
         title="豁免追回"
         description={
           waiveTarget?.recovery
-            ? `该案已生成追回（批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将冲销一笔 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定则会被拒绝。`
+            ? `该案已生成追回（批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将冲销一笔 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定或追回已并入标准批次时会被拒绝。`
             : "该案尚未生成追回；豁免只关闭案件，不影响账本。"
         }
         onClose={() => setWaiveTarget(null)}

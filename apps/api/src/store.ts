@@ -162,6 +162,7 @@ export class Store implements IncentiveStore {
   private readonly attestations = new Map<string, ContributionAttestation>();
   private readonly decisions = new Map<string, AttributionDecision>();
   private readonly runs = new Map<string, CalculationRun>();
+  private readonly settlementExclusions = new Set<string>();
   private readonly appeals = new Map<string, AppealCase>();
   private readonly recalculations = new Map<string, RecalculationRequest>();
   private readonly adjustmentRecords = new Map<string, AdjustmentRecord>();
@@ -1875,6 +1876,16 @@ export class Store implements IncentiveStore {
     return decision;
   }
 
+  async excludeFromSettlement(ledgerIds: string[]): Promise<number> {
+    let added = 0;
+    for (const id of ledgerIds) {
+      if (this.settlementExclusions.has(id)) continue;
+      this.settlementExclusions.add(id);
+      added += 1;
+    }
+    return added;
+  }
+
   async createSettlementBatch(input: {
     cycleId: string;
     kind?: "STANDARD" | "RECOVERY";
@@ -1893,8 +1904,15 @@ export class Store implements IncentiveStore {
         entry.cycleId === input.cycleId &&
         entry.status === "LOCKED" &&
         !alreadyBatched.has(entry.id) &&
-        // Recovery batches only carry clawback (negative) adjustments.
-        (input.kind !== "RECOVERY" || Number(entry.amount) < 0),
+        // A waived clawback leaves a -X/+X pair behind; the ledger is
+        // append-only, so the pair is excluded rather than deleted.
+        !this.settlementExclusions.has(entry.id) &&
+        // Recovery batches only carry clawback (negative) adjustments, and a
+        // clawback must never ride a standard batch: that would skip the
+        // per-person confirmation gate RECOVERY batches enforce.
+        (input.kind === "RECOVERY"
+          ? Number(entry.amount) < 0
+          : entry.entryType !== "RECOVERY"),
     );
     if (eligible.length === 0) {
       throw new ConflictError(
@@ -2263,7 +2281,7 @@ export class Store implements IncentiveStore {
       explanation: string;
       approvedBy: string;
       idempotencyKey: string;
-      entryType?: "ADJUSTMENT" | "REVERSAL";
+      entryType?: "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
     const original = (await this.listLedger()).find((entry) => entry.id === id);
@@ -2283,9 +2301,7 @@ export class Store implements IncentiveStore {
       throw new ConflictError("adjustment amount must not be zero");
     }
     const existing = (await this.listLedger()).find(
-      (entry) =>
-        entry.idempotencyKey === input.idempotencyKey &&
-        entry.entryType === "ADJUSTMENT",
+      (entry) => entry.idempotencyKey === input.idempotencyKey,
     );
     if (existing) {
       const record = [...this.adjustmentRecords.values()].find(
