@@ -47,6 +47,11 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
       OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+      # 对话意图解析（LLM 只做意图与人话回复；金额/分数仍由规则引擎计算）
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     ports:
       - "3000:3000"
     healthcheck:

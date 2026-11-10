@@ -3,9 +3,14 @@ import { useLocation } from "react-router-dom";
 import { Icon } from "./Icon.js";
 import { api, ApiError, getApiSession } from "../lib/api.js";
 import { formatRelative } from "../lib/format.js";
+import { matchLocalIntent } from "../lib/agent-intent.js";
 
 /**
- * 全局 AI 助手（第一阶段：智能指令台 + 任务卡，无 LLM）。
+ * 全局 AI 助手。
+ *
+ * 引擎分层：金额/分数/系数永远由确定性规则引擎计算；意图理解分层——
+ * 已配置 LLM 时由 LLM 解析开放语句（/agent-chat），未配置时退回本地
+ * 关键词意图匹配，常用问法依然可用。两者执行都走同一个任务状态机。
  *
  * 设计规范（anari-design-system §6）：
  * - brand 实色圆角方块 + 白色 spark 作为唯一 AI 视觉标识；
@@ -120,6 +125,27 @@ export function AgentAssistant() {
     }
   }, [messages, open]);
 
+  async function executeCommand(command: string): Promise<AgentTaskView> {
+    return api<AgentTaskView>("/api/v1/agent-command", {
+      method: "POST",
+      body: {
+        command,
+        params: { idempotencyKey: `${command}:${Date.now()}` },
+      },
+    });
+  }
+
+  function summarizeTask(task: AgentTaskView): string {
+    const findingCount = task.findings?.length ?? 0;
+    const actionCount = task.actions?.length ?? 0;
+    const waiting =
+      task.actions?.filter((action) => action.status === "WAITING_APPROVAL")
+        .length ?? 0;
+    return task.status === "WAITING_APPROVAL" || waiting > 0
+      ? `完成扫描：${findingCount} 项发现，${actionCount} 项建议动作，其中 ${waiting} 项等待你批准。`
+      : `完成扫描：${findingCount} 项发现，${actionCount} 项建议动作已自动执行（低风险）。`;
+  }
+
   async function runCommand(command: string, label: string) {
     setBusyCommand(command);
     setError(null);
@@ -128,23 +154,15 @@ export function AgentAssistant() {
       { role: "user", text: label, at: new Date().toISOString() },
     ]);
     try {
-      const task = await api<AgentTaskView>("/api/v1/agent-command", {
-        method: "POST",
-        body: {
-          command,
-          params: { idempotencyKey: `${command}:${Date.now()}` },
-        },
-      });
-      const findingCount = task.findings?.length ?? 0;
-      const actionCount = task.actions?.length ?? 0;
-      const waiting = task.actions?.filter((action) => action.status === "WAITING_APPROVAL").length ?? 0;
-      const summary =
-        task.status === "WAITING_APPROVAL" || waiting > 0
-          ? `完成扫描：${findingCount} 项发现，${actionCount} 项建议动作，其中 ${waiting} 项等待你批准。`
-          : `完成扫描：${findingCount} 项发现，${actionCount} 项建议动作已自动执行（低风险）。`;
+      const task = await executeCommand(command);
       setMessages((current) => [
         ...current,
-        { role: "assistant", text: summary, task, at: new Date().toISOString() },
+        {
+          role: "assistant",
+          text: summarizeTask(task),
+          task,
+          at: new Date().toISOString(),
+        },
       ]);
       void refreshInbox();
     } catch (caught) {
@@ -167,6 +185,56 @@ export function AgentAssistant() {
       { role: "user", text: content, at: new Date().toISOString() },
     ]);
     setChatInput("");
+    const llmReady = llmStatus?.enabled === true;
+    if (!llmReady) {
+      // LLM 未配置：确定性本地意图匹配兜底，金额/分数依然只由规则引擎产生。
+      const intent = matchLocalIntent(content);
+      if (intent) {
+        setMessages((current) => [
+          ...current,
+          {
+            role: "assistant",
+            text: `（本地意图匹配「${intent.keyword}」，未调用 LLM）已执行${intent.label}。`,
+            at: new Date().toISOString(),
+          },
+        ]);
+        try {
+          setBusyCommand(intent.command);
+          const task = await executeCommand(intent.command);
+          setMessages((current) => [
+            ...current,
+            {
+              role: "assistant",
+              text: summarizeTask(task),
+              task,
+              at: new Date().toISOString(),
+            },
+          ]);
+          void refreshInbox();
+        } catch (caught) {
+          setError(
+            caught instanceof ApiError
+              ? caught.message
+              : "指令执行失败，请稍后再试",
+          );
+        } finally {
+          setBusyCommand(null);
+          setChatSending(false);
+        }
+        return;
+      }
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text:
+            "这个说法我没能本地匹配到指令。可以直接点上方指令按钮；或让管理员配置 LLM_PROVIDER/LLM_API_KEY（支持 DeepSeek/GLM/Kimi）后，我就能理解任意说法。",
+          at: new Date().toISOString(),
+        },
+      ]);
+      setChatSending(false);
+      return;
+    }
     try {
       const history = [...messages, {
         role: "user" as const,
@@ -175,10 +243,22 @@ export function AgentAssistant() {
       }]
         .slice(-10)
         .map((message) => ({ role: message.role, content: message.text }));
-      const result = await api<{
-        reply: string;
-        task: AgentTaskView | null;
-      }>("/api/v1/agent-chat", { method: "POST", body: { messages: history } });
+      let result: { reply: string; task: AgentTaskView | null };
+      try {
+        result = await api<{
+          reply: string;
+          task: AgentTaskView | null;
+        }>("/api/v1/agent-chat", { method: "POST", body: { messages: history } });
+      } catch (caught) {
+        // LLM 状态过期/调用失败时退回本地意图，而不是把用户挡在门外。
+        const intent = caught instanceof ApiError ? matchLocalIntent(content) : null;
+        if (!intent) throw caught;
+        const task = await executeCommand(intent.command);
+        result = {
+          reply: `（LLM 不可用，已本地匹配「${intent.keyword}」）`,
+          task,
+        };
+      }
       setMessages((current) => [
         ...current,
         {
@@ -190,13 +270,7 @@ export function AgentAssistant() {
       ]);
       void refreshInbox();
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 501) {
-        setError(
-          "对话意图解析未配置（需要 LLM_PROVIDER/LLM_API_KEY，支持 DeepSeek/GLM/Kimi）。请先使用上方指令按钮。",
-        );
-      } else {
-        setError(caught instanceof ApiError ? caught.message : "发送失败");
-      }
+      setError(caught instanceof ApiError ? caught.message : "发送失败");
     } finally {
       setChatSending(false);
     }
@@ -273,8 +347,8 @@ export function AgentAssistant() {
               <span className="agent-drawer__engine">
                 <Icon name="spark" size={16} />
                 {llmStatus?.enabled && llmStatus.provider
-                  ? `意图解析 · ${llmStatus.provider.toUpperCase()}`
-                  : "规则引擎 · 无 LLM"}
+                  ? `意图解析 · ${llmStatus.provider.toUpperCase()} · 规则计算`
+                  : "本地意图 · 规则计算（LLM 未配置）"}
               </span>
               <strong>AI 助手</strong>
               <button
@@ -386,7 +460,7 @@ export function AgentAssistant() {
                 placeholder={
                   llmStatus?.enabled
                     ? "描述你想做的事，例如“扫描本月证据缺口”…"
-                    : "对话需配置 LLM；先用上方指令按钮…"
+                    : "直接描述，例如“查一下证据缺口”——本地意图匹配，无需 LLM"
                 }
                 aria-label="对 AI 助手说点什么"
               />

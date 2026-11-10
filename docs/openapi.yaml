@@ -4643,6 +4643,25 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/equity-grants/{id}/adjust:
+    post:
+      tags: [Console]
+      summary: 人工修正授予
+      description: 管理员修正自动配股结果（数量/行权价/归属参数），必填原因并写审计；不得低于已行权份额
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustEquityGrant"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /api/v1/equity-grants/{id}/vesting:
     get:
       tags: [Equity]
@@ -5333,6 +5352,25 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/employment-contracts:import:
+    post:
+      tags: [Console]
+      summary: 批量导入劳动合同
+      description: CSV（工号/人员ID、合同编号、开始日期、固定月薪等）逐行创建合同，失败行单独报告
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportEmploymentContracts"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /api/v1/employment-contracts/apply-due:
     post:
       tags: [Payroll]
@@ -9756,6 +9794,25 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/incentive-award-batches:import:
+    post:
+      tags: [Console]
+      summary: 批量导入发放批次
+      description: CSV（工号/人员ID、金额、可选来源标识）一次生成整个发放批次；校验失败整单拒绝
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportIncentiveAwardBatch"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /api/v1/incentive-award-batches/{id}:
     get:
       tags: [Policy]
@@ -12835,6 +12892,47 @@ components:
           type: boolean
         allowCreate:
           type: boolean
+    AdjustEquityGrant:
+      type: object
+      required: [reason]
+      properties:
+        totalUnits:
+          type: string
+        strikePrice:
+          type: string
+        grantDate:
+          type: string
+        vestingStart:
+          type: string
+        cliffMonths:
+          type: integer
+        vestingMonths:
+          type: integer
+        reason:
+          type: string
+    ImportEmploymentContracts:
+      type: object
+      required: [csv]
+      properties:
+        csv:
+          type: string
+    ImportIncentiveAwardBatch:
+      type: object
+      required: [csv, batchNo, awardType, period, currency]
+      properties:
+        csv:
+          type: string
+        batchNo:
+          type: string
+        awardType:
+          type: string
+        period:
+          type: string
+        cycleId:
+          type: string
+          format: uuid
+        currency:
+          type: string
     GenerateClawbackRecovery:
       type: object
       required: [cycleId, ledgerEntryId]

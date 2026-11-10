@@ -80,7 +80,7 @@ test.describe("agent assistant", () => {
     await page.getByRole("button", { name: "打开 AI 助手" }).click();
     const drawer = page.getByRole("dialog", { name: "AI 助手" });
     await expect(drawer).toBeVisible();
-    await expect(drawer).toContainText("规则引擎 · 无 LLM");
+    await expect(drawer).toContainText("本地意图 · 规则计算");
     await expect(
       drawer.getByRole("button", { name: "证据缺口扫描" }),
     ).toBeVisible();
@@ -142,15 +142,28 @@ test.describe("agent chat (LLM phase 2)", () => {
     await page.goto("/console/");
     await page.getByRole("button", { name: "打开 AI 助手" }).click();
     const drawer = page.getByRole("dialog", { name: "AI 助手" });
-    await expect(drawer).toContainText("规则引擎 · 无 LLM");
+    await expect(drawer).toContainText("本地意图 · 规则计算");
     const input = drawer.getByLabel("对 AI 助手说点什么");
     await expect(input).toBeVisible();
-    await input.fill("扫描证据缺口");
+    // LLM 未配置时本地意图匹配仍然可用：常见问法直接触发指令。
+    await input.fill("帮我查一下证据缺口");
+    await drawer.getByRole("button", { name: "发送" }).click();
+    await expect(drawer.getByText(/本地意图匹配/).first()).toBeVisible();
+    await expect(drawer.locator(".task-card").first()).toBeVisible();
+  });
+
+  test("unmatched free text explains capabilities instead of erroring", async ({
+    page,
+  }) => {
+    await page.goto("/console/");
+    await page.getByRole("button", { name: "打开 AI 助手" }).click();
+    const drawer = page.getByRole("dialog", { name: "AI 助手" });
+    const input = drawer.getByLabel("对 AI 助手说点什么");
+    await input.fill("今天天气怎么样");
     await drawer.getByRole("button", { name: "发送" }).click();
     await expect(
-      drawer.getByText(/对话意图解析未配置|对话需配置 LLM/).first(),
+      drawer.getByText(/没能本地匹配到指令/).first(),
     ).toBeVisible();
-    await expect(drawer.locator(".agent-msg--user").first()).toBeVisible();
   });
 
   test("engine badge reflects configured provider", async ({ page }) => {
@@ -161,7 +174,7 @@ test.describe("agent chat (LLM phase 2)", () => {
     const badge = drawer.locator(".agent-drawer__engine");
     const text = await badge.innerText();
     expect(
-      text.includes("规则引擎 · 无 LLM") || text.includes("意图解析 ·"),
+      text.includes("本地意图 · 规则计算") || text.includes("意图解析 ·"),
     ).toBe(true);
   });
 });
