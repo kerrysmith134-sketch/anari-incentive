@@ -2179,6 +2179,28 @@ export function buildApp(
     };
   });
 
+  // Lenient JSON body parser: a POST with `content-type: application/json`
+  // and an empty body (rate-limit, submit, command-style routes) is treated as
+  // `{}` instead of failing with FST_ERR_CTP_EMPTY_JSON_BODY. Malformed JSON
+  // still surfaces as 400 through the error handler.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      const text = typeof body === "string" ? body.trim() : "";
+      if (text.length === 0) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(text));
+      } catch (error) {
+        (error as { statusCode?: number }).statusCode = 400;
+        done(error as Error, undefined);
+      }
+    },
+  );
+
   app.addHook("preParsing", async (request, _reply, payload) => {
     if (
       !request.url.startsWith("/api/v1/webhooks/") &&

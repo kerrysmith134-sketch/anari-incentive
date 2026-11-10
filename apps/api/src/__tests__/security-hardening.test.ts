@@ -412,6 +412,16 @@ describe("workflow mutations require participation", () => {
 });
 
 describe("malformed input returns a client error", () => {
+  it("treats an empty JSON body as {} for bodyless command routes", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/notifications/read-all",
+      headers: { "content-type": "application/json" },
+      payload: "",
+    } as never);
+    expect(response.statusCode).toBeLessThan(300);
+  });
+
   it("maps invalid JSON to 400 instead of 500", async () => {
     const response = await app.inject({
       method: "POST",
