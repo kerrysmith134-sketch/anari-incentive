@@ -2314,6 +2314,8 @@ export class Store implements IncentiveStore {
       approvedBy: string;
       idempotencyKey: string;
       entryType?: "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
+      /** Post the adjustment into another cycle (cross-cycle clawback). */
+      cycleId?: string;
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
     const original = (await this.listLedger()).find((entry) => entry.id === id);
@@ -2341,12 +2343,17 @@ export class Store implements IncentiveStore {
       );
       if (record) return { entry: existing, record };
     }
+    const cycleId = input.cycleId ?? original.cycleId;
+    // A cross-cycle installment must not reuse the source calculation line:
+    // the ledger forbids two entries for one line + type.
+    const calculationLineId =
+      cycleId === original.cycleId ? original.calculationLineId : undefined;
     const adjustment = this.ledger.append({
       tenantId: original.tenantId,
       personId: original.personId,
-      cycleId: original.cycleId,
+      cycleId,
       calculationRunId: original.calculationRunId,
-      calculationLineId: original.calculationLineId,
+      calculationLineId,
       entryType: input.entryType ?? "ADJUSTMENT",
       amount: formatDecimal(amount),
       currency: original.currency,

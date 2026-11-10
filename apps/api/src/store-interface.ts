@@ -210,6 +210,7 @@ export interface IncentiveStore {
       approvedBy: string;
       idempotencyKey: string;
       entryType?: "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
+      cycleId?: string;
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }>;
   listAdjustmentRecords(): Promise<AdjustmentRecord[]>;

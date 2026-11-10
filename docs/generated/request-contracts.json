@@ -295,7 +295,8 @@
         "ledgerEntryId"
       ],
       "optional": [
-        "createBatch"
+        "createBatch",
+        "installmentCycles"
       ]
     },
     "GoldSetImport": {

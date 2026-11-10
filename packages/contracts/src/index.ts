@@ -2335,6 +2335,11 @@ export const generateClawbackRecoverySchema = z.object({
   cycleId: z.string().min(1),
   ledgerEntryId: z.string().min(1),
   createBatch: z.boolean().optional(),
+  /**
+   * 分期追回：按 installmentMonths 提供每个月的 cycleId。提供时按月生成
+   * 负数分录，否则仍按单笔一次性追回。
+   */
+  installmentCycles: z.array(uuidSchema).min(1).max(12).optional(),
 });
 export type GenerateClawbackRecoveryBody = z.infer<
   typeof generateClawbackRecoverySchema

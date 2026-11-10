@@ -62,6 +62,7 @@ async function createClawback(
     personId: string;
     amount: string;
     currency: string;
+    installmentMonths: number;
   }> = {},
 ) {
   return call("POST", "/api/v1/clawback-cases", {
@@ -71,7 +72,7 @@ async function createClawback(
     reasonCode: "OVERPAYMENT",
     explanation: "Incentive was overpaid for the same delivery",
     consentSignatureRef: "ESIGN-CLAWBACK-HARDENING",
-    installmentMonths: 1,
+    installmentMonths: overrides.installmentMonths ?? 1,
     hardshipWaiver: false,
     requestedBy: OWNER,
   });
@@ -354,6 +355,98 @@ describe("clawback actor validation", () => {
         (entry) => entry.idempotencyKey === `clawback-waive:${caseId}`,
       ),
     ).toBe(false);
+  });
+});
+
+describe("clawback installments across cycles", () => {
+  it("posts one recovery per cycle and reverses all of them on waiver", async () => {
+    const incentive = seedLockedEntry({ personId: OWNER, amount: "3000" });
+    const secondCycle = await appStore.createEvaluationCycle({
+      name: "2026-11",
+      cycleType: "MONTHLY",
+      startsAt: "2026-11-01T00:00:00.000Z",
+      endsAt: "2026-11-30T23:59:59.000Z",
+      timezone: "Asia/Shanghai",
+    });
+    const caseId = await approvedCaseId({
+      amount: "1000",
+      installmentMonths: 2,
+    });
+    const generated = await call(
+      "POST",
+      `/api/v1/clawback-cases/${caseId}/generate-recovery`,
+      {
+        cycleId: CYCLE,
+        ledgerEntryId: incentive.id,
+        createBatch: false,
+        installmentCycles: [CYCLE, secondCycle.id],
+      },
+    );
+    expect(generated.status).toBe(200);
+    expect(generated.body.data.installments).toHaveLength(2);
+    expect(
+      generated.body.data.installments.map(
+        (row: { amount: string }) => row.amount,
+      ),
+    ).toEqual(["500", "500"]);
+
+    const recoveries = (await appStore.listLedger()).filter(
+      (entry) => entry.entryType === "RECOVERY",
+    );
+    expect(recoveries).toHaveLength(2);
+    expect(new Set(recoveries.map((entry) => entry.cycleId))).toEqual(
+      new Set([CYCLE, secondCycle.id]),
+    );
+
+    const waived = await waive(caseId);
+    expect(waived.status).toBe(200);
+    expect(waived.body.data.reversalEntryIds).toHaveLength(2);
+    expect(
+      (await appStore.listLedger()).filter(
+        (entry) => entry.entryType === "REVERSAL",
+      ),
+    ).toHaveLength(2);
+
+    // Both installments and both reversals are excluded from later sweeps.
+    const sweep = await call("POST", "/api/v1/settlement-batches", {
+      cycleId: secondCycle.id,
+    });
+    expect(sweep.status).toBe(409);
+    expect(sweep.body.error.message).toContain(
+      "NO_SETTLEMENT_ELIGIBLE_LEDGER",
+    );
+  });
+
+  it("rejects a cycle list that does not match the case term", async () => {
+    const incentive = seedLockedEntry({ personId: OWNER, amount: "3000" });
+    const created = await call("POST", "/api/v1/clawback-cases", {
+      personId: OWNER,
+      amount: "1000",
+      currency: "CNY",
+      reasonCode: "OVERPAYMENT",
+      explanation: "Two installments",
+      consentSignatureRef: "ESIGN-INSTALLMENTS-2",
+      installmentMonths: 2,
+      requestedBy: OWNER,
+    });
+    const caseId = created.body.data.id;
+    await call("POST", `/api/v1/clawback-cases/${caseId}/approve`, {
+      approvedBy: ADMIN,
+    });
+    const generated = await call(
+      "POST",
+      `/api/v1/clawback-cases/${caseId}/generate-recovery`,
+      {
+        cycleId: CYCLE,
+        ledgerEntryId: incentive.id,
+        createBatch: false,
+        installmentCycles: [CYCLE],
+      },
+    );
+    expect(generated.status).toBe(400);
+    expect(generated.body.error.code).toBe(
+      "CLAWBACK_INSTALLMENT_COUNT_MISMATCH",
+    );
   });
 });
 

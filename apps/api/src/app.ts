@@ -6580,28 +6580,57 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       ),
     );
     const enriched = cases.map((clawback) => {
-      const recovery = ledger.find(
-        (entry) =>
-          entry.idempotencyKey === `clawback-recovery:${clawback.id}`,
-      );
-      if (!recovery) return clawback;
-      const batch = batches.find((candidate) =>
-        (linesByBatch.get(candidate.id) ?? []).some(
-          (line) => line.ledgerId === recovery.id,
-        ),
+      const recoveryKey = `clawback-recovery:${clawback.id}`;
+      const waiveKey = `clawback-waive:${clawback.id}`;
+      const recoveries = ledger
+        .filter(
+          (entry) =>
+            entry.idempotencyKey === recoveryKey ||
+            entry.idempotencyKey.startsWith(`${recoveryKey}:`),
+        )
+        .sort((left, right) =>
+          left.idempotencyKey.localeCompare(right.idempotencyKey, undefined, {
+            numeric: true,
+          }),
+        );
+      if (recoveries.length === 0) return clawback;
+      const batchFor = (ledgerId: string) =>
+        batches.find((candidate) =>
+          (linesByBatch.get(candidate.id) ?? []).some(
+            (line) => line.ledgerId === ledgerId,
+          ),
+        );
+      const batch = batchFor(recoveries[0]!.id);
+      const total = recoveries.reduce(
+        (sum, entry) => sum + parseDecimal(entry.amount),
+        0n,
       );
       return {
         ...clawback,
         recovery: {
-          ledgerEntryId: recovery.id,
-          amount: recovery.amount,
+          ledgerEntryId: recoveries[0]!.id,
+          amount: formatDecimal(total),
           batchId: batch?.id ?? null,
           batchNo: batch?.batchNo ?? null,
           batchStatus: batch?.status ?? null,
           waivedReversalEntryId:
             ledger.find(
-              (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
+              (entry) =>
+                entry.idempotencyKey === waiveKey ||
+                entry.idempotencyKey.startsWith(`${waiveKey}:`),
             )?.id ?? null,
+          installments: recoveries.map((entry, index) => {
+            const entryBatch = batchFor(entry.id);
+            return {
+              sequence: index + 1,
+              ledgerEntryId: entry.id,
+              cycleId: entry.cycleId,
+              amount: entry.amount,
+              batchId: entryBatch?.id ?? null,
+              batchNo: entryBatch?.batchNo ?? null,
+              batchStatus: entryBatch?.status ?? null,
+            };
+          }),
         },
       };
     });
@@ -6642,15 +6671,27 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     if (!persons.some((person) => person.id === body.actorPersonId)) {
       throw new NotFoundError(`Person ${body.actorPersonId} not found`);
     }
-    // A waiver must undo an already generated recovery, otherwise the negative
-    // ledger entry and its settlement batch keep running after the case closes.
+    // A waiver must undo every generated recovery (one lump sum or all
+    // installments), otherwise the negative entries and their batches keep
+    // running after the case closes.
     const recoveryKey = `clawback-recovery:${clawback.id}`;
+    const waiveKey = `clawback-waive:${clawback.id}`;
     const ledger = await store.listLedger();
-    const recovery = ledger.find((entry) => entry.idempotencyKey === recoveryKey);
-    let reversalEntryId: string | undefined;
-    let cancelledBatchId: string | undefined;
-    if (recovery) {
-      // Validate batch state before writing anything: a locked recovery can no
+    const sequenceOf = (entry: { idempotencyKey: string }): number => {
+      const suffix = entry.idempotencyKey.slice(recoveryKey.length);
+      return suffix.startsWith(":") ? Number(suffix.slice(1)) : 0;
+    };
+    const recoveries = ledger
+      .filter(
+        (entry) =>
+          entry.idempotencyKey === recoveryKey ||
+          entry.idempotencyKey.startsWith(`${recoveryKey}:`),
+      )
+      .sort((left, right) => sequenceOf(left) - sequenceOf(right));
+    const reversalEntryIds: string[] = [];
+    const cancelledBatchIds: string[] = [];
+    if (recoveries.length > 0) {
+      // Validate every batch before writing anything: a locked recovery can no
       // longer be cancelled, so the waiver must be refused while the case is
       // still open (no half-applied reversal).
       const carrying: Array<{
@@ -6659,10 +6700,18 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         status: string;
         kind: string;
       }> = [];
+      const recoveryIdsForBatches = new Set(
+        recoveries.map((entry) => entry.id),
+      );
       for (const batch of await store.listSettlementBatches()) {
         if (batch.status === "CANCELLED") continue;
         const lines = await store.listSettlementLines(batch.id);
-        if (lines.some((line) => line.active && line.ledgerId === recovery.id)) {
+        if (
+          lines.some(
+            (line) =>
+              line.active && recoveryIdsForBatches.has(line.ledgerId),
+          )
+        ) {
           carrying.push({
             id: batch.id,
             batchNo: batch.batchNo,
@@ -6689,17 +6738,26 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           `CLAWBACK_RECOVERY_ALREADY_LOCKED: batch ${locked.batchNo} is ${locked.status}; settle the reversal through payroll instead`,
         );
       }
-      const waiveKey = `clawback-waive:${clawback.id}`;
-      if (!ledger.some((entry) => entry.idempotencyKey === waiveKey)) {
+      for (const recovery of recoveries) {
+        const sequence = sequenceOf(recovery);
+        const recoveryWaiveKey =
+          sequence === 0 ? waiveKey : `${waiveKey}:${sequence}`;
+        const existing = ledger.find(
+          (entry) => entry.idempotencyKey === recoveryWaiveKey,
+        );
+        if (existing) {
+          reversalEntryIds.push(existing.id);
+          continue;
+        }
         const reversal = await store.adjustLedgerEntry(recovery.id, {
-          amount: clawback.amount,
+          amount: formatDecimal(-parseDecimal(recovery.amount)),
           entryType: "REVERSAL",
           reasonCode: "CLAWBACK_WAIVED",
           explanation: `Clawback case ${clawback.id} waived: ${body.reason}`,
           approvedBy: body.actorPersonId,
-          idempotencyKey: waiveKey,
+          idempotencyKey: recoveryWaiveKey,
         });
-        reversalEntryId = reversal.entry.id;
+        reversalEntryIds.push(reversal.entry.id);
         countEvent("clawback_waiver_reversal");
       }
       for (const batch of carrying) {
@@ -6708,11 +6766,11 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           actorPersonId: body.actorPersonId,
           reason: `Clawback case ${clawback.id} waived: ${body.reason}`,
         });
-        cancelledBatchId = batch.id;
+        cancelledBatchIds.push(batch.id);
         countEvent("clawback_recovery_batch_cancelled");
       }
-      // The recovery notice is obsolete once the case is waived: retire it so
-      // the employee is not prompted to confirm a deduction that no longer exists.
+      // The recovery notices are obsolete once the case is waived: retire them
+      // so employees are not prompted to confirm deductions that no longer exist.
       try {
         // A recovery batch can carry other people's deductions, so their
         // notices must be retired too when the whole batch is cancelled.
@@ -6728,18 +6786,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       } catch {
         // Notification hygiene must not block the waiver itself.
       }
-      // Keep the reversed pair out of later sweeps: otherwise the next sweep
+      // Keep every reversed pair out of later sweeps: otherwise the next sweep
       // collects the positive reversal on its own and pays the employee the
-      // amount that was just waived. `reversalEntryId` is authoritative for the
-      // first waiver; the ledger lookup only helps an idempotent retry.
-      const waivedEntryId =
-        reversalEntryId ??
-        ledger.find(
-          (entry) => entry.idempotencyKey === `clawback-waive:${clawback.id}`,
-        )?.id;
-      const excludedIds = [recovery.id, waivedEntryId].filter(
-        (value): value is string => Boolean(value),
-      );
+      // amount that was just waived.
+      const excludedIds = [
+        ...recoveries.map((entry) => entry.id),
+        ...reversalEntryIds,
+      ];
       await platformStore.excludeLedgerFromSettlement({
         tenantId,
         ledgerIds: excludedIds,
@@ -6766,7 +6819,16 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       actorPersonId: body.actorPersonId,
     });
     countEvent("clawback_waived");
-    return data({ ...updated, reversalEntryId, cancelledBatchId }, request);
+    return data(
+      {
+        ...updated,
+        reversalEntryId: reversalEntryIds[0],
+        reversalEntryIds,
+        cancelledBatchId: cancelledBatchIds[0],
+        cancelledBatchIds,
+      },
+      request,
+    );
   });
 
   app.post("/api/v1/clawback-cases/:id/cancel", async (request) => {
@@ -6971,13 +7033,20 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         `CLAWBACK_NOT_APPROVED: case is ${clawback.status}`,
       );
     }
-    // Idempotency: one recovery adjustment per case, ever.
+    // Idempotency: one recovery adjustment per case (or one per installment).
     const idempotencyKey = `clawback-recovery:${clawback.id}`;
     const ledger = await store.listLedger();
     const duplicate = ledger.some(
+      (entry) =>
+        entry.idempotencyKey === idempotencyKey ||
+        entry.idempotencyKey.startsWith(`${idempotencyKey}:`),
+    );
+    const hasLegacyRecovery = ledger.some(
       (entry) => entry.idempotencyKey === idempotencyKey,
     );
-    if (duplicate) {
+    // Multi-installment generation is resumable (per-installment keys), but a
+    // legacy lump sum already posted must never be topped up with installments.
+    if (hasLegacyRecovery || (duplicate && !body.installmentCycles?.length)) {
       throw new ConflictError(
         "CLAWBACK_RECOVERY_ALREADY_GENERATED: this case already has a recovery adjustment",
       );
@@ -7032,11 +7101,115 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     }
     const remaining = parseDecimal(source.amount) -
       (alreadyRecovered > 0n ? alreadyRecovered : 0n);
-    if (parseDecimal(clawback.amount) > remaining) {
+    if (!duplicate && parseDecimal(clawback.amount) > remaining) {
       throw new ConflictError(
         `CLAWBACK_EXCEEDS_REMAINING: case is ${clawback.amount}, only ${formatDecimal(remaining > 0n ? remaining : 0n)} remains recoverable on this entry`,
       );
     }
+
+    // Optional cross-cycle installments. Each installment is posted into its
+    // own cycle so payroll withholds only that month's share.
+    const cycles = body.installmentCycles;
+    if (cycles && cycles.length > 0) {
+      if (cycles.length !== clawback.installmentMonths) {
+        throw new BadRequestError(
+          "CLAWBACK_INSTALLMENT_COUNT_MISMATCH",
+          `installmentCycles must contain ${clawback.installmentMonths} entries`,
+        );
+      }
+      if (new Set(cycles).size !== cycles.length) {
+        throw new BadRequestError(
+          "CLAWBACK_INSTALLMENT_CYCLE_DUPLICATED",
+          "each installment must target a distinct cycle",
+        );
+      }
+      for (const cycleId of cycles) {
+        try {
+          await store.getEvaluationCycle(cycleId);
+        } catch {
+          throw new NotFoundError(`EvaluationCycle ${cycleId} not found`);
+        }
+      }
+      const total = parseDecimal(clawback.amount);
+      const months = BigInt(cycles.length);
+      const base = total / months;
+      let allocated = 0n;
+      const installments: Array<{
+        sequence: number;
+        cycleId: string;
+        ledgerEntryId: string;
+        adjustmentRecordId: string;
+        amount: string;
+      }> = [];
+      const excluded = new Set<string>();
+      for (let index = 0; index < cycles.length; index += 1) {
+        const amount =
+          index === cycles.length - 1 ? total - allocated : base;
+        allocated += amount;
+        const result = await store.adjustLedgerEntry(body.ledgerEntryId, {
+          amount: `-${formatDecimal(amount)}`,
+          reasonCode: "CLAWBACK_RECOVERY",
+          explanation: `Clawback case ${clawback.id} installment ${index + 1}/${cycles.length}: ${clawback.reasonCode}`,
+          approvedBy: clawback.approvedBy ?? request.authContext!.userId,
+          idempotencyKey: `${idempotencyKey}:${index + 1}`,
+          entryType: "RECOVERY",
+          cycleId: cycles[index],
+        });
+        installments.push({
+          sequence: index + 1,
+          cycleId: cycles[index]!,
+          ledgerEntryId: result.entry.id,
+          adjustmentRecordId: result.record.id,
+          amount: formatDecimal(amount),
+        });
+        excluded.add(result.entry.id);
+      }
+      let batch = null;
+      if (body.createBatch !== false) {
+        // Only the first cycle gets an automatic batch; later cycles create
+        // theirs through the settlement page when they become current.
+        batch = await store.createSettlementBatch({
+          cycleId: cycles[0]!,
+          kind: "RECOVERY",
+        });
+        const lines = await store.listSettlementLines(batch.id);
+        const affected = [
+          ...new Set(
+            lines
+              .filter((line) => Number(line.amount) < 0)
+              .map((line) => line.personId),
+          ),
+        ];
+        for (const personId of affected) {
+          await notifyBestEffort(store, {
+            recipientPersonId: personId,
+            audience: "PERSON",
+            title: "Clawback recovery requires confirmation",
+            body: `Batch ${batch.batchNo} carries a clawback recovery; please review and confirm or object.`,
+            sourceType: "SETTLEMENT_BATCH",
+            sourceId: batch.id,
+          });
+        }
+      }
+      const stamped = await platformStore.markClawbackRecoveryGenerated({
+        tenantId,
+        caseId: clawback.id,
+      });
+      countEvent("clawback_recovery_generated");
+      return data(
+        {
+          caseId: clawback.id,
+          caseStatus: stamped.status,
+          adjustmentRecordId: installments[0]!.adjustmentRecordId,
+          ledgerEntryId: installments[0]!.ledgerEntryId,
+          ledgerEntryIds: installments.map((row) => row.ledgerEntryId),
+          installments,
+          recoveryBatch: batch,
+        },
+        request,
+      );
+    }
+
     const { entry, record } = await store.adjustLedgerEntry(
       body.ledgerEntryId,
       {

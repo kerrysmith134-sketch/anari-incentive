@@ -3241,6 +3241,7 @@ export class PgStore implements IncentiveStore {
       approvedBy: string;
       idempotencyKey: string;
       entryType?: "ADJUSTMENT" | "REVERSAL" | "RECOVERY";
+      cycleId?: string;
     },
   ): Promise<{ entry: AmountLedgerEntry; record: AdjustmentRecord }> {
     return this.tx(async (client) => {
@@ -3303,13 +3304,18 @@ export class PgStore implements IncentiveStore {
       const recordId = randomUUID();
       const createdAt = new Date().toISOString();
       const currency = String(original.currency).trim();
+      const cycleId = input.cycleId ?? original.cycle_id;
+      const calculationLineId =
+        cycleId === original.cycle_id
+          ? original.calculation_line_id
+          : null;
       const entryHash = hashLedgerEntry({
         id: adjustmentId,
         tenantId: this.tenantId,
         personId: original.person_id,
-        cycleId: original.cycle_id,
+        cycleId,
         calculationRunId: original.calculation_run_id,
-        calculationLineId: original.calculation_line_id ?? undefined,
+        calculationLineId: calculationLineId ?? undefined,
         entryType: input.entryType ?? "ADJUSTMENT",
         amount,
         currency,
@@ -3331,9 +3337,9 @@ export class PgStore implements IncentiveStore {
             adjustmentId,
             this.tenantId,
             original.person_id,
-            original.cycle_id,
+            cycleId,
             original.calculation_run_id,
-            original.calculation_line_id,
+            calculationLineId,
             amount,
             currency,
             id,

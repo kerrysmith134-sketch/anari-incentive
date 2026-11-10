@@ -831,6 +831,15 @@ export interface ClawbackCase {
     batchNo: string | null;
     batchStatus: string | null;
     waivedReversalEntryId: Uuid | null;
+    installments?: Array<{
+      sequence: number;
+      ledgerEntryId: Uuid;
+      cycleId: Uuid;
+      amount: DecimalString;
+      batchId: Uuid | null;
+      batchNo: string | null;
+      batchStatus: string | null;
+    }>;
   };
   createdAt: string;
   updatedAt: string;

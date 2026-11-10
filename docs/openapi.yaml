@@ -12845,6 +12845,12 @@ components:
           type: string
         createBatch:
           type: boolean
+        installmentCycles:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            format: uuid
     CreateStrategicPoolCase:
       type: object
       required: [cycleId, poolAmount, capAmount, currency, requestedBy, rationale]

@@ -324,6 +324,7 @@ export function SettingsPage() {
     null,
   );
   const [recoveryCycleId, setRecoveryCycleId] = useState("");
+  const [recoveryCycles, setRecoveryCycles] = useState("");
   const [recoveryLedgerId, setRecoveryLedgerId] = useState("");
   const [recoveryCreateBatch, setRecoveryCreateBatch] = useState(true);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -1030,6 +1031,12 @@ export function SettingsPage() {
             cycleId: recoveryCycleId.trim(),
             ledgerEntryId: recoveryLedgerId.trim(),
             createBatch: recoveryCreateBatch,
+            installmentCycles: recoveryCycles.trim()
+              ? recoveryCycles
+                  .split(/[,，\s]+/)
+                  .map((value) => value.trim())
+                  .filter(Boolean)
+              : undefined,
           },
         },
       );
@@ -3812,6 +3819,7 @@ export function SettingsPage() {
                               onClick={() => {
                                 setRecoveryTarget(clawback);
                                 setRecoveryCycleId("");
+                                setRecoveryCycles("");
                                 setRecoveryLedgerId("");
                                 setRecoveryCreateBatch(true);
                                 setRecoveryError(null);
@@ -3973,7 +3981,7 @@ export function SettingsPage() {
         title="豁免追回"
         description={
           waiveTarget?.recovery
-            ? `该案已生成追回（批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将冲销一笔 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定或追回已并入标准批次时会被拒绝。`
+            ? `该案已生成追回（${waiveTarget.recovery.installments?.length ?? 1} 笔，批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将逐笔冲销合计 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定或追回已并入标准批次时会被拒绝。`
             : "该案尚未生成追回；豁免只关闭案件，不影响账本。"
         }
         onClose={() => setWaiveTarget(null)}
@@ -4644,9 +4652,9 @@ export function SettingsPage() {
                 value: `${recoveryTarget?.amount ?? ""} ${recoveryTarget?.currency ?? ""} · ${recoveryTarget?.reasonCode ?? ""}`,
               },
               {
-                label: "Effect",
+                label: "影响",
                 value:
-                  "追加一笔锁定负向账本调整（按案例幂等）。已确认的结算周期拒绝追溯调整。",
+                  "追加锁定负向账本调整（按案例幂等）。填写分期周期时按月在各自周期生成；已确认的结算周期拒绝追溯调整。",
               },
             ]}
           />
@@ -4660,6 +4668,18 @@ export function SettingsPage() {
               value={recoveryCycleId}
               onChange={(event) => setRecoveryCycleId(event.target.value)}
               required
+            />
+          </FormField>
+          <FormField
+            label="分期周期 ID（可选）"
+            htmlFor="recovery-cycles"
+            hint={`按月追回时填写，数量须等于案件期数（${recoveryTarget?.installmentMonths ?? "?"} 期），用逗号分隔。留空则一次性生成。`}
+          >
+            <TextInput
+              id="recovery-cycles"
+              value={recoveryCycles}
+              onChange={(event) => setRecoveryCycles(event.target.value)}
+              placeholder="周期1ID, 周期2ID, …"
             />
           </FormField>
           <FormField
@@ -4680,8 +4700,7 @@ export function SettingsPage() {
               checked={recoveryCreateBatch}
               onChange={(event) => setRecoveryCreateBatch(event.target.checked)}
             />{" "}
-            Open a RECOVERY settlement batch (affected people must confirm
-            before locking)
+            同时创建 RECOVERY 结算批次（受影响人员确认后才能锁定）
           </label>
         </form>
       </Modal>
