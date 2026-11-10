@@ -18,6 +18,7 @@ import { PersonSelect } from "../components/PersonSelect.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { api, ApiError } from "../lib/api.js";
+import { zhStatus } from "../lib/zh.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 
 interface EquityGrantView {
@@ -666,7 +667,7 @@ export function EquityPage() {
                                 variant="secondary"
                                 onClick={() => openAdvance(record)}
                               >
-                                推进到 {next}
+                                推进到 {zhStatus(next)}
                               </Button>
                             ) : (
                               <span className="muted">已完成</span>

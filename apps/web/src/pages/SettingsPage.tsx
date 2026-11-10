@@ -4903,7 +4903,7 @@ export function SettingsPage() {
                           key,
                         )
                           ? "Tenant override"
-                          : "System default"}
+                          : "系统默认"}
                       </td>
                     </tr>
                   ),

@@ -1417,7 +1417,7 @@ function FeishuSyncPanel() {
           loading={busy}
           onClick={() => void runSync(true)}
         >
-          预览（dry run）
+          预览（试运行）
         </Button>
         <Button
           variant="primary"
@@ -1432,7 +1432,7 @@ function FeishuSyncPanel() {
             checked={allowCreate}
             onChange={(event) => setAllowCreate(event.target.checked)}
           />{" "}
-          Provision missing people (basic role only)
+          自动补建缺失人员（仅基础角色）
         </label>
       </div>
       {result ? (

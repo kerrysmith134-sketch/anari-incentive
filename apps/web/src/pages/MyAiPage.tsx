@@ -127,10 +127,10 @@ export function MyAiPage() {
             <div>
               <strong>{record.data.explanation.summary}</strong>
               <p>
-                Human review required:{" "}
-                {record.data.explanation.humanReviewRequired ? "yes" : "no"} ·
-                Fully autonomous decision:{" "}
-                {record.data.explanation.autonomousDecision ? "yes" : "no"}
+                需要人工复核：
+                {record.data.explanation.humanReviewRequired ? "是" : "否"} ·
+                全自主决定：
+                {record.data.explanation.autonomousDecision ? "是" : "否"}
               </p>
             </div>
           </div>
@@ -280,9 +280,9 @@ export function MyAiPage() {
           </Panel>
 
           <p className="subtle" style={{ marginTop: 18, fontSize: 11.5 }}>
-            Generated {formatDateTime(record.data.generatedAt)}. Advisory AI
-            output never writes money or a formal decision. Appealable decision
-            ids: {record.data.explanation.appealTargets.join(", ") || "none"}.
+            生成于 {formatDateTime(record.data.generatedAt)}。AI 结论仅作建议，
+            不直接产生金额或正式决定。可申诉的决定编号：
+            {record.data.explanation.appealTargets.join("、") || "无"}。
           </p>
         </>
       )}

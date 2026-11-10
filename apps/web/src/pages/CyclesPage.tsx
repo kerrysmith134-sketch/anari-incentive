@@ -20,6 +20,7 @@ import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, downloadJson, qs } from "../lib/api.js";
+import { zhStatus } from "../lib/zh.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -778,7 +779,7 @@ export function CyclesPage() {
                       loading={advancing}
                       disabled={!NEXT_CYCLE_STATUS[selected.status]}
                     >
-                      推进到 {NEXT_CYCLE_STATUS[selected.status] ? titleCase(NEXT_CYCLE_STATUS[selected.status]!) : "终态"}
+                      推进到 {NEXT_CYCLE_STATUS[selected.status] ? zhStatus(NEXT_CYCLE_STATUS[selected.status]!) : "终态"}
                     </Button>
                   </div>
                   <InfoNotice tone="info">

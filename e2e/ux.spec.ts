@@ -70,7 +70,8 @@ test.describe("2026 policy centre UX", () => {
     await expect(page.getByText("发起股权授予流程")).toBeVisible();
     await page.getByRole("button", { name: "发起授予流程" }).click();
     await expect(page.getByText("授予流程已发起")).toBeVisible();
-    await expect(page.getByText("QUALIFICATION").first()).toBeVisible();
+    // 授予步骤状态已中文化为「资格确认」
+    await expect(page.getByText("资格确认").first()).toBeVisible();
   });
 
   test("approves, locks and exports an award batch", async ({ page }) => {
