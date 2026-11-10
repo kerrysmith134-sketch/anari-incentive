@@ -86,6 +86,25 @@ describe("agent command router", () => {
   });
 });
 
+describe("agent task list limits", () => {
+  it("caps the payload and honours an explicit limit", async () => {
+    for (let index = 0; index < 3; index += 1) {
+      const created = await call("POST", "/api/v1/agent-tasks", {
+        agentType: "EVIDENCE_GAP",
+        triggerType: "MANUAL",
+        idempotencyKey: `list-limit-${index}`,
+      });
+      expect(created.status).toBe(201);
+    }
+    const limited = await call("GET", "/api/v1/agent-tasks?limit=2");
+    expect(limited.status).toBe(200);
+    expect(limited.body.data).toHaveLength(2);
+    const capped = await call("GET", "/api/v1/agent-tasks?limit=9999");
+    expect(capped.status).toBe(200);
+    expect(capped.body.data.length).toBeLessThanOrEqual(3);
+  });
+});
+
 describe("unified approval inbox", () => {
   it("aggregates agent waiting-approval tasks and business approvals", async () => {
     // 业务审批（PENDING）

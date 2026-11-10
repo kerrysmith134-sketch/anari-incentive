@@ -25,6 +25,7 @@ const STATUS_ZH: Record<string, string> = {
   VOID: "已作废",
   ISSUED: "已开具",
   PAID: "已支付",
+  REVERSED: "已冲销",
   TRIALING: "试用中",
   PAST_DUE: "已逾期",
   LOCKED: "已锁定",
@@ -118,4 +119,19 @@ export function zhStatus(value: string | undefined | null): string {
 export function zhStatusList(values: string[] | undefined | null): string {
   if (!values || values.length === 0) return "—";
   return values.map(zhStatus).join("、");
+}
+
+const CLAWBACK_REASON_ZH: Record<string, string> = {
+  OVERPAYMENT: "重复/多计发放",
+  CUSTOMER_CLAWBACK: "客户退款或扣款",
+  POLICY_VIOLATION: "制度违规追回",
+  QUALITY_FAILURE: "质量未达标",
+  BAD_DEBT: "坏账核销",
+  FRAUD: "欺诈调查追回",
+  OTHER: "其他",
+};
+
+/** Clawback reason codes are free text; translate the institutional ones. */
+export function zhClawbackReason(code: string): string {
+  return CLAWBACK_REASON_ZH[code] ?? code;
 }

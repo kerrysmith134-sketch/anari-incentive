@@ -26,6 +26,7 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, DEFAULT_SESSION } from "../lib/api.js";
+import { zhClawbackReason, zhStatus } from "../lib/zh.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import {
   displayName,
@@ -3779,8 +3780,12 @@ export function SettingsPage() {
                       {formatMoney(clawback.amount, clawback.currency)}
                     </td>
                     <td>
-                      <span className="cell-primary">{clawback.reasonCode}</span>
-                      <span className="cell-sub">{clawback.explanation}</span>
+                      <span className="cell-primary">
+                        {zhClawbackReason(clawback.reasonCode)}
+                      </span>
+                      <span className="cell-sub">
+                        {clawback.reasonCode} · {clawback.explanation}
+                      </span>
                     </td>
                     <td className="cell-num">{clawback.installmentMonths}</td>
                     <td>
@@ -3788,7 +3793,9 @@ export function SettingsPage() {
                       {clawback.recovery?.batchNo ? (
                         <span className="cell-sub">
                           {clawback.recovery.batchNo} ·{" "}
-                          {clawback.recovery.batchStatus ?? "待分批"}
+                          {clawback.recovery.batchStatus
+                            ? zhStatus(clawback.recovery.batchStatus)
+                            : "待分批"}
                         </span>
                       ) : null}
                     </td>
@@ -3981,7 +3988,7 @@ export function SettingsPage() {
         title="豁免追回"
         description={
           waiveTarget?.recovery
-            ? `该案已生成追回（${waiveTarget.recovery.installments?.length ?? 1} 笔，批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ?? "待分批"}）。豁免将逐笔冲销合计 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定或追回已并入标准批次时会被拒绝。`
+            ? `该案已生成追回（${waiveTarget.recovery.installments?.length ?? 1} 笔，批次 ${waiveTarget.recovery.batchNo ?? "未分批"}，状态 ${waiveTarget.recovery.batchStatus ? zhStatus(waiveTarget.recovery.batchStatus) : "待分批"}）。豁免将逐笔冲销合计 +${waiveTarget.amount} ${waiveTarget.currency} 并取消对应结算批次；批次已锁定或追回已并入标准批次时会被拒绝。`
             : "该案尚未生成追回；豁免只关闭案件，不影响账本。"
         }
         onClose={() => setWaiveTarget(null)}

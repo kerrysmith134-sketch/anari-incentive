@@ -4096,7 +4096,15 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
 
   app.get("/api/v1/agent-tasks", async (request) => {
     requireRoles(request, "manager");
-    return data(await runtimeFor(request).list(), request);
+    const query = request.query as { limit?: string };
+    const requested = Number(query.limit ?? "200");
+    // Newest first; cap the payload so a long-lived tenant does not ship
+    // thousands of historical tasks to every console load.
+    const limit = Number.isFinite(requested)
+      ? Math.min(Math.max(Math.trunc(requested), 1), 500)
+      : 200;
+    const tasks = await runtimeFor(request).list();
+    return data(tasks.slice(0, limit), request);
   });
   // 对话式入口（第二阶段）：LLM 只做意图选择与人话回复；
   // 命令必须命中 AGENT_COMMANDS 白名单才会执行，执行仍走任务状态机。

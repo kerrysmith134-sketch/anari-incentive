@@ -358,7 +358,7 @@ function RunsTab({
     <>
       <div className="payroll-detail-grid">
         <Panel
-          title="Runs"
+          title="薪酬批次"
           subtitle="草稿 → 已计算 → 已批准 → 已支付；被阻断的批次需先整改。"
           action={
             <Button size="sm" variant="primary" icon="plus" onClick={openCreate}>
