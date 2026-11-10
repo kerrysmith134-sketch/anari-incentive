@@ -1068,6 +1068,50 @@ function ContractsTab({
   const [amendTarget, setAmendTarget] = useState<EmploymentContract | null>(
     null,
   );
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCsv, setImportCsv] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    failed: number;
+    errors: Array<{ row: number; error: string }>;
+    defaultConsentRef: string;
+  } | null>(null);
+
+  async function submitContractImport(event: FormEvent) {
+    event.preventDefault();
+    setImportError(null);
+    setImporting(true);
+    try {
+      const result = await api<{
+        created: number;
+        failed: number;
+        errors: Array<{ row: number; error: string }>;
+        defaultConsentRef: string;
+      }>("/api/v1/employment-contracts:import", {
+        method: "POST",
+        body: { csv: importCsv },
+      });
+      setImportResult(result);
+      toast.success(
+        "合同导入完成",
+        `成功 ${result.created} 份，失败 ${result.failed} 份`,
+      );
+      reload();
+    } catch (caught) {
+      const details =
+        caught instanceof ApiError && Array.isArray(caught.details)
+          ? (caught.details as string[]).slice(0, 10).join("\n")
+          : "";
+      setImportError(
+        (caught instanceof ApiError ? caught.message : "导入失败") +
+          (details ? `\n${details}` : ""),
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
   const [amendSalary, setAmendSalary] = useState("");
   const [amendMinimum, setAmendMinimum] = useState("");
   const [amendTax, setAmendTax] = useState("0");
@@ -1311,6 +1355,18 @@ function ContractsTab({
             }}
           >
             应用到期修订
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setImportOpen(true);
+              setImportError(null);
+              setImportResult(null);
+              setImportCsv("");
+            }}
+          >
+            导入合同 CSV
           </Button>
           <Button size="sm" variant="primary" icon="plus" onClick={openForm}>
             新建合同
@@ -2010,6 +2066,93 @@ function ContractsTab({
             />
           </FormField>
         </div>
+      </Modal>
+
+      <Modal
+        open={importOpen}
+        title="批量导入劳动合同"
+        description="上传或粘贴 CSV（表头：工号/人员ID，合同编号，开始日期，固定月薪；可选 结束日期/工作地点/币种/个税率/社保率/扣款上限率/浮动占比上限率/同意签名）。失败的行会逐条列出，不影响其他行。"
+        onClose={() => setImportOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setImportOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="contract-import-form"
+              loading={importing}
+              disabled={!importCsv.trim()}
+            >
+              解析并导入
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="contract-import-form"
+          onSubmit={submitContractImport}
+          className="form-grid"
+        >
+          {importError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">
+                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+                  {importError}
+                </pre>
+              </InfoNotice>
+            </div>
+          ) : null}
+          {importResult ? (
+            <div className="field--full">
+              <InfoNotice tone={importResult.failed > 0 ? "warning" : "success"}>
+                成功 {importResult.created} 份，失败 {importResult.failed} 份。
+                {importResult.failed > 0
+                  ? `失败行：${importResult.errors
+                      .slice(0, 10)
+                      .map((item) => `第${item.row}行 ${item.error}`)
+                      .join("；")}`
+                  : ""}
+                {importResult.defaultConsentRef
+                  ? ` 未填写同意签名的行使用了占位引用 ${importResult.defaultConsentRef}，请尽快补录正式签署引用。`
+                  : ""}
+              </InfoNotice>
+            </div>
+          ) : null}
+          <FormField
+            label="CSV 文件"
+            htmlFor="contract-import-file"
+            className="field--full"
+          >
+            <input
+              id="contract-import-file"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (file) setImportCsv(await file.text());
+              }}
+            />
+          </FormField>
+          <FormField
+            label="CSV 内容"
+            htmlFor="contract-import-csv"
+            className="field--full"
+          >
+            <Textarea
+              id="contract-import-csv"
+              value={importCsv}
+              onChange={(event) => setImportCsv(event.target.value)}
+              rows={8}
+              placeholder={
+                "工号,合同编号,开始日期,固定月薪,币种\nE001,HT-2026-001,2026-12-01,12000,CNY"
+              }
+              required
+            />
+          </FormField>
+        </form>
       </Modal>
     </Panel>
   );

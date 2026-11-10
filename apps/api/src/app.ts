@@ -37,6 +37,9 @@ import {
   createBreakGlassGrantSchema,
   createClawbackCaseSchema,
   createIncentiveAwardBatchSchema,
+  importIncentiveAwardBatchSchema,
+  importEmploymentContractsSchema,
+  adjustEquityGrantSchema,
   generateClawbackRecoverySchema,
   createStrategicPoolCaseSchema,
   strategicPoolCostReviewSchema,
@@ -240,6 +243,7 @@ import {
 import { calculateCumulativeIit } from "@anari/payroll-tax";
 import {
   FIELD_MAPPING_PRESETS,
+  parseCsv,
   verifyFeishuSignature,
   verifyHubSpotSignature,
   verifyWebhookSignature,
@@ -1837,6 +1841,15 @@ export function buildApp(
     } catch {
       /* audit must not break the download */
     }
+  }
+
+  function normalizeHeaderKey(value: string): string {
+    return value.replace(/^\uFEFF/, "").trim().toLowerCase();
+  }
+
+  function columnIndexFor(header: string[], aliases: string[]): number {
+    const normalized = header.map(normalizeHeaderKey);
+    return normalized.findIndex((cell) => aliases.includes(cell));
   }
 
   function exportHeaders(
@@ -11067,6 +11080,40 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(grant, request);
   });
 
+  // 人工修正入口：自动配股计算完成后，允许管理员在台账锁定前修正数量/价格/归属参数。
+  app.post("/api/v1/equity-grants/:id/adjust", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(adjustEquityGrantSchema, request.body);
+    const grant = await platformStore.updateEquityGrant({
+      tenantId: tenantOf(request),
+      grantId: idOf(request),
+      patch: {
+        totalUnits: body.totalUnits,
+        strikePrice: body.strikePrice,
+        grantDate: body.grantDate,
+        vestingStart: body.vestingStart,
+        cliffMonths: body.cliffMonths,
+        vestingMonths: body.vestingMonths,
+      },
+      reason: body.reason,
+      actorPersonId: ownPersonId(request),
+    });
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? request.authContext?.userId,
+        action: "EQUITY_GRANT_ADJUSTED",
+        objectType: "EQUITY_GRANT",
+        objectId: grant.id,
+        reason: body.reason,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    countEvent("equity_grant_adjusted");
+    return data(grant, request);
+  });
+
   app.get("/api/v1/equity-grants/:id/vesting", async (request) => {
     if (!isPrivileged(request)) {
       const grant = await platformStore.getEquityGrant(
@@ -11575,6 +11622,237 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
           matchContext,
         }),
       ),
+      request,
+    );
+  });
+
+  // 批量导入：CSV 一次登记多名员工的劳动合同。
+  app.post("/api/v1/employment-contracts:import", async (request) => {
+    requireRoles(request, "admin");
+    const body = parse(importEmploymentContractsSchema, request.body);
+    const rows = parseCsv(body.csv);
+    if (rows.length < 2) {
+      throw new BadRequestError(
+        "CSV_NO_DATA_ROWS",
+        "CSV 需要表头和至少一行数据",
+      );
+    }
+    const header = rows[0]!;
+    const col = {
+      personId: columnIndexFor(header, ["person_id", "人员id"]),
+      employeeCode: columnIndexFor(header, [
+        "employee_code",
+        "employeecode",
+        "工号",
+        "员工编号",
+        "empno",
+      ]),
+      contractCode: columnIndexFor(header, ["contract_code", "合同编号"]),
+      employmentType: columnIndexFor(header, ["employment_type", "用工类型"]),
+      startDate: columnIndexFor(header, ["start_date", "开始日期", "入职日期"]),
+      endDate: columnIndexFor(header, ["end_date", "结束日期"]),
+      workLocation: columnIndexFor(header, ["work_location", "工作地点"]),
+      legalEntity: columnIndexFor(header, ["legal_entity", "法人主体"]),
+      currency: columnIndexFor(header, ["currency", "币种"]),
+      fixedMonthlySalary: columnIndexFor(header, [
+        "fixed_monthly_salary",
+        "固定月薪",
+        "月薪",
+      ]),
+      minimumMonthlyWage: columnIndexFor(header, [
+        "minimum_monthly_wage",
+        "最低工资",
+      ]),
+      taxRate: columnIndexFor(header, ["tax_rate", "个税率"]),
+      socialInsuranceRate: columnIndexFor(header, [
+        "social_insurance_rate",
+        "社保率",
+      ]),
+      deductionCapRate: columnIndexFor(header, [
+        "deduction_cap_rate",
+        "扣款上限率",
+      ]),
+      variableShareCapRate: columnIndexFor(header, [
+        "variable_share_cap_rate",
+        "浮动占比上限率",
+      ]),
+      consentSignatureRef: columnIndexFor(header, [
+        "consent_signature_ref",
+        "同意签名",
+        "签署引用",
+      ]),
+    };
+    if (
+      (col.personId === -1 && col.employeeCode === -1) ||
+      col.contractCode === -1 ||
+      col.startDate === -1 ||
+      col.fixedMonthlySalary === -1
+    ) {
+      throw new BadRequestError(
+        "CSV_COLUMNS_REQUIRED",
+        "CSV 必须包含：工号/人员ID、合同编号、开始日期、固定月薪",
+      );
+    }
+    const persons = await platformStore.listPersons(tenantOf(request));
+    const byCode = new Map(
+      persons.map((person) => [person.employeeCode.toLowerCase(), person.id]),
+    );
+    const existing = await platformStore.listEmploymentContracts(
+      tenantOf(request),
+    );
+    const contractsByPerson = new Map<string, typeof existing>();
+    for (const contract of existing) {
+      const list = contractsByPerson.get(contract.personId) ?? [];
+      list.push(contract);
+      contractsByPerson.set(contract.personId, list);
+    }
+    const typeMap: Record<string, "FULL_TIME" | "PART_TIME" | "CONTRACTOR"> = {
+      "全职": "FULL_TIME",
+      full_time: "FULL_TIME",
+      "兼职": "PART_TIME",
+      part_time: "PART_TIME",
+      "外包": "CONTRACTOR",
+      contractor: "CONTRACTOR",
+      "劳务": "CONTRACTOR",
+    };
+    const defaultConsent = `CSV-CONSENT-${new Date().toISOString().slice(0, 10)}`;
+    const created: Array<{ row: number; contractId: string }> = [];
+    const failed: Array<{ row: number; error: string }> = [];
+    for (const [rowIndex, cells] of rows.slice(1).entries()) {
+      const row = rowIndex + 2;
+      if (cells.every((cell) => !cell.trim())) continue;
+      const fail = (error: string) => failed.push({ row, error });
+      try {
+        let personId: string | undefined;
+        if (col.personId >= 0 && cells[col.personId]?.trim()) {
+          personId = cells[col.personId]!.trim();
+          if (!persons.some((person) => person.id === personId)) {
+            fail(`人员 ${personId} 不存在`);
+            continue;
+          }
+        } else {
+          const code = cells[col.employeeCode]?.trim().toLowerCase() ?? "";
+          personId = byCode.get(code);
+          if (!personId) {
+            fail(`工号「${code}」没有匹配的员工`);
+            continue;
+          }
+        }
+        const contractCode = cells[col.contractCode]?.trim() ?? "";
+        if (!contractCode) {
+          fail("合同编号不能为空");
+          continue;
+        }
+        const rawStart = cells[col.startDate]?.trim() ?? "";
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawStart)) {
+          fail(`开始日期「${rawStart}」需要 YYYY-MM-DD`);
+          continue;
+        }
+        const rawEnd = cells[col.endDate]?.trim() ?? "";
+        if (rawEnd && !/^\d{4}-\d{2}-\d{2}$/.test(rawEnd)) {
+          fail(`结束日期「${rawEnd}」需要 YYYY-MM-DD`);
+          continue;
+        }
+        const rawFixed = cells[col.fixedMonthlySalary]?.trim() ?? "";
+        if (!/^\d+(\.\d{1,2})?$/.test(rawFixed) || Number(rawFixed) <= 0) {
+          fail(`固定月薪「${rawFixed}」无效`);
+          continue;
+        }
+        const employmentTypeRaw =
+          (col.employmentType >= 0
+            ? cells[col.employmentType]?.trim().toLowerCase()
+            : "") || "full_time";
+        const employmentType = typeMap[employmentTypeRaw];
+        if (!employmentType) {
+          fail(`用工类型「${employmentTypeRaw}」无效（全职/兼职/外包）`);
+          continue;
+        }
+        const currency =
+          (col.currency >= 0 ? cells[col.currency]?.trim() : "") || "CNY";
+        const startDate = `${rawStart}T00:00:00.000Z`;
+        const endDate = rawEnd ? `${rawEnd}T23:59:59.999Z` : undefined;
+        // 与单笔创建一致：同一员工同币种的 ACTIVE 合同不允许期间重叠。
+        const overlap = (contractsByPerson.get(personId) ?? []).find(
+          (contract) =>
+            contract.status === "ACTIVE" &&
+            contract.currency === currency &&
+            Date.parse(contract.startDate) <=
+              Date.parse(endDate ?? "9999-12-31T23:59:59.999Z") &&
+            (!contract.endDate ||
+              Date.parse(contract.endDate) >= Date.parse(startDate)),
+        );
+        if (overlap) {
+          fail(`与已有合同 ${overlap.contractCode} 期间重叠`);
+          continue;
+        }
+        const contract = await platformStore.createEmploymentContract({
+          tenantId: tenantOf(request),
+          personId,
+          contractCode,
+          employmentType,
+          startDate,
+          endDate,
+          workLocation:
+            (col.workLocation >= 0
+              ? cells[col.workLocation]?.trim()
+              : "") || "深圳",
+          legalEntity:
+            col.legalEntity >= 0
+              ? cells[col.legalEntity]?.trim() || undefined
+              : undefined,
+          currency,
+          fixedMonthlySalary: rawFixed,
+          minimumMonthlyWage:
+            (col.minimumMonthlyWage >= 0
+              ? cells[col.minimumMonthlyWage]?.trim()
+              : "") || "2360",
+          taxRate:
+            (col.taxRate >= 0 ? cells[col.taxRate]?.trim() : "") || "0",
+          socialInsuranceRate:
+            (col.socialInsuranceRate >= 0
+              ? cells[col.socialInsuranceRate]?.trim()
+              : "") || "0",
+          deductionCapRate:
+            (col.deductionCapRate >= 0
+              ? cells[col.deductionCapRate]?.trim()
+              : "") || "0.2",
+          variableShareCapRate:
+            (col.variableShareCapRate >= 0
+              ? cells[col.variableShareCapRate]?.trim()
+              : "") || "1",
+          consentSignatureRef:
+            (col.consentSignatureRef >= 0
+              ? cells[col.consentSignatureRef]?.trim()
+              : "") || defaultConsent,
+          deductionOrder: [
+            "RECOVERY",
+            "REVERSAL",
+            "ADJUSTMENT",
+            "OTHER",
+          ],
+          deductionTypeCaps: {},
+          smoothingThresholdRate: "1",
+          smoothingMode: "BLOCK",
+          smoothingWindowPeriods: 3,
+          smoothingMaxStepRate: "0.5",
+        });
+        const list = contractsByPerson.get(personId) ?? [];
+        list.push(contract);
+        contractsByPerson.set(personId, list);
+        created.push({ row, contractId: contract.id });
+      } catch (error) {
+        fail(error instanceof Error ? error.message : "创建失败");
+      }
+    }
+    countEvent("employment_contracts_csv_imported");
+    return data(
+      {
+        created: created.length,
+        failed: failed.length,
+        createdContractIds: created.map((entry) => entry.contractId),
+        errors: failed,
+        defaultConsentRef: defaultConsent,
+      },
       request,
     );
   });
@@ -14583,6 +14861,148 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       /* audit is best-effort for legacy stores */
     }
     return reply.status(201).send(data(batch, request));
+  });
+
+  // 批量导入：CSV（工号/人员ID + 金额）一次生成整个发放批次。
+  app.post("/api/v1/incentive-award-batches:import", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(importIncentiveAwardBatchSchema, request.body);
+    const rows = parseCsv(body.csv);
+    if (rows.length < 2) {
+      throw new BadRequestError(
+        "CSV_NO_DATA_ROWS",
+        "CSV 需要表头和至少一行数据",
+      );
+    }
+    const header = rows[0]!;
+    const col = {
+      personId: columnIndexFor(header, ["person_id", "personid", "人员id"]),
+      employeeCode: columnIndexFor(header, [
+        "employee_code",
+        "employeecode",
+        "工号",
+        "员工编号",
+        "empno",
+      ]),
+      amount: columnIndexFor(header, ["amount", "金额", "奖金"]),
+      note: columnIndexFor(header, ["note", "备注"]),
+      sourceRecordId: columnIndexFor(header, [
+        "source_record_id",
+        "来源标识",
+        "来源记录",
+        "来源记录id",
+      ]),
+      sourceLineRef: columnIndexFor(header, [
+        "source_line_ref",
+        "来源行",
+        "来源行标识",
+      ]),
+    };
+    if (col.amount === -1 || (col.personId === -1 && col.employeeCode === -1)) {
+      throw new BadRequestError(
+        "CSV_COLUMNS_REQUIRED",
+        "CSV 必须包含「金额」列，以及「工号/员工编号」或「人员ID」列",
+      );
+    }
+    const persons = await platformStore.listPersons(tenantOf(request));
+    const byCode = new Map(
+      persons.map((person) => [person.employeeCode.toLowerCase(), person.id]),
+    );
+    const rowErrors: string[] = [];
+    const lines: Array<{
+      personId: string;
+      amount: string;
+      sourceRecordId?: string;
+      sourceLineRef?: string;
+      note?: string;
+    }> = [];
+    const seenLines = new Set<string>();
+    rows.slice(1).forEach((cells, rowIndex) => {
+      const lineNumber = rowIndex + 2;
+      if (cells.every((cell) => !cell.trim())) return;
+      const rawAmount = (col.amount >= 0 ? cells[col.amount] : "")?.trim() ?? "";
+      if (!/^\d+(\.\d{1,6})?$/.test(rawAmount) || Number(rawAmount) <= 0) {
+        rowErrors.push(`第 ${lineNumber} 行：金额「${rawAmount}」无效`);
+        return;
+      }
+      let personId: string | undefined;
+      if (col.personId >= 0 && cells[col.personId]?.trim()) {
+        personId = cells[col.personId]!.trim();
+        if (!persons.some((person) => person.id === personId)) {
+          rowErrors.push(`第 ${lineNumber} 行：人员 ${personId} 不存在`);
+          return;
+        }
+      } else if (col.employeeCode >= 0) {
+        const code = cells[col.employeeCode]?.trim().toLowerCase() ?? "";
+        personId = byCode.get(code);
+        if (!personId) {
+          rowErrors.push(`第 ${lineNumber} 行：工号「${code}」没有匹配的员工`);
+          return;
+        }
+      } else {
+        rowErrors.push(`第 ${lineNumber} 行：缺少人员标识`);
+        return;
+      }
+      const sourceLineRef =
+        col.sourceLineRef >= 0 ? cells[col.sourceLineRef]?.trim() : undefined;
+      const sourceRecordId =
+        col.sourceRecordId >= 0 ? cells[col.sourceRecordId]?.trim() : undefined;
+      const dedupeKey = `${personId}:${sourceLineRef ?? ""}`;
+      if (seenLines.has(dedupeKey)) {
+        rowErrors.push(
+          `第 ${lineNumber} 行：同一人员的来源行标识重复（${sourceLineRef ?? "空"}）`,
+        );
+        return;
+      }
+      seenLines.add(dedupeKey);
+      lines.push({
+        personId,
+        amount: rawAmount,
+        sourceRecordId: sourceRecordId || undefined,
+        sourceLineRef: sourceLineRef || undefined,
+        note: col.note >= 0 ? cells[col.note]?.trim() || undefined : undefined,
+      });
+    });
+    if (rowErrors.length > 0 || lines.length === 0) {
+      return reply.status(400).send({
+        ...errorBody(
+          "CSV_ROWS_INVALID",
+          `CSV 校验失败：${rowErrors.length} 行有问题${rowErrors.length === 0 ? "（没有有效数据行）" : ""}`,
+          rowErrors.slice(0, 50),
+        ),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const createdBy = body.createdBy ?? ownPersonId(request) ?? "system";
+    const batch = await platformStore.createIncentiveAwardBatch({
+      tenantId: tenantOf(request),
+      batchNo: body.batchNo,
+      awardType: body.awardType,
+      period: body.period,
+      cycleId: body.cycleId,
+      currency: body.currency,
+      createdBy,
+      sourceRecordIds: lines
+        .map((line) => line.sourceRecordId)
+        .filter((value): value is string => Boolean(value)),
+      lines,
+    });
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? createdBy,
+        action: "INCENTIVE_AWARD_BATCH_IMPORTED",
+        objectType: "INCENTIVE_AWARD_BATCH",
+        objectId: batch.id,
+        reason: `${batch.awardType}:${batch.batchNo}:csv rows=${lines.length}`,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    countEvent("award_batch_csv_imported");
+    return reply
+      .status(201)
+      .send(data({ batch, imported: lines.length }, request));
   });
 
   app.get("/api/v1/incentive-award-batches", async (request) => {

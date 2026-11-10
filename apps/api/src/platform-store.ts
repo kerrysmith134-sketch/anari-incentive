@@ -1236,6 +1236,21 @@ export interface PlatformStore {
     tenantId: string,
     grantId: string,
   ): Promise<EquityGrant>;
+  /** 人工修正台账入口：只允许在 ACTIVE 状态调整数量/价格/归属参数。 */
+  updateEquityGrant(input: {
+    tenantId: string;
+    grantId: string;
+    patch: {
+      totalUnits?: string;
+      strikePrice?: string;
+      grantDate?: string;
+      vestingStart?: string;
+      cliffMonths?: number;
+      vestingMonths?: number;
+    };
+    reason: string;
+    actorPersonId?: string;
+  }): Promise<EquityGrant>;
   getEquityVesting(
     tenantId: string,
     grantId: string,
@@ -6537,6 +6552,80 @@ export class MemoryPlatformStore implements PlatformStore {
           (!personId || grant.personId === personId),
       )
       .sort((a, b) => b.grantDate.localeCompare(a.grantDate));
+  }
+
+  async updateEquityGrant(input: {
+    tenantId: string;
+    grantId: string;
+    patch: {
+      totalUnits?: string;
+      strikePrice?: string;
+      grantDate?: string;
+      vestingStart?: string;
+      cliffMonths?: number;
+      vestingMonths?: number;
+    };
+    reason: string;
+    actorPersonId?: string;
+  }): Promise<EquityGrant> {
+    if (!input.reason.trim()) {
+      throw new ConflictError("EQ_ADJUST_REASON_REQUIRED");
+    }
+    const grant = this.equityGrants.get(input.grantId);
+    if (!grant || grant.tenantId !== input.tenantId) {
+      notFound("EquityGrant", input.grantId);
+    }
+    if (grant.status !== "ACTIVE") {
+      throw new ConflictError(
+        `EQ_GRANT_NOT_EDITABLE: grant is ${grant.status}`,
+      );
+    }
+    const activeUnits = [...this.equityExercises.values()]
+      .filter(
+        (exercise) =>
+          exercise.grantId === grant.id &&
+          exercise.status !== "CANCELLED",
+      )
+      .reduce((sum, exercise) => sum + parseDecimal(exercise.units), 0n);
+    const nextTotal = input.patch.totalUnits
+      ? parseDecimal(input.patch.totalUnits)
+      : parseDecimal(grant.totalUnits);
+    if (nextTotal <= 0n) {
+      throw new ConflictError("EQ_TOTAL_UNITS_MUST_BE_POSITIVE");
+    }
+    if (nextTotal < activeUnits) {
+      throw new ConflictError(
+        `EQ_UNITS_BELOW_EXERCISED: ${formatDecimal(activeUnits)} units are already exercised or pending`,
+      );
+    }
+    const nextStrike = input.patch.strikePrice
+      ? parseDecimal(input.patch.strikePrice)
+      : parseDecimal(grant.strikePrice);
+    if (nextStrike < 0n) {
+      throw new ConflictError("EQ_STRIKE_PRICE_MUST_BE_NON_NEGATIVE");
+    }
+    const nextCliff = input.patch.cliffMonths ?? grant.cliffMonths;
+    const nextVesting = input.patch.vestingMonths ?? grant.vestingMonths;
+    if (nextCliff > nextVesting) {
+      throw new ConflictError("EQ_CLIFF_EXCEEDS_VESTING");
+    }
+    const updated: EquityGrant = {
+      ...grant,
+      totalUnits: input.patch.totalUnits
+        ? formatDecimal(nextTotal)
+        : grant.totalUnits,
+      strikePrice: input.patch.strikePrice
+        ? formatDecimal(nextStrike)
+        : grant.strikePrice,
+      grantDate: input.patch.grantDate ?? grant.grantDate,
+      vestingStart: input.patch.vestingStart ?? grant.vestingStart,
+      cliffMonths: nextCliff,
+      vestingMonths: nextVesting,
+      updatedAt: now(),
+      version: grant.version + 1,
+    };
+    this.equityGrants.set(updated.id, updated);
+    return updated;
   }
 
   async getEquityGrant(
@@ -14185,6 +14274,92 @@ export class PgPlatformStore implements PlatformStore {
     );
     if (!rows[0]) notFound("EquityGrant", grantId);
     return this.mapEquityGrant(rows[0]);
+  }
+
+  async updateEquityGrant(input: {
+    tenantId: string;
+    grantId: string;
+    patch: {
+      totalUnits?: string;
+      strikePrice?: string;
+      grantDate?: string;
+      vestingStart?: string;
+      cliffMonths?: number;
+      vestingMonths?: number;
+    };
+    reason: string;
+    actorPersonId?: string;
+  }): Promise<EquityGrant> {
+    if (!input.reason.trim()) {
+      throw new ConflictError("EQ_ADJUST_REASON_REQUIRED");
+    }
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM equity_grants
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [input.tenantId, input.grantId],
+      );
+      if (!rows[0]) notFound("EquityGrant", input.grantId);
+      const grant = this.mapEquityGrant(rows[0]);
+      if (grant.status !== "ACTIVE") {
+        throw new ConflictError(
+          `EQ_GRANT_NOT_EDITABLE: grant is ${grant.status}`,
+        );
+      }
+      const { rows: exercised } = await client.query(
+        `SELECT COALESCE(SUM(units),0) AS units FROM equity_exercises
+          WHERE tenant_id=$1 AND grant_id=$2 AND status <> 'CANCELLED'`,
+        [input.tenantId, input.grantId],
+      );
+      const activeUnits = parseDecimal(String(exercised[0].units));
+      const nextTotal = input.patch.totalUnits
+        ? parseDecimal(input.patch.totalUnits)
+        : parseDecimal(grant.totalUnits);
+      if (nextTotal <= 0n) {
+        throw new ConflictError("EQ_TOTAL_UNITS_MUST_BE_POSITIVE");
+      }
+      if (nextTotal < activeUnits) {
+        throw new ConflictError(
+          `EQ_UNITS_BELOW_EXERCISED: ${formatDecimal(activeUnits)} units are already exercised or pending`,
+        );
+      }
+      const nextStrike = input.patch.strikePrice
+        ? parseDecimal(input.patch.strikePrice)
+        : parseDecimal(grant.strikePrice);
+      if (nextStrike < 0n) {
+        throw new ConflictError("EQ_STRIKE_PRICE_MUST_BE_NON_NEGATIVE");
+      }
+      const nextCliff = input.patch.cliffMonths ?? grant.cliffMonths;
+      const nextVesting = input.patch.vestingMonths ?? grant.vestingMonths;
+      if (nextCliff > nextVesting) {
+        throw new ConflictError("EQ_CLIFF_EXCEEDS_VESTING");
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE equity_grants
+            SET total_units = COALESCE($3, total_units),
+                strike_price = COALESCE($4, strike_price),
+                grant_date = COALESCE($5, grant_date),
+                vesting_start = COALESCE($6, vesting_start),
+                cliff_months = COALESCE($7, cliff_months),
+                vesting_months = COALESCE($8, vesting_months),
+                version = version + 1,
+                updated_at = now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.grantId,
+          input.patch.totalUnits ?? null,
+          input.patch.strikePrice ?? null,
+          input.patch.grantDate ?? null,
+          input.patch.vestingStart ?? null,
+          input.patch.cliffMonths ?? null,
+          input.patch.vestingMonths ?? null,
+        ],
+      );
+      return this.mapEquityGrant(updated[0]);
+    });
   }
 
   async getEquityVesting(

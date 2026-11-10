@@ -11,6 +11,7 @@ import {
   Panel,
   Select,
   TextInput,
+  Textarea,
 } from "../components/ui.js";
 import { PersonSelect } from "../components/PersonSelect.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -75,6 +76,70 @@ export function AwardBatchPage() {
   const canFinance = roles.some((role) =>
     ["admin", "finance"].includes(role),
   );
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBatchNo, setImportBatchNo] = useState(
+    `AWARD-${new Date().toISOString().slice(0, 10)}-CSV`,
+  );
+  const [importAwardType, setImportAwardType] = useState("MANUAL");
+  const [importPeriod, setImportPeriod] = useState(
+    new Date().toISOString().slice(0, 7),
+  );
+  const [importCurrency, setImportCurrency] = useState("CNY");
+  const [importCsv, setImportCsv] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    batchNo: string;
+  } | null>(null);
+
+  async function submitImport(event: FormEvent) {
+    event.preventDefault();
+    setImportError(null);
+    setImporting(true);
+    try {
+      const result = await api<{
+        imported: number;
+        batch: { batchNo: string };
+      }>("/api/v1/incentive-award-batches:import", {
+        method: "POST",
+        body: {
+          csv: importCsv,
+          batchNo: importBatchNo.trim(),
+          awardType: importAwardType,
+          period: importPeriod.trim(),
+          currency: importCurrency.trim().toUpperCase(),
+        },
+      });
+      setImportResult({
+        imported: result.imported,
+        batchNo: result.batch.batchNo,
+      });
+      toast.success(
+        "CSV 导入成功",
+        `批次 ${result.batch.batchNo} · ${result.imported} 人`,
+      );
+      batches.reload();
+    } catch (caught) {
+      const details =
+        caught instanceof ApiError && Array.isArray(caught.details)
+          ? (caught.details as string[]).slice(0, 10).join("\n")
+          : "";
+      setImportError(
+        (caught instanceof ApiError ? caught.message : "导入失败") +
+          (details ? `\n${details}` : ""),
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function openImport() {
+    setImportOpen(true);
+    setImportError(null);
+    setImportResult(null);
+    setImportCsv("");
+  }
   const batches = useApiQuery<AwardBatchView[]>(
     "/api/v1/incentive-award-batches",
   );
@@ -214,7 +279,14 @@ export function AwardBatchPage() {
 
       <div className="stack">
         {canCreate ? (
-      <Panel title="新建发放批次">
+      <Panel
+        title="新建发放批次"
+        action={
+          <Button variant="ghost" onClick={openImport}>
+            导入 CSV
+          </Button>
+        }
+      >
           <form onSubmit={createBatch}>
             <div className="form-grid">
               <FormField label="批次号">
@@ -463,6 +535,113 @@ export function AwardBatchPage() {
             <TextInput
               value={ackRef}
               onChange={(event) => setAckRef(event.target.value)}
+              required
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={importOpen}
+        title="CSV 批量导入发放批次"
+        description="上传或粘贴 CSV（表头：工号/员工编号 或 人员ID，金额，可选 来源标识/来源行/备注），一次生成整个批次；有问题的行会整单拒绝。"
+        onClose={() => setImportOpen(false)}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setImportOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="award-import-form"
+              loading={importing}
+              disabled={!importCsv.trim()}
+            >
+              解析并创建批次
+            </Button>
+          </>
+        }
+      >
+        <form id="award-import-form" onSubmit={submitImport} className="form-grid">
+          {importError ? (
+            <div className="field--full">
+              <InfoNotice tone="warning">
+                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+                  {importError}
+                </pre>
+              </InfoNotice>
+            </div>
+          ) : null}
+          {importResult ? (
+            <div className="field--full">
+              <InfoNotice tone="success">
+                已创建批次 {importResult.batchNo}，共 {importResult.imported}{" "}
+                人；可在台账中提交财务审批。
+              </InfoNotice>
+            </div>
+          ) : null}
+          <FormField label="批次号" htmlFor="import-batch-no">
+            <TextInput
+              id="import-batch-no"
+              value={importBatchNo}
+              onChange={(event) => setImportBatchNo(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="奖项类型" htmlFor="import-award-type">
+            <Select
+              id="import-award-type"
+              value={importAwardType}
+              onChange={(event) => setImportAwardType(event.target.value)}
+            >
+              {AWARD_TYPES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="周期" htmlFor="import-period">
+            <TextInput
+              id="import-period"
+              value={importPeriod}
+              onChange={(event) => setImportPeriod(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="币种" htmlFor="import-currency">
+            <TextInput
+              id="import-currency"
+              value={importCurrency}
+              onChange={(event) => setImportCurrency(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField
+            label="CSV 文件"
+            htmlFor="import-csv-file"
+            className="field--full"
+            hint="选择文件会自动填入下方文本框；也可以直接粘贴。"
+          >
+            <input
+              id="import-csv-file"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (file) setImportCsv(await file.text());
+              }}
+            />
+          </FormField>
+          <FormField label="CSV 内容" htmlFor="import-csv" className="field--full">
+            <Textarea
+              id="import-csv"
+              value={importCsv}
+              onChange={(event) => setImportCsv(event.target.value)}
+              rows={8}
+              placeholder={"工号,金额,备注\nE001,5000,季度提成\nE002,3200"}
               required
             />
           </FormField>

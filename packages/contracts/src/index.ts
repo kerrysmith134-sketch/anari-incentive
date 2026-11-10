@@ -2518,6 +2518,61 @@ export type CreateIncentiveAwardBatchBody = z.infer<
   typeof createIncentiveAwardBatchSchema
 >;
 
+const csvPayload = z.string().min(1).max(2_000_000);
+
+export const importIncentiveAwardBatchSchema = z.object({
+  csv: csvPayload,
+  batchNo: z.string().min(1).max(64),
+  awardType: z.enum([
+    "BUSINESS_UNIT_COMMISSION",
+    "FUNCTIONAL_QUARTERLY_BONUS",
+    "ANNUAL_PROFIT_SHARING",
+    "MONTHLY_STAR",
+    "TECH_CENTER_AWARD",
+    "OVERSEAS_SALES_AWARD",
+    "BOUNTY_SETTLEMENT",
+    "MANUAL",
+  ]),
+  period: z.string().min(1).max(64),
+  cycleId: uuidSchema.optional(),
+  currency: z.string().length(3),
+  createdBy: uuidSchema.optional(),
+});
+export type ImportIncentiveAwardBatchBody = z.infer<
+  typeof importIncentiveAwardBatchSchema
+>;
+
+export const importEmploymentContractsSchema = z.object({
+  csv: csvPayload,
+});
+export type ImportEmploymentContractsBody = z.infer<
+  typeof importEmploymentContractsSchema
+>;
+
+const optionalMoney = z
+  .string()
+  .regex(/^\d{1,14}(\.\d{1,6})?$/, "expected a non-negative decimal");
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const adjustEquityGrantSchema = z
+  .object({
+    totalUnits: optionalMoney.optional(),
+    strikePrice: optionalMoney.optional(),
+    grantDate: isoDay.optional(),
+    vestingStart: isoDay.optional(),
+    cliffMonths: z.number().int().min(0).max(120).optional(),
+    vestingMonths: z.number().int().min(1).max(240).optional(),
+    reason: z.string().min(3).max(500),
+  })
+  .refine(
+    (body) =>
+      Object.entries(body).some(
+        ([key, value]) => key !== "reason" && value !== undefined,
+      ),
+    "at least one editable field is required",
+  );
+export type AdjustEquityGrantBody = z.infer<typeof adjustEquityGrantSchema>;
+
 export const requestSchemaRegistry = {
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,

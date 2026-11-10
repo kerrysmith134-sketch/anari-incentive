@@ -12,6 +12,7 @@ import {
   Select,
   Tabs,
   TextInput,
+  DefinitionList,
 } from "../components/ui.js";
 import { PersonSelect } from "../components/PersonSelect.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -91,6 +92,50 @@ export function EquityPage() {
   );
   const isAdmin = roles.includes("admin");
   const canSettle = isAdmin || roles.includes("finance");
+  const [adjustTarget, setAdjustTarget] = useState<EquityGrantView | null>(
+    null,
+  );
+  const [adjustUnits, setAdjustUnits] = useState("");
+  const [adjustStrike, setAdjustStrike] = useState("");
+  const [adjustVestingStart, setAdjustVestingStart] = useState("");
+  const [adjustCliff, setAdjustCliff] = useState("");
+  const [adjustVesting, setAdjustVesting] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
+
+  async function submitAdjust(event: FormEvent) {
+    event.preventDefault();
+    if (!adjustTarget) return;
+    setAdjustError(null);
+    setAdjusting(true);
+    try {
+      await api(`/api/v1/equity-grants/${adjustTarget.id}/adjust`, {
+        method: "POST",
+        body: {
+          totalUnits: adjustUnits.trim() || undefined,
+          strikePrice: adjustStrike.trim() || undefined,
+          vestingStart: adjustVestingStart.trim() || undefined,
+          cliffMonths: adjustCliff.trim()
+            ? Number(adjustCliff)
+            : undefined,
+          vestingMonths: adjustVesting.trim()
+            ? Number(adjustVesting)
+            : undefined,
+          reason: adjustReason.trim(),
+        },
+      });
+      toast.success("授予已人工修正", adjustTarget.grantCode);
+      setAdjustTarget(null);
+      grants.reload();
+    } catch (caught) {
+      setAdjustError(
+        caught instanceof ApiError ? caught.message : "修正失败",
+      );
+    } finally {
+      setAdjusting(false);
+    }
+  }
   const grants = useApiQuery<EquityGrantView[]>("/api/v1/equity-grants");
   const exercises = useApiQuery<ExerciseView[]>("/api/v1/equity-exercises");
   const grantCases = useApiQuery<PolicyRecordView<GrantCasePayload>[]>(
@@ -392,6 +437,24 @@ export function EquityPage() {
                           >
                             归属进度
                           </Button>
+                          {isAdmin && grant.status === "ACTIVE" ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setAdjustTarget(grant);
+                                setAdjustUnits(grant.totalUnits);
+                                setAdjustStrike(grant.strikePrice);
+                                setAdjustVestingStart("");
+                                setAdjustCliff("");
+                                setAdjustVesting("");
+                                setAdjustReason("");
+                                setAdjustError(null);
+                              }}
+                            >
+                              修正
+                            </Button>
+                          ) : null}
                           <Button
                             size="sm"
                             variant="secondary"
@@ -863,6 +926,85 @@ export function EquityPage() {
               <option value="no">否</option>
               <option value="yes">是</option>
             </Select>
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(adjustTarget)}
+        title="人工修正授予"
+        description="台账自动计算的最终修正入口：仅 ACTIVE 授予可改，调整会写入审计并保留原因。"
+        onClose={() => setAdjustTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAdjustTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="equity-adjust-form"
+              loading={adjusting}
+              disabled={!adjustReason.trim()}
+            >
+              保存修正
+            </Button>
+          </>
+        }
+      >
+        <form id="equity-adjust-form" onSubmit={submitAdjust}>
+          {adjustError ? (
+            <div className="section-gap">
+              <InfoNotice tone="warning">{adjustError}</InfoNotice>
+            </div>
+          ) : null}
+          <DefinitionList
+            items={[
+              { label: "授予编号", value: adjustTarget?.grantCode ?? "" },
+              { label: "对象", value: adjustTarget?.personId.slice(0, 8) ?? "" },
+            ]}
+          />
+          <FormField label="总量（份）">
+            <TextInput
+              value={adjustUnits}
+              onChange={(event) => setAdjustUnits(event.target.value)}
+              placeholder="留空表示不修改"
+            />
+          </FormField>
+          <FormField label="行权价">
+            <TextInput
+              value={adjustStrike}
+              onChange={(event) => setAdjustStrike(event.target.value)}
+              placeholder="留空表示不修改"
+            />
+          </FormField>
+          <FormField label="归属起始日（YYYY-MM-DD）">
+            <TextInput
+              value={adjustVestingStart}
+              onChange={(event) => setAdjustVestingStart(event.target.value)}
+              placeholder="留空表示不修改"
+            />
+          </FormField>
+          <FormField label="悬崖月数">
+            <TextInput
+              value={adjustCliff}
+              onChange={(event) => setAdjustCliff(event.target.value)}
+              placeholder="留空表示不修改"
+            />
+          </FormField>
+          <FormField label="归属总月数">
+            <TextInput
+              value={adjustVesting}
+              onChange={(event) => setAdjustVesting(event.target.value)}
+              placeholder="留空表示不修改"
+            />
+          </FormField>
+          <FormField label="修正原因（必填，写入审计）">
+            <TextInput
+              value={adjustReason}
+              onChange={(event) => setAdjustReason(event.target.value)}
+              required
+            />
           </FormField>
         </form>
       </Modal>
