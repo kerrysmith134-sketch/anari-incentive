@@ -6995,6 +6995,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/strategic-pool-cases/:id/finance-approve", async (request) => {
     requireRoles(request, "admin", "finance");
     const body = parse(strategicPoolFinanceApproveSchema, request.body);
+    // NPV2-003：财务批准人必须是会话主体（平台管理员除外）。
+    const approverOwn = ownPersonId(request);
+    if (approverOwn && !isPlatformAdmin(request) && body.approvedBy !== approverOwn) {
+      throw new ForbiddenError(
+        "strategic pool approval must use the authenticated identity",
+      );
+    }
     const { record } = await strategicPoolOf(request);
     if (record.status !== "COST_REVIEWED") {
       throw new ConflictError(
@@ -12427,6 +12434,17 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/payroll-runs/:id/approve", async (request) => {
     requireRoles(request, "admin", "finance");
     const body = parse(approvePayrollRunSchema, request.body);
+    // NPV2-003：审批人必须是会话主体；body 中的 approvedBy 不再是执行者真相源。
+    const own = ownPersonId(request);
+    if (own && !isPlatformAdmin(request) && body.approvedBy !== own) {
+      throw new ForbiddenError(
+        "payroll approval must use the authenticated identity",
+      );
+    }
+    const persons = await platformStore.listPersons(tenantOf(request));
+    if (!persons.some((person) => person.id === body.approvedBy)) {
+      throw new NotFoundError(`Person ${body.approvedBy} not found`);
+    }
     const run = await platformStore.approvePayrollRun({
       tenantId: tenantOf(request),
       runId: idOf(request),

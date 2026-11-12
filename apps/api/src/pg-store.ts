@@ -2611,7 +2611,8 @@ export class PgStore implements IncentiveStore {
                  AND sl.ledger_id = al.id
                  AND sl.active
             )
-          ORDER BY al.ledger_seq`,
+          ORDER BY al.ledger_seq
+          FOR UPDATE OF al`,
         [this.tenantId, input.cycleId, input.kind ?? "STANDARD"],
       );
       if (entries.length === 0) {

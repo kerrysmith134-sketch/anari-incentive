@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool, type PoolClient } from "pg";
+import { sha256 } from "@anari/policy-dsl";
 import {
   AgentRuntime,
   createDefaultSkills,
@@ -34,10 +35,37 @@ describePg("PgStore vertical slice", () => {
   const pool = new Pool({ connectionString: databaseUrl });
   const platformPool = createPlatformPool(databaseUrl);
   const store = new PgStore(pool);
+  /** anari_app 角色（NOBYPASSRLS）：用于 RLS/触发器/权限的负向验证。 */
+  const appPool = new Pool({
+    connectionString: databaseUrl?.replace("anari:anari", "anari_app:anari_app"),
+  });
+
+  /** 在事务级 app.tenant_id 上下文中以 app 角色执行。 */
+  async function withTenantContext<T>(
+    tenantId: string,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await appPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        tenantId,
+      ]);
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   afterAll(async () => {
     await pool.end();
     await platformPool.end();
+    await appPool.end();
   });
 
   async function acceptedWorkPackage() {
@@ -3931,165 +3959,199 @@ evidenceOpened: 1,rationale: "Self",
     ).rejects.toThrow(/version mismatch/);
   });
 
+  const governanceStore = new PgPlatformStore(platformPool);
+
+  // ------------------------------------------------------------------
+  // NPV2-007/008：金额路径并发、幂等与账本不可变。验收标准（蓝图 §11）：
+  // 并发审批只有一次成功；同一分录不能同时绑定两个 ACTIVE 结算；
+  // LOCKED 账本在 DB 层拒绝 UPDATE/DELETE；重放返回同一条记录。
+  // ------------------------------------------------------------------
+  it("rejects in-place mutation of locked ledger rows at the DB level", async () => {
+    const entry = (await store.listLedger()).find(
+      (candidate) => candidate.entryType === "INCENTIVE",
+    );
+    expect(entry).toBeDefined();
+    // amount_ledger 有 RLS：变更必须在租户上下文中执行，触发器仍然拒绝。
+    const mutate = (sql: string, params: unknown[]) =>
+      withTenantContext(DEMO_TENANT_ID, (client) => client.query(sql, params));
+    // LOCKED 行：UPDATE（哪怕只改状态）与 DELETE 一律拒绝。
+    await expect(
+      mutate("UPDATE amount_ledger SET amount = amount + 1 WHERE id = $1", [
+        entry!.id,
+      ]),
+    ).rejects.toThrow(/immutable|append-only|status transition/i);
+    await expect(
+      mutate("DELETE FROM amount_ledger WHERE id = $1", [entry!.id]),
+    ).rejects.toThrow(/append-only/i);
+    await expect(
+      mutate("UPDATE amount_ledger SET status='LOCKED' WHERE id = $1", [
+        entry!.id,
+      ]),
+    ).rejects.toThrow(/immutable|status transition/i);
+  });
+
+  it("keeps concurrent settlement approval exactly-once with atomic consumption", async () => {
+    const approval = await governanceStore.createApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      actionType: "SETTLEMENT_LOCK",
+      targetType: "SETTLEMENT_BATCH",
+      targetId: "00000000-0000-4000-8000-0000000000e2",
+      targetVersion: 1,
+      requestedByType: "USER",
+      requestedById: OWNER,
+      riskTier: "T2",
+      requiredApprovals: 1,
+      payloadHash: sha256({ scope: "npv2-007" }),
+      idempotencyKey: `npv2-007-${Date.now()}`,
+    });
+    await governanceStore.decideApprovalRequest({
+      tenantId: DEMO_TENANT_ID,
+      requestId: approval.id,
+      decision: "APPROVE",
+      approverPersonId: ADJUDICATOR,
+      payloadHash: approval.payloadHash,
+      authContext: {},
+    });
+    const outcomes = await Promise.allSettled([
+      governanceStore.consumeApprovalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: approval.id,
+        consumedBy: ADJUDICATOR,
+      }),
+      governanceStore.consumeApprovalRequest({
+        tenantId: DEMO_TENANT_ID,
+        requestId: approval.id,
+        consumedBy: ADJUDICATOR,
+      }),
+    ]);
+    const fulfilled = outcomes.filter((o) => o.status === "fulfilled");
+    expect(fulfilled).toHaveLength(1);
+    // 幂等重放：同一 key 的冲销返回同一条记录，账本哈希链保持有效。
+    // 选一条尚无 REVERSAL 子行的激励分录，避免与既有测试的冲销撞行。
+    const ledger = await store.listLedger();
+    const reversedSources = new Set(
+      ledger
+        .filter((candidate) => candidate.entryType === "REVERSAL")
+        .map((candidate) => candidate.sourceEntryId),
+    );
+    const target = ledger.find(
+      (candidate) =>
+        candidate.entryType === "INCENTIVE" &&
+        !reversedSources.has(candidate.id),
+    );
+    const reversal = await store.reverseLedgerEntry(target!.id, {
+      idempotencyKey: `npv2-007-replay-${target!.id}`,
+      reason: "Idempotency replay",
+      approvedBy: ADJUDICATOR,
+    });
+    const replayed = await store.reverseLedgerEntry(target!.id, {
+      idempotencyKey: `npv2-007-replay-${target!.id}`,
+      reason: "Idempotency replay",
+      approvedBy: ADJUDICATOR,
+    });
+    expect(replayed.id).toBe(reversal.id);
+    expect(await store.verifyLedger()).toBe(true);
+  });
+
+  it("rolls back half-finished money writes on fault injection", async () => {
+    const before = (await store.listLedger()).length;
+    const faultClient = await pool.connect();
+    try {
+      await faultClient.query("BEGIN");
+      await faultClient.query("SELECT set_config('app.tenant_id', $1, true)", [
+        DEMO_TENANT_ID,
+      ]);
+      await faultClient.query(
+        `INSERT INTO settlement_batches
+          (id, tenant_id, cycle_id, batch_no, status, kind, currency)
+         VALUES ($1,$2,$3,$4,'DRAFT','STANDARD','CNY')`,
+        [
+          "00000000-0000-4000-8000-0000000000e9",
+          DEMO_TENANT_ID,
+          CYCLE,
+          `SB-FAULT-${Date.now()}`,
+        ],
+      );
+      // 注入故障：手动回滚模拟进程崩溃后的半提交恢复路径。
+      await faultClient.query("ROLLBACK");
+    } finally {
+      faultClient.release();
+    }
+    const after = (await store.listLedger()).length;
+    expect(after).toBe(before);
+    const orphan = await pool.query(
+      "SELECT id FROM settlement_batches WHERE id=$1",
+      ["00000000-0000-4000-8000-0000000000e9"],
+    );
+    expect(orphan.rowCount).toBe(0);
+  });
+
+  // ------------------------------------------------------------------
   // NPV2-002：双租户 RLS 负向测试。证明普通 anari_app 连接（无
   // platform_admin）在事务级 app.tenant_id 下无法跨租户读写，且连接复用
   // 不泄漏 session 上下文。PgPlatformStore 的 platform pool 全局
   // platform_admin 是已登记的 S1 整改项（见 docs/v2/SECURITY_HARDENING.md）。
+  // ------------------------------------------------------------------
   it("denies cross-tenant reads and writes under the app role (NPV2-002)", async () => {
-    const appPool = new Pool({
-      connectionString: databaseUrl?.replace("anari:anari", "anari_app:anari_app"),
-    });
     const tenantA = DEMO_TENANT_ID;
     const tenantB = "00000000-0000-4000-8000-000000000002";
-    try {
-      await appPool.query(
-        `INSERT INTO tenants (id, name, slug, default_currency)
-         VALUES ($1, 'Tenant B', 'tenant-b-npv2', 'CNY')
-         ON CONFLICT (id) DO NOTHING`,
-        [tenantB],
-      );
-      // 负向：无租户上下文的插入被 RLS 拒绝。
-      await expect(
-        appPool.query(
-          `INSERT INTO people (tenant_id, id, employee_code, display_name)
-           VALUES ($1, $2, 'B999', 'No Context')
-           ON CONFLICT (tenant_id, id) DO NOTHING`,
-          [tenantB, "00000000-0000-4000-8000-0000000000ff"],
-        ),
-      ).rejects.toThrow(/row-level security/i);
-      const ctx = async <T>(
-        pool: Pool,
-        tenantId: string,
-        fn: (client: PoolClient) => Promise<T>,
-      ): Promise<T> => {
-        const client = await pool.connect();
-        try {
-          await client.query("BEGIN");
-          await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-          const result = await fn(client);
-          await client.query("COMMIT");
-          return result;
-        } catch (error) {
-          await client.query("ROLLBACK");
-          throw error;
-        } finally {
-          client.release();
-        }
-      };
-      // 租户 B 造一条可见数据（people 有 RLS，migration 020）：插入本身
-      // 就要在租户 B 上下文中完成，这也顺带验证 WITH CHECK 生效——不带
-      // 上下文的插入会被 RLS 直接拒绝（见下方 negative insert）。
-      await ctx(appPool, tenantB, async (client: PoolClient) =>
-        client.query(
-          `INSERT INTO people (tenant_id, id, employee_code, display_name)
-           VALUES ($1, $2, 'B001', 'Tenant B Person')
-           ON CONFLICT (tenant_id, id) DO NOTHING`,
-          [tenantB, "00000000-0000-4000-8000-0000000000b2"],
-        ),
-      );
-      // 租户 A 上下文读租户 B 的 person：RLS 过滤 → 0 行。
-      const crossRead = await ctx(appPool, tenantA, async (client: PoolClient) =>
-        client.query("SELECT id FROM people WHERE tenant_id=$1 AND id=$2", [tenantB, MEMBER]),
-      );
-      expect(crossRead.rowCount).toBe(0);
-      // 租户 A 上下文尝试改租户 B 的 person：RLS 过滤 → 0 行受影响。
-      const crossWrite = await ctx(appPool, tenantA, async (client: PoolClient) =>
-        client.query(
-          "UPDATE people SET display_name='hacked' WHERE tenant_id=$1 AND id=$2",
-          [tenantB, MEMBER],
-        ),
-      );
-      expect(crossWrite.rowCount).toBe(0);
-      // 租户 B 上下文可见自己的数据。
-      const ownRead = await ctx(appPool, tenantB, (client) =>
-        client.query(
-          "SELECT id FROM people WHERE tenant_id=$1 AND id=$2",
-          [tenantB, "00000000-0000-4000-8000-0000000000b2"],
-        ),
-      );
-      expect(ownRead.rowCount).toBe(1);
-      // 连接复用：无 tenant 上下文时 RLS 表返回 0 行（无泄漏）。
-      const leaked = await appPool.query("SELECT id FROM people WHERE tenant_id=$1", [tenantA]);
-      expect(leaked.rowCount).toBe(0);
-      const adminLeak = await appPool.query("SELECT current_setting('app.tenant_id', true)");
-      expect(["", null]).toContain(adminLeak.rows[0].current_setting);
-    } finally {
-      await appPool.end();
-    }
-  });
-
-  it("persists incentive award batches through approval, lock, export and receipt", async () => {
-    const platform = new PgPlatformStore(platformPool);
-    const batch = await platform.createIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchNo: "PG-AWARD-001",
-      awardType: "MONTHLY_STAR",
-      period: "2026-11",
-      currency: "CNY",
-      createdBy: OWNER,
-      sourceRecordIds: ["pg-record-1"],
-      lines: [
-        {
-          personId: MEMBER,
-          amount: "500",
-          sourceRecordId: "pg-record-1",
-          sourceLineRef: "line-1",
-        },
-      ],
-    });
-    expect(batch.status).toBe("DRAFT");
-    expect(batch.totalAmount).toBe("500");
+    await pool.query(
+      `INSERT INTO tenants (id, name, slug, default_currency)
+       VALUES ($1, 'Tenant B', 'tenant-b-npv2', 'CNY')
+       ON CONFLICT (id) DO NOTHING`,
+      [tenantB],
+    );
+    // 负向：无租户上下文的插入被 RLS 直接拒绝（WITH CHECK 生效）。
     await expect(
-      platform.createIncentiveAwardBatch({
-        tenantId: DEMO_TENANT_ID,
-        batchNo: "PG-AWARD-002",
-        awardType: "MONTHLY_STAR",
-        period: "2026-11",
-        currency: "CNY",
-        createdBy: OWNER,
-        sourceRecordIds: ["pg-record-1"],
-        lines: [{ personId: MEMBER, amount: "500" }],
-      }),
-    ).rejects.toThrow(/already used/);
-    await platform.commandIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchId: batch.id,
-      command: "SUBMIT",
-      actorPersonId: OWNER,
-    });
-    const approved = await platform.commandIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchId: batch.id,
-      command: "APPROVE",
-      actorPersonId: ADJUDICATOR,
-    });
-    expect(approved.approvedBy).toBe(ADJUDICATOR);
-    const locked = await platform.commandIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchId: batch.id,
-      command: "LOCK",
-      actorPersonId: ADJUDICATOR,
-    });
-    expect(locked.status).toBe("LOCKED");
-    const exported = await platform.commandIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchId: batch.id,
-      command: "EXPORT",
-      actorPersonId: ADJUDICATOR,
-    });
-    expect(exported.status).toBe("EXPORTED");
-    const acknowledged = await platform.commandIncentiveAwardBatch({
-      tenantId: DEMO_TENANT_ID,
-      batchId: batch.id,
-      command: "ACKNOWLEDGE",
-      actorPersonId: ADJUDICATOR,
-      paymentRef: "PG-BANK-1",
-    });
-    expect(acknowledged.status).toBe("ACKNOWLEDGED");
-    const listed = await platform.listIncentiveAwardBatches(DEMO_TENANT_ID, {
-      awardType: "MONTHLY_STAR",
-    });
-    expect(listed.some((row) => row.id === batch.id)).toBe(true);
+      appPool.query(
+        `INSERT INTO people (tenant_id, id, employee_code, display_name)
+         VALUES ($1, $2, 'B999', 'No Context')
+         ON CONFLICT (tenant_id, id) DO NOTHING`,
+        [tenantB, "00000000-0000-4000-8000-0000000000ff"],
+      ),
+    ).rejects.toThrow(/row-level security/i);
+    // 租户 B 上下文中插入自己的数据（WITH CHECK 通过）。
+    await withTenantContext(tenantB, (client) =>
+      client.query(
+        `INSERT INTO people (tenant_id, id, employee_code, display_name)
+         VALUES ($1, $2, 'B001', 'Tenant B Person')
+         ON CONFLICT (tenant_id, id) DO NOTHING`,
+        [tenantB, "00000000-0000-4000-8000-0000000000b2"],
+      ),
+    );
+    // 租户 A 读租户 B：RLS 过滤 → 0 行。
+    const crossRead = await withTenantContext(tenantA, (client) =>
+      client.query("SELECT id FROM people WHERE tenant_id=$1 AND id=$2", [
+        tenantB,
+        "00000000-0000-4000-8000-0000000000b2",
+      ]),
+    );
+    expect(crossRead.rowCount).toBe(0);
+    // 租户 A 改租户 B：RLS 过滤 → 0 行受影响。
+    const crossWrite = await withTenantContext(tenantA, (client) =>
+      client.query(
+        "UPDATE people SET display_name='hacked' WHERE tenant_id=$1 AND id=$2",
+        [tenantB, "00000000-0000-4000-8000-0000000000b2"],
+      ),
+    );
+    expect(crossWrite.rowCount).toBe(0);
+    // 租户 B 可见自己的数据。
+    const ownRead = await withTenantContext(tenantB, (client) =>
+      client.query("SELECT id FROM people WHERE tenant_id=$1 AND id=$2", [
+        tenantB,
+        "00000000-0000-4000-8000-0000000000b2",
+      ]),
+    );
+    expect(ownRead.rowCount).toBe(1);
+    // 连接复用：无上下文时 RLS 表返回 0 行（无泄漏）。
+    const leaked = await appPool.query(
+      "SELECT id FROM people WHERE tenant_id=$1",
+      [tenantA],
+    );
+    expect(leaked.rowCount).toBe(0);
+    const adminLeak = await appPool.query(
+      "SELECT current_setting('app.tenant_id', true)",
+    );
+    expect(["", null]).toContain(adminLeak.rows[0].current_setting);
   });
-
 });

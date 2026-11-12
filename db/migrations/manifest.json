@@ -1,0 +1,410 @@
+{
+  "generatedAt": "2026-11-12T20:21:43.171Z",
+  "migrations": [
+    {
+      "file": "001_core_schema.sql",
+      "bytes": 35695,
+      "sha256": "0e65ec7d915f0f15ce46e8a806994819d71d02bcf9266ed7e4a3699126dde158"
+    },
+    {
+      "file": "002_governance_schema.sql",
+      "bytes": 14273,
+      "sha256": "89c551f4ee1825e5882544e951f8d81dd1cb433db8a44db6b52c874a41a20ef2"
+    },
+    {
+      "file": "003_money_path_invariants.sql",
+      "bytes": 12014,
+      "sha256": "fe4435619c52e551776620f9d3b31bc166985d191d558f5c6a696ed22f5f68f1"
+    },
+    {
+      "file": "004_policy_succession.sql",
+      "bytes": 1409,
+      "sha256": "bad48e0220792156c845ac6d042c7bff4be5542ad0e61e4b7d5078396fa50f72"
+    },
+    {
+      "file": "005_ledger_sequence.sql",
+      "bytes": 591,
+      "sha256": "7dd45926f0136b36121c381c269a33a453aff0df6de486edc81b761f2333e182"
+    },
+    {
+      "file": "006_settlement_rls.sql",
+      "bytes": 673,
+      "sha256": "9ee47635e09062bf60d5b79db25f90ba1bdfd4c0719acf9e9e2949f360c34eb1"
+    },
+    {
+      "file": "007_agent_task_state.sql",
+      "bytes": 1792,
+      "sha256": "fc3451a1acb59ece4a6dda5e133336bd9775e5fd081fbe085381c55624246e46"
+    },
+    {
+      "file": "008_evaluation_rls.sql",
+      "bytes": 1622,
+      "sha256": "a724d3ea0f0e2500e89f50c6510a4a57a3bebe741dbc0c6ec3d4c0ef3acf62a9"
+    },
+    {
+      "file": "009_data_quality_rls.sql",
+      "bytes": 533,
+      "sha256": "517e7d7ab8a28ae4e05ffdcfbeaa4c5183feccfe7209dbd5ebeeac783dfe386c"
+    },
+    {
+      "file": "010_evidence_submitter_rls.sql",
+      "bytes": 1044,
+      "sha256": "c7b6b431cef63c4b7596464e06c864a6e981c86da74feacce231020659b9ac4a"
+    },
+    {
+      "file": "011_notifications.sql",
+      "bytes": 1473,
+      "sha256": "755189086ded53643b228d0c4f89e9bbaba90e21ee07a992bc78de785b774505"
+    },
+    {
+      "file": "012_recovery_settlement.sql",
+      "bytes": 1036,
+      "sha256": "5ba3a25d5643dc8f72f78bd34bb1eed0dd3b263081e2a43e6a876fecba4eda14"
+    },
+    {
+      "file": "013_person_user_identity.sql",
+      "bytes": 560,
+      "sha256": "6fd10dd276bb88c3981879d75330e8301d4b81f3c7ad429899727cbfaf605c0c"
+    },
+    {
+      "file": "014_policy_test_runs.sql",
+      "bytes": 480,
+      "sha256": "35131f89a06ad4bf58d7701f9a81fa34b7b9b39b81d1d00919244b1b60cb76b3"
+    },
+    {
+      "file": "015_policy_test_runs.sql",
+      "bytes": 1167,
+      "sha256": "5d834883099b52450a8b0617d94de65f5826b10d3a02eb117f69c19170419b30"
+    },
+    {
+      "file": "016_model_prompts.sql",
+      "bytes": 1363,
+      "sha256": "5ce5c2e305a530d4600dcbe9b519fc5665147cc44d9c3aa672938bc955d4d726"
+    },
+    {
+      "file": "017_ai_suggestion_prompt_link.sql",
+      "bytes": 573,
+      "sha256": "15cfb2401c95b7510c0e61996f97f6d04d043de19393b09b27539723c3ebf3e1"
+    },
+    {
+      "file": "018_data_quality_sla.sql",
+      "bytes": 459,
+      "sha256": "b68a23454b16a0432f05fcadd961a341b152435a712f259d4e1feefd2a403e75"
+    },
+    {
+      "file": "019_ai_score_proposals.sql",
+      "bytes": 2045,
+      "sha256": "6a32043c6c82e7ea32a5ddd9c068c1484270e5e86c83a8a166da98ab818be5df"
+    },
+    {
+      "file": "020_governance_rls.sql",
+      "bytes": 2388,
+      "sha256": "3337d93941c2630a7777e542aeff7bf6093bb7ce950d35548759d2b16e6176f9"
+    },
+    {
+      "file": "021_integration_mappings.sql",
+      "bytes": 1895,
+      "sha256": "ffcdf9e4dd2be9a16b56feeac443b7a254a474b575ee6f564e5207c5c72e7214"
+    },
+    {
+      "file": "022_sync_schedules.sql",
+      "bytes": 1576,
+      "sha256": "89d0e4216ee1c03c9d0b65068f218cd41d85b9fcc55ed33fd48d248b17ad7f7f"
+    },
+    {
+      "file": "023_equity_ledger.sql",
+      "bytes": 3608,
+      "sha256": "cb0a71059fde59e46f7b14b67d6747445049bb85eb7cbce75e7deca11380f1a6"
+    },
+    {
+      "file": "024_bounties.sql",
+      "bytes": 1933,
+      "sha256": "2ff66452d6a0129213c079df39ce7d0ad462b6545284a9213c3403b6a248ce4f"
+    },
+    {
+      "file": "025_payroll.sql",
+      "bytes": 5025,
+      "sha256": "d6edfb5929343379852d7dacbdd0d9f9ee1d5898df824b54cded42f70110c67f"
+    },
+    {
+      "file": "026_payroll_tax_reversal.sql",
+      "bytes": 1336,
+      "sha256": "9a46b0a6c0b7b3e4b840c04730a0284a8a37a6b64580fb5280cdaec2f53c2ca8"
+    },
+    {
+      "file": "027_appeal_sla.sql",
+      "bytes": 235,
+      "sha256": "0b188c8e83e9d4ac7b219752f8cea3a50bbcbcb096aa19f7150967331879477a"
+    },
+    {
+      "file": "028_policy_applicability.sql",
+      "bytes": 194,
+      "sha256": "b430a19d1262a98129f43e770ccf87232514e1350a28b506584fbb4f78ecf7a3"
+    },
+    {
+      "file": "029_deduction_cap.sql",
+      "bytes": 508,
+      "sha256": "71051d30d8dd5ecd07675b351dfa04da555e1f59aea63072d4f883348de994ef"
+    },
+    {
+      "file": "030_contract_consent.sql",
+      "bytes": 1744,
+      "sha256": "55b8b59bb54fd6cabb725c19b4987a2919d669dad301f88d8ab7e14c2333c6f2"
+    },
+    {
+      "file": "031_ai_human_oversight.sql",
+      "bytes": 504,
+      "sha256": "6a1874d43f6e4ce1f169ca5a3591d9bc6cad36b15a16c8b9c67e26169a553d89"
+    },
+    {
+      "file": "032_adverse_actions.sql",
+      "bytes": 1809,
+      "sha256": "80faeacfeb72ef1c3ae262068f56ce0b8b5a0e344b7dd67c0a1ecba5a9fe9cf9"
+    },
+    {
+      "file": "033_data_sources.sql",
+      "bytes": 1719,
+      "sha256": "8fd1512ff2cb9ddfbb932a23501ffd31a7093220c58c8175114c7f8fd190e68a"
+    },
+    {
+      "file": "034_variable_share_cap.sql",
+      "bytes": 579,
+      "sha256": "67c472deee7c1746149b5a3ba7e2fb8085f890d76be6635edd4145b554bfde14"
+    },
+    {
+      "file": "035_claim_exception_mode.sql",
+      "bytes": 424,
+      "sha256": "795dd28a325455eb49e2d1fab5366a8db139f0f6c8ba55d575e7c3ada261d67b"
+    },
+    {
+      "file": "036_ai_audit_sampling.sql",
+      "bytes": 725,
+      "sha256": "df356afa495c7ce6189208c297e3b5ccf0294eae3e4a7e4a80291e668867ea9a"
+    },
+    {
+      "file": "037_conflict_declarations.sql",
+      "bytes": 1417,
+      "sha256": "edc7f2a42336b5454dffb2940556a5308b65c4b39e49073bd0e2b3e800676ff7"
+    },
+    {
+      "file": "038_trust_surveys.sql",
+      "bytes": 1971,
+      "sha256": "f417c0c52e2e3b473a01a1aa9d97d3fddf75add2ac6f52b1afb8f791fa829ee2"
+    },
+    {
+      "file": "039_fairness_commitments.sql",
+      "bytes": 1129,
+      "sha256": "9f43153ff374967b5c5b0437432d8bb394ea08d87b9baf218a4b0147d3677c5a"
+    },
+    {
+      "file": "040_contribution_attestations.sql",
+      "bytes": 1624,
+      "sha256": "2a174bd122a3ac42d8f9446a225e8509eeedf9c3a971f689066d160ca99f1cf0"
+    },
+    {
+      "file": "041_manager_enablement.sql",
+      "bytes": 2014,
+      "sha256": "c7373757d7faa452f01e21f6673ee15475bc64f1df1d8a293016c3abafcf74c5"
+    },
+    {
+      "file": "042_pilot_enrollments.sql",
+      "bytes": 1193,
+      "sha256": "12aa8a16fd0f559550a718e8257c88130b47d08d30daaf6ee69ede9796b3b5c9"
+    },
+    {
+      "file": "043_break_glass.sql",
+      "bytes": 1294,
+      "sha256": "037676aa63b83332c23a12dce6a80d2b3128b76aae1c937aeb4509a880178394"
+    },
+    {
+      "file": "044_clawback_cases.sql",
+      "bytes": 1631,
+      "sha256": "921911a797fc595c1483139b0222ad5eee7d851ea795d2527e9882baab923d30"
+    },
+    {
+      "file": "045_discretionary_pool_reviews.sql",
+      "bytes": 1254,
+      "sha256": "4c1df6ff1eec4bc0d922a839e656c878c0fb117731db84749a8503fc9d9e9a85"
+    },
+    {
+      "file": "046_model_provider_policies.sql",
+      "bytes": 1258,
+      "sha256": "595c13141b77f997b9b6ee1f9357ef6aa9cf73808afdaf2f870eedbd8f688f09"
+    },
+    {
+      "file": "047_model_evaluation_datasets.sql",
+      "bytes": 1414,
+      "sha256": "85a57296e3ce80defc43a0d05925b77e71fc8bd81a4520ca9918addb14d4218c"
+    },
+    {
+      "file": "048_deduction_order.sql",
+      "bytes": 322,
+      "sha256": "39455210c32c1cdcbdf6d6338225e170e70a2bd27acb8a6b21579b88b4d16602"
+    },
+    {
+      "file": "049_contract_amendment_scheduling.sql",
+      "bytes": 437,
+      "sha256": "1585e0c7aeeb331626efb3d59da8b19aba945242b16423c662646fba014726e1"
+    },
+    {
+      "file": "050_ai_high_risk_review.sql",
+      "bytes": 301,
+      "sha256": "074868993e68e126efa47654f13c64effcdda921f9918f34d525994603eb2219"
+    },
+    {
+      "file": "051_model_canary_runs.sql",
+      "bytes": 1264,
+      "sha256": "11f1b4b382ab9e5f7f632b7f5ae8a90be6ae03fb3e1d22468d9c828f7be720eb"
+    },
+    {
+      "file": "052_audit_redactions.sql",
+      "bytes": 1176,
+      "sha256": "2a48e77bf99da85f720f81715a8a48df456fddc29e75e203bee689158fef2320"
+    },
+    {
+      "file": "053_model_red_team_runs.sql",
+      "bytes": 1080,
+      "sha256": "72af9885f0db850bac6dfaaeee13af3ec942580e03d878ede21d68bd6dbc2159"
+    },
+    {
+      "file": "054_deduction_type_caps.sql",
+      "bytes": 333,
+      "sha256": "cdee9fbe090f683123eee1071ac6e205c78846a5109454f6871a19965b65b9d1"
+    },
+    {
+      "file": "055_incentive_smoothing.sql",
+      "bytes": 523,
+      "sha256": "ad3407b0022233e62f12e05d1acd575d04ca20b18eb4126d1b30c84b248c231d"
+    },
+    {
+      "file": "056_compensation_templates.sql",
+      "bytes": 1834,
+      "sha256": "7aef701d9a0ecc72ef500bf18b1e607ebd22af6c81a4a8dc3f2654572ee49702"
+    },
+    {
+      "file": "057_zero_score_rationale.sql",
+      "bytes": 177,
+      "sha256": "ecaabde4db7bcd5105d3566e834d48001534e7c2211fac09458543d77beec5cb"
+    },
+    {
+      "file": "058_agent_actor_role.sql",
+      "bytes": 160,
+      "sha256": "33a279e2a9ad05a848a9acf703f2f3599129b0b1240cb9c9fe121f8002c5efc4"
+    },
+    {
+      "file": "059_esign_envelopes.sql",
+      "bytes": 1300,
+      "sha256": "9614f665fb62eca1be1428ca4ebe3eebd69f16c59bf6b7ddbc42945e04e851ef"
+    },
+    {
+      "file": "060_retention_disposal.sql",
+      "bytes": 1416,
+      "sha256": "efb47bff988150ce8cc2ee3bcbf7012c0ef085cecc412b6eb8c043be27336b58"
+    },
+    {
+      "file": "061_ai_risk_assessment.sql",
+      "bytes": 344,
+      "sha256": "bb291d61789232bb7c238b889a5a71c7230475bad69ee168321d71ea45f11622"
+    },
+    {
+      "file": "062_workforce_subgroup_attributes.sql",
+      "bytes": 1352,
+      "sha256": "16fddef6211b70392dc2b2b27fc77935e95619e047b9c23fe76b1e854293e254"
+    },
+    {
+      "file": "063_appeal_evidence_disclosures.sql",
+      "bytes": 1271,
+      "sha256": "d309096a418f66bb43fcb10ddea9d1713c3f26840edf42c5e9fd010699bbb0d1"
+    },
+    {
+      "file": "064_contract_legal_entity.sql",
+      "bytes": 158,
+      "sha256": "41f433963cc2d73e16fce584539a15b2e7ce1dacfea24707ab632fdf952d52d2"
+    },
+    {
+      "file": "065_payroll_notice_ack.sql",
+      "bytes": 273,
+      "sha256": "856d32a983e88011880cfaeb8582a7a11438d2be85080e17299270c313d4e369"
+    },
+    {
+      "file": "066_billing.sql",
+      "bytes": 2634,
+      "sha256": "c09f54cb6c94c3875e6f12fafd9c06db3b68a38b0891a6a6a9e52d0bc8e911da"
+    },
+    {
+      "file": "067_payroll_statutory_tax.sql",
+      "bytes": 394,
+      "sha256": "32a61686497a268fdb70613c0db538a6d6dcaf1c05c673fc9b5607d12e9793a4"
+    },
+    {
+      "file": "068_strategic_pools.sql",
+      "bytes": 1607,
+      "sha256": "3b36175d529c364192289588e13b5e072372b3497a5bc24a007d0fddf31bbe9c"
+    },
+    {
+      "file": "069_feishu_org_sync.sql",
+      "bytes": 264,
+      "sha256": "8a3b797157aff04f132b43f330baa29263e8164d9b847a8219db480e7348f1f4"
+    },
+    {
+      "file": "070_user_password.sql",
+      "bytes": 133,
+      "sha256": "23a040171be171b27e6df3d2f442b730832333e51bda971d16fb82a5da2533a3"
+    },
+    {
+      "file": "071_independent_judgment.sql",
+      "bytes": 390,
+      "sha256": "3279547726f2c2ffdf2bf3d61eaeded29f86b7165116f8222f5a69618c510439"
+    },
+    {
+      "file": "072_policy_engine_records.sql",
+      "bytes": 876,
+      "sha256": "158c1847485d48362d812fa3bfb8eab606129fb8912253a2d645a54bc5beeaa0"
+    },
+    {
+      "file": "073_incentive_award_batches.sql",
+      "bytes": 1689,
+      "sha256": "3881dca02aa809fd0b0f6b75fb6f2f265a985b64fb1e23724d0d1658cc149feb"
+    },
+    {
+      "file": "074_incentive_smoothing.sql",
+      "bytes": 618,
+      "sha256": "93747472ba5efaa16782799a6a760183a22d823591171158977c49dfb6b725c8"
+    },
+    {
+      "file": "075_deduction_legal_basis.sql",
+      "bytes": 270,
+      "sha256": "53792ef1b9551def67f6838c64aeb0d1e86ac8161b9bf334a087ace91bd46d1f"
+    },
+    {
+      "file": "076_gold_set_samples.sql",
+      "bytes": 180,
+      "sha256": "4045fb5092ffcb0c6419b3de54ccf81d914d36bf3968dc395c3712cdb43f35de"
+    },
+    {
+      "file": "077_clawback_recovery_generated.sql",
+      "bytes": 773,
+      "sha256": "3ba7645be9d777ec5da2898466667a9c7c43141d0e4d60c4e4a7c69460b42689"
+    },
+    {
+      "file": "078_ledger_exclusions.sql",
+      "bytes": 593,
+      "sha256": "4c2cb91d46fc303cbf38543ee0f38ebe7ffb66f9110ecb8f8bf82d2b0041048b"
+    },
+    {
+      "file": "079_rls_policy_and_award_tables.sql",
+      "bytes": 1193,
+      "sha256": "89474033ab86f6552a589236dda77b178b1e5550ab44383d252c0752cac11815"
+    },
+    {
+      "file": "080_ledger_immutable_and_settlement_binding.sql",
+      "bytes": 2548,
+      "sha256": "059108112dd4f769238d42af69aa09cda4af7e3c018a58570c0b3c0de2c96b48"
+    },
+    {
+      "file": "081_ledger_exclusions_rls.sql",
+      "bytes": 721,
+      "sha256": "3c23496e22f323b9d70fe046a59d2f4b44aea66d308d4e9ccced8f6784085a63"
+    }
+  ]
+}
