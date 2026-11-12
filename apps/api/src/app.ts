@@ -1967,11 +1967,26 @@ export function buildApp(
     if (!consumedBy) {
       throw new ConflictError("APPROVAL_HAS_NO_APPROVER");
     }
-    await platformStore.consumeApprovalRequest({
+    const consumed = await platformStore.consumeApprovalRequest({
       tenantId,
       requestId: approval.id,
       consumedBy,
     });
+    // NPV2-008：消费即留痕——审计直接关联 command action、目标与审批请求，
+    // 满足「审计能关联 command/request/ledger」的验收项。
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: consumedBy,
+        action: `APPROVAL_CONSUMED_${input.actionType}`,
+        objectType: input.targetType,
+        objectId: input.targetId,
+        reason: `approvalRequest=${approval.id} payloadHash=${approval.payloadHash}`,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    void consumed;
   }
 
   async function runPolicyTestSuiteFor(
@@ -9893,6 +9908,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/deliverables/:id/acceptance", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(recordDeliverableAcceptanceSchema, request.body);
+    // NPV2-003：验收人必须是会话主体（平台管理员除外）。
+    const acceptOwn = ownPersonId(request);
+    if (acceptOwn && !isPlatformAdmin(request) && body.reviewerPersonId !== acceptOwn) {
+      throw new ForbiddenError(
+        "acceptance must use the authenticated identity",
+      );
+    }
     const acceptance = await platformStore.recordDeliverableAcceptance({
       tenantId: tenantOf(request),
       deliverableId: idOf(request),
@@ -10055,6 +10077,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/ai-suggestion-logs/:id/accept", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(acceptAiSuggestionSchema, request.body);
+    // NPV2-003：接受人必须是会话主体（平台管理员除外）。
+    const own = ownPersonId(request);
+    if (own && !isPlatformAdmin(request) && body.acceptedBy !== own) {
+      throw new ForbiddenError(
+        "AI suggestion acceptance must use the authenticated identity",
+      );
+    }
     return data(
       await platformStore.acceptAiSuggestion({
         tenantId: tenantOf(request),
@@ -10650,6 +10679,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     requireRoles(request, "manager", "finance");
     const body = parse(decideAiScoreProposalSchema, request.body);
     const tenantId = tenantOf(request);
+    // NPV2-003：裁决人必须是会话主体（平台管理员除外）。
+    const deciderOwn = ownPersonId(request);
+    if (deciderOwn && !isPlatformAdmin(request) && body.decidedBy !== deciderOwn) {
+      throw new ForbiddenError(
+        "AI proposal decisions must use the authenticated identity",
+      );
+    }
     const persons = await platformStore.listPersons(tenantId);
     if (!persons.some((person) => person.id === body.decidedBy)) {
       throw new NotFoundError(`Person ${body.decidedBy} not found`);
@@ -10805,6 +10841,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       requireRoles(request, "manager", "finance");
       const body = parse(submitAiScoreAuditSchema, request.body);
       const tenantId = tenantOf(request);
+      // NPV2-003：复核人必须是会话主体（平台管理员除外）。
+      const auditOwn = ownPersonId(request);
+      if (auditOwn && !isPlatformAdmin(request) && body.reviewerPersonId !== auditOwn) {
+        throw new ForbiddenError(
+          "audit review must use the authenticated identity",
+        );
+      }
       const persons = await platformStore.listPersons(tenantId);
       if (!persons.some((person) => person.id === body.reviewerPersonId)) {
         throw new NotFoundError(
@@ -11375,6 +11418,13 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   app.post("/api/v1/bounties/:id/accept", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(acceptBountySchema, request.body);
+    // NPV2-003：验收人必须是会话主体（平台管理员除外）。
+    const bountyOwn = ownPersonId(request);
+    if (bountyOwn && !isPlatformAdmin(request) && body.reviewerPersonId !== bountyOwn) {
+      throw new ForbiddenError(
+        "bounty acceptance must use the authenticated identity",
+      );
+    }
     return data(
       await platformStore.acceptBounty({
         tenantId: tenantOf(request),

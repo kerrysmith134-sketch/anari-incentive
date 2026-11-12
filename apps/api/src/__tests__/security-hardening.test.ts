@@ -411,6 +411,88 @@ describe("workflow mutations require participation", () => {
   });
 });
 
+describe("decision APIs bind the session actor (NPV2-003 sweep)", () => {
+  it("rejects payroll approval for a different person", async () => {
+    const financeSession = buildApp(
+      new Store(),
+      undefined,
+      authFor(["finance"], OWNER),
+      platformStore,
+    );
+    const run = await call(app, "POST", "/api/v1/payroll-runs", {
+      cycleId: CYCLE,
+      periodStart: "2026-11-01T00:00:00Z",
+      periodEnd: "2026-11-30T23:59:59Z",
+      currency: "CNY",
+      preparedBy: MEMBER,
+    });
+    const approved = await call(
+      financeSession,
+      "POST",
+      `/api/v1/payroll-runs/${run.body.data.id}/approve`,
+      { approvedBy: MEMBER },
+    );
+    expect(approved.status).toBe(403);
+    expect(approved.body.error.message).toContain(
+      "authenticated identity",
+    );
+  });
+
+  it("rejects bounty acceptance under another identity", async () => {
+    const bounty = await call(app, "POST", "/api/v1/bounties", {
+      title: "NPV2-003",
+      description: "actor binding",
+      rewardAmount: "100",
+      currency: "CNY",
+      createdBy: OWNER,
+    });
+    // 先把悬赏推进到 SUBMITTED，避免状态守卫（409）抢在身份校验之前。
+    await call(app, "POST", `/api/v1/bounties/${bounty.body.data.id}/claim`, {
+      personId: MEMBER,
+    });
+    await call(app, "POST", `/api/v1/bounties/${bounty.body.data.id}/submit`, {
+      personId: MEMBER,
+      submissionRef: "doc-1",
+    });
+    const financeSession = buildApp(
+      new Store(),
+      undefined,
+      authFor(["finance"], OWNER),
+      platformStore,
+    );
+    const accepted = await call(
+      financeSession,
+      "POST",
+      `/api/v1/bounties/${bounty.body.data.id}/accept`,
+      { reviewerPersonId: MEMBER },
+    );
+    expect(accepted.status).toBe(403);
+    expect(accepted.body.error.message).toContain("authenticated identity");
+  });
+
+  it("rejects AI proposal decisions for another person", async () => {
+    const financeSession = buildApp(
+      new Store(),
+      undefined,
+      authFor(["finance"], OWNER),
+      platformStore,
+    );
+    const decided = await call(
+      financeSession,
+      "POST",
+      "/api/v1/ai-score-proposals/00000000-0000-4000-8000-0000000000e1/decide",
+      {
+        decision: "ACCEPT",
+        decidedBy: MEMBER,
+        independentScores: { QUALITY: 3 },
+        reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
+        evidenceOpened: 1,
+      },
+    );
+    expect(decided.status).toBe(403);
+  });
+});
+
 describe("malformed input returns a client error", () => {
   it("treats an empty JSON body as {} for bodyless command routes", async () => {
     const response = await app.inject({
