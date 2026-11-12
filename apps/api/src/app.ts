@@ -330,19 +330,28 @@ import {
   type PlatformStore,
 } from "./platform-store.js";
 
+import {
+  data,
+  errorBody,
+  idOf,
+  parse,
+  tenantOf,
+  requireRoles,
+  isPrivileged,
+  ownPersonId,
+  isPlatformAdmin,
+  requirePlatformAdmin,
+  requireTenantAdmin,
+} from "./http-helpers.js";
+import {
+  findActivityMetricKeys,
+  findActivityMonitoringText,
+} from "./modules/governance/activity-monitoring.js";
+import { RETENTION_RECOMMENDATIONS } from "./modules/governance/retention-defaults.js";
+import { registerDataGovernanceRoutes } from "./modules/governance/data-governance.routes.js";
+
 type IdParams = { id: string };
 
-function data(data: unknown, request: FastifyRequest) {
-  return { data, meta: { correlation_id: request.id } };
-}
-
-function errorBody(code: string, message: string, details?: unknown) {
-  return { error: { code, message, details }, meta: {} };
-}
-
-function parse<T>(schema: ZodType<T>, value: unknown): T {
-  return schema.parse(value);
-}
 
 function countByStatus(
   items: Array<{ status: string }>,
@@ -358,10 +367,6 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0
     ? 0
     : Math.round((numerator / denominator) * 10_000) / 10_000;
-}
-
-function idOf(request: FastifyRequest): string {
-  return (request.params as IdParams).id;
 }
 
 function paramOf(request: FastifyRequest, name: string): string {
@@ -478,20 +483,6 @@ class BadRequestError extends Error {
   }
 }
 
-function tenantOf(request: FastifyRequest): string {
-  return request.authContext?.tenantId ?? "tenant-demo";
-}
-
-function requireRoles(request: FastifyRequest, ...allowed: string[]): void {
-  const roles = request.authContext?.roles ?? [];
-  if (roles.includes("admin") || roles.some((role) => allowed.includes(role))) {
-    return;
-  }
-  throw new ForbiddenError(
-    `requires one of: ${allowed.join(", ")} (or admin)`,
-  );
-}
-
 function assertHarnessEvaluation(evaluation: {
   metrics: Record<string, unknown>;
 }): void {
@@ -500,13 +491,6 @@ function assertHarnessEvaluation(evaluation: {
       "MODEL_EVALUATION_NOT_HARNESS_VERIFIED: evaluation must be produced by the gated evaluation harness",
     );
   }
-}
-
-function isPrivileged(request: FastifyRequest): boolean {
-  const roles = request.authContext?.roles ?? [];
-  return roles.some((role) =>
-    ["admin", "manager", "finance"].includes(role),
-  );
 }
 
 /** Reversed or cancelled runs must never produce a payable file. */
@@ -519,26 +503,6 @@ function assertPayrollExportable(run: PayrollRun): void {
 }
 
 /** Platform operators only; a tenant `admin` is not a platform operator. */
-function isPlatformAdmin(request: FastifyRequest): boolean {
-  return (request.authContext?.roles ?? []).includes("platform_admin");
-}
-
-function requirePlatformAdmin(request: FastifyRequest): void {
-  if (!isPlatformAdmin(request)) {
-    throw new ForbiddenError("requires platform_admin");
-  }
-}
-
-/** Platform operators, or the admin of the tenant being addressed. */
-function requireTenantAdmin(request: FastifyRequest, tenantId: string): void {
-  if (isPlatformAdmin(request)) return;
-  const roles = request.authContext?.roles ?? [];
-  if (roles.includes("admin") && tenantId === tenantOf(request)) return;
-  throw new ForbiddenError(
-    "requires platform_admin or the admin of this tenant",
-  );
-}
-
 /** Any signed-in member of the tenant may read its basic people directory. */
 function requireTenantMember(request: FastifyRequest, tenantId: string): void {
   if (isPlatformAdmin(request)) return;
@@ -562,10 +526,6 @@ async function assertWorkPackageParticipant(
   ) {
     throw new ForbiddenError("work package is not visible to this person");
   }
-}
-
-function ownPersonId(request: FastifyRequest): string | undefined {
-  return request.authContext?.personId;
 }
 
 async function notifyBestEffort(
@@ -679,48 +639,23 @@ const DEFAULT_PAYROLL_FIELD_POLICIES: Record<string, string[]> = {
   "PAYROLL_LINE.bankAccountRef": ["finance", "admin"],
 };
 
-export const RETENTION_RECOMMENDATIONS = [
-  {
-    dataCategory: "PAYROLL_RECORDS",
-    retentionMonths: 360,
-    legalBasis:
-      "PRC accounting-archive rules and payroll-ledger retention; ADR-008 system default",
-  },
-  {
-    dataCategory: "ACCOUNTING_RECORDS",
-    retentionMonths: 360,
-    legalBasis: "PRC accounting-archive retention; ADR-008 system default",
-  },
-  {
-    dataCategory: "MIGRANT_WORKER_WAGE_RECORDS",
-    retentionMonths: 36,
-    legalBasis:
-      "PRC migrant-worker wage-payment record minimum; ADR-008 system default",
-  },
-  {
-    dataCategory: "LABOR_CONTRACTS",
-    retentionMonths: 24,
-    legalBasis:
-      "Labour Contract Law Art. 50 minimum after termination; ADR-008 system default",
-  },
-  {
-    dataCategory: "RECRUITMENT_RECORDS",
-    retentionMonths: 24,
-    legalBasis: "Data-minimisation default; ADR-008 system default",
-  },
-  {
-    dataCategory: "AI_EVALUATION_EVIDENCE",
-    retentionMonths: 36,
-    legalBasis:
-      "Explanation, appeal and annual-review evidence window; ADR-008 system default",
-  },
-  {
-    dataCategory: "AUDIT_EVENTS",
-    retentionMonths: 120,
-    legalBasis:
-      "Investigation and audit-verification window; ADR-008 system default",
-  },
-] as const;
+export const RETENTION_CATEGORIES_BY_RESOURCE: Record<string, string[]> = {
+  EMPLOYMENT_CONTRACT: ["LABOR_CONTRACTS"],
+  PAYROLL_LINE: ["PAYROLL_RECORDS"],
+  CALCULATION_LINE: ["ACCOUNTING_RECORDS"],
+  SETTLEMENT_LINE: ["ACCOUNTING_RECORDS"],
+  EVIDENCE: ["AI_EVALUATION_EVIDENCE"],
+  AI_PROPOSAL: ["AI_EVALUATION_EVIDENCE"],
+};
+
+interface NormalizedFieldPolicy {
+  roles: string[];
+  allowSelf: boolean;
+  onDeny?: DenialMode;
+  match?: FieldAccessMatch;
+}
+
+const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
 
 export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, FieldAccessPolicy> = {
   ...DEFAULT_PAYROLL_FIELD_POLICIES,
@@ -740,11 +675,8 @@ export const DEFAULT_FIELD_ACCESS_POLICIES: Record<string, FieldAccessPolicy> = 
   "AI_PROPOSAL.gateMetrics": ["manager", "finance", "admin"],
 };
 
-const DECIMAL_STRING_PATTERN = /^-?\d+(\.\d+)?$/;
-
 type DenialMode = "OMIT" | "ZERO" | "REDACT";
 
-/** Server-derived facts used to evaluate object-policy predicates. */
 export interface FieldAccessMatchContext {
   viewerPersonId?: string;
   managerByPerson: Map<string, string | undefined>;
@@ -754,20 +686,6 @@ export interface FieldAccessMatchContext {
   /** Retention categories currently under legal hold. */
   heldCategories: Set<string>;
 }
-
-/**
- * Resources that map onto a retention data category. Unmapped resources make
- * the legalHoldActive predicate evaluate false (and therefore fail closed for
- * a `true` expectation).
- */
-export const RETENTION_CATEGORIES_BY_RESOURCE: Record<string, string[]> = {
-  EMPLOYMENT_CONTRACT: ["LABOR_CONTRACTS"],
-  PAYROLL_LINE: ["PAYROLL_RECORDS"],
-  CALCULATION_LINE: ["ACCOUNTING_RECORDS"],
-  SETTLEMENT_LINE: ["ACCOUNTING_RECORDS"],
-  EVIDENCE: ["AI_EVALUATION_EVIDENCE"],
-  AI_PROPOSAL: ["AI_EVALUATION_EVIDENCE"],
-};
 
 interface NormalizedFieldPolicy {
   roles: string[];
@@ -1242,88 +1160,18 @@ function normalizeMetricKey(key: string): string {
  * outcomes, not worker behaviour; this is a technical data-minimisation block
  * (PRD DATA-05), not just a policy statement.
  */
-export function findActivityMetricKeys(value: unknown): string[] {
-  const found = new Set<string>();
-  const visit = (node: unknown) => {
-    if (Array.isArray(node)) {
-      for (const item of node) visit(item);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    for (const [key, child] of Object.entries(node)) {
-      if (ACTIVITY_METRIC_KEYS.has(normalizeMetricKey(key))) {
-        found.add(key);
-      }
-      visit(child);
-    }
-  };
-  visit(value);
-  return [...found];
-}
 
 /**
  * Explicit surveillance phrases in free text. Deliberately narrow: generic
  * words such as "monitoring" or "screenshot" alone are legitimate evidence
  * descriptions, so only unambiguous behaviour-surveillance phrasing blocks.
  */
-const ACTIVITY_MONITORING_PHRASES = [
-  "keystroke logging",
-  "keystroke logger",
-  "keystroke monitoring",
-  "mouse tracking",
-  "mouse movement tracking",
-  "screen recording software",
-  "screen capture monitoring",
-  "screen monitoring",
-  "webcam monitoring",
-  "camera monitoring",
-  "webcam surveillance",
-  "app usage tracking",
-  "application usage monitoring",
-  "website usage tracking",
-  "browsing history tracking",
-  "clipboard monitoring",
-  "location tracking",
-  "location history tracking",
-  "gps tracking",
-  "productivity monitoring",
-  "employee monitoring software",
-  "键盘记录",
-  "键盘监控",
-  "鼠标追踪",
-  "屏幕监控",
-  "摄像头监控",
-  "剪贴板监控",
-  "定位追踪",
-  "位置追踪",
-  "员工监控软件",
-] as const;
 
 /**
  * Detect activity-surveillance language in free-text payload values. This
  * complements the structured-key block for DATA-05; the match is intentionally
  * phrase-based so normal delivery or order text is unaffected.
  */
-export function findActivityMonitoringText(value: unknown): string[] {
-  const found = new Set<string>();
-  const visit = (node: unknown) => {
-    if (typeof node === "string") {
-      const text = node.toLowerCase();
-      for (const phrase of ACTIVITY_MONITORING_PHRASES) {
-        if (text.includes(phrase)) found.add(phrase);
-      }
-      return;
-    }
-    if (Array.isArray(node)) {
-      for (const item of node) visit(item);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    for (const child of Object.values(node)) visit(child);
-  };
-  visit(value);
-  return [...found];
-}
 
 /** Detect common unmasked identifiers in an export payload. */
 export function scanExportDlp(
@@ -2182,6 +2030,16 @@ export function buildApp(
       amount: formatDecimal(total),
     });
   }
+
+  // NPV2-011：数据治理域路由已拆分至 modules/governance（行为等价迁移）。
+  app.register(
+    registerDataGovernanceRoutes({
+      platformStore,
+      storeFor,
+      countEvent,
+      auditExport,
+    }),
+  );
 
   app.addHook("onRequest", async (request) => {
     if (!options.tracer) return;
@@ -8564,377 +8422,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(resolved, request);
   });
 
-  app.post("/api/v1/retention-policies", async (request, reply) => {
-    requireRoles(request, "admin");
-    const body = parse(createRetentionPolicySchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createRetentionPolicy({
-          tenantId: tenantOf(request),
-          dataCategory: body.dataCategory,
-          retentionMonths: body.retentionMonths,
-          legalBasis: body.legalBasis,
-          legalHold: body.legalHold ?? false,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/retention-policies", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listRetentionPolicies(tenantOf(request)),
-      request,
-    );
-  });
-
-  app.get("/api/v1/retention-policies/recommended", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const configured = await platformStore.listRetentionPolicies(
-      tenantOf(request),
-    );
-    const configuredCategories = new Set(
-      configured.map((policy) => policy.dataCategory),
-    );
-    return data(
-      {
-        note: "Conservative system defaults from ADR-008. Legal hold always wins; a tenant must confirm local law before adopting a value.",
-        recommendations: RETENTION_RECOMMENDATIONS.map((recommendation) => ({
-          ...recommendation,
-          configured: configuredCategories.has(recommendation.dataCategory),
-        })),
-      },
-      request,
-    );
-  });
-
-  app.get("/api/v1/retention-policies/report", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const policies = await platformStore.listRetentionPolicies(
-      tenantOf(request),
-    );
-    const today = new Date();
-    return data(
-      {
-        generatedAt: today.toISOString(),
-        policies: policies.map((policy) => {
-          const cutoff = new Date(today);
-          cutoff.setUTCMonth(cutoff.getUTCMonth() - policy.retentionMonths);
-          return {
-            ...policy,
-            cutoffDate: cutoff.toISOString().slice(0, 10),
-            eligibleForDisposal: !policy.legalHold,
-          };
-        }),
-      },
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-policies/:id/legal-hold", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(setRetentionLegalHoldSchema, request.body);
-    const updated = await platformStore.setRetentionLegalHold({
-      tenantId: tenantOf(request),
-      retentionPolicyId: idOf(request),
-      legalHold: body.legalHold,
-    });
-    await auditExport(
-      request,
-      body.legalHold ? "LEGAL_HOLD_SET" : "LEGAL_HOLD_RELEASED",
-      "RETENTION_POLICY",
-      idOf(request),
-    );
-    return data(updated, request);
-  });
-
-  app.post("/api/v1/data-sources", async (request, reply) => {
-    requireRoles(request, "manager");
-    const body = parse(createDataSourceSchema, request.body);
-    const activityFields = findActivityMetricKeys(
-      Object.fromEntries(
-        body.fields.map((field) => [field.fieldName, true]),
-      ),
-    );
-    if (activityFields.length > 0) {
-      throw new ConflictError(
-        `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
-      );
-    }
-    const activityText = findActivityMonitoringText({
-      name: body.name,
-      fields: body.fields,
-    });
-    if (activityText.length > 0) {
-      throw new ConflictError(
-        `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED:${activityText.join(",")}`,
-      );
-    }
-    return reply.status(201).send(
-      data(
-        await platformStore.createDataSource({
-          tenantId: tenantOf(request),
-          code: body.code,
-          name: body.name,
-          category: body.category,
-          ownerPersonId: body.ownerPersonId,
-          backupOwnerPersonId: body.backupOwnerPersonId,
-          slaHours: body.slaHours,
-          criticality: body.criticality,
-          containsPersonalData: body.containsPersonalData ?? true,
-          storageRegion: body.storageRegion,
-          crossBorderTransfers: body.crossBorderTransfers ?? false,
-          processorRefs: body.processorRefs ?? [],
-          fields: body.fields,
-          lastReviewedAt: body.lastReviewedAt,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/data-sources", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listDataSources(tenantOf(request)),
-      request,
-    );
-  });
-
-  app.get("/api/v1/data-sources/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.getDataSource(tenantOf(request), idOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/data-sources/:id/retire", async (request) => {
-    requireRoles(request, "manager");
-    return data(
-      await platformStore.retireDataSource({
-        tenantId: tenantOf(request),
-        dataSourceId: idOf(request),
-      }),
-      request,
-    );
-  });
-
-  app.get("/api/v1/data-map", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const tenantId = tenantOf(request);
-    const [sources, retention, dpias, dsars] = await Promise.all([
-      platformStore.listDataSources(tenantId),
-      platformStore.listRetentionPolicies(tenantId),
-      platformStore.listDpias(tenantId),
-      platformStore.listDsars(tenantId),
-    ]);
-    const reviewCutoff = 90 * 24 * 60 * 60 * 1000;
-    const mapped = sources.map((source) => {
-      const reviewedAt = Date.parse(
-        source.lastReviewedAt ?? source.createdAt,
-      );
-      const reviewDueAt = new Date(reviewedAt + reviewCutoff).toISOString();
-      return {
-        ...source,
-        reviewDueAt,
-        reviewOverdue:
-          source.status === "ACTIVE" && Date.parse(reviewDueAt) < Date.now(),
-      };
-    });
-    const active = mapped.filter((source) => source.status === "ACTIVE");
-    const classifications: Record<string, number> = {};
-    for (const source of mapped) {
-      for (const field of source.fields) {
-        classifications[field.classification] =
-          (classifications[field.classification] ?? 0) + 1;
-      }
-    }
-    const categories: Record<string, number> = {};
-    for (const source of active) {
-      categories[source.category] = (categories[source.category] ?? 0) + 1;
-    }
-    const allFields = mapped.flatMap((source) => source.fields);
-    const personalFields = allFields.filter(
-      (field) =>
-        field.classification === "PERSONAL" ||
-        field.classification === "SENSITIVE",
-    );
-    const personalFieldsWithRetention = personalFields.filter(
-      (field) => typeof field.retentionMonths === "number",
-    ).length;
-    return data(
-      {
-        generatedAt: new Date().toISOString(),
-        summary: {
-          sources: sources.length,
-          activeSources: active.length,
-          personalSources: active.filter(
-            (source) => source.containsPersonalData,
-          ).length,
-          crossBorderSources: active.filter(
-            (source) => source.crossBorderTransfers,
-          ).length,
-          processors: [
-            ...new Set(active.flatMap((source) => source.processorRefs)),
-          ],
-          fields: allFields.length,
-          classifications,
-          categories,
-          minimization: {
-            fieldsWithPurpose: allFields.filter((field) => field.purpose).length,
-            personalFields: personalFields.length,
-            personalFieldsWithRetention,
-            personalFieldsWithoutRetention:
-              personalFields.length - personalFieldsWithRetention,
-          },
-          overdueReviews: active.filter((source) => source.reviewOverdue)
-            .length,
-          retentionPolicies: retention.length,
-          approvedDpias: dpias.filter((dpia) => dpia.status === "APPROVED")
-            .length,
-          openDataRequests: dsars.filter((dsar) => dsar.status === "OPEN")
-            .length,
-          entityPiiCoverage: dataGovernanceCoverage(),
-        },
-        sources: mapped,
-        retentionPolicies: retention,
-      },
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-policies/:id/disposal-requests", async (request, reply) => {
-    requireRoles(request, "manager");
-    const body = parse(createRetentionDisposalRequestSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createRetentionDisposalRequest({
-          tenantId: tenantOf(request),
-          retentionPolicyId: idOf(request),
-          requestedBy: body.requestedBy,
-          reason: body.reason,
-          scheduledFor: body.scheduledFor,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.post("/api/v1/retention-disposal-requests", async (request, reply) => {
-    requireRoles(request, "admin");
-    const body = parse(createFlatRetentionDisposalRequestSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createRetentionDisposalRequest({
-          tenantId: tenantOf(request),
-          retentionPolicyId: body.retentionPolicyId,
-          requestedBy: body.requestedBy,
-          reason: body.reason,
-          scheduledFor: body.scheduledFor,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/retention-disposal-requests", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listRetentionDisposalRequests(tenantOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-disposal-requests:process", async (request) => {
-    requireRoles(request, "admin", "integration");
-    const body = parse(processRetentionDisposalsSchema, request.body);
-    const tenantId = tenantOf(request);
-    const pending = (await platformStore.listRetentionDisposalRequests(tenantId))
-      .filter(
-        (candidate) =>
-          candidate.status === "APPROVED" &&
-          Date.now() >= Date.parse(candidate.scheduledFor),
-      );
-    const completed: string[] = [];
-    const skipped: Array<{ requestId: string; reason: string }> = [];
-    const policies = await platformStore.listRetentionPolicies(tenantId);
-    const policyById = new Map(policies.map((policy) => [policy.id, policy]));
-    for (const candidate of pending) {
-      const policy = policyById.get(candidate.retentionPolicyId);
-      if (policy?.legalHold) {
-        skipped.push({
-          requestId: candidate.id,
-          reason: "RETENTION_LEGAL_HOLD",
-        });
-        continue;
-      }
-      try {
-        const processed = await platformStore.completeRetentionDisposalRequest({
-          tenantId,
-          requestId: candidate.id,
-          actorPersonId: body.actorPersonId,
-        });
-        completed.push(processed.id);
-      } catch (caught) {
-        skipped.push({
-          requestId: candidate.id,
-          reason: caught instanceof Error ? caught.message : "unknown",
-        });
-      }
-    }
-    countEvent("retention_disposals_processed");
-    return data(
-      {
-        processedCount: completed.length,
-        completed,
-        skipped,
-        checkedAt: new Date().toISOString(),
-      },
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-disposal-requests/:id/approve", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(approveRetentionDisposalRequestSchema, request.body);
-    return data(
-      await platformStore.approveRetentionDisposalRequest({
-        tenantId: tenantOf(request),
-        requestId: idOf(request),
-        approvedBy: body.approvedBy,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-disposal-requests/:id/complete", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(completeRetentionDisposalRequestSchema, request.body);
-    return data(
-      await platformStore.completeRetentionDisposalRequest({
-        tenantId: tenantOf(request),
-        requestId: idOf(request),
-        actorPersonId: body.actorPersonId,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/retention-disposal-requests/:id/cancel", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(cancelRetentionDisposalRequestSchema, request.body);
-    return data(
-      await platformStore.cancelRetentionDisposalRequest({
-        tenantId: tenantOf(request),
-        requestId: idOf(request),
-        actorPersonId: body.actorPersonId,
-        reason: body.reason,
-      }),
-      request,
-    );
-  });
 
   app.post("/api/v1/workforce-subgroup-attributes", async (request, reply) => {
     requireRoles(request, "admin");

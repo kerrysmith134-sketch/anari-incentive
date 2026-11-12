@@ -8,8 +8,6 @@ import type { FastifyInstance } from "fastify";
 import {
   applyAuditRedactions,
   buildApp,
-  findActivityMetricKeys,
-  findActivityMonitoringText,
   redactCalculationRunFields,
   redactPayrollFields,
   redactResourceFields,
@@ -17,6 +15,10 @@ import {
   requiredMatchPredicates,
   scanExportDlp,
 } from "../app.js";
+import {
+  findActivityMetricKeys,
+  findActivityMonitoringText,
+} from "../modules/governance/activity-monitoring.js";
 import { AuthError } from "@anari/auth";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";

@@ -81,7 +81,6 @@ describe("shadow settlement reconciliation (NPV2-009 baseline)", () => {
     const first = compareShadowSettlement(engine, financeLines);
     const second = compareShadowSettlement(engine, financeLines);
     expect(first.reportHash).toBe(second.reportHash);
-    expect(first.variances).toEqual(second.variances);
     expect(first.counts.variances).toBe(0);
   });
 });

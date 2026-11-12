@@ -16,8 +16,6 @@ import {
 import {
   applyAuditRedactions,
   buildApp,
-  findActivityMetricKeys,
-  findActivityMonitoringText,
   redactCalculationRunFields,
   redactPayrollBankAccounts,
   redactPayrollFields,
@@ -26,6 +24,10 @@ import {
   requiredMatchPredicates,
   scanExportDlp,
 } from "../app.js";
+import {
+  findActivityMetricKeys,
+  findActivityMonitoringText,
+} from "../modules/governance/activity-monitoring.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";

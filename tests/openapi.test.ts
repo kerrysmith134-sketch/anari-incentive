@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
@@ -15,18 +15,34 @@ const spec = parse(
 const methodPattern = /app\.(get|post|patch|put|delete)\("([^"]+)"/g;
 
 function documentedRoutes() {
-  const source = readFileSync(join(root, "apps", "api", "src", "app.ts"), "utf8");
-  return [...source.matchAll(methodPattern)]
-    .map((match) => ({
-      method: match[1] ?? "",
-      path: (match[2] ?? "").replace(
-        /(?<=\/):([A-Za-z][A-Za-z0-9]*)/g,
-        "{$1}",
+  // NPV2-011：路由拆分到 modules/<domain>/*.routes.ts 后，扫描范围包含全部
+  // route module 文件（app.ts 只保留 composition）。
+  const sources = [
+    readFileSync(join(root, "apps", "api", "src", "app.ts"), "utf8"),
+    ...readdirSync(join(root, "apps", "api", "src", "modules"), {
+      recursive: true,
+    })
+      .filter((name) => String(name).endsWith(".routes.ts"))
+      .map((name) =>
+        readFileSync(
+          join(root, "apps", "api", "src", "modules", String(name)),
+          "utf8",
+        ),
       ),
-    }))
-    .filter(
-      (route) => route.path === "/health" || route.path.startsWith("/api/v1"),
-    );
+  ];
+  return sources.flatMap((source) =>
+    [...source.matchAll(methodPattern)]
+      .map((match) => ({
+        method: match[1] ?? "",
+        path: (match[2] ?? "").replace(
+          /(?<=\/):([A-Za-z][A-Za-z0-9]*)/g,
+          "{$1}",
+        ),
+      }))
+      .filter(
+        (route) => route.path === "/health" || route.path.startsWith("/api/v1"),
+      ),
+  );
 }
 
 describe("OpenAPI contract", () => {
