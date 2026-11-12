@@ -4021,6 +4021,25 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/ai-evidence-coverage:
+    post:
+      tags: [AI]
+      summary: 确定性证据覆盖评估（无数字评分）
+      description: 输出各维度覆盖率、缺口、陈旧/冲突证据与快照哈希；不产生 0–5 绩效分，不调用模型（NPV2-004）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssessEvidenceCoverage"
+      responses:
+        "200":
+          description: 覆盖评估结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /api/v1/ai-score-proposals:
     get:
       tags: [Agent]
@@ -11605,10 +11624,51 @@ components:
           type: string
           enum: [VALID, UNVERIFIED, STALE, CONFLICTED, INVALID]
 
+    AssessEvidenceCoverage:
+      type: object
+      required: [subjectType, subjectId, cycleId, dimensions]
+      properties:
+        subjectType:
+          type: string
+          enum: [PERSON, WORK_PACKAGE, CONTRIBUTION_CLAIM]
+        subjectId:
+          type: string
+          format: uuid
+        cycleId:
+          type: string
+          format: uuid
+        dimensions:
+          type: array
+          items:
+            type: string
+        evidence:
+          type: array
+          items:
+            type: object
+        requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              dimension:
+                type: string
+              minValidEvidence:
+                type: integer
     CreateAiScoreProposal:
       type: object
       required: [cycleId, personId, evaluationRunId, dimensions, evidence]
       properties:
+        dimensionStates:
+          type: object
+          additionalProperties:
+            type: string
+            enum:
+              - ASSESSED
+              - INSUFFICIENT_EVIDENCE
+              - NOT_OBSERVED
+              - NOT_APPLICABLE
+              - DISPUTED
+              - PENDING_REVIEW
         cycleId:
           $ref: "#/components/schemas/Uuid"
         personId:

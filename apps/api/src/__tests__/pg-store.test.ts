@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import {
   AgentRuntime,
   createDefaultSkills,
@@ -3929,6 +3929,93 @@ evidenceOpened: 1,rationale: "Self",
         version: 1,
       }),
     ).rejects.toThrow(/version mismatch/);
+  });
+
+  // NPV2-002：双租户 RLS 负向测试。证明普通 anari_app 连接（无
+  // platform_admin）在事务级 app.tenant_id 下无法跨租户读写，且连接复用
+  // 不泄漏 session 上下文。PgPlatformStore 的 platform pool 全局
+  // platform_admin 是已登记的 S1 整改项（见 docs/v2/SECURITY_HARDENING.md）。
+  it("denies cross-tenant reads and writes under the app role (NPV2-002)", async () => {
+    const appPool = new Pool({
+      connectionString: databaseUrl?.replace("anari:anari", "anari_app:anari_app"),
+    });
+    const tenantA = DEMO_TENANT_ID;
+    const tenantB = "00000000-0000-4000-8000-000000000002";
+    try {
+      await appPool.query(
+        `INSERT INTO tenants (id, name, slug, default_currency)
+         VALUES ($1, 'Tenant B', 'tenant-b-npv2', 'CNY')
+         ON CONFLICT (id) DO NOTHING`,
+        [tenantB],
+      );
+      // 负向：无租户上下文的插入被 RLS 拒绝。
+      await expect(
+        appPool.query(
+          `INSERT INTO people (tenant_id, id, employee_code, display_name)
+           VALUES ($1, $2, 'B999', 'No Context')
+           ON CONFLICT (tenant_id, id) DO NOTHING`,
+          [tenantB, "00000000-0000-4000-8000-0000000000ff"],
+        ),
+      ).rejects.toThrow(/row-level security/i);
+      const ctx = async <T>(
+        pool: Pool,
+        tenantId: string,
+        fn: (client: PoolClient) => Promise<T>,
+      ): Promise<T> => {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+          const result = await fn(client);
+          await client.query("COMMIT");
+          return result;
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        } finally {
+          client.release();
+        }
+      };
+      // 租户 B 造一条可见数据（people 有 RLS，migration 020）：插入本身
+      // 就要在租户 B 上下文中完成，这也顺带验证 WITH CHECK 生效——不带
+      // 上下文的插入会被 RLS 直接拒绝（见下方 negative insert）。
+      await ctx(appPool, tenantB, async (client: PoolClient) =>
+        client.query(
+          `INSERT INTO people (tenant_id, id, employee_code, display_name)
+           VALUES ($1, $2, 'B001', 'Tenant B Person')
+           ON CONFLICT (tenant_id, id) DO NOTHING`,
+          [tenantB, "00000000-0000-4000-8000-0000000000b2"],
+        ),
+      );
+      // 租户 A 上下文读租户 B 的 person：RLS 过滤 → 0 行。
+      const crossRead = await ctx(appPool, tenantA, async (client: PoolClient) =>
+        client.query("SELECT id FROM people WHERE tenant_id=$1 AND id=$2", [tenantB, MEMBER]),
+      );
+      expect(crossRead.rowCount).toBe(0);
+      // 租户 A 上下文尝试改租户 B 的 person：RLS 过滤 → 0 行受影响。
+      const crossWrite = await ctx(appPool, tenantA, async (client: PoolClient) =>
+        client.query(
+          "UPDATE people SET display_name='hacked' WHERE tenant_id=$1 AND id=$2",
+          [tenantB, MEMBER],
+        ),
+      );
+      expect(crossWrite.rowCount).toBe(0);
+      // 租户 B 上下文可见自己的数据。
+      const ownRead = await ctx(appPool, tenantB, (client) =>
+        client.query(
+          "SELECT id FROM people WHERE tenant_id=$1 AND id=$2",
+          [tenantB, "00000000-0000-4000-8000-0000000000b2"],
+        ),
+      );
+      expect(ownRead.rowCount).toBe(1);
+      // 连接复用：无 tenant 上下文时 RLS 表返回 0 行（无泄漏）。
+      const leaked = await appPool.query("SELECT id FROM people WHERE tenant_id=$1", [tenantA]);
+      expect(leaked.rowCount).toBe(0);
+      const adminLeak = await appPool.query("SELECT current_setting('app.tenant_id', true)");
+      expect(["", null]).toContain(adminLeak.rows[0].current_setting);
+    } finally {
+      await appPool.end();
+    }
   });
 
   it("persists incentive award batches through approval, lock, export and receipt", async () => {

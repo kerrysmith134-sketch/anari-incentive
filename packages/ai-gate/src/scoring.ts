@@ -46,9 +46,11 @@ function round(value: number): number {
 }
 
 /**
- * Transparent baseline scoring model used until a model-backed scorer passes
- * the evaluation gate. Evidence coverage (with quality weighting) maps to a
- * numeric score; the result is always a proposal, never a formal decision.
+ * @deprecated NPV2-004（PRD V4.2 D-02）：证据覆盖不得映射为 0–5 绩效分。
+ * 新代码一律使用 `assessEvidenceCoverage()`（./coverage.ts），它只输出
+ * 覆盖率与缺口，不含任何数字评分。本函数仅保留给已通过 Gold Set 门禁的
+ * numeric 提案通道（`aiNumericScoringEnabled`），且其结果永远是提案、
+ * 永远需要人工独立判断，不得自动升级为正式决定。
  */
 export function scoreEvidence(
   input: ScoreEvidenceInput,

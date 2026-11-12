@@ -111,6 +111,7 @@ import {
   activateModelPromptSchema,
   runModelEvaluationSchema,
   createAiScoreProposalSchema,
+  assessEvidenceCoverageSchema,
   decideAiScoreProposalSchema,
   submitAiScoreAuditSchema,
   createWorkflowRunSchema,
@@ -238,6 +239,7 @@ import {
   assessAiRisk,
   evaluateGate,
   scoreEvidence,
+  assessEvidenceCoverage,
   type EvaluationGate,
 } from "@anari/ai-gate";
 import { calculateCumulativeIit } from "@anari/payroll-tax";
@@ -10215,6 +10217,42 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(prompt, request);
   });
 
+  // NPV2-004：确定性证据覆盖评估——无数字评分、无模型调用、结果可复算。
+  app.post("/api/v1/ai-evidence-coverage", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(assessEvidenceCoverageSchema, request.body);
+    const tenantId = tenantOf(request);
+    const persons = await platformStore.listPersons(tenantId);
+    if (
+      body.subjectType === "PERSON" &&
+      !persons.some((person) => person.id === body.subjectId)
+    ) {
+      throw new NotFoundError(`Person ${body.subjectId} not found`);
+    }
+    const assessment = assessEvidenceCoverage({
+      subjectType: body.subjectType,
+      subjectId: body.subjectId,
+      cycleId: body.cycleId,
+      dimensions: body.dimensions,
+      evidence: body.evidence,
+      requirements: body.requirements,
+    });
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? request.authContext?.userId,
+        action: "AI_EVIDENCE_COVERAGE_ASSESSED",
+        objectType: body.subjectType,
+        objectId: body.subjectId,
+        reason: `cycle=${body.cycleId} band=${assessment.coverageBand} snapshot=${assessment.evidenceSnapshotHash}`,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    countEvent("ai_evidence_coverage_assessed");
+    return reply.status(200).send(data(assessment, request));
+  });
+
   app.post("/api/v1/ai-score-proposals", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createAiScoreProposalSchema, request.body);
@@ -10256,6 +10294,17 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
         );
       }
     }
+    // NPV2-006：numeric 提案默认关闭。租户必须显式开启
+    // aiNumericScoringEnabled，并已通过上方评测门禁；未开启时一律走
+    // /ai-evidence-coverage 的确定性覆盖评估。
+    const tenantSettings = (
+      (await platformStore.getTenant(tenantId)).settings ?? {}
+    ) as { aiNumericScoringEnabled?: unknown };
+    if (tenantSettings.aiNumericScoringEnabled !== true) {
+      throw new ConflictError(
+        "AI_NUMERIC_SCORING_DISABLED: numeric AI score proposals are gated off (PRD V4.2 D-02); use POST /api/v1/ai-evidence-coverage for deterministic evidence coverage assessment",
+      );
+    }
     const gate: EvaluationGate = {
       passed: evaluation.passed,
       sampleSize: evaluation.sampleSize,
@@ -10269,6 +10318,21 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       },
       gate,
     );
+    // NPV2-005：零分只能出现在 ASSESSED 维度；非 ASSESSED 维度禁止数字分。
+    const states = body.dimensionStates ?? {};
+    const nonAssessedWithScore = Object.entries(scored.scores).filter(
+      ([dimension, value]) =>
+        value === 0 &&
+        states[dimension] !== undefined &&
+        states[dimension] !== "ASSESSED",
+    );
+    if (nonAssessedWithScore.length > 0) {
+      throw new ConflictError(
+        `AI_ZERO_SCORE_REQUIRES_ASSESSED:${nonAssessedWithScore
+          .map(([dimension]) => dimension)
+          .join(",")}; zero is only valid when the dimension state is ASSESSED`,
+      );
+    }
     const tenant = await platformStore.getTenant(tenantId);
     const evidenceRule =
       (tenant.settings as { evidenceDefaultRule?: unknown })

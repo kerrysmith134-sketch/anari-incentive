@@ -1439,6 +1439,18 @@ export interface ModelPrompt {
 
 export type AiScoreProposalStatus = "PENDING" | "ACCEPTED" | "REJECTED";
 
+/**
+ * NPV2-005：评估维度状态语义。零分只能是 ASSESSED 下有依据的人工认定；
+ * 缺证据、不适用、未观测、争议都不是零分，必须显式区分（PRD V4.2 D-03）。
+ */
+export type AssessmentDimensionStatus =
+  | "ASSESSED"
+  | "INSUFFICIENT_EVIDENCE"
+  | "NOT_OBSERVED"
+  | "NOT_APPLICABLE"
+  | "DISPUTED"
+  | "PENDING_REVIEW";
+
 export interface AiScoreProposal {
   id: UUID;
   tenantId: UUID;

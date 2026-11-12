@@ -1066,6 +1066,15 @@ export const scoringEvidenceSchema = z.object({
     .optional(),
 });
 
+const assessmentDimensionStatusSchema = z.enum([
+  "ASSESSED",
+  "INSUFFICIENT_EVIDENCE",
+  "NOT_OBSERVED",
+  "NOT_APPLICABLE",
+  "DISPUTED",
+  "PENDING_REVIEW",
+]);
+
 export const createAiScoreProposalSchema = z.object({
   cycleId: uuidSchema,
   personId: uuidSchema,
@@ -1076,6 +1085,28 @@ export const createAiScoreProposalSchema = z.object({
   riskTier: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
   zeroScoreRationale: z.string().min(3).optional(),
   requestedBy: uuidSchema.optional(),
+  /**
+   * NPV2-005：维度评估状态。零分仅在该维度为 ASSESSED 且附理由时接受；
+   * 缺证据/不适用/未观测/争议维度不得提交数字分。
+   */
+  dimensionStates: z.record(assessmentDimensionStatusSchema).optional(),
+});
+
+export const assessEvidenceCoverageSchema = z.object({
+  subjectType: z.enum(["PERSON", "WORK_PACKAGE", "CONTRIBUTION_CLAIM"]),
+  subjectId: uuidSchema,
+  cycleId: uuidSchema,
+  dimensions: z.array(z.string().min(1)).min(1),
+  evidence: z.array(scoringEvidenceSchema).min(0),
+  requirements: z
+    .array(
+      z.object({
+        dimension: z.string().min(1),
+        minValidEvidence: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
 });
 export type CreateAiScoreProposalBody = z.infer<
   typeof createAiScoreProposalSchema

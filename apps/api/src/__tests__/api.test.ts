@@ -3258,6 +3258,9 @@ describe("AI suggestion logs and workflow runs", () => {
   });
 
   it("creates gated AI score proposals with human decisions", async () => {
+    await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
+      aiNumericScoringEnabled: true,
+    });
     const evaluation = await createHarnessEvaluation(
       "IRR",
       "claude",
@@ -8062,6 +8065,9 @@ evidenceOpened: 1,
   });
 
   it("blocks AI scoring for dimensions without evidence unless zeroing is configured", async () => {
+    await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
+      aiNumericScoringEnabled: true,
+    });
     const evaluation = await createHarnessEvaluation(
       "IRR",
       "claude",
@@ -8235,6 +8241,9 @@ evidenceOpened: 1,
   });
 
   it("requires a second independent review before deciding high-risk AI proposals", async () => {
+    await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
+      aiNumericScoringEnabled: true,
+    });
     const evaluation = await createHarnessEvaluation(
       "IRR",
       "claude",
@@ -8301,6 +8310,9 @@ evidenceOpened: 1,
   });
 
   it("enforces model-provider policies when the tenant requires them", async () => {
+    await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
+      aiNumericScoringEnabled: true,
+    });
     await call(
       "POST",
       "/api/v1/platform/tenants/tenant-demo/settings",

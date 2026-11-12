@@ -48,6 +48,7 @@
         "personId"
       ],
       "optional": [
+        "dimensionStates",
         "modelPromptId",
         "requestedBy",
         "riskTier",
