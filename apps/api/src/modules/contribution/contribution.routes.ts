@@ -7,8 +7,11 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { DirectoryPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
+  contributionEventBatchSchema,
+  contributionEventFilterSchema,
   createContributionAttestationSchema,
   createContributionClaimSchema,
+  createContributionEventSchema,
   withdrawContributionAttestationSchema,
 } from "@anari/contracts";
 import { ConflictError, NotFoundError } from "../../store.js";
@@ -155,6 +158,80 @@ export function registerContributionRoutes(deps: {
           request,
         );
     });
+
+  // ------------------------------------------------------------------
+  // NPV2-015：贡献事件——事实记录（actor/subject/action/target/time/
+  // source/outcome/evidence/correction_of）。ACTIVITY 事件只承载活动量
+  // 事实，不得作为贡献认定依据（认定只能引用 CONTRIBUTION 事件）。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/contribution-events", async (request, reply) => {
+    const body = parse(createContributionEventSchema, request.body);
+    const person = personFilter(request);
+    if (person && body.subjectPersonId !== person) {
+      throw new ForbiddenError(
+        "cannot record a contribution event for another person",
+      );
+    }
+    const result = await storeFor(request).ingestContributionEvents([
+      { ...body, evidenceRefs: body.evidenceRefs ?? [] },
+    ]);
+    return reply.status(201).send(data(result.inserted[0], request));
+  });
+
+  app.post("/api/v1/contribution-events:ingest", async (request, reply) => {
+    requireRoles(request, "integration");
+    const body = parse(contributionEventBatchSchema, request.body);
+    const result = await storeFor(request).ingestContributionEvents(
+      body.events.map((event) => ({
+        ...event,
+        evidenceRefs: event.evidenceRefs ?? [],
+      })),
+    );
+    return reply.status(201).send(
+      data(
+        {
+          insertedCount: result.inserted.length,
+          duplicateCount: result.duplicates.length,
+          insertedIds: result.inserted.map((event) => event.id),
+          duplicateIds: result.duplicates.map((event) => event.id),
+        },
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/contribution-events", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const person = personFilter(request);
+    const parsed = contributionEventFilterSchema.safeParse({
+      subjectPersonId: query.subjectPersonId,
+      kind: query.kind,
+      source: query.source,
+      occurredFrom: query.occurredFrom,
+      occurredTo: query.occurredTo,
+    });
+    const filter = parsed.success ? parsed.data : undefined;
+    if (person) {
+      // 非特权成员只能看自己的事件（覆盖查询参数里的他人过滤）。
+      const events = await storeFor(request).listContributionEvents({
+        ...filter,
+        subjectPersonId: person,
+      });
+      return data(events, request);
+    }
+    return data(await storeFor(request).listContributionEvents(filter), request);
+  });
+
+  app.get("/api/v1/contribution-events/:id", async (request) => {
+    const event = await storeFor(request).getContributionEvent(idOf(request));
+    const person = personFilter(request);
+    if (person && event.subjectPersonId !== person) {
+      throw new ForbiddenError(
+        "contribution event is not visible to this person",
+      );
+    }
+    return data(event, request);
+  });
 
   };
 }

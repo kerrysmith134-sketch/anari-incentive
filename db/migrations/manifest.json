@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-12T20:21:43.171Z",
+  "generatedAt": "2026-11-13T16:17:23.463Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -405,6 +405,11 @@
       "file": "081_ledger_exclusions_rls.sql",
       "bytes": 721,
       "sha256": "3c23496e22f323b9d70fe046a59d2f4b44aea66d308d4e9ccced8f6784085a63"
+    },
+    {
+      "file": "082_contribution_events.sql",
+      "bytes": 2284,
+      "sha256": "677f0d205ce62d84958b124099eeffa35848fbda66fb5ce986135b7ebfab90c4"
     }
   ]
 }

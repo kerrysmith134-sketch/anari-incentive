@@ -421,6 +421,64 @@ function registerContractSuite(
     ).rejects.toThrow();
   });
 
+  it("贡献事件域：批量录入幂等；ACTIVITY 活动量标记；更正链可查", async () => {
+    const base = {
+      subjectPersonId: OWNER,
+      source: `contract-${suffix}`,
+      action: "DELIVERED",
+      targetType: "WORK_PACKAGE",
+      targetId: `wp-${suffix}`,
+      occurredAt: "2026-10-12T10:00:00.000Z",
+      kind: "CONTRIBUTION" as const,
+      outcome: { summary: "delivered scope" },
+      evidenceRefs: [`ev-${suffix}`],
+    };
+    const first = await store.ingestContributionEvents([
+      { ...base, externalId: `ext-1-${suffix}` },
+    ]);
+    const firstEvent = first.inserted[0]!;
+    expect(first.inserted.length).toBe(1);
+    // 幂等重放：同 (source, externalId) 命中既有事件，不重复入库
+    const replay = await store.ingestContributionEvents([
+      { ...base, externalId: `ext-1-${suffix}` },
+    ]);
+    expect(replay.inserted.length).toBe(0);
+    expect(replay.duplicates[0]!.id).toBe(firstEvent.id);
+
+    // ACTIVITY 事件承载活动量（metrics），不作贡献认定
+    const activity = await store.ingestContributionEvents([
+      {
+        ...base,
+        kind: "ACTIVITY",
+        action: "PUSHED_COMMITS",
+        externalId: `ext-2-${suffix}`,
+        outcome: { summary: "10 commits", metrics: { commits: 10 } },
+      },
+    ]);
+    expect(activity.inserted[0]!.kind).toBe("ACTIVITY");
+
+    // 更正链：correction_of 指向原事件，原事件不删除
+    const correction = await store.ingestContributionEvents([
+      {
+        ...base,
+        action: "DELIVERED_CORRECTED",
+        externalId: `ext-3-${suffix}`,
+        correctionOfEventId: firstEvent.id,
+        outcome: { summary: "corrected: 8 of 10 items" },
+      },
+    ]);
+    expect(correction.inserted[0]!.correctionOfEventId).toBe(firstEvent.id);
+
+    const list = await store.listContributionEvents({
+      subjectPersonId: OWNER,
+      source: `contract-${suffix}`,
+    });
+    expect(list.length).toBe(3);
+    const fetched = await store.getContributionEvent(activity.inserted[0]!.id);
+    expect(fetched.kind).toBe("ACTIVITY");
+    expect(await store.verifyAuditChain()).toBe(true);
+  });
+
   it("审计域：追加事件后哈希链可验证", async () => {
     await store.recordAuditEvent({
       actorType: "USER",

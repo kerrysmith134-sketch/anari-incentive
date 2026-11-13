@@ -49,6 +49,10 @@ import {
   type SettlementCommandResult,
   type SettlementLine,
   type WorkPackage,
+  type ContributionEvent,
+  type ContributionEventFilter,
+  type ContributionEventIngestResult,
+  type CreateContributionEventInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -602,6 +606,127 @@ export class PgStore implements IncentiveStore {
       }
       return this.loadClaim(client, id);
     });
+  }
+
+  /**
+   * NPV2-015：贡献事件批量录入（幂等）。同事务内先查 (source, external_id)
+   * 命中既有事件放入 duplicates，未命中逐条 INSERT；ACTIVITY 事件仅记录
+   * 活动量事实，不作为贡献认定依据。
+   */
+  async ingestContributionEvents(
+    inputs: CreateContributionEventInput[],
+  ): Promise<ContributionEventIngestResult> {
+    const inserted: ContributionEvent[] = [];
+    const duplicates: ContributionEvent[] = [];
+    await this.tx(async (client) => {
+      for (const input of inputs) {
+        if (input.externalId) {
+          const { rows: existing } = await client.query(
+            `SELECT * FROM contribution_events
+              WHERE tenant_id = $1 AND source = $2 AND external_id = $3`,
+            [this.tenantId, input.source, input.externalId],
+          );
+          if (existing[0]) {
+            duplicates.push(this.mapContributionEvent(existing[0]));
+            continue;
+          }
+        }
+        const id = randomUUID();
+        const { rows } = await client.query(
+          `INSERT INTO contribution_events
+            (tenant_id, actor_person_id, subject_person_id, action, target_type,
+             target_id, occurred_at, source, external_id, kind, outcome,
+             evidence_refs, correction_of)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           RETURNING *`,
+          [
+            this.tenantId,
+            input.actorPersonId ?? null,
+            input.subjectPersonId,
+            input.action,
+            input.targetType,
+            input.targetId,
+            input.occurredAt,
+            input.source,
+            input.externalId ?? null,
+            input.kind,
+            JSON.stringify(input.outcome),
+            JSON.stringify(input.evidenceRefs),
+            input.correctionOfEventId ?? null,
+          ],
+        );
+        inserted.push(this.mapContributionEvent(rows[0]));
+      }
+    });
+    return { inserted, duplicates };
+  }
+
+  async listContributionEvents(
+    filter?: ContributionEventFilter,
+  ): Promise<ContributionEvent[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.subjectPersonId) {
+      params.push(filter.subjectPersonId);
+      conditions.push(`subject_person_id = $${params.length}`);
+    }
+    if (filter?.kind) {
+      params.push(filter.kind);
+      conditions.push(`kind = $${params.length}`);
+    }
+    if (filter?.source) {
+      params.push(filter.source);
+      conditions.push(`source = $${params.length}`);
+    }
+    if (filter?.occurredFrom) {
+      params.push(filter.occurredFrom);
+      conditions.push(`occurred_at >= $${params.length}`);
+    }
+    if (filter?.occurredTo) {
+      params.push(filter.occurredTo);
+      conditions.push(`occurred_at <= $${params.length}`);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        `SELECT * FROM contribution_events ${where}
+          ORDER BY occurred_at DESC`,
+        params,
+      ),
+    );
+    return rows.map((row: QueryResultRow) => this.mapContributionEvent(row));
+  }
+
+  async getContributionEvent(id: string): Promise<ContributionEvent> {
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        "SELECT * FROM contribution_events WHERE tenant_id = $1 AND id = $2",
+        [this.tenantId, id],
+      ),
+    );
+    if (!rows[0]) notFound("ContributionEvent", id);
+    return this.mapContributionEvent(rows[0]);
+  }
+
+  private mapContributionEvent(row: QueryResultRow): ContributionEvent {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      actorPersonId: row.actor_person_id ?? undefined,
+      subjectPersonId: row.subject_person_id,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      occurredAt: new Date(row.occurred_at).toISOString(),
+      source: row.source,
+      externalId: row.external_id ?? undefined,
+      kind: row.kind,
+      outcome: row.outcome ?? { summary: "" },
+      evidenceRefs: row.evidence_refs ?? [],
+      correctionOfEventId: row.correction_of ?? undefined,
+      createdAt: new Date(row.created_at).toISOString(),
+    };
   }
 
   async createContributionAttestation(

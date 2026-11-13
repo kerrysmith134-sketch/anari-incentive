@@ -35,6 +35,10 @@ import type {
   SettlementCommandResult,
   SettlementLine,
   WorkPackage,
+  ContributionEvent,
+  ContributionEventFilter,
+  ContributionEventIngestResult,
+  CreateContributionEventInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -104,6 +108,13 @@ export interface IncentiveStore {
   getClaim(id: string): Promise<ContributionClaim>;
   listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
+  ingestContributionEvents(
+    inputs: CreateContributionEventInput[],
+  ): Promise<ContributionEventIngestResult>;
+  listContributionEvents(
+    filter?: ContributionEventFilter,
+  ): Promise<ContributionEvent[]>;
+  getContributionEvent(id: string): Promise<ContributionEvent>;
   createContributionAttestation(
     input: CreateContributionAttestationBody,
   ): Promise<ContributionAttestation>;

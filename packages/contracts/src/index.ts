@@ -2648,3 +2648,39 @@ export const requestSchemaRegistry = {
   ResolveAppeal: resolveAppealSchema,
   UpdateFieldAccessPolicies: updateFieldAccessPoliciesSchema,
 } as const;
+
+/**
+ * NPV2-015：贡献事件录入契约。
+ * ACTIVITY 事件只承载活动量（observed facts），不得作为贡献认定依据。
+ */
+export const contributionEventOutcomeSchema = z.object({
+  summary: z.string().min(1),
+  metrics: z.record(z.union([z.number(), z.string()])).optional(),
+});
+
+export const createContributionEventSchema = z.object({
+  actorPersonId: uuidSchema.optional(),
+  subjectPersonId: uuidSchema,
+  action: z.string().min(1),
+  targetType: z.string().min(1),
+  targetId: z.string().min(1),
+  occurredAt: z.string().datetime(),
+  source: z.string().min(1).max(64),
+  externalId: z.string().min(1).max(256).optional(),
+  kind: z.enum(["CONTRIBUTION", "ACTIVITY", "CONTEXT"]),
+  outcome: contributionEventOutcomeSchema,
+  evidenceRefs: z.array(z.string().min(1)).default([]),
+  correctionOfEventId: uuidSchema.optional(),
+});
+
+export const contributionEventBatchSchema = z.object({
+  events: z.array(createContributionEventSchema).min(1).max(200),
+});
+
+export const contributionEventFilterSchema = z.object({
+  subjectPersonId: uuidSchema.optional(),
+  kind: z.enum(["CONTRIBUTION", "ACTIVITY", "CONTEXT"]).optional(),
+  source: z.string().min(1).max(64).optional(),
+  occurredFrom: z.string().datetime().optional(),
+  occurredTo: z.string().datetime().optional(),
+});

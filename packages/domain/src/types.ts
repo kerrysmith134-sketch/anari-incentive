@@ -2270,3 +2270,76 @@ export interface AdverseActionCase {
   updatedAt: string;
   version: number;
 }
+
+/**
+ * NPV2-015：贡献事件——**事实记录**（发生了什么），不是贡献认定。
+ *
+ * 三条红线：
+ * 1. ACTIVITY 类事件只承载活动量（commits/工时/调用次数等），**不得**
+ *    作为贡献权重或归属依据——贡献认定只能引用 CONTRIBUTION 事件；
+ * 2. 幂等键 (tenant, source, external_id) 保证连接器重复推送不重复入库；
+ * 3. correction_of 形成更正链，原事件不删除（append-only 语义）。
+ */
+export type ContributionEventKind = "CONTRIBUTION" | "ACTIVITY" | "CONTEXT";
+
+export interface ContributionEventOutcome {
+  /** 结果摘要（一句话事实描述）。 */
+  summary: string;
+  /** 量化事实（活动量字段在此；不得用作贡献权重）。 */
+  metrics?: Record<string, number | string>;
+}
+
+export interface ContributionEvent {
+  id: UUID;
+  tenantId: UUID;
+  /** 事件执行者；系统/连接器自动事件可为空。 */
+  actorPersonId?: UUID;
+  /** 贡献主体（事件归属的成员）。 */
+  subjectPersonId: UUID;
+  /** 动作（做了什么）。 */
+  action: string;
+  /** 动作对象。 */
+  targetType: string;
+  targetId: string;
+  /** 事件发生时间（业务时间，非录入时间）。 */
+  occurredAt: string;
+  /** 事实来源：连接器名（如 "git"）或 "MANUAL"。 */
+  source: string;
+  /** 来源系统内唯一键——幂等去重键。 */
+  externalId?: string;
+  kind: ContributionEventKind;
+  outcome: ContributionEventOutcome;
+  evidenceRefs: string[];
+  /** 本事件是对哪个既有事件的更正（更正链）。 */
+  correctionOfEventId?: UUID;
+  createdAt: string;
+}
+
+export interface CreateContributionEventInput {
+  actorPersonId?: UUID;
+  subjectPersonId: UUID;
+  action: string;
+  targetType: string;
+  targetId: string;
+  occurredAt: string;
+  source: string;
+  externalId?: string;
+  kind: ContributionEventKind;
+  outcome: ContributionEventOutcome;
+  evidenceRefs: string[];
+  correctionOfEventId?: UUID;
+}
+
+export interface ContributionEventIngestResult {
+  inserted: ContributionEvent[];
+  /** 重复推送命中的既有事件（幂等返回，不重复入库）。 */
+  duplicates: ContributionEvent[];
+}
+
+export interface ContributionEventFilter {
+  subjectPersonId?: UUID;
+  kind?: ContributionEventKind;
+  source?: string;
+  occurredFrom?: string;
+  occurredTo?: string;
+}

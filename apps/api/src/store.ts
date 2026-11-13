@@ -47,6 +47,10 @@ import {
   type SettlementCommandResult,
   type SettlementLine,
   type WorkPackage,
+  type ContributionEvent,
+  type ContributionEventFilter,
+  type ContributionEventIngestResult,
+  type CreateContributionEventInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -195,6 +199,7 @@ export class Store implements IncentiveStore {
   private readonly notifications = new Map<string, InAppNotification>();
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
+  private readonly contributionEvents = new Map<string, ContributionEvent>();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
     const timestamp = now();
@@ -618,6 +623,73 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  /**
+   * NPV2-015：贡献事件批量录入（幂等）。重复 (source, externalId) 命中
+   * 既有事件放入 duplicates；ACTIVITY 事件仅记录活动量事实。
+   */
+  async ingestContributionEvents(
+    inputs: CreateContributionEventInput[],
+  ): Promise<ContributionEventIngestResult> {
+    const inserted: ContributionEvent[] = [];
+    const duplicates: ContributionEvent[] = [];
+    for (const input of inputs) {
+      const key =
+        input.source && input.externalId
+          ? `${input.source}:${input.externalId}`
+          : null;
+      if (key) {
+        const existing = [...this.contributionEvents.values()].find(
+          (event) =>
+            event.source === input.source &&
+            event.externalId === input.externalId,
+        );
+        if (existing) {
+          duplicates.push(existing);
+          continue;
+        }
+      }
+      const event: ContributionEvent = {
+        id: randomUUID(),
+        tenantId: this.tenantId,
+        ...input,
+        createdAt: now(),
+      };
+      this.contributionEvents.set(event.id, event);
+      inserted.push(event);
+    }
+    return { inserted, duplicates };
+  }
+
+  async listContributionEvents(
+    filter?: ContributionEventFilter,
+  ): Promise<ContributionEvent[]> {
+    let events = [...this.contributionEvents.values()];
+    if (filter?.subjectPersonId) {
+      events = events.filter(
+        (event) => event.subjectPersonId === filter.subjectPersonId,
+      );
+    }
+    if (filter?.kind) {
+      events = events.filter((event) => event.kind === filter.kind);
+    }
+    if (filter?.source) {
+      events = events.filter((event) => event.source === filter.source);
+    }
+    if (filter?.occurredFrom) {
+      events = events.filter((event) => event.occurredAt >= filter.occurredFrom!);
+    }
+    if (filter?.occurredTo) {
+      events = events.filter((event) => event.occurredAt <= filter.occurredTo!);
+    }
+    return events.sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1));
+  }
+
+  async getContributionEvent(id: string): Promise<ContributionEvent> {
+    const event = this.contributionEvents.get(id);
+    if (!event) throw new NotFoundError(`ContributionEvent ${id} not found`);
+    return event;
   }
 
   async createContributionAttestation(
