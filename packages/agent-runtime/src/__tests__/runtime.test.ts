@@ -34,6 +34,7 @@ import {
   type ToolInvocationRecord,
   type AgentTaskRepository,
   EvidenceCompletenessWorkflow,
+  ContributionExceptionWorkflow,
 } from "../index.js";
 
 class FakeContext implements AgentContext {
@@ -375,6 +376,108 @@ class FakeRepository implements AgentTaskRepository {
     return recovered;
   }
 }
+
+describe("contribution exception workflow (NPV2-025)", () => {
+  function claim(overrides: Partial<ContributionClaim> = {}): ContributionClaim {
+    const base: ContributionClaim = {
+      id: randomUUID(),
+      tenantId: "t1",
+      workPackageId: "wp-x",
+      claimantPersonId: "person-claimant",
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimMode: "STANDARD",
+      claimedContribution: { dimensions: ["QUALITY"], summary: "x" },
+      evidenceRefs: ["ev-1"],
+      rationale: "done",
+      status: "SUBMITTED",
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      submittedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    return { ...base, ...overrides };
+  }
+
+  function setup(claims: ContributionClaim[], decisions: AttributionDecision[] = []) {
+    const context = new FakeContext();
+    context.claims = claims;
+    (context as { decisions: AttributionDecision[] }).decisions = decisions;
+    // listDecisions 读 decisions 字段？FakeContext.listDecisions 已实现——查它的数据源
+    const workflow = new ContributionExceptionWorkflow(context);
+    return { context, workflow };
+  }
+
+  it("creates an adjudication todo for overdue un-adjudicated claims (no auto-adjudication)", async () => {
+    const overdue = claim({ id: "c-overdue" });
+    const { context, workflow } = setup([overdue]);
+    const result = await workflow.runOnce();
+    expect(result.adjudicationTodosCreated).toBe(1);
+    expect(result.audit.some((entry) => entry.action === "ADJUDICATION_TODO_CREATED")).toBe(true);
+    expect(context.notifications.some((n) => n.title === "Contribution adjudication overdue")).toBe(true);
+    const todos = await context.listAgentTodos();
+    const todo = todos.find((t) => t.targetId === "c-overdue")!;
+    expect(todo.status).toBe("OPEN");
+    // 幂等：再跑一轮不重复
+    const again = await workflow.runOnce();
+    expect(again.adjudicationTodosCreated).toBe(0);
+  });
+
+  it("assigns an evidence todo to the claimant for NEEDS_EVIDENCE claims", async () => {
+    const needsEvidence = claim({
+      id: "c-evidence",
+      status: "NEEDS_EVIDENCE",
+      submittedAt: new Date().toISOString(),
+    });
+    const { context, workflow } = setup([needsEvidence]);
+    const result = await workflow.runOnce();
+    expect(result.evidenceTodosCreated).toBe(1);
+    const todos = await context.listAgentTodos({
+      assigneePersonId: needsEvidence.claimantPersonId,
+    });
+    expect(todos.some((t) => t.targetId === "c-evidence")).toBe(true);
+  });
+
+  it("escalates self-adjudication conflicts to the manager channel", async () => {
+    const selfClaim = claim({ id: "c-self" });
+    const selfContext = new FakeContext();
+    selfContext.claims = [selfClaim];
+    const selfDecision: AttributionDecision = {
+      id: randomUUID(),
+      tenantId: "t1",
+      claimId: "c-self",
+      adjudicatorPersonId: selfClaim.claimantPersonId,
+      status: "CONFIRMED",
+      acceptedFacts: [],
+      rejectedFacts: [],
+      contributionDimensions: { QUALITY: 1 },
+      rationale: "self",
+      decidedAt: new Date().toISOString(),
+    } as unknown as AttributionDecision;
+    selfContext.decisions = [selfDecision];
+    const workflow = new ContributionExceptionWorkflow(selfContext);
+    const result = await workflow.runOnce();
+    expect(result.conflictsEscalated).toBe(1);
+    expect(selfContext.notifications.some((n) => n.title === "Contribution conflict: self-adjudication")).toBe(true);
+  });
+
+  it("reconciles open exception todos when the claim reaches a terminal state", async () => {
+    const done = claim({ id: "c-done", status: "ACCEPTED" });
+    const { context, workflow } = setup([done]);
+    // 预置遗留 OPEN 异常待办
+    const todo = await context.upsertAgentTodo({
+      title: "裁决待办",
+      assigneePersonId: "UNASSIGNED_ADJUDICATOR",
+      targetType: "CONTRIBUTION_CLAIM",
+      targetId: done.id,
+      sourceType: "AGENT_FINDING",
+      sourceId: "ADJUDICATION_SLA",
+      idempotencyKey: `contribution-exception:adjudication:${done.id}`,
+    });
+    const result = await workflow.runOnce();
+    expect(result.todosReconciled).toBe(1);
+    expect(todo.status).toBe("DONE");
+  });
+});
 
 describe("evidence completeness workflow (NPV2-024)", () => {
   function setup() {

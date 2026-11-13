@@ -166,6 +166,7 @@ export interface AgentContext {
       dueAt?: string;
       targetId?: string;
       sourceId: string;
+      idempotencyKey?: string;
     }>
   >;
   createEvaluationDraft(input: {
@@ -368,3 +369,7 @@ export class AgentTaskCasError extends Error {
     this.name = "AgentTaskCasError";
   }
 }
+
+export type {
+  ContributionClaim,
+} from "@anari/domain";
