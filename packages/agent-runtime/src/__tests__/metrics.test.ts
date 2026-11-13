@@ -60,7 +60,8 @@ describe("agent acceptance metrics", () => {
     expect(report.humanOverrideRate).toBeNull();
     expect(report.falsePositiveRate).toBeNull();
     expect(report.costPerClosedLoop).toBeNull();
-    expect(report.aiOffFloor).toBeNull();
-    expect(report.note).toContain("external");
+    expect(report.aiOffFloor.baselineCompletionRate).toBeNull();
+    expect(report.aiOffFloor.delta).toBeNull();
+    expect(report.note).toContain("unavailable");
   });
 });

@@ -154,6 +154,33 @@ export interface AgentContext {
     completedByPersonId?: string;
     completedAt?: string;
   }>;
+  listDataQualityIssues(filter?: {
+    cycleId?: string;
+    status?: string;
+  }): Promise<
+    Array<{
+      id: string;
+      severity: string;
+      status: string;
+      objectType?: string;
+      objectId?: string;
+    }>
+  >;
+  listEvaluationDecisions(filter?: {
+    cycleId?: string;
+    personId?: string;
+  }): Promise<
+    Array<{ id: string; status: string; personId: string; rubricVersionId: string }>
+  >;
+  listPolicyVersions(): Promise<
+    Array<{ policyVersionId: string; code: string; version: number; status: string }>
+  >;
+  getPolicy(
+    policyVersionId: string,
+  ): Promise<{ code: string; version: number }>;
+  listEvaluationDrafts(filter?: { cycleId?: string; status?: string }): Promise<
+    Array<{ id: string; status: string; cycleId?: string }>
+  >;
   listAgentTodos(filter?: {
     assigneePersonId?: string;
     status?: "OPEN" | "DONE" | "CANCELLED";

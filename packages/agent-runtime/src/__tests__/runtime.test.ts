@@ -35,6 +35,8 @@ import {
   type AgentTaskRepository,
   EvidenceCompletenessWorkflow,
   ContributionExceptionWorkflow,
+  summarizeAgentMetrics,
+  CycleReadinessWorkflow,
 } from "../index.js";
 
 class FakeContext implements AgentContext {
@@ -79,6 +81,60 @@ class FakeContext implements AgentContext {
     return todo;
   }
 
+  evaluationDecisions: Array<{
+    id: string;
+    status: string;
+    personId: string;
+    rubricVersionId: string;
+    cycleId?: string;
+  }> = [];
+  policyVersions: Array<{
+    policyVersionId: string;
+    code: string;
+    version: number;
+    status: string;
+  }> = [];
+
+  async listDataQualityIssues(filter?: { cycleId?: string; status?: string }) {
+    return this.dataQualityIssues.filter(
+      (issue) =>
+        (!filter?.cycleId ||
+          (issue as unknown as { cycleId?: string }).cycleId ===
+            filter.cycleId) &&
+        (!filter?.status || issue.status === filter.status),
+    );
+  }
+
+  async listEvaluationDecisions(filter?: { cycleId?: string; personId?: string }) {
+    return this.evaluationDecisions.filter(
+      (decision) =>
+        (!filter?.cycleId || decision.cycleId === filter.cycleId) &&
+        (!filter?.personId || decision.personId === filter.personId),
+    );
+  }
+
+  async listEvaluationDrafts(filter?: { cycleId?: string; status?: string }) {
+    return this.evaluationDrafts.filter(
+      (draft) =>
+        (!filter?.cycleId || draft.cycleId === filter.cycleId) &&
+        (!filter?.status || draft.status === filter.status),
+    );
+  }
+
+  async listPolicyVersions() {
+    return this.policyVersions;
+  }
+
+  async getPolicy(policyVersionId: string) {
+    const found = this.policyVersions.find(
+      (version) => version.policyVersionId === policyVersionId,
+    );
+    if (!found) throw new Error("policy not found");
+    return { code: found.code, version: found.version };
+  }
+
+
+
   async completeAgentTodo(id: string, completedByPersonId: string) {
     const todo = this.todos.get(id);
     if (!todo) throw new Error("todo not found");
@@ -121,6 +177,26 @@ class FakeContext implements AgentContext {
   async listRuns() { return this.runs; }
   async listConfirmations() { return this.confirmations; }
   async listAppeals() { return this.appeals; }
+  legalGate: {
+    policyVersionId: string;
+    democraticProcedureRef: string;
+    employeeNoticeRef: string;
+    dataProtectionAssessmentRef: string;
+    minimumWageChecked: boolean;
+    policyApproved: boolean;
+    recordedBy: string;
+    recordedAt: string;
+  } | undefined = {
+    policyVersionId: "seeded",
+    democraticProcedureRef: "seeded",
+    employeeNoticeRef: "seeded",
+    dataProtectionAssessmentRef: "seeded",
+    minimumWageChecked: true,
+    policyApproved: true,
+    recordedBy: "seed",
+    recordedAt: new Date().toISOString(),
+  };
+
   async getLegalGate(policyVersionId: string) { return this.gates.get(policyVersionId); }
   async listEvidence(subjectType?: string, subjectId?: string) {
     return this.evidence.filter(
@@ -476,6 +552,162 @@ describe("contribution exception workflow (NPV2-025)", () => {
     const result = await workflow.runOnce();
     expect(result.todosReconciled).toBe(1);
     expect(todo.status).toBe("DONE");
+  });
+});
+
+describe("cycle readiness workflow (NPV2-026)", () => {
+  function makeReadyContext() {
+    const context = new FakeContext();
+    context.policyVersions = [
+      {
+        policyVersionId: "pv-1",
+        code: "READY_POLICY",
+        version: 1,
+        status: "PUBLISHED",
+      },
+    ];
+    const run = {
+      id: "run-ready",
+      tenantId: "t1",
+      cycleId: "cycle-r",
+      policyVersionId: "pv-1",
+      mode: "FORMAL" as const,
+      status: "LOCKED" as const,
+      blockers: [] as string[],
+      inputSnapshot: {} as Record<string, unknown>,
+      inputSnapshotHash: "hash",
+      resultHash: "hash",
+      lines: [],
+      warnings: [],
+      createdAt: new Date().toISOString(),
+      engineVersion: "v1",
+    };
+    (context as { runs: unknown[] }).runs = [run];
+    (context as {
+      gates: Map<string, unknown>;
+    }).gates.set("pv-1", {
+      policyVersionId: "pv-1",
+      democraticProcedureRef: "dp-1",
+      employeeNoticeRef: "notice-1",
+      dataProtectionAssessmentRef: "dpia-1",
+      minimumWageChecked: true,
+      policyApproved: true,
+      recordedBy: "reviewer",
+      recordedAt: new Date().toISOString(),
+    });
+    return { context };
+  }
+
+  it("produces a per-gate readiness report with source references", async () => {
+    const { context } = makeReadyContext();
+    const workflow = new CycleReadinessWorkflow(context);
+    const report = await workflow.run({ cycleId: "cycle-r" });
+    const gates = report.checks.map((check) => check.gate);
+    expect(gates).toEqual(
+      expect.arrayContaining([
+        "DATA",
+        "POLICY",
+        "LEGAL",
+        "EVALUATION",
+        "APPEAL",
+        "CALCULATION",
+        "APPROVAL",
+      ]),
+    );
+    for (const check of report.checks) {
+      if (check.status !== "NOT_MEASURABLE") {
+        expect([check.gate, check.sources.length], JSON.stringify(check)).toEqual(
+          expect.arrayContaining([expect.any(String), expect.any(Number)]),
+        );
+      }
+    }
+    const legal = report.checks.find((check) => check.gate === "LEGAL")!;
+    expect(legal.status).toBe("PASS");
+    expect(legal.sources[0]!.type).toBe("LEGAL_GATE");
+    const calculation = report.checks.find((check) => check.gate === "CALCULATION")!;
+    expect(calculation.status).toBe("PASS");
+    expect(report.ready).toBe(true);
+    expect(report.note).toContain("does not lock");
+  });
+
+  it("blocks on blocking data-quality issues and missing legal gate", async () => {
+    const { context } = makeReadyContext();
+    (context.dataQualityIssues as Array<{ id: string; severity: string; status: string; cycleId?: string }>) = [
+      {
+        id: "dq-1",
+        severity: "BLOCKING",
+        status: "OPEN",
+        cycleId: "cycle-r",
+      },
+    ];
+    // 清掉法务门禁 → LEGAL 检查应 BLOCKED。
+    context.gates.clear();
+    const workflow = new CycleReadinessWorkflow(context);
+    const report = await workflow.run({ cycleId: "cycle-r" });
+    expect(report.ready).toBe(false);
+    expect(report.checks.find((check) => check.gate === "DATA")!.status).toBe("BLOCKED");
+    expect(report.checks.find((check) => check.gate === "LEGAL")!.status).toBe("BLOCKED");
+  });
+});
+
+describe("agent metrics with external inputs (NPV2-027)", () => {
+  function task(overrides: Partial<{
+    status: string;
+    results: Array<{ status: string; verified?: boolean }>;
+    attempts: number;
+  }> = {}) {
+    return {
+      status: "SUCCEEDED",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-02T00:00:00.000Z",
+      findings: [{ severity: "INFO" }],
+      actions: [{ requiresApproval: false }],
+      results: [{ status: "EXECUTED", verified: true }],
+      attempts: 1,
+      ...overrides,
+    };
+  }
+
+  it("keeps cost/AI-off/false-positive explicitly unavailable without external inputs", async () => {
+    const report = summarizeAgentMetrics([task()], "2026-10-03T00:00:00.000Z");
+    expect(report.costPerClosedLoop).toBeNull();
+    expect(report.aiOffFloor.baselineCompletionRate).toBeNull();
+    expect(report.falsePositiveRate).toBeNull();
+    const unavailable = report.availability.filter((entry) => !entry.available);
+    expect(unavailable.map((entry) => entry.metric)).toEqual(
+      expect.arrayContaining(["falsePositiveRate", "costPerClosedLoop", "aiOffFloor"]),
+    );
+    for (const entry of unavailable) {
+      expect(entry.reason).toBeDefined();
+      expect(entry.source).toBeDefined();
+      expect(entry.denominator).toBeDefined();
+    }
+  });
+
+  it("computes verified closure rate and costs when inputs are provided", async () => {
+    const tasks = [
+      task(),
+      task({ results: [{ status: "EXECUTED", verified: false }] }),
+      task({ status: "FAILED", results: [{ status: "FAILED", verified: false }] }),
+    ];
+    const report = summarizeAgentMetrics(
+      tasks,
+      "2026-10-03T00:00:00.000Z",
+      {
+        humanLabels: { reviewed: 10, falsePositives: 2 },
+        costs: { modelCost: 30, toolCost: 10 },
+        aiOffBaseline: { completionRate: 0.5, sampleSize: 20 },
+      },
+    );
+    // EXECUTED 共 2 条，其中 1 条 verified
+    expect(report.verifiedClosureRate).toBe(0.5);
+    // 闭环分母含 FAILED（SUCCEEDED/FAILED/CANCELLED 皆闭环）：40/3 ≈ 13.33
+    expect(report.costPerClosedLoop).toBe(13.33);
+    expect(report.falsePositiveRate).toBe(0.2);
+    expect(report.aiOffFloor.baselineCompletionRate).toBe(0.5);
+    expect(report.aiOffFloor.delta).not.toBeNull();
+    // 全部指标可测
+    expect(report.availability.every((entry) => entry.available)).toBe(true);
   });
 });
 

@@ -249,13 +249,74 @@ export class HttpAgentContext implements AgentContext {
     };
   }
 
+  async listDataQualityIssues(filter?: {
+    cycleId?: string;
+    status?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filter?.cycleId) params.set("cycleId", filter.cycleId);
+    if (filter?.status) params.set("status", filter.status);
+    return readData<{ id: string; severity: string; status: string }[]>(
+      this.baseUrl,
+      `/api/v1/data-quality-issues${params.size ? `?${params.toString()}` : ""}`,
+      await this.headers(),
+    );
+  }
+
+  async listEvaluationDecisions(filter?: { cycleId?: string; personId?: string }) {
+    const params = new URLSearchParams();
+    if (filter?.cycleId) params.set("cycleId", filter.cycleId);
+    if (filter?.personId) params.set("personId", filter.personId);
+    return readData<
+      { id: string; status: string; personId: string; rubricVersionId: string }[]
+    >(
+      this.baseUrl,
+      `/api/v1/evaluation-decisions${params.size ? `?${params.toString()}` : ""}`,
+      await this.headers(),
+    );
+  }
+
+  async listPolicyVersions() {
+    return readData<
+      { policyVersionId: string; code: string; version: number; status: string }[]
+    >(this.baseUrl, "/api/v1/policy-versions", await this.headers());
+  }
+
+  async getPolicy(policyVersionId: string) {
+    return readData<{ code: string; version: number }>(
+      this.baseUrl,
+      `/api/v1/policy-versions/${policyVersionId}`,
+      await this.headers(),
+    );
+  }
+
+  async listEvaluationDrafts(filter?: { cycleId?: string; status?: string }) {
+    const params = new URLSearchParams();
+    if (filter?.cycleId) params.set("cycleId", filter.cycleId);
+    if (filter?.status) params.set("status", filter.status);
+    return readData<{ id: string; status: string }[]>(
+      this.baseUrl,
+      `/api/v1/evaluation-drafts${params.size ? `?${params.toString()}` : ""}`,
+      await this.headers(),
+    );
+  }
+
   async completeAgentTodo(id: string, completedByPersonId: string) {
-    return postData(
+    const body = await postData(
       this.baseUrl,
       `/api/v1/agent-todos/${id}/complete`,
       await this.headers(),
       { completedByPersonId },
     );
+    const todo = (body as { data?: Record<string, unknown> }).data ?? {};
+    return {
+      id: String(todo.id ?? id),
+      status: String(todo.status ?? "DONE"),
+      completedByPersonId: String(
+        todo.completed_by_person_id ?? completedByPersonId,
+      ),
+      completedAt: todo.completed_at ? String(todo.completed_at) : undefined,
+    };
   }
 
   async listAgentTodos(filter?: {

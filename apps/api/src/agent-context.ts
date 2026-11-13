@@ -23,5 +23,10 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     listAgentTodos: (filter) => store.listAgentTodos(filter),
     completeAgentTodo: (id, completedByPersonId) =>
       store.completeAgentTodo(id, completedByPersonId),
+    listDataQualityIssues: (filter) => store.listDataQualityIssues(filter),
+    listEvaluationDecisions: (filter) => store.listEvaluationDecisions(filter),
+    listPolicyVersions: () => store.listPolicyVersions(),
+    getPolicy: (policyVersionId) => store.getPolicy(policyVersionId),
+    listEvaluationDrafts: (filter) => store.listEvaluationDrafts(filter),
   };
 }
