@@ -1,4 +1,4 @@
-import { randomUUID as _uuid } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
   AppealCase,
@@ -29,6 +29,9 @@ import {
   type AgentSkill,
   type AgentTask,
   type AgentTool,
+  type AgentFinding,
+  type AgentAction,
+  type ToolInvocationRecord,
   type AgentTaskRepository,
 } from "../index.js";
 
@@ -360,6 +363,207 @@ class FakeRepository implements AgentTaskRepository {
     return recovered;
   }
 }
+
+describe("tool contract: timeout/retry/postcondition (NPV2-021)", () => {
+  function makeRuntimeWith(tools: AgentTool[]) {
+    const context = new FakeContext();
+    const repository = new FakeRepository();
+    const runtime = new AgentRuntime(context, tools, createDefaultSkills(), {
+      actor: "contract-worker",
+      repository,
+    });
+    return { runtime, repository, context };
+  }
+
+  function planOneAction(tool: string): (finding: AgentFinding) => AgentAction[] {
+    return (finding) => [
+      {
+        id: randomUUID(),
+        tool,
+        riskTier: "T0",
+        targetType: "TEST",
+        targetId: finding.subjectId,
+        description: "contract probe",
+        payload: {},
+        requiresApproval: false,
+      },
+    ];
+  }
+
+  it("postcondition failure marks the action FAILED and the task is not SUCCEEDED", async () => {
+    const probe: AgentTool = {
+      name: "contract_probe",
+      riskTier: "T0",
+      access: "WRITE",
+      description: "always succeeds but postcondition fails",
+      contract: {
+        scope: "probe",
+        sideEffect: true,
+        verifier: async () => false,
+      },
+      async execute() {
+        return { ok: true };
+      },
+    };
+    const skill: AgentSkill = {
+      name: "PROBE",
+      async observe(context) {
+        return [
+          {
+            code: "PROBE_FINDING",
+            severity: "INFO",
+            subjectType: "TEST",
+            subjectId: `probe-${Date.now()}`,
+            message: "probe",
+          },
+        ];
+      },
+      plan: planOneAction("contract_probe"),
+    };
+    const { runtime } = makeRuntimeWith([probe]);
+    const runtimeWithSkill = new AgentRuntime(
+      new FakeContext(),
+      [probe],
+      { PROBE: skill },
+      { actor: "contract-worker" },
+    );
+    const task = await runtimeWithSkill.enqueue({
+      tenantId: "t1",
+      agentType: "PROBE",
+      triggerType: "MANUAL",
+      idempotencyKey: `contract-1-${Date.now()}`,
+    });
+    const ran = await runtimeWithSkill.run(task.id);
+    expect(ran.results[0]!.status).toBe("FAILED");
+    expect(ran.results[0]!.error).toBe("POSTCONDITION_FAILED");
+    expect(ran.status).not.toBe("SUCCEEDED");
+    expect(ran.status).toBe("FAILED");
+  });
+
+  it("timeout marks the action FAILED with TOOL_TIMEOUT", async () => {
+    const slow: AgentTool = {
+      name: "slow_probe",
+      riskTier: "T0",
+      access: "READ",
+      description: "hangs",
+      contract: { scope: "probe", timeoutMs: 40 },
+      async execute() {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return { ok: true };
+      },
+    };
+    const skill: AgentSkill = {
+      name: "SLOW",
+      async observe() {
+        return [
+          {
+            code: "SLOW_FINDING",
+            severity: "INFO",
+            subjectType: "TEST",
+            subjectId: `slow-${Date.now()}`,
+            message: "slow",
+          },
+        ];
+      },
+      plan: planOneAction("slow_probe"),
+    };
+    const runtime = new AgentRuntime(
+      new FakeContext(),
+      [slow],
+      { SLOW: skill },
+      { actor: "contract-worker" },
+    );
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "SLOW",
+      triggerType: "MANUAL",
+      idempotencyKey: `contract-2-${Date.now()}`,
+    });
+    const ran = await runtime.run(task.id);
+    expect(ran.results[0]!.status).toBe("FAILED");
+    expect(ran.results[0]!.error).toContain("exceeded 40ms");
+    expect(ran.status).toBe("FAILED");
+  });
+
+  it("retries transient failures and records retry count", async () => {
+    let attempts = 0;
+    const flaky: AgentTool = {
+      name: "flaky_probe",
+      riskTier: "T0",
+      access: "WRITE",
+      description: "fails once then succeeds",
+      contract: { scope: "probe", sideEffect: true, retries: 1 },
+      async execute() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("TRANSIENT");
+        return { ok: true, attempts };
+      },
+    };
+    const skill: AgentSkill = {
+      name: "FLAKY",
+      async observe() {
+        return [
+          {
+            code: "FLAKY_FINDING",
+            severity: "INFO",
+            subjectType: "TEST",
+            subjectId: `flaky-${Date.now()}`,
+            message: "flaky",
+          },
+        ];
+      },
+      plan: planOneAction("flaky_probe"),
+    };
+    const runtime = new AgentRuntime(
+      new FakeContext(),
+      [flaky],
+      { FLAKY: skill },
+      { actor: "contract-worker" },
+    );
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "FLAKY",
+      triggerType: "MANUAL",
+      idempotencyKey: `contract-3-${Date.now()}`,
+    });
+    const ran = await runtime.run(task.id);
+    expect(ran.status).toBe("SUCCEEDED");
+    const invocations = await runtime.getToolInvocations(task.id);
+    expect(invocations[0]!.status).toBe("EXECUTED");
+    expect(invocations[0]!.retries).toBe(1);
+  });
+
+  it("create_todo declares a contract and its verifier accepts real todos", async () => {
+    const context = new FakeContext();
+    const todoTool = createDefaultTools().find(
+      (tool) => tool.name === "create_todo",
+    )!;
+    expect(todoTool.contract?.scope).toBe("agent_todos");
+    expect(todoTool.contract?.sideEffect).toBe(true);
+    // 直接调用工具（经 runtime 的契约层不可绕过 verifier——这里手工跑
+    // verifier 验证真实落库路径）。
+    const output = await todoTool.execute(
+      {
+        title: "补交验收单",
+        assigneePersonId: "00000000-0000-4000-8000-00000000c801",
+        targetType: "WORK_PACKAGE",
+        targetId: "wp-contract",
+        idempotencyKey: `contract-todo-${Date.now()}`,
+      },
+      context,
+      { taskId: "task-todo", actor: "todo-contract-worker" },
+    );
+    expect((output as { todoId: string }).todoId).toBeDefined();
+    // verifier 对真实落库的待办应放行。
+    const ok = await todoTool.contract!.verifier!(
+      {},
+      output,
+      context,
+    );
+    expect(ok).toBe(true);
+    expect(context.todos.size).toBeGreaterThan(0);
+  });
+});
 
 describe("persistent create_todo (NPV2-020)", () => {
   it("creates a todo via context and is idempotent on repeated calls", async () => {

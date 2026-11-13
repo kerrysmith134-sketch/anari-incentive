@@ -95,6 +95,23 @@ export function createDefaultTools(): AgentTool[] {
       access: "WRITE",
       description:
         "Create a persistent follow-up todo (assignee, dueAt, linked target). Idempotent per idempotencyKey.",
+      contract: {
+        scope: "agent_todos",
+        sideEffect: true,
+        timeoutMs: 5_000,
+        retries: 1,
+        // NPV2-021：后置条件——待办必须真实存在且 OPEN，否则动作判失败。
+        verifier: async (input, output, context) => {
+          const todoId =
+            typeof (output as { todoId?: unknown })?.todoId === "string"
+              ? ((output as { todoId: string }).todoId)
+              : "";
+          if (!todoId) return false;
+          const todos = await context.listAgentTodos();
+          const todo = todos.find((candidate) => candidate.id === todoId);
+          return Boolean(todo && todo.status === "OPEN");
+        },
+      },
       async execute(input, context, toolContext) {
         const title = typeof input.title === "string" ? input.title : "";
         const assigneePersonId =

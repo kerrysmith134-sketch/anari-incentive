@@ -184,11 +184,37 @@ export interface AgentToolExecutionContext {
   approvedBy?: string;
 }
 
+/**
+ * NPV2-021：工具契约——scope/副作用/超时/重试/后置条件校验。
+ * 红线：工具执行成功但 verifier 不成立时，该次动作记 FAILED
+ * （POSTCONDITION_FAILED），任务不得标 SUCCEEDED。
+ */
+export interface AgentToolContract {
+  /** 工具作用域（数据面标识），用于权限与审计归集。 */
+  scope?: string;
+  /** 是否产生业务副作用（WRITE 工具恒视为 true）。 */
+  sideEffect?: boolean;
+  /** 单次执行超时毫秒；超时按失败处理（TOOL_TIMEOUT）。 */
+  timeoutMs?: number;
+  /** 失败自动重试次数（默认 0；仅超时与执行异常）。 */
+  retries?: number;
+  /**
+   * 后置条件校验：工具成功返回后调用。返回 false 或抛错 → 动作记
+   * FAILED（POSTCONDITION_FAILED），且不产生副作用确认。
+   */
+  verifier?: (
+    input: Record<string, unknown>,
+    output: unknown,
+    context: AgentContext,
+  ) => Promise<boolean>;
+}
+
 export interface AgentTool {
   name: string;
   riskTier: RiskTier;
   access: "READ" | "WRITE";
   description: string;
+  contract?: AgentToolContract;
   execute(
     input: Record<string, unknown>,
     context: AgentContext,

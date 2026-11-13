@@ -703,46 +703,119 @@ export class AgentRuntime {
       };
     }
     const invocation = await this.beginToolInvocation(task, action);
-    try {
-      const output = await tool.execute(
-        {
-          ...action.payload,
-          targetType: action.targetType,
-          targetId: action.targetId,
-        },
-        this.context,
-        {
+    const contract = tool.contract ?? {};
+    const toolInput = {
+      ...action.payload,
+      targetType: action.targetType,
+      targetId: action.targetId,
+    };
+    const toolExecutionContext = {
+      taskId: task.id,
+      actor:
+        approvedBy ?? task.approvedBy ?? this.options.actor ?? "system",
+      approvedBy,
+    };
+    let attemptsLeft = 1 + (contract.retries ?? 0);
+    let lastError = "";
+    while (attemptsLeft > 0) {
+      attemptsLeft -= 1;
+      try {
+        // NPV2-021：超时保护——契约声明 timeoutMs 时超时按失败处理。
+        const output =
+          contract.timeoutMs === undefined
+            ? await tool.execute(toolInput, this.context, toolExecutionContext)
+            : (await Promise.race([
+                tool.execute(toolInput, this.context, toolExecutionContext),
+                new Promise((_, reject) =>
+                  setTimeout(
+                    () =>
+                      reject(
+                        new AgentRuntimeError(
+                          "TOOL_TIMEOUT",
+                          `tool ${action.tool} exceeded ${contract.timeoutMs}ms`,
+                        ),
+                      ),
+                    contract.timeoutMs,
+                  ),
+                ),
+              ]) as unknown);
+        // NPV2-021 红线：后置条件不成立 → FAILED，任务不得标 SUCCEEDED。
+        if (contract.verifier) {
+          const ok = await contract.verifier(toolInput, output, this.context);
+          if (!ok) {
+            await this.finishToolInvocation(
+              invocation,
+              "FAILED",
+              output,
+              "POSTCONDITION_FAILED",
+            );
+            this.audit.push({
+              taskId: task.id,
+              actionId: action.id,
+              tool: action.tool,
+              actor: this.options.actor ?? "system",
+              at: now(),
+              detail: `postcondition failed: ${action.tool}`,
+            });
+            return {
+              actionId: action.id,
+              status: "FAILED",
+              error: "POSTCONDITION_FAILED",
+            };
+          }
+        }
+        await this.finishToolInvocation(
+          invocation,
+          "EXECUTED",
+          output,
+          undefined,
+        );
+        invocation.retries =
+          (contract.retries ?? 0) - attemptsLeft > invocation.retries
+            ? (contract.retries ?? 0) - attemptsLeft
+            : invocation.retries;
+        if (invocation.retries > 0 && this.options.stepRepository) {
+          await this.options.stepRepository.updateToolInvocation({
+            invocationId: invocation.id,
+            retries: invocation.retries,
+          });
+        }
+        this.audit.push({
           taskId: task.id,
-          actor:
-            approvedBy ?? task.approvedBy ?? this.options.actor ?? "system",
-          approvedBy,
-        },
-      );
-      await this.finishToolInvocation(invocation, "EXECUTED", output);
-      this.audit.push({
-        taskId: task.id,
-        actionId: action.id,
-        tool: action.tool,
-        actor: this.options.actor ?? "system",
-        at: now(),
-        detail: `executed ${action.tool}`,
-      });
-      return { actionId: action.id, status: "EXECUTED", output };
-    } catch (error) {
-      await this.finishToolInvocation(invocation, "FAILED", undefined, String(error));
-      this.audit.push({
-        taskId: task.id,
-        actionId: action.id,
-        tool: action.tool,
-        actor: this.options.actor ?? "system",
-        at: now(),
-        detail: `tool failed: ${String(error)}`,
-      });
-      return {
-        actionId: action.id,
-        status: "FAILED",
-        error: String(error),
-      };
+          actionId: action.id,
+          tool: action.tool,
+          actor: this.options.actor ?? "system",
+          at: now(),
+          detail: `executed ${action.tool}`,
+        });
+        return { actionId: action.id, status: "EXECUTED", output };
+      } catch (error) {
+        lastError = String(error);
+        // 重试窗口内：记一次重试再进下一轮。
+        if (attemptsLeft > 0) {
+          invocation.retries += 1;
+          continue;
+        }
+      }
     }
+    await this.finishToolInvocation(
+      invocation,
+      "FAILED",
+      undefined,
+      lastError,
+    );
+    this.audit.push({
+      taskId: task.id,
+      actionId: action.id,
+      tool: action.tool,
+      actor: this.options.actor ?? "system",
+      at: now(),
+      detail: `tool failed: ${lastError}`,
+    });
+    return {
+      actionId: action.id,
+      status: "FAILED",
+      error: lastError,
+    };
   }
 }
