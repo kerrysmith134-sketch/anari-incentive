@@ -324,6 +324,142 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/contribution-assessment-drafts:
+    get:
+      tags: [Contribution assessment drafts]
+      summary: List contribution assessment drafts
+      parameters:
+        - name: claimId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, SUBMITTED, DECIDED, DISCARDED]
+      responses:
+        "200":
+          description: Drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Contribution assessment drafts]
+      summary: Create an assessment draft (assertions require evidence refs; no default percentages)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContributionAssessmentDraft"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: ACTIVITY event referenced or assertion missing evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/contribution-assessment-drafts/{id}:
+    get:
+      tags: [Contribution assessment drafts]
+      summary: Get one assessment draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/contribution-assessment-drafts/{id}/submit:
+    post:
+      tags: [Contribution assessment drafts]
+      summary: Submit a draft for human review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Submitted draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/contribution-assessment-drafts/{id}/discard:
+    post:
+      tags: [Contribution assessment drafts]
+      summary: Discard a draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Discarded draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/contribution-assessment-drafts/{id}/link-decision:
+    post:
+      tags: [Contribution assessment drafts]
+      summary: Link a submitted draft to an existing human attribution decision
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attributionDecisionId, linkedBy]
+              properties:
+                attributionDecisionId:
+                  $ref: "#/components/schemas/Uuid"
+                linkedBy:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Draft linked to the human decision (DECIDED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "404":
+          description: Decision not found — human decision must exist first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+
   /api/v1/contribution-events:
     get:
       tags: [Contribution events]
@@ -10868,6 +11004,73 @@ components:
           type: array
           items:
             type: string
+
+    CreateContributionAssessmentDraft:
+      type: object
+      required: [claimId, generatedByType, uncertainty]
+      properties:
+        claimId:
+          $ref: "#/components/schemas/Uuid"
+        generatedByType:
+          type: string
+          enum: [AGENT, USER, SYSTEM]
+        generatedById:
+          $ref: "#/components/schemas/Uuid"
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        promptVersion:
+          type: string
+        supporting:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentAssertion"
+        counter:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentAssertion"
+        missingInformation:
+          type: array
+          items:
+            type: string
+        alternativeExplanations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssessmentAssertion"
+        uncertainty:
+          type: object
+          required: [band]
+          description: Qualitative band only — no default percentages.
+          properties:
+            band:
+              type: string
+              enum: [LOW, MEDIUM, HIGH]
+            reasons:
+              type: array
+              items:
+                type: string
+        basedOnEventIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+          description: Contribution event ids; ACTIVITY events are rejected (409).
+    AssessmentAssertion:
+      type: object
+      required: [statement, evidenceRefs, basis]
+      properties:
+        statement:
+          type: string
+        evidenceRefs:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        basis:
+          type: string
+          enum: [EVENT, CLAIM, REVIEWER]
+        relatedEventId:
+          $ref: "#/components/schemas/Uuid"
 
     CreateContributionEvent:
       type: object

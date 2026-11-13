@@ -479,6 +479,183 @@ function registerContractSuite(
     expect(await store.verifyAuditChain()).toBe(true);
   });
 
+  it("贡献认定草案域：断言必带证据；ACTIVITY 事件拒绝；人工决策门禁", async () => {
+    const workPackageId = await acceptedWorkPackage(`assess ${suffix}`);
+    const { claimId } = await confirmedClaim(workPackageId, OWNER);
+    // 先落两笔真实事件（CONTRIBUTION + ACTIVITY）作草案依据素材
+    const events = await store.ingestContributionEvents([
+      {
+        subjectPersonId: OWNER,
+        source: `assess-${suffix}`,
+        action: "DELIVERED",
+        targetType: "WORK_PACKAGE",
+        targetId: workPackageId,
+        occurredAt: "2026-10-12T10:00:00.000Z",
+        kind: "CONTRIBUTION",
+        outcome: { summary: "delivered scope" },
+        evidenceRefs: [`ev-${suffix}`],
+        externalId: `a-1-${suffix}`,
+      },
+      {
+        subjectPersonId: OWNER,
+        source: `assess-${suffix}`,
+        action: "PUSHED_COMMITS",
+        targetType: "WORK_PACKAGE",
+        targetId: workPackageId,
+        occurredAt: "2026-10-12T11:00:00.000Z",
+        kind: "ACTIVITY",
+        outcome: { summary: "10 commits", metrics: { commits: 10 } },
+        evidenceRefs: [`ev-${suffix}`],
+        externalId: `a-2-${suffix}`,
+      },
+    ]);
+    const contributionEventId = events.inserted[0]!.id;
+    const activityEventId = events.inserted[1]!.id;
+
+    // 断言缺证据引用 → 契约级拒绝
+    await expect(
+      store.createContributionAssessmentDraft({
+        claimId,
+        generatedByType: "USER",
+        supporting: [
+          { statement: "delivered", evidenceRefs: [], basis: "CLAIM" },
+        ],
+        counter: [],
+        missingInformation: [],
+        alternativeExplanations: [],
+        uncertainty: { band: "MEDIUM", reasons: ["partial evidence"] },
+        basedOnEventIds: [],
+      }),
+    ).rejects.toThrow();
+
+    // 依据事件含 ACTIVITY → 存储层 409（NPV2-015 消费侧强制）
+    await expect(
+      store.createContributionAssessmentDraft({
+        claimId,
+        generatedByType: "USER",
+        supporting: [
+          {
+            statement: "high throughput",
+            evidenceRefs: [`ev-${suffix}`],
+            basis: "EVENT",
+            relatedEventId: activityEventId,
+          },
+        ],
+        counter: [],
+        missingInformation: [],
+        alternativeExplanations: [],
+        uncertainty: { band: "LOW", reasons: [] },
+        basedOnEventIds: [activityEventId],
+      }),
+    ).rejects.toThrow("ACTIVITY_EVENT_NOT_USABLE_AS_CONTRIBUTION");
+
+    // 正常草案：支持/反证/缺失/替代解释/定性不确定性
+    const draft = await store.createContributionAssessmentDraft({
+      claimId,
+      generatedByType: "USER",
+      supporting: [
+        {
+          statement: "scope delivered as agreed",
+          evidenceRefs: [`ev-${suffix}`],
+          basis: "EVENT",
+          relatedEventId: contributionEventId,
+        },
+      ],
+      counter: [
+        {
+          statement: "one item returned for rework",
+          evidenceRefs: [`ev-${suffix}`],
+          basis: "REVIEWER",
+        },
+      ],
+      missingInformation: ["customer acceptance record missing"],
+      alternativeExplanations: [
+        {
+          statement: "rework was caused by upstream spec change",
+          evidenceRefs: [`ev-${suffix}`],
+          basis: "REVIEWER",
+        },
+      ],
+      uncertainty: { band: "MEDIUM", reasons: ["single-cycle sample"] },
+      basedOnEventIds: [contributionEventId],
+    });
+    expect(draft.activityEventsExcluded).toBe(true);
+    expect(draft.status).toBe("DRAFT");
+
+    // 未经人工决策不能进入正式决定：DRAFT 直接链接被拒
+    const decision = (await store.listDecisions(claimId)).find(
+      (d) => d.id,
+    )!;
+    await expect(
+      store.linkContributionAssessmentDecision(draft.id, {
+        attributionDecisionId: decision.id,
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("ASSESSMENT_DRAFT_NOT_SUBMITTED");
+
+    // 提交后链接人工决定 → DECIDED
+    const submitted = await store.submitContributionAssessmentDraft(draft.id);
+    expect(submitted.status).toBe("SUBMITTED");
+    const decided = await store.linkContributionAssessmentDecision(
+      submitted.id,
+      { attributionDecisionId: decision.id, linkedBy: ADJUDICATOR },
+    );
+    expect(decided.status).toBe("DECIDED");
+    expect(decided.attributionDecisionId).toBe(decision.id);
+
+    // 决定与申报不匹配 → 拒绝
+    const otherWp = await acceptedWorkPackage(`assess-2 ${suffix}`);
+    const otherClaim = await confirmedClaim(otherWp, OWNER);
+    const strayDraft = await store.createContributionAssessmentDraft({
+      claimId: otherClaim.claimId,
+      generatedByType: "USER",
+      supporting: [
+        {
+          statement: "delivered",
+          evidenceRefs: [`ev-${suffix}`],
+          basis: "CLAIM",
+        },
+      ],
+      counter: [],
+      missingInformation: [],
+      alternativeExplanations: [],
+      uncertainty: { band: "LOW", reasons: [] },
+      basedOnEventIds: [],
+    });
+    await store.submitContributionAssessmentDraft(strayDraft.id);
+    await expect(
+      store.linkContributionAssessmentDecision(strayDraft.id, {
+        attributionDecisionId: decision.id,
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("ASSESSMENT_DECISION_CLAIM_MISMATCH");
+
+    // 不存在的决定 → 404 语义（人工决定必须先存在）
+    const freshDraft = await store.createContributionAssessmentDraft({
+      claimId,
+      generatedByType: "USER",
+      supporting: [
+        {
+          statement: "delivered",
+          evidenceRefs: [`ev-${suffix}`],
+          basis: "CLAIM",
+        },
+      ],
+      counter: [],
+      missingInformation: [],
+      alternativeExplanations: [],
+      uncertainty: { band: "LOW", reasons: [] },
+      basedOnEventIds: [],
+    });
+    await store.submitContributionAssessmentDraft(freshDraft.id);
+    await expect(
+      store.linkContributionAssessmentDecision(freshDraft.id, {
+        attributionDecisionId: randomUUID(),
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("not found");
+  });
+
   it("审计域：追加事件后哈希链可验证", async () => {
     await store.recordAuditEvent({
       actorType: "USER",

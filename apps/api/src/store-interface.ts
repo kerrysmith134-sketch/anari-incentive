@@ -39,6 +39,9 @@ import type {
   ContributionEventFilter,
   ContributionEventIngestResult,
   CreateContributionEventInput,
+  ContributionAssessmentDraft,
+  ContributionAssessmentDraftFilter,
+  CreateContributionAssessmentDraftInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -108,6 +111,20 @@ export interface IncentiveStore {
   getClaim(id: string): Promise<ContributionClaim>;
   listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
+  createContributionAssessmentDraft(
+    input: CreateContributionAssessmentDraftInput,
+  ): Promise<ContributionAssessmentDraft>;
+  listContributionAssessmentDrafts(
+    filter?: ContributionAssessmentDraftFilter,
+  ): Promise<ContributionAssessmentDraft[]>;
+  getContributionAssessmentDraft(id: string): Promise<ContributionAssessmentDraft>;
+  submitContributionAssessmentDraft(id: string): Promise<ContributionAssessmentDraft>;
+  discardContributionAssessmentDraft(id: string): Promise<ContributionAssessmentDraft>;
+  /** NPV2-016 硬规则：草案只能在 SUBMITTED 后链接一笔已存在的人工归属决定。 */
+  linkContributionAssessmentDecision(
+    id: string,
+    input: { attributionDecisionId: string; linkedBy: string },
+  ): Promise<ContributionAssessmentDraft>;
   ingestContributionEvents(
     inputs: CreateContributionEventInput[],
   ): Promise<ContributionEventIngestResult>;

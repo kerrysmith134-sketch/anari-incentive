@@ -9,9 +9,11 @@ import type { IncentiveStore } from "../../store-interface.js";
 import {
   contributionEventBatchSchema,
   contributionEventFilterSchema,
+  createContributionAssessmentDraftSchema,
   createContributionAttestationSchema,
   createContributionClaimSchema,
   createContributionEventSchema,
+  linkContributionAssessmentDecisionSchema,
   withdrawContributionAttestationSchema,
 } from "@anari/contracts";
 import { ConflictError, NotFoundError } from "../../store.js";
@@ -231,6 +233,95 @@ export function registerContributionRoutes(deps: {
       );
     }
     return data(event, request);
+  });
+
+  // ------------------------------------------------------------------
+  // NPV2-016：贡献认定草案——消费 NPV2-015 贡献事件，输出支持/反证/
+  // 缺失/替代解释/定性不确定性。每条断言必须带 evidence refs（契约层
+  // 强制）；依据事件含 ACTIVITY 时存储层 409；未经人工决策不得进入
+  // 正式 AttributionDecision（link-decision 要求决定已存在）。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/contribution-assessment-drafts", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createContributionAssessmentDraftSchema, request.body);
+    // zod .default() 产生可选链；入 store 前归一为必填数组
+    const input = {
+      ...body,
+      supporting: body.supporting ?? [],
+      counter: body.counter ?? [],
+      missingInformation: body.missingInformation ?? [],
+      alternativeExplanations: body.alternativeExplanations ?? [],
+      basedOnEventIds: body.basedOnEventIds ?? [],
+      uncertainty: {
+        band: body.uncertainty.band,
+        reasons: body.uncertainty.reasons ?? [],
+      },
+    };
+    return reply.status(201).send(
+      data(
+        await storeFor(request).createContributionAssessmentDraft(input),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/contribution-assessment-drafts", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const person = personFilter(request);
+    const drafts = await storeFor(request).listContributionAssessmentDrafts({
+      claimId: query.claimId,
+      subjectPersonId: person ?? query.subjectPersonId,
+      status: query.status as never,
+    });
+    return data(drafts, request);
+  });
+
+  app.get("/api/v1/contribution-assessment-drafts/:id", async (request) => {
+    const draft = await storeFor(request).getContributionAssessmentDraft(
+      idOf(request),
+    );
+    const person = personFilter(request);
+    if (person && draft.subjectPersonId !== person) {
+      throw new ForbiddenError(
+        "contribution assessment draft is not visible to this person",
+      );
+    }
+    return data(draft, request);
+  });
+
+  app.post("/api/v1/contribution-assessment-drafts/:id/submit", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).submitContributionAssessmentDraft(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/contribution-assessment-drafts/:id/discard", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await storeFor(request).discardContributionAssessmentDraft(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/contribution-assessment-drafts/:id/link-decision", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(linkContributionAssessmentDecisionSchema, request.body);
+    // 会话身份绑定：链接人必须是会话主体（平台管理员除外）。
+    const own = ownPersonId(request);
+    if (own && !isPrivileged(request) && body.linkedBy !== own) {
+      throw new ForbiddenError(
+        "assessment decision link must use the authenticated identity",
+      );
+    }
+    return data(
+      await storeFor(request).linkContributionAssessmentDecision(
+        idOf(request),
+        body,
+      ),
+      request,
+    );
   });
 
   };

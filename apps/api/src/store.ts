@@ -47,6 +47,9 @@ import {
   type SettlementCommandResult,
   type SettlementLine,
   type WorkPackage,
+  type ContributionAssessmentDraft,
+  type ContributionAssessmentDraftFilter,
+  type CreateContributionAssessmentDraftInput,
   type ContributionEvent,
   type ContributionEventFilter,
   type ContributionEventIngestResult,
@@ -200,6 +203,10 @@ export class Store implements IncentiveStore {
   private readonly evaluationDrafts = new Map<string, EvaluationDraft>();
   private readonly evaluationDecisions = new Map<string, EvaluationDecision>();
   private readonly contributionEvents = new Map<string, ContributionEvent>();
+  private readonly contributionAssessmentDrafts = new Map<
+    string,
+    ContributionAssessmentDraft
+  >();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
     const timestamp = now();
@@ -623,6 +630,152 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */
+  private assertAssessmentDraftUsable(
+    input: CreateContributionAssessmentDraftInput,
+  ): void {
+    const assertions = [
+      ...input.supporting,
+      ...input.counter,
+      ...input.alternativeExplanations,
+    ];
+    if (assertions.some((a) => a.evidenceRefs.length === 0)) {
+      throw new ConflictError(
+        "ASSESSMENT_ASSERTION_REQUIRES_EVIDENCE: every assertion must cite evidence",
+      );
+    }
+    for (const eventId of input.basedOnEventIds) {
+      const event = this.contributionEvents.get(eventId);
+      if (!event) {
+        throw new NotFoundError(`ContributionEvent ${eventId} not found`);
+      }
+      if (event.kind === "ACTIVITY") {
+        throw new ConflictError(
+          `ACTIVITY_EVENT_NOT_USABLE_AS_CONTRIBUTION: ${eventId} is an activity record and may not back a contribution assertion`,
+        );
+      }
+    }
+  }
+
+  async createContributionAssessmentDraft(
+    input: CreateContributionAssessmentDraftInput,
+  ): Promise<ContributionAssessmentDraft> {
+    this.assertAssessmentDraftUsable(input);
+    const claim = this.claims.get(input.claimId);
+    if (!claim) {
+      throw new NotFoundError(`ContributionClaim ${input.claimId} not found`);
+    }
+    const timestamp = now();
+    const draft: ContributionAssessmentDraft = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      claimId: input.claimId,
+      subjectPersonId: claim.claimantPersonId,
+      generatedByType: input.generatedByType,
+      generatedById: input.generatedById,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+      promptVersion: input.promptVersion,
+      supporting: input.supporting,
+      counter: input.counter,
+      missingInformation: input.missingInformation,
+      alternativeExplanations: input.alternativeExplanations,
+      uncertainty: input.uncertainty,
+      basedOnEventIds: input.basedOnEventIds,
+      activityEventsExcluded: true,
+      status: "DRAFT",
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.contributionAssessmentDrafts.set(draft.id, draft);
+    return draft;
+  }
+
+  async listContributionAssessmentDrafts(
+    filter?: ContributionAssessmentDraftFilter,
+  ): Promise<ContributionAssessmentDraft[]> {
+    let drafts = [...this.contributionAssessmentDrafts.values()];
+    if (filter?.claimId) {
+      drafts = drafts.filter((draft) => draft.claimId === filter.claimId);
+    }
+    if (filter?.subjectPersonId) {
+      drafts = drafts.filter(
+        (draft) => draft.subjectPersonId === filter.subjectPersonId,
+      );
+    }
+    if (filter?.status) {
+      drafts = drafts.filter((draft) => draft.status === filter.status);
+    }
+    return drafts.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async getContributionAssessmentDraft(
+    id: string,
+  ): Promise<ContributionAssessmentDraft> {
+    const draft = this.contributionAssessmentDrafts.get(id);
+    if (!draft) {
+      throw new NotFoundError(`ContributionAssessmentDraft ${id} not found`);
+    }
+    return draft;
+  }
+
+  async submitContributionAssessmentDraft(
+    id: string,
+  ): Promise<ContributionAssessmentDraft> {
+    const draft = await this.getContributionAssessmentDraft(id);
+    if (draft.status !== "DRAFT") {
+      throw new ConflictError(
+        `ASSESSMENT_DRAFT_NOT_DRAFT: draft is ${draft.status}`,
+      );
+    }
+    draft.status = "SUBMITTED";
+    draft.updatedAt = now();
+    return draft;
+  }
+
+  async discardContributionAssessmentDraft(
+    id: string,
+  ): Promise<ContributionAssessmentDraft> {
+    const draft = await this.getContributionAssessmentDraft(id);
+    if (draft.status === "DECIDED" || draft.status === "DISCARDED") {
+      throw new ConflictError(
+        `ASSESSMENT_DRAFT_NOT_DISCARDABLE: draft is ${draft.status}`,
+      );
+    }
+    draft.status = "DISCARDED";
+    draft.updatedAt = now();
+    return draft;
+  }
+
+  /** 硬规则：SUBMITTED 后链接已存在的人工归属决定才转 DECIDED。 */
+  async linkContributionAssessmentDecision(
+    id: string,
+    input: { attributionDecisionId: string; linkedBy: string },
+  ): Promise<ContributionAssessmentDraft> {
+    const draft = await this.getContributionAssessmentDraft(id);
+    if (draft.status !== "SUBMITTED") {
+      throw new ConflictError(
+        `ASSESSMENT_DRAFT_NOT_SUBMITTED: ${draft.status} drafts cannot be linked to a decision; submit first`,
+      );
+    }
+    const decision = this.decisions.get(input.attributionDecisionId);
+    if (!decision) {
+      throw new NotFoundError(
+        `AttributionDecision ${input.attributionDecisionId} not found; a human attribution decision must exist first`,
+      );
+    }
+    if (decision.claimId !== draft.claimId) {
+      throw new ConflictError(
+        "ASSESSMENT_DECISION_CLAIM_MISMATCH: decision belongs to a different claim",
+      );
+    }
+    draft.status = "DECIDED";
+    draft.attributionDecisionId = decision.id;
+    draft.updatedAt = now();
+    return draft;
   }
 
   /**

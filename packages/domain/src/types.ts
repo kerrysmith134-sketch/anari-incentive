@@ -2343,3 +2343,79 @@ export interface ContributionEventFilter {
   occurredFrom?: string;
   occurredTo?: string;
 }
+
+/**
+ * NPV2-016：贡献认定草案（Contribution Assessment Draft）。
+ *
+ * 与 EvaluationDraft（绩效评价草案）不同，本对象评估的是**一笔贡献申报**：
+ * 消费 NPV2-015 的 ContributionEvent，输出支持/反证/缺失信息/替代解释/
+ * 不确定性。四条硬规则：
+ * 1. 每条断言（支持/反证/替代解释）必须携带 evidence refs；
+ * 2. 不默认百分比——不确定性用定性 band（LOW/MEDIUM/HIGH）；
+ * 3. 引用的事件中不得包含 ACTIVITY 事件（活动量事实不作贡献依据，
+ *    NPV2-015 消费侧强制，存储层 409 拒绝）；
+ * 4. 未经人工决策不得进入正式 AttributionDecision——草案只能在
+ *    SUBMITTED 后链接一笔已存在的人工归属决定，才转为 DECIDED。
+ */
+export interface AssessmentAssertion {
+  statement: string;
+  evidenceRefs: string[];
+  /** 断言依据：贡献事件 / 申报内容 / 复核人判断。 */
+  basis: "EVENT" | "CLAIM" | "REVIEWER";
+  relatedEventId?: UUID;
+}
+
+export type AssessmentUncertaintyBand = "LOW" | "MEDIUM" | "HIGH";
+
+export interface ContributionAssessmentDraft {
+  id: UUID;
+  tenantId: UUID;
+  claimId: UUID;
+  subjectPersonId: UUID;
+  generatedByType: "AGENT" | "USER" | "SYSTEM";
+  generatedById?: UUID;
+  modelProvider?: string;
+  modelName?: string;
+  promptVersion?: string;
+  supporting: AssessmentAssertion[];
+  counter: AssessmentAssertion[];
+  missingInformation: string[];
+  alternativeExplanations: AssessmentAssertion[];
+  uncertainty: {
+    band: AssessmentUncertaintyBand;
+    reasons: string[];
+  };
+  /** 草稿依据的贡献事件（不得含 ACTIVITY 事件）。 */
+  basedOnEventIds: UUID[];
+  activityEventsExcluded: boolean;
+  status: "DRAFT" | "SUBMITTED" | "DECIDED" | "DISCARDED";
+  /** 链接的人工归属决定（SUBMITTED→DECIDED 时写入）。 */
+  attributionDecisionId?: UUID;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateContributionAssessmentDraftInput {
+  claimId: UUID;
+  generatedByType: "AGENT" | "USER" | "SYSTEM";
+  generatedById?: UUID;
+  modelProvider?: string;
+  modelName?: string;
+  promptVersion?: string;
+  supporting: AssessmentAssertion[];
+  counter: AssessmentAssertion[];
+  missingInformation: string[];
+  alternativeExplanations: AssessmentAssertion[];
+  uncertainty: {
+    band: AssessmentUncertaintyBand;
+    reasons: string[];
+  };
+  basedOnEventIds: UUID[];
+}
+
+export interface ContributionAssessmentDraftFilter {
+  claimId?: UUID;
+  subjectPersonId?: UUID;
+  status?: ContributionAssessmentDraft["status"];
+}

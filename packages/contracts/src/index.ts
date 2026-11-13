@@ -2684,3 +2684,49 @@ export const contributionEventFilterSchema = z.object({
   occurredFrom: z.string().datetime().optional(),
   occurredTo: z.string().datetime().optional(),
 });
+
+/**
+ * NPV2-016：贡献认定草案契约。
+ * 每条断言必须携带 evidence refs；不确定性用定性 band，不用百分比；
+ * basedOnEventIds 引用的事件不得含 ACTIVITY（存储层再校验事件类型）。
+ */
+export const assessmentAssertionSchema = z
+  .object({
+    statement: z.string().min(1),
+    evidenceRefs: z.array(z.string().min(1)).min(1),
+    basis: z.enum(["EVENT", "CLAIM", "REVIEWER"]),
+    relatedEventId: uuidSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.basis === "EVENT" && !value.relatedEventId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "EVENT 断言必须携带 relatedEventId",
+      });
+    }
+  });
+
+export const assessmentUncertaintySchema = z.object({
+  band: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  reasons: z.array(z.string().min(1)).default([]),
+});
+
+export const createContributionAssessmentDraftSchema = z.object({
+  claimId: uuidSchema,
+  generatedByType: z.enum(["AGENT", "USER", "SYSTEM"]),
+  generatedById: uuidSchema.optional(),
+  modelProvider: z.string().max(64).optional(),
+  modelName: z.string().max(128).optional(),
+  promptVersion: z.string().max(64).optional(),
+  supporting: z.array(assessmentAssertionSchema).default([]),
+  counter: z.array(assessmentAssertionSchema).default([]),
+  missingInformation: z.array(z.string().min(1)).default([]),
+  alternativeExplanations: z.array(assessmentAssertionSchema).default([]),
+  uncertainty: assessmentUncertaintySchema,
+  basedOnEventIds: z.array(uuidSchema).default([]),
+});
+
+export const linkContributionAssessmentDecisionSchema = z.object({
+  attributionDecisionId: uuidSchema,
+  linkedBy: uuidSchema,
+});
