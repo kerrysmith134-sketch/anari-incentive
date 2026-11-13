@@ -4,7 +4,7 @@
  * 行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DirectoryPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   createContributionAttestationSchema,
@@ -25,7 +25,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerContributionRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DirectoryPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
 }): FastifyPluginAsync {
   const { platformStore, storeFor } = deps;

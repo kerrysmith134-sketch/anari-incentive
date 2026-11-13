@@ -2,7 +2,7 @@
  * 工作流运行域路由（受限工作流的运行记录）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { ModelgovPort } from "../../store-ports.js";
 import {
   createWorkflowRunSchema,
   finishWorkflowRunSchema,
@@ -16,7 +16,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerWorkflowRunRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: ModelgovPort;
 }): FastifyPluginAsync {
   const { platformStore } = deps;
   return async (app: FastifyInstance) => {

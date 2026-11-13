@@ -8,7 +8,7 @@ import type {
   FastifyPluginAsync,
   FastifyRequest,
 } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DatagovPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   cancelRetentionDisposalRequestSchema,
@@ -39,7 +39,7 @@ import {
 
 
 export function registerDataGovernanceRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DatagovPort;
   storeFor: (request: import("fastify").FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   auditExport: (

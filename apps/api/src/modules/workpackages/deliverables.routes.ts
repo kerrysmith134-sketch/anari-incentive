@@ -2,7 +2,7 @@
  * 交付物域路由（提交/验收/验收记录）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DeliveryPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ForbiddenError } from "@anari/auth";
 import {
@@ -21,7 +21,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerDeliverableRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DeliveryPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

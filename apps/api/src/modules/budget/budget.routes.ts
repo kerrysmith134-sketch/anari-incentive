@@ -2,7 +2,7 @@
  * 预算与财务域路由（自由裁量评审/预算释放/现金门禁/财务事实）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { BudgetPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   createCashGateInputSchema,
@@ -18,7 +18,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerBudgetRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: BudgetPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
 }): FastifyPluginAsync {
   const { platformStore, storeFor } = deps;

@@ -3,7 +3,7 @@
  * 战略池生命周期（创建/列表/成本评审/财务批准/激活/结算）。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { BudgetPort, IncentivePort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import type { StrategicPoolCase } from "@anari/domain";
 import {
@@ -25,7 +25,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerStrategicPoolRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: BudgetPort & IncentivePort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

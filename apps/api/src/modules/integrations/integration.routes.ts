@@ -2,7 +2,7 @@
  * 集成域路由（连接器/映射/同步排期/同步运行）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IntegrationPort } from "../../store-ports.js";
 import {
   claimDueSyncSchedulesSchema,
   createIntegrationConnectionSchema,
@@ -23,7 +23,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerIntegrationRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IntegrationPort;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {
   const { platformStore, countEvent } = deps;

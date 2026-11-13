@@ -3,7 +3,7 @@
  * 申诉生命周期、证据披露、重算请求。通知为 best-effort。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DeliveryPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
@@ -29,7 +29,7 @@ import {
 import { notifyBestEffort } from "../../notify.js";
 
 export function registerAppealsRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DeliveryPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   assertRecalculationTarget: (

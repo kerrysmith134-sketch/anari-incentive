@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { parseCsv, verifyFeishuSignature, verifyHubSpotSignature, verifyWebhookSignature } from "@anari/connectors";
 import { sha256 } from "@anari/policy-dsl";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IntegrationPort } from "../../store-ports.js";
 import { ConflictError, NotFoundError } from "../../store.js";
 import {
   processWebhookSchema,
@@ -21,7 +21,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerWebhookRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IntegrationPort;
   countEvent: (event: string) => void;
   webhookSecrets?: Record<string, string>;
   webhookSchemes?: Record<string, "hmac" | "hubspot" | "feishu">;

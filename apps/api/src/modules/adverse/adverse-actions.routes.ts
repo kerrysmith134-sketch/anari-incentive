@@ -2,7 +2,7 @@
  * 不利行动域路由（AI 决策不利行动全生命周期）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IncentivePort } from "../../store-ports.js";
 import {
   activateAdverseActionSchema,
   approveAdverseActionSchema,
@@ -19,7 +19,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerAdverseActionRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IncentivePort;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {
   const { platformStore, countEvent } = deps;

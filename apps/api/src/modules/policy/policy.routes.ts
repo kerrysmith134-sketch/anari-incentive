@@ -6,7 +6,7 @@ import type {
 import { randomUUID } from "node:crypto";
 import { sha256 } from "@anari/policy-dsl";
 import { ForbiddenError } from "@anari/auth";
-import type { PlatformStore } from "../../platform-store.js";
+import type { PolicygovPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { NotFoundError } from "../../store.js";
 import {
@@ -76,7 +76,7 @@ class BadRequestError extends Error {
 
 
 export interface PolicyEngineDeps {
-  platformStore: PlatformStore;
+  platformStore: PolicygovPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }

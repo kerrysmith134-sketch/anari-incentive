@@ -3,7 +3,7 @@
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { notifyBestEffort } from "../../notify.js";
-import type { PlatformStore } from "../../platform-store.js";
+import type { AssessmentPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
@@ -28,7 +28,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerEvaluationCycleRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: AssessmentPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

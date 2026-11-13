@@ -4,7 +4,7 @@
  * 字段脱敏与门禁依赖由 app 注入；行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DirectoryPort, SettlementPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import type { PayrollRun, EmploymentContract } from "@anari/domain";
 import {
@@ -50,7 +50,7 @@ import {
 } from "../../http-helpers.js";
 
 export interface PayrollDeps {
-  platformStore: PlatformStore;
+  platformStore: DirectoryPort & SettlementPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   ensureApproval: (

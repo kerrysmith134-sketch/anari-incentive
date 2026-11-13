@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { settlementCsv } from "../../store.js";
 import { sha256 } from "@anari/policy-dsl";
-import type { PlatformStore } from "../../platform-store.js";
+import type { SettlementPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import {
@@ -20,7 +20,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerSettlementExportRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: SettlementPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   assertExportAllowed: (request: FastifyRequest) => void;
   assertExportDlp: (

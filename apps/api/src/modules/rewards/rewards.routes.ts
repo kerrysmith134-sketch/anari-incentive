@@ -4,7 +4,7 @@
  * 行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IncentivePort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   acceptBountySchema,
@@ -41,7 +41,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerRewardsRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IncentivePort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

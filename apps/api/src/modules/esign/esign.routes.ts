@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { verifyWebhookSignature } from "@anari/connectors";
 import { sha256 } from "@anari/policy-dsl";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IntegrationPort } from "../../store-ports.js";
 import { ConflictError, NotFoundError } from "../../store.js";
 import {
   createESignEnvelopeSchema,
@@ -19,7 +19,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerEsignRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IntegrationPort;
   countEvent: (event: string) => void;
   esignWebhookSecrets?: Record<string, string>;
 }): FastifyPluginAsync {

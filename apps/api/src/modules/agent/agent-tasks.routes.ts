@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { AgentRuntime } from "@anari/agent-runtime";
 import { llmChatComplete, extractJson, type LlmMessage } from "../../llm.js";
 import { notifyBestEffort } from "../../notify.js";
-import type { PlatformStore } from "../../platform-store.js";
+import type { ApprovalPort, ModelgovPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   agentChatSchema,
@@ -95,7 +95,7 @@ const AGENT_COMMANDS: Record<
   };
 
 export function registerAgentTaskRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: ApprovalPort & ModelgovPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   runtimeFor: (request: FastifyRequest) => AgentRuntime;

@@ -3,7 +3,7 @@
  * 审批请求生命周期（创建/列表/详情/决定/消费）。决策者与消费者绑定会话身份。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { ApprovalPort, DirectoryPort } from "../../store-ports.js";
 import {
   consumeApprovalRequestSchema,
   createApprovalRequestSchema,
@@ -23,7 +23,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerApprovalRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: ApprovalPort & DirectoryPort;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {
   const { platformStore, countEvent } = deps;

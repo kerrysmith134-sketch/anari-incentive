@@ -2,7 +2,7 @@
  * 人与治理域路由（利益冲突/公平承诺/校准/信任调研/试点/员工代表）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { AssessmentPort, PolicygovPort } from "../../store-ports.js";
 import { NotFoundError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
 import {
@@ -29,7 +29,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerPeopleGovernanceRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: AssessmentPort & PolicygovPort;
 }): FastifyPluginAsync {
   const { platformStore } = deps;
   return async (app: FastifyInstance) => {

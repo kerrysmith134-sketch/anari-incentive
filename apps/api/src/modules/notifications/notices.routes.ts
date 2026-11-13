@@ -2,7 +2,7 @@
  * 通知与公告域路由（公告/确认回执/收件消息）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { CommsPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ForbiddenError } from "@anari/auth";
 import {
@@ -22,7 +22,7 @@ import {
 } from "../../http-helpers.js";
 
 export function registerNoticeRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: CommsPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

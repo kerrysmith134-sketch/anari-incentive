@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { parseCsv } from "@anari/connectors";
 import { columnIndexFor } from "../../http-helpers.js";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DirectoryPort, IncentivePort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import {
@@ -39,7 +39,7 @@ class BadRequestError extends Error {
 
 
 export function registerLedgerRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DirectoryPort & IncentivePort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   ensureApproval: (

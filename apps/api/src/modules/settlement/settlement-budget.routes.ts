@@ -4,7 +4,7 @@
  * 行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { BudgetPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { createSettlementBatchSchema, settlementCommandSchema } from "@anari/contracts";
 import {
@@ -23,7 +23,7 @@ import {
 } from "../../http-helpers.js";
 
 export interface SettlementDeps {
-  platformStore: PlatformStore;
+  platformStore: BudgetPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   notifyBestEffort: (

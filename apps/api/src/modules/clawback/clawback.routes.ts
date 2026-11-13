@@ -4,7 +4,7 @@
  * 会话身份绑定、金额上限校验、审批人校验全部保留。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DirectoryPort, IncentivePort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError, NotFoundError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
@@ -37,7 +37,7 @@ class BadRequestError extends Error {
 }
 
 export interface ClawbackDeps {
-  platformStore: PlatformStore;
+  platformStore: DirectoryPort & IncentivePort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   notifyBestEffort: (

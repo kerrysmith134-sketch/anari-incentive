@@ -3,7 +3,7 @@
  * 周期管理、预审、草稿、决定。行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { ModelgovPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "@anari/policy-dsl";
@@ -11,7 +11,7 @@ import { preReviewSchema } from "@anari/contracts";
 import { data, idOf, parse, requireRoles, tenantOf } from "../../http-helpers.js";
 
 export function registerEvaluationRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: ModelgovPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {

@@ -2,7 +2,7 @@
  * 计算域路由（计算运行全生命周期/摄取直算/数据质量）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { PlatformStore } from "../../platform-store.js";
+import type { IntegrationPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
@@ -53,7 +53,7 @@ function redactRunForPerson(
 }
 
 export function registerCalculationRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: IntegrationPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   ensureApproval: (

@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import { DEFAULT_FIELD_ACCESS_POLICIES } from "../../field-access-defaults.js";
 import { sha256 } from "@anari/policy-dsl";
 import type { FieldAccessPolicy } from "@anari/contracts";
-import type { PlatformStore } from "../../platform-store.js";
+import type { DatagovPort, TenantPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   recordWorkforceSubgroupAttributeSchema,
@@ -33,7 +33,7 @@ class BadRequestError extends Error {
 
 
 export function registerWorkforceGovernanceRoutes(deps: {
-  platformStore: PlatformStore;
+  platformStore: DatagovPort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   fieldPoliciesFor: (
     request: FastifyRequest,
