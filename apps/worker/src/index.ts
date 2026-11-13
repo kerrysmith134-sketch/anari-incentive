@@ -7,7 +7,10 @@ import {
   createDefaultSkills,
   createDefaultTools,
 } from "@anari/agent-runtime";
-import { PgAgentTaskRepository } from "@anari/agent-persistence";
+import {
+  MultiTenantAgentDispatcher,
+  PgAgentTaskRepository,
+} from "@anari/agent-persistence";
 import {
   ClientCredentialsTokenProvider,
   StaticTokenProvider,
@@ -128,6 +131,32 @@ scheduler.addEventRule({
   eventType: "AppealOpened",
   agentType: "APPEAL_SLA",
 });
+
+// NPV2-022：多租户模式——一个 Worker Pool 按 tenant 公平消费任务，
+// 任务执行绑定各自租户上下文（runtime/repository 惰性创建）。
+if (process.env.WORKER_MULTI_TENANT === "1") {
+  const dispatcher = new MultiTenantAgentDispatcher({
+    pool,
+    workerId: `worker-${process.pid}`,
+    leaseMs: Number(process.env.LEASE_MS ?? 300_000),
+    perTenantBatch: Number(process.env.PER_TENANT_BATCH ?? 1),
+    runtimeFactory: (tenant) =>
+      new AgentRuntime(
+        new HttpAgentContext(apiBaseUrl, tenant, tokenProvider),
+        createDefaultTools(),
+        createDefaultSkills(),
+        {
+          requireApprovalAtOrAbove: "T3",
+          actor: "agent-worker",
+          repository: new PgAgentTaskRepository(pool, tenant),
+        },
+      ),
+  });
+  dispatcher.start(pollIntervalMs);
+  console.log(
+    `[worker] multi-tenant dispatcher started (poll=${pollIntervalMs}ms, batch=${process.env.PER_TENANT_BATCH ?? 1}/tenant)`,
+  );
+}
 
 const poller = new OutboxPoller(
   new PgOutboxSource(pool, tenantId),

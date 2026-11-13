@@ -1506,6 +1506,146 @@ evidenceOpened: 1,rationale: "Self",
     expect(after.find((s) => s.id === target.id)!.status).toBe("PENDING");
   });
 
+  // ------------------------------------------------------------------
+  // NPV2-022：多租户 Worker Dispatcher——一个池公平消费多租户，不串租户。
+  // ------------------------------------------------------------------
+  it("dispatches fairly across tenants without cross-tenant leakage (NPV2-022)", async () => {
+    const { MultiTenantAgentDispatcher } = await import(
+      "@anari/agent-persistence"
+    );
+    const tenantB = "00000000-0000-4000-8000-000000000002";
+    // 建租户 B（幂等）
+    await pool.query(
+      `INSERT INTO tenants (id, name, slug, default_currency)
+       VALUES ($1, 'Tenant B', 'tenant-b-npv2022', 'CNY')
+       ON CONFLICT (id) DO NOTHING`,
+      [tenantB],
+    );
+
+    function runtimeFor(tenant: string) {
+      const tenantStore = new PgStore(pool, tenant);
+      return new AgentRuntime(
+        createAgentContext(tenantStore),
+        createDefaultTools(),
+        createDefaultSkills(),
+        {
+          actor: "dispatch-worker",
+          repository: new PgAgentTaskRepository(pool, tenant),
+        },
+      );
+    }
+
+    // 清场：同文件 018 测试 claim 后 release 的任务仍是 QUEUED，
+    // 会干扰本测试的"恰领到刚入队任务"断言——先把遗留任务取消。
+    await withTenantContext(DEMO_TENANT_ID, (client) =>
+      client.query(
+        `UPDATE agent_tasks
+            SET status = 'CANCELLED', updated_at = now()
+          WHERE tenant_id = $1 AND status IN ('QUEUED','RETRY_PENDING')`,
+        [DEMO_TENANT_ID],
+      ),
+    );
+
+    // 两个租户各入队一个就绪任务（idempotencyKey 唯一）。
+    const runtimeA = runtimeFor(DEMO_TENANT_ID);
+    const runtimeB = runtimeFor(tenantB);
+    const taskA = await runtimeA.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `dispatch-a-${Date.now()}`,
+      actorRole: "READER",
+    });
+    const taskB = await runtimeB.enqueue({
+      tenantId: tenantB,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `dispatch-b-${Date.now()}`,
+      actorRole: "READER",
+    });
+
+    const dispatcher = new MultiTenantAgentDispatcher({
+      pool,
+      workerId: "dispatch-worker",
+      leaseMs: 60_000,
+      perTenantBatch: 1,
+      runtimeFactory: runtimeFor,
+    });
+
+    // 一轮：两个租户各领 1 个（公平，不饿死 B）。
+    const round1 = await dispatcher.dispatchOnce();
+    expect(round1.total).toBe(2);
+    expect(Object.keys(round1.perTenant).sort()).toEqual(
+      [DEMO_TENANT_ID, tenantB].sort(),
+    );
+
+    // 不串租户：从 DB 重读（各租户独立仓库），两任务都已执行且租户正确。
+    const repoA = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const repoB = new PgAgentTaskRepository(pool, tenantB);
+    const dbA = (await repoA.load()).tasks.find((t) => t.id === taskA.id)!;
+    const dbB = (await repoB.load()).tasks.find((t) => t.id === taskB.id)!;
+    expect(dbA.status).not.toBe("QUEUED");
+    expect(dbB.status).not.toBe("QUEUED");
+    expect(dbA.tenantId).toBe(DEMO_TENANT_ID);
+    expect(dbB.tenantId).toBe(tenantB);
+    // 跨租户探针：B 的 runtime 读不到 A 的任务（FORCE RLS 拒绝）。
+    await expect(runtimeB.get(taskA.id)).rejects.toThrow();
+  });
+
+  it("round-robin rotation keeps per-tenant fairness under starvation pressure (NPV2-022)", async () => {
+    const { MultiTenantAgentDispatcher } = await import(
+      "@anari/agent-persistence"
+    );
+    const tenantB = "00000000-0000-4000-8000-000000000002";
+    function runtimeFor(tenant: string) {
+      const tenantStore = new PgStore(pool, tenant);
+      return new AgentRuntime(
+        createAgentContext(tenantStore),
+        createDefaultTools(),
+        createDefaultSkills(),
+        {
+          actor: "dispatch-worker",
+          repository: new PgAgentTaskRepository(pool, tenant),
+        },
+      );
+    }
+    const runtimeA = runtimeFor(DEMO_TENANT_ID);
+    const runtimeB = runtimeFor(tenantB);
+    const stamp = Date.now();
+    // A 刷 3 个任务，B 只有 1 个——限流公平下 B 不会饿死。
+    for (let k = 0; k < 3; k += 1) {
+      await runtimeA.enqueue({
+        tenantId: DEMO_TENANT_ID,
+        agentType: "EVIDENCE_GAP",
+        triggerType: "MANUAL",
+        idempotencyKey: `dispatch-fair-a-${stamp}-${k}`,
+        actorRole: "READER",
+      });
+    }
+    await runtimeB.enqueue({
+      tenantId: tenantB,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `dispatch-fair-b-${stamp}`,
+      actorRole: "READER",
+    });
+
+    const dispatcher = new MultiTenantAgentDispatcher({
+      pool,
+      workerId: "fair-worker",
+      leaseMs: 60_000,
+      perTenantBatch: 1,
+      runtimeFactory: runtimeFor,
+    });
+    const round1 = await dispatcher.dispatchOnce();
+    expect(round1.perTenant[DEMO_TENANT_ID] ?? 0).toBe(1);
+    expect(round1.perTenant[tenantB] ?? 0).toBe(1);
+    const round2 = await dispatcher.dispatchOnce();
+    expect(round2.perTenant[DEMO_TENANT_ID] ?? 0).toBe(1);
+    // B 已无任务，A 继续消费剩余。
+    expect(round2.total).toBeGreaterThanOrEqual(1);
+  });
+
   it("scopes reads to the store's tenant", async () => {
     const other = new PgStore(
       pool,
