@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { AgentTaskCasError } from "./types.js";
+import { sha256 } from "@anari/policy-dsl";
 import type {
   AgentAction,
+  AgentStep,
+  AgentStepKind,
+  AgentStepStatus,
+  ToolInvocationRecord,
   AgentActionResult,
   AgentAuditEntry,
   AgentContext,
@@ -9,6 +14,7 @@ import type {
   AgentSkill,
   AgentTask,
   AgentTaskRepository,
+  AgentStepRepository,
   AgentTaskStatus,
   AgentTool,
   RiskTier,
@@ -63,6 +69,8 @@ export interface AgentRuntimeOptions {
   role?: "READER" | "ACTOR" | "BOTH";
   /** Optional durable adapter; omitted for tests and local in-memory use. */
   repository?: AgentTaskRepository;
+  /** NPV2-019：步骤/工具调用持久化（可选；缺省存内存供检查）。 */
+  stepRepository?: AgentStepRepository;
 }
 
 export interface RetryFailedOptions {
@@ -86,6 +94,10 @@ export interface RetryFailedOptions {
  */
 export class AgentRuntime {
   private readonly tasks = new Map<string, AgentTask>();
+  /** NPV2-019：内存步骤/工具记录（无 stepRepository 时供检查）。 */
+  private readonly steps = new Map<string, AgentStep>();
+  private readonly toolInvocations = new Map<string, ToolInvocationRecord>();
+  private stepCounter = 0;
   private readonly byIdempotency = new Map<string, string>();
   private readonly audit: AgentAuditEntry[] = [];
   private loaded = false;
@@ -170,6 +182,159 @@ export class AgentRuntime {
     return task;
   }
 
+  private hashOf(value: unknown): string {
+    return sha256(value);
+  }
+
+  /** NPV2-019：开启一个步骤（持久化或内存）。 */
+  private async beginStep(
+    task: AgentTask,
+    kind: AgentStepKind,
+    input?: unknown,
+  ): Promise<AgentStep> {
+    const timestamp = now();
+    const step: AgentStep = {
+      id: randomUUID(),
+      tenantId: task.tenantId,
+      taskId: task.id,
+      stepIndex: this.stepCounter++,
+      kind,
+      status: "RUNNING",
+      inputHash: input === undefined ? undefined : this.hashOf(input),
+      attempts: 1,
+      executedBy: this.options.actor ?? "system",
+      startedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    if (this.options.stepRepository) {
+      await this.options.stepRepository.appendStep(step);
+    } else {
+      this.steps.set(step.id, step);
+    }
+    return step;
+  }
+
+  private async finishStep(
+    step: AgentStep,
+    status: AgentStepStatus,
+    output?: unknown,
+    error?: string,
+  ): Promise<void> {
+    const finishedAt = now();
+    step.status = status;
+    step.outputHash = output === undefined ? undefined : this.hashOf(output);
+    step.error = error;
+    step.finishedAt = finishedAt;
+    step.durationMs =
+      step.startedAt ? Date.parse(finishedAt) - Date.parse(step.startedAt) : 0;
+    step.updatedAt = finishedAt;
+    if (this.options.stepRepository) {
+      await this.options.stepRepository.updateStep({
+        stepId: step.id,
+        status,
+        outputHash: step.outputHash,
+        error,
+        executedBy: step.executedBy,
+        durationMs: step.durationMs,
+      });
+    } else {
+      this.steps.set(step.id, step);
+    }
+  }
+
+  /** NPV2-019：记录一次工具调用（输入哈希先落，输出哈希后补）。 */
+  private async beginToolInvocation(
+    task: AgentTask,
+    action: AgentAction,
+  ): Promise<ToolInvocationRecord> {
+    const record: ToolInvocationRecord = {
+      id: randomUUID(),
+      tenantId: task.tenantId,
+      taskId: task.id,
+      actionId: action.id,
+      tool: action.tool,
+      riskTier: action.riskTier,
+      status: "PENDING",
+      inputHash: this.hashOf({
+        tool: action.tool,
+        payload: action.payload,
+        targetType: action.targetType,
+        targetId: action.targetId,
+      }),
+      retries: 0,
+      executedBy: this.options.actor ?? "system",
+      createdAt: now(),
+    };
+    if (this.options.stepRepository) {
+      await this.options.stepRepository.recordToolInvocation(record);
+    } else {
+      this.toolInvocations.set(record.id, record);
+    }
+    return record;
+  }
+
+  private async finishToolInvocation(
+    record: ToolInvocationRecord,
+    status: ToolInvocationRecord["status"],
+    output?: unknown,
+    error?: string,
+  ): Promise<void> {
+    record.status = status;
+    record.outputHash = output === undefined ? undefined : this.hashOf(output);
+    record.error = error;
+    record.durationMs =
+      Date.parse(now()) - Date.parse(record.createdAt);
+    if (this.options.stepRepository) {
+      await this.options.stepRepository.updateToolInvocation({
+        invocationId: record.id,
+        status,
+        outputHash: record.outputHash,
+        retries: record.retries,
+        error,
+        executedBy: record.executedBy,
+        durationMs: record.durationMs,
+      });
+    } else {
+      this.toolInvocations.set(record.id, record);
+    }
+  }
+
+  /** NPV2-019：步骤/工具记录查询（重启后检查用）。 */
+  async getSteps(taskId: string): Promise<AgentStep[]> {
+    if (this.options.stepRepository) {
+      return this.options.stepRepository.listSteps(taskId);
+    }
+    return [...this.steps.values()]
+      .filter((step) => step.taskId === taskId)
+      .sort((a, b) => a.stepIndex - b.stepIndex);
+  }
+
+  async getToolInvocations(taskId: string): Promise<ToolInvocationRecord[]> {
+    if (this.options.stepRepository) {
+      return this.options.stepRepository.listToolInvocations(taskId);
+    }
+    return [...this.toolInvocations.values()].filter(
+      (record) => record.taskId === taskId,
+    );
+  }
+
+  /** NPV2-019：重启恢复——把该任务残留的 RUNNING 步骤复位为 PENDING。 */
+  async resumeInterruptedSteps(taskId: string): Promise<number> {
+    if (this.options.stepRepository) {
+      return this.options.stepRepository.resetInterruptedSteps(taskId);
+    }
+    let reset = 0;
+    for (const step of this.steps.values()) {
+      if (step.taskId !== taskId || step.status !== "RUNNING") continue;
+      step.status = "PENDING";
+      step.updatedAt = now();
+      this.steps.set(step.id, step);
+      reset += 1;
+    }
+    return reset;
+  }
+
   async run(taskId: string): Promise<AgentTask> {
     const task = await this.get(taskId);
     if (task.status === "SUCCEEDED" || task.status === "WAITING_APPROVAL") {
@@ -195,10 +360,15 @@ export class AgentRuntime {
       return task;
     }
     try {
+      const observeStep = await this.beginStep(task, "OBSERVE", task.input);
       const findings = await skill.observe(this.context, task.input);
+      await this.finishStep(observeStep, "SUCCEEDED", findings);
+
+      const planStep = await this.beginStep(task, "PLAN", findings);
       const actions = findings.flatMap((finding) =>
         skill.plan(finding, task.input),
       );
+      await this.finishStep(planStep, "SUCCEEDED", actions);
       task.findings = findings;
       task.actions = actions;
       task.riskTier = actions.reduce(
@@ -519,12 +689,20 @@ export class AgentRuntime {
         at: now(),
         detail: `blocked write tool in READER role: ${action.tool}`,
       });
+      const rejected = await this.beginToolInvocation(task, action);
+      await this.finishToolInvocation(
+        rejected,
+        "REJECTED",
+        undefined,
+        "READER_ROLE_CANNOT_WRITE",
+      );
       return {
         actionId: action.id,
         status: "REJECTED",
         error: "READER_ROLE_CANNOT_WRITE",
       };
     }
+    const invocation = await this.beginToolInvocation(task, action);
     try {
       const output = await tool.execute(
         {
@@ -540,6 +718,7 @@ export class AgentRuntime {
           approvedBy,
         },
       );
+      await this.finishToolInvocation(invocation, "EXECUTED", output);
       this.audit.push({
         taskId: task.id,
         actionId: action.id,
@@ -550,6 +729,7 @@ export class AgentRuntime {
       });
       return { actionId: action.id, status: "EXECUTED", output };
     } catch (error) {
+      await this.finishToolInvocation(invocation, "FAILED", undefined, String(error));
       this.audit.push({
         taskId: task.id,
         actionId: action.id,

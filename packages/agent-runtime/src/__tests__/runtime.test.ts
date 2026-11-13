@@ -315,6 +315,77 @@ class FakeRepository implements AgentTaskRepository {
   }
 }
 
+describe("agent step & tool invocation persistence (NPV2-019)", () => {
+  function makeRuntime() {
+    const context = new FakeContext();
+    const repository = new FakeRepository();
+    const runtime = new AgentRuntime(context, createDefaultTools(), createDefaultSkills(), {
+      actor: "step-worker",
+      repository,
+    });
+    return { runtime, repository };
+  }
+
+  it("records OBSERVE/PLAN steps with hashes and durations", async () => {
+    const { runtime } = makeRuntime();
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "step-1",
+    });
+    await runtime.run(task.id);
+    const steps = await runtime.getSteps(task.id);
+    const kinds = steps.map((s) => s.kind);
+    expect(kinds).toContain("OBSERVE");
+    expect(kinds).toContain("PLAN");
+    for (const step of steps) {
+      expect(step.status).toBe("SUCCEEDED");
+      expect(step.outputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(step.durationMs).toBeGreaterThanOrEqual(0);
+      expect(step.executedBy).toBe("step-worker");
+    }
+  });
+
+  it("records tool invocations consistent with task results", async () => {
+    const { runtime } = makeRuntime();
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "step-2",
+    });
+    const ran = await runtime.run(task.id);
+    const invocations = await runtime.getToolInvocations(task.id);
+    const executed = ran.results.filter((r) => r.status === "EXECUTED");
+    expect(invocations.length).toBe(executed.length);
+    for (const record of invocations) {
+      expect(record.inputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(record.outputHash).toBeDefined();
+      expect(record.status).toBe("EXECUTED");
+    }
+  });
+
+  it("resets interrupted RUNNING steps to PENDING on resume", async () => {
+    const { runtime } = makeRuntime();
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "step-3",
+    });
+    await runtime.run(task.id);
+    // 模拟 worker 崩溃残留：一个步骤卡在 RUNNING
+    const steps = await runtime.getSteps(task.id);
+    const target = steps[0]!;
+    target.status = "RUNNING";
+    const reset = await runtime.resumeInterruptedSteps(task.id);
+    expect(reset).toBeGreaterThanOrEqual(1);
+    const after = await runtime.getSteps(task.id);
+    expect(after.find((s) => s.id === target.id)!.status).toBe("PENDING");
+  });
+});
+
 describe("agent task claim / lease / CAS (NPV2-018)", () => {
   function makeRuntime() {
     const context = new FakeContext();

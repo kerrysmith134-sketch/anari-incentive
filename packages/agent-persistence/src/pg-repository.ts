@@ -3,8 +3,12 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   AgentTaskCasError,
   type AgentAuditEntry,
+  type AgentStep,
+  type AgentStepRepository,
+  type AgentStepStatus,
   type AgentTask,
   type AgentTaskRepository,
+  type ToolInvocationRecord,
 } from "@anari/agent-runtime";
 
 function iso(value: Date | string | null): string | undefined {
@@ -20,7 +24,9 @@ function asJson<T>(value: unknown, fallback: T): T {
  * PostgreSQL adapter for the agent runtime. Every operation runs in a
  * transaction with `app.tenant_id` set so RLS applies as defense in depth.
  */
-export class PgAgentTaskRepository implements AgentTaskRepository {
+export class PgAgentTaskRepository
+  implements AgentTaskRepository, AgentStepRepository
+{
   constructor(
     private readonly pool: Pool,
     private readonly tenantId: string,
@@ -245,6 +251,199 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
         ],
       );
     });
+  }
+
+  // ------------------------------------------------------------------
+  // NPV2-019：步骤与工具调用持久化。
+  // ------------------------------------------------------------------
+
+  async appendStep(step: AgentStep): Promise<void> {
+    await this.tx(async (client) => {
+      await client.query(
+        `INSERT INTO agent_task_steps
+          (id, tenant_id, task_id, step_index, kind, status, input_hash,
+           attempts, executed_by, started_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          step.id,
+          step.tenantId,
+          step.taskId,
+          step.stepIndex,
+          step.kind,
+          step.status,
+          step.inputHash ?? null,
+          step.attempts,
+          step.executedBy ?? null,
+          step.startedAt ?? null,
+        ],
+      );
+    });
+  }
+
+  async updateStep(input: {
+    stepId: string;
+    status?: AgentStepStatus;
+    outputHash?: string;
+    error?: string;
+    executedBy?: string;
+    durationMs?: number;
+  }): Promise<void> {
+    await this.tx(async (client) => {
+      await client.query(
+        `UPDATE agent_task_steps
+            SET status = COALESCE($3, status),
+                output_hash = COALESCE($4, output_hash),
+                error = COALESCE($5, error),
+                executed_by = COALESCE($6, executed_by),
+                duration_ms = COALESCE($7, duration_ms),
+                finished_at = CASE WHEN $3 IS NOT NULL THEN now() ELSE finished_at END,
+                updated_at = now()
+          WHERE tenant_id = $1 AND id = $2`,
+        [
+          this.tenantId,
+          input.stepId,
+          input.status ?? null,
+          input.outputHash ?? null,
+          input.error ?? null,
+          input.executedBy ?? null,
+          input.durationMs ?? null,
+        ],
+      );
+    });
+  }
+
+  async recordToolInvocation(record: ToolInvocationRecord): Promise<void> {
+    await this.tx(async (client) => {
+      await client.query(
+        `INSERT INTO agent_tool_invocations
+          (id, tenant_id, task_id, action_id, tool, risk_tier, status,
+           input_hash, retries, executed_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          record.id,
+          record.tenantId,
+          record.taskId,
+          record.actionId,
+          record.tool,
+          record.riskTier,
+          record.status,
+          record.inputHash,
+          record.retries,
+          record.executedBy ?? null,
+        ],
+      );
+    });
+  }
+
+  async updateToolInvocation(input: {
+    invocationId: string;
+    status?: ToolInvocationRecord["status"];
+    outputHash?: string;
+    retries?: number;
+    error?: string;
+    executedBy?: string;
+    durationMs?: number;
+  }): Promise<void> {
+    await this.tx(async (client) => {
+      await client.query(
+        `UPDATE agent_tool_invocations
+            SET status = COALESCE($3, status),
+                output_hash = COALESCE($4, output_hash),
+                retries = COALESCE($5, retries),
+                error = COALESCE($6, error),
+                executed_by = COALESCE($7, executed_by),
+                duration_ms = COALESCE($8, duration_ms)
+          WHERE tenant_id = $1 AND id = $2`,
+        [
+          this.tenantId,
+          input.invocationId,
+          input.status ?? null,
+          input.outputHash ?? null,
+          input.retries ?? null,
+          input.error ?? null,
+          input.executedBy ?? null,
+          input.durationMs ?? null,
+        ],
+      );
+    });
+  }
+
+  async listSteps(taskId: string): Promise<AgentStep[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM agent_task_steps
+          WHERE tenant_id = $1 AND task_id = $2
+          ORDER BY step_index, created_at`,
+        [this.tenantId, taskId],
+      );
+      return rows.map((row: QueryResultRow) => this.mapStep(row));
+    });
+  }
+
+  async listToolInvocations(taskId: string): Promise<ToolInvocationRecord[]> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM agent_tool_invocations
+          WHERE tenant_id = $1 AND task_id = $2
+          ORDER BY created_at, id`,
+        [this.tenantId, taskId],
+      );
+      return rows.map((row: QueryResultRow) => this.mapToolInvocation(row));
+    });
+  }
+
+  /** 重启恢复：把该任务残留的 RUNNING 步骤复位为 PENDING（保留 attempts）。 */
+  async resetInterruptedSteps(taskId: string): Promise<number> {
+    return this.tx(async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE agent_task_steps
+            SET status = 'PENDING', updated_at = now()
+          WHERE tenant_id = $1 AND task_id = $2 AND status = 'RUNNING'`,
+        [this.tenantId, taskId],
+      );
+      return rowCount ?? 0;
+    });
+  }
+
+  private mapStep(row: QueryResultRow): AgentStep {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      taskId: row.task_id,
+      stepIndex: Number(row.step_index),
+      kind: row.kind,
+      status: row.status,
+      inputHash: row.input_hash ?? undefined,
+      outputHash: row.output_hash ?? undefined,
+      error: row.error ?? undefined,
+      attempts: Number(row.attempts),
+      executedBy: row.executed_by ?? undefined,
+      startedAt: iso(row.started_at),
+      finishedAt: iso(row.finished_at),
+      durationMs: row.duration_ms === null ? undefined : Number(row.duration_ms),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  private mapToolInvocation(row: QueryResultRow): ToolInvocationRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      taskId: row.task_id,
+      actionId: row.action_id,
+      tool: row.tool,
+      riskTier: row.risk_tier,
+      status: row.status,
+      inputHash: row.input_hash,
+      outputHash: row.output_hash ?? undefined,
+      retries: Number(row.retries),
+      executedBy: row.executed_by ?? undefined,
+      durationMs:
+        row.duration_ms === null ? undefined : Number(row.duration_ms),
+      error: row.error ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
   }
 
   private mapTask(row: QueryResultRow): AgentTask {

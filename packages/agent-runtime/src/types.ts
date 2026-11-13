@@ -210,6 +210,83 @@ export interface AgentTaskRepository {
   recoverExpiredLeases(): Promise<number>;
 }
 
+/**
+ * NPV2-019：任务步骤持久化——每个步骤有独立状态、输入/输出哈希、重试计数、
+ * 执行身份与耗时。重启后可从未完成步骤恢复（resetInterruptedSteps 把
+ * RUNNING 复位为 PENDING），task 与 audit 状态一致。
+ */
+export type AgentStepKind = "OBSERVE" | "PLAN" | "EXECUTE" | "VERIFY";
+export type AgentStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "SKIPPED";
+
+export interface AgentStep {
+  id: string;
+  tenantId: string;
+  taskId: string;
+  stepIndex: number;
+  kind: AgentStepKind;
+  status: AgentStepStatus;
+  inputHash?: string;
+  outputHash?: string;
+  error?: string;
+  attempts: number;
+  executedBy?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** NPV2-019：工具调用记录——与 AgentStep 分离，一次动作一条。 */
+export interface ToolInvocationRecord {
+  id: string;
+  tenantId: string;
+  taskId: string;
+  actionId: string;
+  tool: string;
+  riskTier: RiskTier;
+  status: "PENDING" | "EXECUTED" | "FAILED" | "REJECTED";
+  inputHash: string;
+  outputHash?: string;
+  retries: number;
+  executedBy?: string;
+  durationMs?: number;
+  error?: string;
+  createdAt: string;
+}
+
+/** NPV2-019：步骤/工具记录持久化协议（与 AgentTaskRepository 同实现）。 */
+export interface AgentStepRepository {
+  appendStep(step: AgentStep): Promise<void>;
+  updateStep(input: {
+    stepId: string;
+    status?: AgentStepStatus;
+    outputHash?: string;
+    error?: string;
+    executedBy?: string;
+    durationMs?: number;
+  }): Promise<void>;
+  recordToolInvocation(record: ToolInvocationRecord): Promise<void>;
+  updateToolInvocation(input: {
+    invocationId: string;
+    status?: ToolInvocationRecord["status"];
+    outputHash?: string;
+    retries?: number;
+    error?: string;
+    executedBy?: string;
+    durationMs?: number;
+  }): Promise<void>;
+  listSteps(taskId: string): Promise<AgentStep[]>;
+  listToolInvocations(taskId: string): Promise<ToolInvocationRecord[]>;
+  /** 重启恢复：把该任务残留的 RUNNING 步骤复位为 PENDING。 */
+  resetInterruptedSteps(taskId: string): Promise<number>;
+}
+
 /** NPV2-018：CAS 版本冲突——任务已被其他持有者修改。 */
 export class AgentTaskCasError extends Error {
   constructor(

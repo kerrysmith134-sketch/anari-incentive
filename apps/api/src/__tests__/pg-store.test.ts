@@ -1438,6 +1438,61 @@ evidenceOpened: 1,rationale: "Self",
     );
   });
 
+  // ------------------------------------------------------------------
+  // NPV2-019：步骤与工具调用持久化 + 重启恢复。
+  // ------------------------------------------------------------------
+  it("persists steps and tool invocations; recovers interrupted steps (NPV2-019)", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "step-worker", repository },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `pg-agent-steps-${Date.now()}`,
+      actorRole: "READER",
+    });
+    const ran = await runtime.run(task.id);
+
+    const steps = await repository.listSteps(task.id);
+    expect(steps.map((s) => s.kind)).toEqual(
+      expect.arrayContaining(["OBSERVE", "PLAN"]),
+    );
+    for (const step of steps) {
+      expect(step.status).toBe("SUCCEEDED");
+      expect(step.outputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(step.durationMs).toBeGreaterThanOrEqual(0);
+    }
+
+    const invocations = await repository.listToolInvocations(task.id);
+    const executed = ran.results.filter((r) => r.status === "EXECUTED");
+    expect(invocations.length).toBe(executed.length);
+    for (const record of invocations) {
+      expect(record.inputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(record.status).toBe("EXECUTED");
+    }
+    // task/audit 状态一致：audit 里有 executed 记录
+    const audit = await repository.load();
+    const taskAudit = audit.audit.filter((entry) => entry.taskId === task.id);
+    expect(taskAudit.some((entry) => /executed/.test(entry.detail))).toBe(true);
+
+    // 重启恢复：把一个步骤置回 RUNNING，resetInterruptedSteps 复位 PENDING
+    const target = steps[0]!;
+    await pool.query(
+      `UPDATE agent_task_steps SET status = 'RUNNING'
+        WHERE tenant_id = $1 AND id = $2`,
+      [DEMO_TENANT_ID, target.id],
+    );
+    const reset = await repository.resetInterruptedSteps(task.id);
+    expect(reset).toBeGreaterThanOrEqual(1);
+    const after = await repository.listSteps(task.id);
+    expect(after.find((s) => s.id === target.id)!.status).toBe("PENDING");
+  });
+
   it("scopes reads to the store's tenant", async () => {
     const other = new PgStore(
       pool,

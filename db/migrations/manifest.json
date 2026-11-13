@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T19:11:09.406Z",
+  "generatedAt": "2026-11-13T19:50:08.425Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -425,6 +425,11 @@
       "file": "085_agent_task_leases.sql",
       "bytes": 1107,
       "sha256": "0ba1d30a8632e744d082a65032dfec0614f584bfd4b193f2a35464d0acb5d7e8"
+    },
+    {
+      "file": "086_agent_steps_tool_invocations.sql",
+      "bytes": 2731,
+      "sha256": "0fcdbf5a9ac94a0170ad8a331566c3e115af7119b14d761e21b1ac31cf6407a5"
     }
   ]
 }
