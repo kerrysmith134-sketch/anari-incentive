@@ -53,6 +53,9 @@ import {
   type MetricMeasurementSnapshot,
   type MetricMeasurementSnapshotFilter,
   type CreateMetricMeasurementSnapshotInput,
+  type AgentTodo,
+  type AgentTodoFilter,
+  type UpsertAgentTodoInput,
   type ContributionEvent,
   type ContributionEventFilter,
   type ContributionEventIngestResult,
@@ -211,6 +214,7 @@ export class Store implements IncentiveStore {
     ContributionAssessmentDraft
   >();
   private readonly metricSnapshots = new Map<string, MetricMeasurementSnapshot>();
+  private readonly agentTodos = new Map<string, AgentTodo>();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
     const timestamp = now();
@@ -634,6 +638,73 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  /** NPV2-020：Agent 待办 upsert（幂等：同 (tenant, idempotencyKey) 返回既有）。 */
+  async upsertAgentTodo(input: UpsertAgentTodoInput): Promise<AgentTodo> {
+    const existing = [...this.agentTodos.values()].find(
+      (todo) => todo.idempotencyKey === input.idempotencyKey,
+    );
+    if (existing) return existing;
+    const timestamp = now();
+    const todo: AgentTodo = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      ...input,
+      status: "OPEN",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.agentTodos.set(todo.id, todo);
+    return todo;
+  }
+
+  async listAgentTodos(filter?: AgentTodoFilter): Promise<AgentTodo[]> {
+    let todos = [...this.agentTodos.values()];
+    if (filter?.assigneePersonId) {
+      todos = todos.filter(
+        (todo) => todo.assigneePersonId === filter.assigneePersonId,
+      );
+    }
+    if (filter?.status) {
+      todos = todos.filter((todo) => todo.status === filter.status);
+    }
+    if (filter?.sourceType) {
+      todos = todos.filter((todo) => todo.sourceType === filter.sourceType);
+    }
+    return todos.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async getAgentTodo(id: string): Promise<AgentTodo> {
+    const todo = this.agentTodos.get(id);
+    if (!todo) throw new NotFoundError(`AgentTodo ${id} not found`);
+    return todo;
+  }
+
+  async completeAgentTodo(
+    id: string,
+    completedByPersonId: string,
+  ): Promise<AgentTodo> {
+    const todo = await this.getAgentTodo(id);
+    if (todo.status !== "OPEN") {
+      throw new ConflictError(`AGENT_TODO_NOT_OPEN: todo is ${todo.status}`);
+    }
+    todo.status = "DONE";
+    todo.completedByPersonId = completedByPersonId;
+    todo.completedAt = now();
+    todo.updatedAt = now();
+    return todo;
+  }
+
+  async cancelAgentTodo(id: string, reason?: string): Promise<AgentTodo> {
+    const todo = await this.getAgentTodo(id);
+    if (todo.status !== "OPEN") {
+      throw new ConflictError(`AGENT_TODO_NOT_OPEN: todo is ${todo.status}`);
+    }
+    todo.status = "CANCELLED";
+    todo.cancelReason = reason;
+    todo.updatedAt = now();
+    return todo;
   }
 
   /** 服务端计算冻结哈希：按 metricId+observedAt 排序后 sha256。 */

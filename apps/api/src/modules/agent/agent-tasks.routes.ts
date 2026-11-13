@@ -22,6 +22,9 @@ import {
   requireRoles,
   tenantOf,
   idOf,
+  personFilter,
+  policyBody,
+  requireString,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -415,6 +418,50 @@ export function registerAgentTaskRoutes(deps: {
         body.actionId,
         body.approverPersonId,
         body.reason,
+      ),
+      request,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // NPV2-020：Agent 待办——持久业务对象（责任人/dueAt/关联对象/幂等/来源），
+  // 业务 UI 可查、可处理、可验证。
+  // ------------------------------------------------------------------
+  app.get("/api/v1/agent-todos", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const person = personFilter(request);
+    return data(
+      await storeFor(request).listAgentTodos({
+        assigneePersonId: person ?? query.assigneePersonId,
+        status: query.status as never,
+        sourceType: query.sourceType,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/agent-todos/:id", async (request) => {
+    return data(
+      await storeFor(request).getAgentTodo(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/agent-todos/:id/complete", async (request) => {
+    const body = policyBody(request);
+    const completedBy = requireString(body, "completedByPersonId");
+    return data(
+      await storeFor(request).completeAgentTodo(idOf(request), completedBy),
+      request,
+    );
+  });
+
+  app.post("/api/v1/agent-todos/:id/cancel", async (request) => {
+    const body = policyBody(request);
+    return data(
+      await storeFor(request).cancelAgentTodo(
+        idOf(request),
+        typeof body.reason === "string" ? body.reason : undefined,
       ),
       request,
     );

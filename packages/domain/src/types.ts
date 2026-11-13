@@ -2473,3 +2473,55 @@ export interface MetricMeasurementSnapshotFilter {
   personId?: UUID;
   status?: MetricMeasurementSnapshot["status"];
 }
+
+/**
+ * NPV2-020：Agent 待办（Todo / Follow-up Task）。
+ *
+ * Agent 创建的待办是持久业务对象（不是聊天记录）：有责任人、dueAt、
+ * 关联对象、幂等键与来源（来源 agent 任务/发现）。业务 UI 可查、可处理、
+ * 可验证；同 (tenant, idempotencyKey) 重复创建不重复入库。
+ */
+export interface AgentTodo {
+  id: UUID;
+  tenantId: UUID;
+  title: string;
+  detail?: string;
+  /** 责任人。 */
+  assigneePersonId: UUID;
+  dueAt?: string;
+  /** 关联业务对象。 */
+  targetType?: string;
+  targetId?: string;
+  /** 来源：AGENT_TASK / AGENT_FINDING / MANUAL 等。 */
+  sourceType: string;
+  /** 来源记录 id（如 agent task id）。 */
+  sourceId: string;
+  /** 幂等键：同 (tenant, key) 只创建一次。 */
+  idempotencyKey: string;
+  createdByAgentTaskId?: UUID;
+  status: "OPEN" | "DONE" | "CANCELLED";
+  completedByPersonId?: UUID;
+  completedAt?: string;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertAgentTodoInput {
+  title: string;
+  detail?: string;
+  assigneePersonId: UUID;
+  dueAt?: string;
+  targetType?: string;
+  targetId?: string;
+  sourceType: string;
+  sourceId: string;
+  idempotencyKey: string;
+  createdByAgentTaskId?: UUID;
+}
+
+export interface AgentTodoFilter {
+  assigneePersonId?: UUID;
+  status?: AgentTodo["status"];
+  sourceType?: string;
+}

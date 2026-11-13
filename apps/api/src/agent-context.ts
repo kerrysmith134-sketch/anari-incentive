@@ -19,5 +19,7 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     createDataQualityIssue: (input) => store.createDataQualityIssue(input),
     createEvaluationDraft: (input) => store.createEvaluationDraft(input),
     createNotification: (input) => store.createNotification(input),
+    upsertAgentTodo: (input) => store.upsertAgentTodo(input),
+    listAgentTodos: (filter) => store.listAgentTodos(filter),
   };
 }

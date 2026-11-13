@@ -781,6 +781,53 @@ function registerContractSuite(
     expect(list.length).toBe(2);
   });
 
+  it("Agent 待办域：幂等创建/完成记录操作人/取消带原因/重复调用不重复", async () => {
+    const base = {
+      title: `补交客户验收单 ${suffix}`,
+      detail: "合同验收流程缺失验收单",
+      assigneePersonId: OWNER,
+      dueAt: "2026-11-30T00:00:00.000Z",
+      targetType: "WORK_PACKAGE",
+      targetId: `wp-${suffix}`,
+      sourceType: "AGENT_TASK",
+      sourceId: `task-${suffix}`,
+      idempotencyKey: `todo-${suffix}`,
+    };
+    const first = await store.upsertAgentTodo(base);
+    expect(first.status).toBe("OPEN");
+    // 幂等：同键重复创建返回既有
+    const replay = await store.upsertAgentTodo(base);
+    expect(replay.id).toBe(first.id);
+
+    const listed = await store.listAgentTodos({
+      assigneePersonId: OWNER,
+      status: "OPEN",
+    });
+    expect(listed.some((t) => t.id === first.id)).toBe(true);
+
+    // 完成：记录操作人与时间
+    const done = await store.completeAgentTodo(first.id, OWNER);
+    expect(done.status).toBe("DONE");
+    expect(done.completedByPersonId).toBe(OWNER);
+    expect(done.completedAt).toBeDefined();
+    // 已完成的不能再完成/取消
+    await expect(store.completeAgentTodo(first.id, OWNER)).rejects.toThrow(
+      "AGENT_TODO_NOT_OPEN",
+    );
+    await expect(store.cancelAgentTodo(first.id)).rejects.toThrow(
+      "AGENT_TODO_NOT_OPEN",
+    );
+
+    // 取消路径
+    const second = await store.upsertAgentTodo({
+      ...base,
+      idempotencyKey: `todo-cancel-${suffix}`,
+    });
+    const cancelled = await store.cancelAgentTodo(second.id, "误报");
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.cancelReason).toBe("误报");
+  });
+
   it("审计域：追加事件后哈希链可验证", async () => {
     await store.recordAuditEvent({
       actorType: "USER",

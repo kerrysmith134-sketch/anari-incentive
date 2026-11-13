@@ -123,6 +123,42 @@ export interface AgentContext {
     sourceType?: string;
     sourceId?: string;
   }): Promise<InAppNotification>;
+  /** NPV2-020：持久化待办（幂等：同 (tenant, idempotencyKey) 不重复创建）。 */
+  upsertAgentTodo(input: {
+    title: string;
+    detail?: string;
+    assigneePersonId: string;
+    dueAt?: string;
+    targetType?: string;
+    targetId?: string;
+    sourceType: string;
+    sourceId: string;
+    idempotencyKey: string;
+    createdByAgentTaskId?: string;
+  }): Promise<{
+    id: string;
+    title: string;
+    assigneePersonId: string;
+    status: string;
+    dueAt?: string;
+    idempotencyKey: string;
+    sourceType: string;
+    sourceId: string;
+  }>;
+  listAgentTodos(filter?: {
+    assigneePersonId?: string;
+    status?: "OPEN" | "DONE" | "CANCELLED";
+  }): Promise<
+    Array<{
+      id: string;
+      title: string;
+      assigneePersonId: string;
+      status: string;
+      dueAt?: string;
+      targetId?: string;
+      sourceId: string;
+    }>
+  >;
   createEvaluationDraft(input: {
     cycleId: string;
     personId: string;

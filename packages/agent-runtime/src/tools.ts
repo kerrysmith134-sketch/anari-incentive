@@ -51,6 +51,14 @@ async function notify(
   });
 }
 
+function actionIdOf(input: Record<string, unknown>): string {
+  return typeof input.actionId === "string"
+    ? input.actionId
+    : typeof input.finding === "string"
+      ? input.finding.slice(0, 48)
+      : randomUUID();
+}
+
 export function createDefaultTools(): AgentTool[] {
   return [
     {
@@ -85,9 +93,38 @@ export function createDefaultTools(): AgentTool[] {
       name: "create_todo",
       riskTier: "T1",
       access: "WRITE",
-      description: "Create a low-risk follow-up todo for a responsible person.",
-      async execute(input) {
-        return { todoId: randomUUID(), targetId: input.targetId ?? null };
+      description:
+        "Create a persistent follow-up todo (assignee, dueAt, linked target). Idempotent per idempotencyKey.",
+      async execute(input, context, toolContext) {
+        const title = typeof input.title === "string" ? input.title : "";
+        const assigneePersonId =
+          typeof input.assigneePersonId === "string"
+            ? input.assigneePersonId
+            : "";
+        if (!title || !assigneePersonId) {
+          throw new Error("CREATE_TODO_FIELDS_REQUIRED");
+        }
+        // NPV2-020：幂等键缺省 = 任务+工具+目标，重复调用不重复创建。
+        const idempotencyKey =
+          typeof input.idempotencyKey === "string" && input.idempotencyKey
+            ? input.idempotencyKey
+            : `${toolContext?.taskId ?? "manual"}:${actionIdOf(input)}:create_todo`;
+        const todo = await context.upsertAgentTodo({
+          title,
+          detail:
+            typeof input.detail === "string" ? input.detail : undefined,
+          assigneePersonId,
+          dueAt: typeof input.dueAt === "string" ? input.dueAt : undefined,
+          targetType:
+            typeof input.targetType === "string"
+              ? input.targetType
+              : undefined,
+          targetId: typeof input.targetId === "string" ? input.targetId : undefined,
+          sourceType: "AGENT_TASK",
+          sourceId: toolContext?.taskId ?? "manual",
+          idempotencyKey,
+        });
+        return { todoId: todo.id, status: todo.status, targetId: input.targetId ?? null };
       },
     },
     {

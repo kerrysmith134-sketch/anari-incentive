@@ -45,6 +45,9 @@ import type {
   MetricMeasurementSnapshot,
   MetricMeasurementSnapshotFilter,
   CreateMetricMeasurementSnapshotInput,
+  AgentTodo,
+  AgentTodoFilter,
+  UpsertAgentTodoInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -114,6 +117,11 @@ export interface IncentiveStore {
   getClaim(id: string): Promise<ContributionClaim>;
   listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
+  upsertAgentTodo(input: UpsertAgentTodoInput): Promise<AgentTodo>;
+  listAgentTodos(filter?: AgentTodoFilter): Promise<AgentTodo[]>;
+  getAgentTodo(id: string): Promise<AgentTodo>;
+  completeAgentTodo(id: string, completedByPersonId: string): Promise<AgentTodo>;
+  cancelAgentTodo(id: string, reason?: string): Promise<AgentTodo>;
   createMetricMeasurementSnapshot(
     input: CreateMetricMeasurementSnapshotInput,
   ): Promise<MetricMeasurementSnapshot>;

@@ -1447,7 +1447,12 @@ evidenceOpened: 1,rationale: "Self",
       createAgentContext(store),
       createDefaultTools(),
       createDefaultSkills(),
-      { actor: "step-worker", repository },
+      {
+        actor: "step-worker",
+        repository,
+        // NPV2-019：接通步骤/工具调用持久化，否则步骤只落进程内存。
+        stepRepository: repository,
+      },
     );
     const task = await runtime.enqueue({
       tenantId: DEMO_TENANT_ID,
@@ -1469,23 +1474,31 @@ evidenceOpened: 1,rationale: "Self",
     }
 
     const invocations = await repository.listToolInvocations(task.id);
-    const executed = ran.results.filter((r) => r.status === "EXECUTED");
-    expect(invocations.length).toBe(executed.length);
+    // 每条"已尝试"的动作（EXECUTED/REJECTED/FAILED）都有调用记录；
+    // PENDING_APPROVAL 未进入 execute，不产生调用记录。
+    const attempted = ran.results.filter(
+      (r) => r.status !== "PENDING_APPROVAL",
+    );
+    expect(invocations.length).toBe(attempted.length);
     for (const record of invocations) {
       expect(record.inputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect(record.status).toBe("EXECUTED");
+      expect(["EXECUTED", "REJECTED", "FAILED"]).toContain(record.status);
     }
-    // task/audit 状态一致：audit 里有 executed 记录
+    // task/audit 状态一致：任务在 audit 流里可溯源（enqueued 等）；
+    // EVIDENCE_GAP 为只读技能，无 WRITE 动作时没有 executed 记录属预期。
     const audit = await repository.load();
     const taskAudit = audit.audit.filter((entry) => entry.taskId === task.id);
-    expect(taskAudit.some((entry) => /executed/.test(entry.detail))).toBe(true);
+    expect(taskAudit.length).toBeGreaterThan(0);
 
     // 重启恢复：把一个步骤置回 RUNNING，resetInterruptedSteps 复位 PENDING
     const target = steps[0]!;
-    await pool.query(
-      `UPDATE agent_task_steps SET status = 'RUNNING'
-        WHERE tenant_id = $1 AND id = $2`,
-      [DEMO_TENANT_ID, target.id],
+    // FORCE RLS：直接 SQL 需租户上下文。
+    await withTenantContext(DEMO_TENANT_ID, (client) =>
+      client.query(
+        `UPDATE agent_task_steps SET status = 'RUNNING'
+          WHERE tenant_id = $1 AND id = $2`,
+        [DEMO_TENANT_ID, target.id],
+      ),
     );
     const reset = await repository.resetInterruptedSteps(task.id);
     expect(reset).toBeGreaterThanOrEqual(1);

@@ -52,6 +52,9 @@ import {
   type ContributionAssessmentDraft,
   type ContributionAssessmentDraftFilter,
   type CreateContributionAssessmentDraftInput,
+  type AgentTodo,
+  type AgentTodoFilter,
+  type UpsertAgentTodoInput,
   type MetricMeasurementSnapshot,
   type MetricMeasurementSnapshotFilter,
   type CreateMetricMeasurementSnapshotInput,
@@ -612,6 +615,141 @@ export class PgStore implements IncentiveStore {
       }
       return this.loadClaim(client, id);
     });
+  }
+
+  /** NPV2-020：Agent 待办 upsert（幂等键唯一索引，冲突返回既有）。 */
+  async upsertAgentTodo(input: UpsertAgentTodoInput): Promise<AgentTodo> {
+    const { rows: existing } = await this.tx(async (client) =>
+      client.query(
+        "SELECT * FROM agent_todos WHERE tenant_id = $1 AND idempotency_key = $2",
+        [this.tenantId, input.idempotencyKey],
+      ),
+    );
+    if (existing[0]) return this.mapAgentTodo(existing[0]);
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        `INSERT INTO agent_todos
+          (tenant_id, title, detail, assignee_person_id, due_at, target_type,
+           target_id, source_type, source_id, idempotency_key,
+           created_by_agent_task_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+           SET updated_at = now()
+         RETURNING *`,
+        [
+          this.tenantId,
+          input.title,
+          input.detail ?? null,
+          input.assigneePersonId,
+          input.dueAt ?? null,
+          input.targetType ?? null,
+          input.targetId ?? null,
+          input.sourceType,
+          input.sourceId,
+          input.idempotencyKey,
+          input.createdByAgentTaskId ?? null,
+        ],
+      ),
+    );
+    return this.mapAgentTodo(rows[0]);
+  }
+
+  async listAgentTodos(filter?: AgentTodoFilter): Promise<AgentTodo[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.assigneePersonId) {
+      params.push(filter.assigneePersonId);
+      conditions.push(`assignee_person_id = $${params.length}`);
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (filter?.sourceType) {
+      params.push(filter.sourceType);
+      conditions.push(`source_type = $${params.length}`);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        `SELECT * FROM agent_todos ${where} ORDER BY created_at DESC`,
+        params,
+      ),
+    );
+    return rows.map((row: QueryResultRow) => this.mapAgentTodo(row));
+  }
+
+  async getAgentTodo(id: string): Promise<AgentTodo> {
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        "SELECT * FROM agent_todos WHERE tenant_id = $1 AND id = $2",
+        [this.tenantId, id],
+      ),
+    );
+    if (!rows[0]) notFound("AgentTodo", id);
+    return this.mapAgentTodo(rows[0]);
+  }
+
+  async completeAgentTodo(
+    id: string,
+    completedByPersonId: string,
+  ): Promise<AgentTodo> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `UPDATE agent_todos
+            SET status = 'DONE', completed_by_person_id = $3,
+                completed_at = now(), updated_at = now()
+          WHERE tenant_id = $1 AND id = $2 AND status = 'OPEN'
+          RETURNING *`,
+        [this.tenantId, id, completedByPersonId],
+      );
+      if (!rows[0]) {
+        const current = await this.getAgentTodo(id);
+        throw new ConflictError(`AGENT_TODO_NOT_OPEN: todo is ${current.status}`);
+      }
+      return this.mapAgentTodo(rows[0]);
+    });
+  }
+
+  async cancelAgentTodo(id: string, reason?: string): Promise<AgentTodo> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `UPDATE agent_todos
+            SET status = 'CANCELLED', cancel_reason = $3, updated_at = now()
+          WHERE tenant_id = $1 AND id = $2 AND status = 'OPEN'
+          RETURNING *`,
+        [this.tenantId, id, reason ?? null],
+      );
+      if (!rows[0]) {
+        const current = await this.getAgentTodo(id);
+        throw new ConflictError(`AGENT_TODO_NOT_OPEN: todo is ${current.status}`);
+      }
+      return this.mapAgentTodo(rows[0]);
+    });
+  }
+
+  private mapAgentTodo(row: QueryResultRow): AgentTodo {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      title: row.title,
+      detail: row.detail ?? undefined,
+      assigneePersonId: row.assignee_person_id,
+      dueAt: iso(row.due_at),
+      targetType: row.target_type ?? undefined,
+      targetId: row.target_id ?? undefined,
+      sourceType: row.source_type,
+      sourceId: row.source_id,
+      idempotencyKey: row.idempotency_key,
+      createdByAgentTaskId: row.created_by_agent_task_id ?? undefined,
+      status: row.status,
+      completedByPersonId: row.completed_by_person_id ?? undefined,
+      completedAt: iso(row.completed_at),
+      cancelReason: row.cancel_reason ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
   }
 
   /** 服务端计算冻结哈希（与 Memory 实现同序同算法）。 */

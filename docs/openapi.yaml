@@ -324,6 +324,93 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/agent-todos:
+    get:
+      tags: [Agent todos]
+      summary: List persistent agent todos (business UI source of truth)
+      parameters:
+        - name: assigneePersonId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, DONE, CANCELLED]
+      responses:
+        "200":
+          description: Todos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/agent-todos/{id}:
+    get:
+      tags: [Agent todos]
+      summary: Get one agent todo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Todo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/agent-todos/{id}/complete:
+    post:
+      tags: [Agent todos]
+      summary: Complete an open todo (records who completed it)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [completedByPersonId]
+              properties:
+                completedByPersonId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Completed todo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+  /api/v1/agent-todos/{id}/cancel:
+    post:
+      tags: [Agent todos]
+      summary: Cancel an open todo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Cancelled todo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+
   /api/v1/metric-measurement-snapshots:
     get:
       tags: [Metric measurement snapshots]
