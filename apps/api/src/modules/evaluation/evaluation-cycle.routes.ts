@@ -15,6 +15,8 @@ import {
   createRubricSchema,
   decideEvaluationDraftSchema,
   recordConfirmationSchema,
+  createMetricMeasurementSnapshotSchema,
+  linkMetricMeasurementSnapshotSchema,
 } from "@anari/contracts";
 import {
   data,
@@ -277,5 +279,60 @@ export function registerEvaluationCycleRoutes(deps: {
       request,
     );
   });
+  // ------------------------------------------------------------------
+  // NPV2-017：指标计量快照——冻结评价所依据的原始指标（来源/观测时间/
+  // 质量状态），contentHash 服务端计算、冻结后不可变；正式评价决定
+  // 通过 link-decision 绑定快照，形成 决定 → 快照 → 来源记录 的追溯链。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/metric-measurement-snapshots", async (request, reply) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(createMetricMeasurementSnapshotSchema, request.body);
+    return reply.status(201).send(
+      data(
+        await storeFor(request).createMetricMeasurementSnapshot(body),
+        request,
+      ),
+    );
+  });
+
+  app.get("/api/v1/metric-measurement-snapshots", async (request) => {
+    const query = request.query as Record<string, string | undefined>;
+    const person = personFilter(request);
+    return data(
+      await storeFor(request).listMetricMeasurementSnapshots({
+        cycleId: query.cycleId,
+        personId: person ?? query.personId,
+        status: query.status as never,
+      }),
+      request,
+    );
+  });
+
+  app.get("/api/v1/metric-measurement-snapshots/:id", async (request) => {
+    return data(
+      await storeFor(request).getMetricMeasurementSnapshot(idOf(request)),
+      request,
+    );
+  });
+
+  app.get("/api/v1/metric-measurement-snapshots/:id/verify", async (request) => {
+    return data(
+      await storeFor(request).verifyMetricMeasurementSnapshot(idOf(request)),
+      request,
+    );
+  });
+
+  app.post("/api/v1/metric-measurement-snapshots/:id/link-decision", async (request) => {
+    requireRoles(request, "manager", "finance");
+    const body = parse(linkMetricMeasurementSnapshotSchema, request.body);
+    return data(
+      await storeFor(request).linkMetricMeasurementSnapshotToDecision(
+        idOf(request),
+        body,
+      ),
+      request,
+    );
+  });
+
   };
 }

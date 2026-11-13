@@ -2419,3 +2419,57 @@ export interface ContributionAssessmentDraftFilter {
   subjectPersonId?: UUID;
   status?: ContributionAssessmentDraft["status"];
 }
+
+/**
+ * NPV2-017：指标计量快照（Metric Measurement Snapshot）。
+ *
+ * 冻结一次评价所依据的原始指标数据：每条 measurement 记录指标、取值、
+ * 来源与来源记录引用；contentHash 由服务端对排序后的 measurements 计算，
+ * 冻结后不可变。正式 Evaluation Decision 通过 link-decision 绑定快照，
+ * 实现追溯链：决定 → 快照（contentHash + measurements）→ 来源记录，
+ * 以及决定已有的 rubricVersionId。
+ */
+export interface MetricMeasurementRecord {
+  metricId: string;
+  name: string;
+  /** 1e6 十进制字符串。 */
+  value: string;
+  unit?: string;
+  /** 数据来源（连接器名 / MANUAL / EVIDENCE）。 */
+  source: string;
+  /** 来源记录引用（贡献事件/证据/摄取批次 id）。 */
+  sourceRef?: string;
+  observedAt: string;
+  qualityStatus: "VALID" | "MISSING" | "STALE" | "CONFLICTED";
+}
+
+export interface MetricMeasurementSnapshot {
+  id: UUID;
+  tenantId: UUID;
+  cycleId: UUID;
+  personId: UUID;
+  rubricVersionId: UUID;
+  measurements: MetricMeasurementRecord[];
+  /** sha256(按 metricId+observedAt 排序后的 measurements)，冻结凭证。 */
+  contentHash: string;
+  frozenAt: string;
+  frozenBy: UUID;
+  status: "FROZEN" | "CONSUMED";
+  /** 链接的正式评价决定（FROZEN→CONSUMED 时写入）。 */
+  evaluationDecisionId?: UUID;
+  createdAt: string;
+}
+
+export interface CreateMetricMeasurementSnapshotInput {
+  cycleId: UUID;
+  personId: UUID;
+  rubricVersionId: UUID;
+  measurements: MetricMeasurementRecord[];
+  frozenBy: UUID;
+}
+
+export interface MetricMeasurementSnapshotFilter {
+  cycleId?: UUID;
+  personId?: UUID;
+  status?: MetricMeasurementSnapshot["status"];
+}

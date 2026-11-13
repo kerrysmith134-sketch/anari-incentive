@@ -42,6 +42,9 @@ import type {
   ContributionAssessmentDraft,
   ContributionAssessmentDraftFilter,
   CreateContributionAssessmentDraftInput,
+  MetricMeasurementSnapshot,
+  MetricMeasurementSnapshotFilter,
+  CreateMetricMeasurementSnapshotInput,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -111,6 +114,22 @@ export interface IncentiveStore {
   getClaim(id: string): Promise<ContributionClaim>;
   listClaims(): Promise<ContributionClaim[]>;
   submitClaim(id: string): Promise<ContributionClaim>;
+  createMetricMeasurementSnapshot(
+    input: CreateMetricMeasurementSnapshotInput,
+  ): Promise<MetricMeasurementSnapshot>;
+  listMetricMeasurementSnapshots(
+    filter?: MetricMeasurementSnapshotFilter,
+  ): Promise<MetricMeasurementSnapshot[]>;
+  getMetricMeasurementSnapshot(id: string): Promise<MetricMeasurementSnapshot>;
+  /** 复核冻结凭证：重算排序哈希并与冻结值比对。 */
+  verifyMetricMeasurementSnapshot(
+    id: string,
+  ): Promise<{ snapshotId: string; valid: boolean; expectedHash: string; actualHash: string }>;
+  /** NPV2-017 追溯链：决定必须已存在；FROZEN→CONSUMED 记录决定 id。 */
+  linkMetricMeasurementSnapshotToDecision(
+    id: string,
+    input: { evaluationDecisionId: string; linkedBy: string },
+  ): Promise<MetricMeasurementSnapshot>;
   createContributionAssessmentDraft(
     input: CreateContributionAssessmentDraftInput,
   ): Promise<ContributionAssessmentDraft>;

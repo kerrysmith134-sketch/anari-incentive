@@ -656,6 +656,131 @@ function registerContractSuite(
     ).rejects.toThrow("not found");
   });
 
+  it("指标快照域：冻结哈希确定性、复核、决定绑定追溯、错配拒绝", async () => {
+    const rubric = await store.createRubric({
+      code: `SNAP_RUBRIC_${suffix}`,
+      name: "Snapshot rubric",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const measurements = [
+      {
+        metricId: "QUALITY_SCORE",
+        name: "质量分",
+        value: "4500000",
+        source: `assess-${suffix}`,
+        sourceRef: `ev-${suffix}`,
+        observedAt: "2026-10-15T00:00:00.000Z",
+        qualityStatus: "VALID" as const,
+      },
+      {
+        metricId: "ON_TIME_RATE",
+        name: "准时率",
+        value: "980000",
+        unit: "%",
+        source: "MANUAL",
+        observedAt: "2026-10-16T00:00:00.000Z",
+        qualityStatus: "STALE" as const,
+      },
+    ];
+    // 冻结：哈希服务端计算，重复冻结同数据哈希一致（确定性）
+    const first = await store.createMetricMeasurementSnapshot({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+      rubricVersionId: rubric.id,
+      measurements,
+      frozenBy: ADJUDICATOR,
+    });
+    const second = await store.createMetricMeasurementSnapshot({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+      rubricVersionId: rubric.id,
+      measurements: [...measurements].reverse(),
+      frozenBy: ADJUDICATOR,
+    });
+    expect(first.contentHash).toBe(second.contentHash);
+
+    // 复核：重算哈希一致
+    const verified = await store.verifyMetricMeasurementSnapshot(first.id);
+    expect(verified.valid).toBe(true);
+
+    // 决定不存在时链接被拒（追溯链必须指向真实决定）
+    await expect(
+      store.linkMetricMeasurementSnapshotToDecision(first.id, {
+        evaluationDecisionId: randomUUID(),
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("not found");
+
+    // 通过评价草案决定建立真实决定，再绑定快照
+    const draft = await store.createEvaluationDraft({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+      generatedByType: "USER",
+      evidenceSnapshotHash: `snap-eval-${suffix}`,
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(draft.id);
+    const result = await store.decideEvaluationDraft(draft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: { QUALITY: 4 },
+      independentScores: { QUALITY: 4 },
+      independentRationale: "snapshot trace",
+      evidenceOpened: 1,
+      rationale: "with snapshot",
+    });
+    const decisionId = result.decision!.id;
+    const consumed = await store.linkMetricMeasurementSnapshotToDecision(
+      first.id,
+      { evaluationDecisionId: decisionId, linkedBy: ADJUDICATOR },
+    );
+    expect(consumed.status).toBe("CONSUMED");
+    expect(consumed.evaluationDecisionId).toBe(decisionId);
+
+    // 已消费快照不可再次绑定
+    await expect(
+      store.linkMetricMeasurementSnapshotToDecision(first.id, {
+        evaluationDecisionId: decisionId,
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("SNAPSHOT_NOT_FROZEN");
+
+    // 人/周期错配的决定 → 拒绝
+    const otherDraft = await store.createEvaluationDraft({
+      cycleId: ctx.cycleId,
+      personId: MEMBER,
+      generatedByType: "USER",
+      evidenceSnapshotHash: `snap-eval-2-${suffix}`,
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(otherDraft.id);
+    const otherResult = await store.decideEvaluationDraft(otherDraft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: { QUALITY: 3 },
+      independentScores: { QUALITY: 3 },
+      independentRationale: "mismatch probe",
+      evidenceOpened: 1,
+      rationale: "mismatch",
+    });
+    await expect(
+      store.linkMetricMeasurementSnapshotToDecision(second.id, {
+        evaluationDecisionId: otherResult.decision!.id,
+        linkedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow("SNAPSHOT_DECISION_MISMATCH");
+
+    const list = await store.listMetricMeasurementSnapshots({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+    });
+    expect(list.length).toBe(2);
+  });
+
   it("审计域：追加事件后哈希链可验证", async () => {
     await store.recordAuditEvent({
       actorType: "USER",

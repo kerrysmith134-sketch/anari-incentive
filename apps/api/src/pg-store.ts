@@ -52,6 +52,9 @@ import {
   type ContributionAssessmentDraft,
   type ContributionAssessmentDraftFilter,
   type CreateContributionAssessmentDraftInput,
+  type MetricMeasurementSnapshot,
+  type MetricMeasurementSnapshotFilter,
+  type CreateMetricMeasurementSnapshotInput,
   type ContributionEvent,
   type ContributionEventFilter,
   type ContributionEventIngestResult,
@@ -609,6 +612,157 @@ export class PgStore implements IncentiveStore {
       }
       return this.loadClaim(client, id);
     });
+  }
+
+  /** 服务端计算冻结哈希（与 Memory 实现同序同算法）。 */
+  private computeSnapshotHash(
+    measurements: MetricMeasurementSnapshot["measurements"],
+  ): string {
+    const ordered = [...measurements].sort((a, b) =>
+      `${a.metricId}|${a.observedAt}` < `${b.metricId}|${b.observedAt}` ? -1 : 1,
+    );
+    return sha256(ordered);
+  }
+
+  async createMetricMeasurementSnapshot(
+    input: CreateMetricMeasurementSnapshotInput,
+  ): Promise<MetricMeasurementSnapshot> {
+    await this.getEvaluationCycle(input.cycleId);
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        `INSERT INTO metric_measurement_snapshots
+          (tenant_id, cycle_id, person_id, rubric_version_id, measurements,
+           content_hash, frozen_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [
+          this.tenantId,
+          input.cycleId,
+          input.personId,
+          input.rubricVersionId,
+          JSON.stringify(input.measurements),
+          this.computeSnapshotHash(input.measurements),
+          input.frozenBy,
+        ],
+      ),
+    );
+    return this.mapMetricSnapshot(rows[0]);
+  }
+
+  async listMetricMeasurementSnapshots(
+    filter?: MetricMeasurementSnapshotFilter,
+  ): Promise<MetricMeasurementSnapshot[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.cycleId) {
+      params.push(filter.cycleId);
+      conditions.push(`cycle_id = $${params.length}`);
+    }
+    if (filter?.personId) {
+      params.push(filter.personId);
+      conditions.push(`person_id = $${params.length}`);
+    }
+    if (filter?.status) {
+      params.push(filter.status);
+      conditions.push(`status = $${params.length}`);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        `SELECT * FROM metric_measurement_snapshots ${where}
+          ORDER BY created_at DESC`,
+        params,
+      ),
+    );
+    return rows.map((row: QueryResultRow) => this.mapMetricSnapshot(row));
+  }
+
+  async getMetricMeasurementSnapshot(
+    id: string,
+  ): Promise<MetricMeasurementSnapshot> {
+    const { rows } = await this.tx(async (client) =>
+      client.query(
+        "SELECT * FROM metric_measurement_snapshots WHERE tenant_id = $1 AND id = $2",
+        [this.tenantId, id],
+      ),
+    );
+    if (!rows[0]) notFound("MetricMeasurementSnapshot", id);
+    return this.mapMetricSnapshot(rows[0]);
+  }
+
+  async verifyMetricMeasurementSnapshot(id: string) {
+    const snapshot = await this.getMetricMeasurementSnapshot(id);
+    const actualHash = this.computeSnapshotHash(snapshot.measurements);
+    return {
+      snapshotId: snapshot.id,
+      valid: actualHash === snapshot.contentHash,
+      expectedHash: snapshot.contentHash,
+      actualHash,
+    };
+  }
+
+  async linkMetricMeasurementSnapshotToDecision(
+    id: string,
+    input: { evaluationDecisionId: string; linkedBy: string },
+  ): Promise<MetricMeasurementSnapshot> {
+    return this.tx(async (client) => {
+      const { rows: snapRows } = await client.query(
+        `SELECT * FROM metric_measurement_snapshots
+          WHERE tenant_id = $1 AND id = $2
+          FOR UPDATE`,
+        [this.tenantId, id],
+      );
+      if (!snapRows[0]) notFound("MetricMeasurementSnapshot", id);
+      const snapshot = this.mapMetricSnapshot(snapRows[0]);
+      if (snapshot.status !== "FROZEN") {
+        throw new ConflictError(
+          `SNAPSHOT_NOT_FROZEN: snapshot is ${snapshot.status}`,
+        );
+      }
+      const { rows: decisionRows } = await client.query(
+        "SELECT id, person_id, cycle_id FROM evaluation_decisions WHERE tenant_id = $1 AND id = $2",
+        [this.tenantId, input.evaluationDecisionId],
+      );
+      if (!decisionRows[0]) {
+        throw new NotFoundError(
+          `EvaluationDecision ${input.evaluationDecisionId} not found`,
+        );
+      }
+      if (
+        decisionRows[0].person_id !== snapshot.personId ||
+        decisionRows[0].cycle_id !== snapshot.cycleId
+      ) {
+        throw new ConflictError(
+          "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person or cycle",
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE metric_measurement_snapshots
+            SET status = 'CONSUMED', evaluation_decision_id = $3
+          WHERE tenant_id = $1 AND id = $2
+          RETURNING *`,
+        [this.tenantId, id, input.evaluationDecisionId],
+      );
+      return this.mapMetricSnapshot(updated[0]);
+    });
+  }
+
+  private mapMetricSnapshot(row: QueryResultRow): MetricMeasurementSnapshot {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      cycleId: row.cycle_id,
+      personId: row.person_id,
+      rubricVersionId: row.rubric_version_id,
+      measurements: row.measurements ?? [],
+      contentHash: row.content_hash,
+      frozenAt: new Date(row.frozen_at).toISOString(),
+      frozenBy: row.frozen_by,
+      status: row.status,
+      evaluationDecisionId: row.evaluation_decision_id ?? undefined,
+      createdAt: new Date(row.created_at).toISOString(),
+    };
   }
 
   /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */

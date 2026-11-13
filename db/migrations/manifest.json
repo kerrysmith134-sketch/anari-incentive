@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T17:22:09.517Z",
+  "generatedAt": "2026-11-13T17:51:48.307Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -415,6 +415,11 @@
       "file": "083_contribution_assessment_drafts.sql",
       "bytes": 2489,
       "sha256": "d50a0f7526cc0eb5e0032d50e7b42bd1a441cb3821b2693982566f6eb72d9a39"
+    },
+    {
+      "file": "084_metric_measurement_snapshots.sql",
+      "bytes": 1812,
+      "sha256": "eb37cfc884563f4605a09192af18e14731b9081d3cd40588361e5ed546d48016"
     }
   ]
 }

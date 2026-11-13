@@ -50,6 +50,9 @@ import {
   type ContributionAssessmentDraft,
   type ContributionAssessmentDraftFilter,
   type CreateContributionAssessmentDraftInput,
+  type MetricMeasurementSnapshot,
+  type MetricMeasurementSnapshotFilter,
+  type CreateMetricMeasurementSnapshotInput,
   type ContributionEvent,
   type ContributionEventFilter,
   type ContributionEventIngestResult,
@@ -207,6 +210,7 @@ export class Store implements IncentiveStore {
     string,
     ContributionAssessmentDraft
   >();
+  private readonly metricSnapshots = new Map<string, MetricMeasurementSnapshot>();
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
     const timestamp = now();
@@ -630,6 +634,104 @@ export class Store implements IncentiveStore {
 
   async getClaim(id: string): Promise<ContributionClaim> {
     return this.claims.get(id) ?? notFound("ContributionClaim", id);
+  }
+
+  /** 服务端计算冻结哈希：按 metricId+observedAt 排序后 sha256。 */
+  private computeSnapshotHash(
+    measurements: MetricMeasurementSnapshot["measurements"],
+  ): string {
+    const ordered = [...measurements].sort((a, b) =>
+      `${a.metricId}|${a.observedAt}` < `${b.metricId}|${b.observedAt}` ? -1 : 1,
+    );
+    return sha256(ordered);
+  }
+
+  async createMetricMeasurementSnapshot(
+    input: CreateMetricMeasurementSnapshotInput,
+  ): Promise<MetricMeasurementSnapshot> {
+    const cycle = await this.getEvaluationCycle(input.cycleId);
+    if (!cycle) {
+      throw new NotFoundError(`EvaluationCycle ${input.cycleId} not found`);
+    }
+    const timestamp = now();
+    const snapshot: MetricMeasurementSnapshot = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      cycleId: input.cycleId,
+      personId: input.personId,
+      rubricVersionId: input.rubricVersionId,
+      measurements: input.measurements,
+      contentHash: this.computeSnapshotHash(input.measurements),
+      frozenAt: timestamp,
+      frozenBy: input.frozenBy,
+      status: "FROZEN",
+      createdAt: timestamp,
+    };
+    this.metricSnapshots.set(snapshot.id, snapshot);
+    return snapshot;
+  }
+
+  async listMetricMeasurementSnapshots(
+    filter?: MetricMeasurementSnapshotFilter,
+  ): Promise<MetricMeasurementSnapshot[]> {
+    let snapshots = [...this.metricSnapshots.values()];
+    if (filter?.cycleId) {
+      snapshots = snapshots.filter((s) => s.cycleId === filter.cycleId);
+    }
+    if (filter?.personId) {
+      snapshots = snapshots.filter((s) => s.personId === filter.personId);
+    }
+    if (filter?.status) {
+      snapshots = snapshots.filter((s) => s.status === filter.status);
+    }
+    return snapshots.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  async getMetricMeasurementSnapshot(
+    id: string,
+  ): Promise<MetricMeasurementSnapshot> {
+    const snapshot = this.metricSnapshots.get(id);
+    if (!snapshot) {
+      throw new NotFoundError(`MetricMeasurementSnapshot ${id} not found`);
+    }
+    return snapshot;
+  }
+
+  async verifyMetricMeasurementSnapshot(id: string) {
+    const snapshot = await this.getMetricMeasurementSnapshot(id);
+    const actualHash = this.computeSnapshotHash(snapshot.measurements);
+    return {
+      snapshotId: snapshot.id,
+      valid: actualHash === snapshot.contentHash,
+      expectedHash: snapshot.contentHash,
+      actualHash,
+    };
+  }
+
+  async linkMetricMeasurementSnapshotToDecision(
+    id: string,
+    input: { evaluationDecisionId: string; linkedBy: string },
+  ): Promise<MetricMeasurementSnapshot> {
+    const snapshot = await this.getMetricMeasurementSnapshot(id);
+    if (snapshot.status !== "FROZEN") {
+      throw new ConflictError(
+        `SNAPSHOT_NOT_FROZEN: snapshot is ${snapshot.status}`,
+      );
+    }
+    const decision = await this.getEvaluationDecision(
+      input.evaluationDecisionId,
+    );
+    if (
+      decision.personId !== snapshot.personId ||
+      decision.cycleId !== snapshot.cycleId
+    ) {
+      throw new ConflictError(
+        "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person or cycle",
+      );
+    }
+    snapshot.status = "CONSUMED";
+    snapshot.evaluationDecisionId = decision.id;
+    return snapshot;
   }
 
   /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */

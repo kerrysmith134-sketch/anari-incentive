@@ -324,6 +324,125 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/metric-measurement-snapshots:
+    get:
+      tags: [Metric measurement snapshots]
+      summary: List frozen metric measurement snapshots
+      parameters:
+        - name: cycleId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: personId
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [FROZEN, CONSUMED]
+      responses:
+        "200":
+          description: Snapshots
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Metric measurement snapshots]
+      summary: Freeze metric measurements (content hash computed server-side; immutable after freeze)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMetricMeasurementSnapshot"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/metric-measurement-snapshots/{id}:
+    get:
+      tags: [Metric measurement snapshots]
+      summary: Get one snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/metric-measurement-snapshots/{id}/verify:
+    get:
+      tags: [Metric measurement snapshots]
+      summary: Verify the freeze hash by recomputation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Verification result (valid/expected/actual)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/metric-measurement-snapshots/{id}/link-decision:
+    post:
+      tags: [Metric measurement snapshots]
+      summary: Bind an existing evaluation decision to this snapshot (FROZEN -> CONSUMED)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [evaluationDecisionId, linkedBy]
+              properties:
+                evaluationDecisionId:
+                  $ref: "#/components/schemas/Uuid"
+                linkedBy:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Snapshot consumed by the decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "404":
+          description: Decision not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+
   /api/v1/contribution-assessment-drafts:
     get:
       tags: [Contribution assessment drafts]
@@ -11004,6 +11123,46 @@ components:
           type: array
           items:
             type: string
+
+    CreateMetricMeasurementSnapshot:
+      type: object
+      required: [cycleId, personId, rubricVersionId, measurements, frozenBy]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        rubricVersionId:
+          $ref: "#/components/schemas/Uuid"
+        measurements:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            required: [metricId, name, value, source, observedAt, qualityStatus]
+            properties:
+              metricId:
+                type: string
+              name:
+                type: string
+              value:
+                type: string
+                description: 1e6-scaled decimal string
+              unit:
+                type: string
+              source:
+                type: string
+              sourceRef:
+                type: string
+              observedAt:
+                type: string
+                format: date-time
+              qualityStatus:
+                type: string
+                enum: [VALID, MISSING, STALE, CONFLICTED]
+        frozenBy:
+          $ref: "#/components/schemas/Uuid"
 
     CreateContributionAssessmentDraft:
       type: object

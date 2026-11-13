@@ -2730,3 +2730,31 @@ export const linkContributionAssessmentDecisionSchema = z.object({
   attributionDecisionId: uuidSchema,
   linkedBy: uuidSchema,
 });
+
+/**
+ * NPV2-017：指标计量快照契约。
+ * 冻结后不可变；contentHash 服务端计算；link-decision 要求决定已存在。
+ */
+export const metricMeasurementRecordSchema = z.object({
+  metricId: z.string().min(1),
+  name: z.string().min(1),
+  value: decimal,
+  unit: z.string().max(16).optional(),
+  source: z.string().min(1).max(64),
+  sourceRef: z.string().min(1).max(256).optional(),
+  observedAt: z.string().datetime(),
+  qualityStatus: z.enum(["VALID", "MISSING", "STALE", "CONFLICTED"]),
+});
+
+export const createMetricMeasurementSnapshotSchema = z.object({
+  cycleId: uuidSchema,
+  personId: uuidSchema,
+  rubricVersionId: uuidSchema,
+  measurements: z.array(metricMeasurementRecordSchema).min(1).max(100),
+  frozenBy: uuidSchema,
+});
+
+export const linkMetricMeasurementSnapshotSchema = z.object({
+  evaluationDecisionId: uuidSchema,
+  linkedBy: uuidSchema,
+});
