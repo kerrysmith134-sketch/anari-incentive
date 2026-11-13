@@ -150,3 +150,15 @@ export function columnIndexFor(header: string[], aliases: string[]): number {
   return normalized.findIndex((cell) => aliases.includes(cell));
 }
 
+/**
+ * 平台管理员或本租户成员可读目录；跨租户一律拒绝。
+ */
+export function requireTenantMember(
+  request: FastifyRequest,
+  tenantId: string,
+): void {
+  if (isPlatformAdmin(request)) return;
+  if (tenantId !== tenantOf(request)) {
+    throw new ForbiddenError("cannot read another tenant's directory");
+  }
+}
