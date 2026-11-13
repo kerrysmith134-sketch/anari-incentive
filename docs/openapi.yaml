@@ -324,6 +324,49 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/agent-todos:upsert:
+    post:
+      tags: [Agent todos]
+      summary: Upsert an agent todo (idempotent per idempotencyKey; worker/agent entry point)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, assigneePersonId, sourceType, sourceId, idempotencyKey]
+              properties:
+                title:
+                  type: string
+                detail:
+                  type: string
+                assigneePersonId:
+                  $ref: "#/components/schemas/Uuid"
+                dueAt:
+                  type: string
+                  format: date-time
+                targetType:
+                  type: string
+                targetId:
+                  type: string
+                sourceType:
+                  type: string
+                sourceId:
+                  type: string
+                idempotencyKey:
+                  type: string
+                createdByAgentTaskId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "201":
+          description: Upserted todo (existing returned when idempotency key matches)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
   /api/v1/agent-todos:
     get:
       tags: [Agent todos]

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T21:17:05.710Z",
+  "generatedAt": "2026-11-13T21:42:56.942Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -435,6 +435,11 @@
       "file": "087_agent_todos.sql",
       "bytes": 1683,
       "sha256": "de8e3222baa1fe721117a8e2dc73d024c40c5a9ef8e13cfd1a7b9d5173182718"
+    },
+    {
+      "file": "088_outbox_claims.sql",
+      "bytes": 808,
+      "sha256": "bb28e09bf1af72a8f77c4e9ac9266dd6c7ec5b061baa5dd274ce1f6663cff0a7"
     }
   ]
 }

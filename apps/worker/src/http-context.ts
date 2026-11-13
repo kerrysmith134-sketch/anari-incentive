@@ -207,6 +207,81 @@ export class HttpAgentContext implements AgentContext {
     );
   }
 
+
+  /** NPV2-020：Agent 待办经 API 落库（幂等键透传）。 */
+  async upsertAgentTodo(input: {
+    title: string;
+    detail?: string;
+    assigneePersonId: string;
+    dueAt?: string;
+    targetType?: string;
+    targetId?: string;
+    sourceType: string;
+    sourceId: string;
+    idempotencyKey: string;
+    createdByAgentTaskId?: string;
+  }): Promise<{
+    id: string;
+    title: string;
+    assigneePersonId: string;
+    status: string;
+    dueAt?: string;
+    idempotencyKey: string;
+    sourceType: string;
+    sourceId: string;
+  }> {
+    const body = await postData(
+      this.baseUrl,
+      "/api/v1/agent-todos:upsert",
+      await this.headers(),
+      input,
+    );
+    const todo = (body as { data?: Record<string, unknown> }).data ?? {};
+    return {
+      id: String(todo.id ?? ""),
+      title: String(todo.title ?? input.title),
+      assigneePersonId: String(todo.assigneePersonId ?? input.assigneePersonId),
+      status: String(todo.status ?? "OPEN"),
+      dueAt: todo.due_at ? String(todo.due_at) : input.dueAt,
+      idempotencyKey: String(todo.idempotency_key ?? input.idempotencyKey),
+      sourceType: String(todo.source_type ?? input.sourceType),
+      sourceId: String(todo.source_id ?? input.sourceId),
+    };
+  }
+
+  async listAgentTodos(filter?: {
+    assigneePersonId?: string;
+    status?: "OPEN" | "DONE" | "CANCELLED";
+  }): Promise<
+    Array<{
+      id: string;
+      title: string;
+      assigneePersonId: string;
+      status: string;
+      dueAt?: string;
+      targetId?: string;
+      sourceId: string;
+    }>
+  > {
+    const params = new URLSearchParams();
+    if (filter?.assigneePersonId) params.set("assigneePersonId", filter.assigneePersonId);
+    if (filter?.status) params.set("status", filter.status);
+    const body = await readData(
+      this.baseUrl,
+      `/api/v1/agent-todos${params.size ? `?${params.toString()}` : ""}`,
+      await this.headers(),
+    );
+    const rows = (body as { data?: Array<Record<string, unknown>> }).data ?? [];
+    return rows.map((row) => ({
+      id: String(row.id ?? ""),
+      title: String(row.title ?? ""),
+      assigneePersonId: String(row.assignee_person_id ?? ""),
+      status: String(row.status ?? "OPEN"),
+      dueAt: row.due_at ? String(row.due_at) : undefined,
+      targetId: row.target_id ? String(row.target_id) : undefined,
+      sourceId: String(row.source_id ?? ""),
+    }));
+  }
   async createEvaluationDraft(input: {
     cycleId: string;
     personId: string;

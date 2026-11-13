@@ -17,7 +17,7 @@ import {
   type TokenProvider,
 } from "@anari/auth";
 import { HttpAgentContext } from "./http-context.js";
-import { PgOutboxSource } from "./pg-outbox.js";
+import { PgOutboxSource } from "@anari/agent-persistence";
 
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:3000";
 const tenantId =
@@ -257,7 +257,7 @@ async function runFeishuDirectorySync(): Promise<void> {
 while (running) {
   try {
     const scheduled = await scheduler.tick();
-    const events = await poller.pollOnce();
+    const events = await poller.pollOnce({ workerId: `outbox-${process.pid}`, leaseMs: 60_000 });
     const retried = await runtime.retryFailed({
       maxAttempts: 3,
       minAgeMs: 60_000,

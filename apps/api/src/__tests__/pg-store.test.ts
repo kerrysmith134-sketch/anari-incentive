@@ -1,12 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool, type PoolClient } from "pg";
 import { sha256 } from "@anari/policy-dsl";
 import {
   AgentRuntime,
+  AgentScheduler,
   createDefaultSkills,
   createDefaultTools,
 } from "@anari/agent-runtime";
-import { PgAgentTaskRepository } from "@anari/agent-persistence";
+import {
+  PgAgentTaskRepository,
+  PgOutboxSource,
+} from "@anari/agent-persistence";
 import { createAgentContext } from "../agent-context.js";
 import { createPlatformPool } from "../platform-pool.js";
 import { PgPlatformStore } from "../platform-store.js";
@@ -1644,6 +1649,82 @@ evidenceOpened: 1,rationale: "Self",
     expect(round2.perTenant[DEMO_TENANT_ID] ?? 0).toBe(1);
     // B 已无任务，A 继续消费剩余。
     expect(round2.total).toBeGreaterThanOrEqual(1);
+  });
+
+  // ------------------------------------------------------------------
+  // NPV2-023：事务化 Outbox——原子 claim/崩溃恢复/重复投递幂等。
+  // ------------------------------------------------------------------
+  it("claims outbox events atomically and never loses them (NPV2-023)", async () => {
+    // 造 3 条未发布事件（不同租户混入——全局队列，无 RLS）。
+    const stamp = Date.now();
+    for (let k = 0; k < 3; k += 1) {
+      await withTenantContext(DEMO_TENANT_ID, (client) =>
+        client.query(
+          `INSERT INTO outbox_events
+            (tenant_id, aggregate_type, aggregate_id, event_type, schema_version,
+             payload, correlation_id, actor_type)
+           VALUES ($1,'TEST','00000000-0000-4000-8000-0000000000aa','CONTRACT_EVENT','1','{}'::jsonb,
+                   '00000000-0000-4000-8000-0000000000bb','SYSTEM')`,
+          [DEMO_TENANT_ID],
+        ),
+      );
+    }
+    void stamp;
+    const outbox = new PgOutboxSource(pool, DEMO_TENANT_ID);
+
+    // 两个 poller 并发 claim 3 条：各自独占子集，合计恰 3 条，无重复。
+    // poller-a 用短租约模拟崩溃（领取后失联）；poller-b 长租约正常消费。
+    const [batchA, batchB] = await Promise.all([
+      outbox.claimBatchAtomic({ workerId: "poller-a", leaseMs: 50, limit: 10 }),
+      outbox.claimBatchAtomic({ workerId: "poller-b", leaseMs: 60_000, limit: 10 }),
+    ]);
+    const allIds = [...batchA, ...batchB].map((event) => event.id);
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(allIds.length).toBe(3);
+
+    // 崩溃恢复：poller-a 崩溃不释放租约 → 过期后可重新领取（不丢失）。
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const recovered = await outbox.recoverExpiredClaims();
+    expect(recovered).toBeGreaterThanOrEqual(batchA.length);
+    const reclaimed = await outbox.claimBatchAtomic({
+      workerId: "poller-c",
+      leaseMs: 60_000,
+      limit: 10,
+    });
+    expect(reclaimed.length).toBe(3);
+
+    // 处理完成 markPublished 后不再被领取（事件不重复消费）。
+    for (const event of reclaimed) {
+      await outbox.markPublished(event.id);
+    }
+    const after = await outbox.claimBatchAtomic({
+      workerId: "poller-d",
+      leaseMs: 60_000,
+      limit: 10,
+    });
+    expect(after.length).toBe(0);
+  });
+
+  it("duplicate outbox delivery produces exactly one agent task (NPV2-023)", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "outbox-worker", repository },
+    );
+    const scheduler = new AgentScheduler(runtime, DEMO_TENANT_ID, "outbox-test");
+    scheduler.addEventRule({
+      id: "contract-event",
+      eventType: "CONTRACT_EVENT_NPV2023",
+      agentType: "EVIDENCE_GAP",
+    });
+    const eventId = randomUUID();
+    // 同一 eventId 重复投递两次（崩溃后重复消费的形态）。
+    const first = await scheduler.emit("CONTRACT_EVENT_NPV2023", {}, eventId);
+    const second = await scheduler.emit("CONTRACT_EVENT_NPV2023", {}, eventId);
+    const all = [...first, ...second].map((task) => task.id);
+    expect(new Set(all).size).toBe(1);
   });
 
   it("scopes reads to the store's tenant", async () => {
