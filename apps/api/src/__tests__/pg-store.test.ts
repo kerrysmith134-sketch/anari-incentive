@@ -3917,10 +3917,16 @@ evidenceOpened: 1,rationale: "Self",
       );
       expect(governanceWithContext.rows[0].count).toBeGreaterThan(0);
       await client.query("ROLLBACK");
-      const platformRows = await platformPool.query(
+      // NPV2-002（S1 退役完成）：platform pool 已是普通身份——无租户
+      // 上下文的跨租户读为 0（RLS 生效），不再全局 platform_admin。
+      const platformRowsWithoutContext = await platformPool.query(
         "SELECT count(*)::int AS count FROM people",
       );
-      expect(platformRows.rows[0].count).toBeGreaterThan(0);
+      expect(platformRowsWithoutContext.rows[0].count).toBe(0);
+      // 平台存储走 transactionFor 租户上下文，仍能读到本租户数据。
+      const platform = new PgPlatformStore(platformPool);
+      const personsViaContext = await platform.listPersons(DEMO_TENANT_ID);
+      expect(personsViaContext.length).toBeGreaterThan(0);
     } finally {
       client.release();
     }
@@ -4153,5 +4159,61 @@ evidenceOpened: 1,rationale: "Self",
       "SELECT current_setting('app.tenant_id', true)",
     );
     expect(["", null]).toContain(adminLeak.rows[0].current_setting);
+  });
+
+  // ------------------------------------------------------------------
+  // NPV2-002（S1 退役完成）：platform pool 不再携带连接级 platform_admin。
+  // 平台提升改为事务本地显式 set_config——提交/回滚即失效，不跨事务泄漏；
+  // 单租户平台操作走 transactionFor 的普通租户上下文（RLS 生效）。
+  // ------------------------------------------------------------------
+  it("platform pool runs as a normal role without session-level platform_admin (NPV2-002)", async () => {
+    const probe = await platformPool.query(
+      "SELECT current_setting('app.platform_admin', true) AS flag",
+    );
+    expect(probe.rows[0].flag).not.toBe("on");
+    // 池上无提升时，随机租户上下文读治理表只能看到自己租户（RLS 生效）。
+    const client = await platformPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        "00000000-0000-4000-8000-0000000000e2",
+      ]);
+      const governanceRead = await client.query(
+        "SELECT id FROM break_glass_grants LIMIT 1",
+      );
+      await client.query("COMMIT");
+      expect(governanceRead.rowCount).toBe(0);
+    } finally {
+      client.release();
+    }
+  });
+
+  it("platform elevation is transaction-local and does not leak across transactions (NPV2-002)", async () => {
+    const client = await platformPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "SELECT set_config('app.platform_admin', 'on', true)",
+      );
+      const during = await client.query(
+        "SELECT current_setting('app.platform_admin', true) AS flag",
+      );
+      expect(during.rows[0].flag).toBe("on");
+      await client.query("COMMIT");
+      const after = await client.query(
+        "SELECT current_setting('app.platform_admin', true) AS flag",
+      );
+      expect(after.rows[0].flag).not.toBe("on");
+    } finally {
+      client.release();
+    }
+  });
+
+  it("tenant-scoped platform operations run under RLS tenant context without elevation (NPV2-002)", async () => {
+    const platform = new PgPlatformStore(platformPool);
+    const policies = await platform.listRetentionPolicies(DEMO_TENANT_ID);
+    expect(Array.isArray(policies)).toBe(true);
+    const sources = await platform.listDataSources(DEMO_TENANT_ID);
+    expect(Array.isArray(sources)).toBe(true);
   });
 });

@@ -18,7 +18,7 @@ import type {
   TenantPort
 } from "../../store-ports.js";
 import { randomUUID } from "node:crypto";
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   divRound,
   formatDecimal,
@@ -136,7 +136,7 @@ export class PgPlatformStoreBase {
     input: { tenantId: string; orderId: string; approvedBy: string },
     status: "APPROVED" | "REJECTED",
   ): Promise<RuleChangeOrder> {
-    return this.transaction(async (client) => {
+    return this.transactionFor(input.tenantId, async (client) => {
       const { rows } = await client.query(
         `SELECT * FROM rule_change_orders
           WHERE tenant_id=$1 AND id=$2
@@ -223,7 +223,7 @@ export class PgPlatformStoreBase {
       }
     }
     if (future) {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `SELECT * FROM employment_contracts
           WHERE tenant_id=$1 AND id=$2`,
         [input.tenantId, input.contractId],
@@ -233,7 +233,7 @@ export class PgPlatformStoreBase {
       if (row.status !== "ACTIVE") {
         throw new ConflictError(`employment contract is ${row.status}`);
       }
-      const versionResult = await this.pool.query(
+      const versionResult = await this.tenantQuery(input.tenantId, 
         `SELECT GREATEST(
            $3::int,
            COALESCE(MAX(pay_plan_version), 0)
@@ -271,7 +271,7 @@ export class PgPlatformStoreBase {
         bankAccountRef: input.bankAccountRef,
         payPlanVersion,
       };
-      await this.pool.query(
+      await this.tenantQuery(input.tenantId, 
         `INSERT INTO employment_contract_amendments
           (tenant_id, contract_id, pay_plan_version, before_terms,
            after_terms, effective_from, consent_signature_ref, approved_by,
@@ -290,7 +290,7 @@ export class PgPlatformStoreBase {
       );
       return this.mapEmploymentContract(row);
     }
-    return this.transaction(async (client) => {
+    return this.transactionFor(input.tenantId, async (client) => {
       const { rows } = await client.query(
         `SELECT * FROM employment_contracts
           WHERE tenant_id=$1 AND id=$2
@@ -443,12 +443,21 @@ export class PgPlatformStoreBase {
     });
   }
   
+  /**
+   * NPV2-002：平台管理提升路径——**显式、事务本地、短时**。
+   * BEGIN 内 set_config(..., true) 仅在本事务生效，提交/回滚即失效；
+   * 不会像旧的连接级 options 那样把整池会话变成 platform_admin。
+   * 仅限确需跨租户的平台操作；单租户操作一律走 transactionFor。
+   */
   protected async transaction<T>(
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query(
+        "SELECT set_config('app.platform_admin', 'on', true)",
+      );
       const result = await fn(client);
       await client.query("COMMIT");
       return result;
@@ -459,10 +468,54 @@ export class PgPlatformStoreBase {
       client.release();
     }
   }
+
+  /**
+   * NPV2-002：普通租户事务（默认路径）——BEGIN 内设置 app.tenant_id，
+   * RLS 按租户隔离生效，无需任何管理员提升。
+   */
+  protected async transactionFor<T>(
+    tenantId: string,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        tenantId,
+      ]);
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 单条租户上下文只读（NPV2-002：替代无上下文的直读）。返回 QueryResult。 */
+  protected async tenantQuery(
+    tenantId: string,
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<any>> {
+    return this.transactionFor(tenantId, async (client) =>
+      client.query(sql, params),
+    );
+  }
+
+  /** 单条跨租户平台只读（NPV2-002：显式提升，事务本地）。返回 QueryResult。 */
+  protected async platformQuery(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<any>> {
+    return this.transaction(async (client) => client.query(sql, params));
+  }
   
   protected async assertTenant(
     this: PgPlatformStoreBaseShape,tenantId: string): Promise<void> {
-    const { rowCount } = await this.pool.query(
+    const { rowCount } = await this.tenantQuery(tenantId, 
       "SELECT 1 FROM tenants WHERE id=$1",
       [tenantId],
     );

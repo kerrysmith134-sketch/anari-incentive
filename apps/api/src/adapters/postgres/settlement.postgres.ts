@@ -136,7 +136,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError("COMPENSATION_TEMPLATE_SALARY_RANGE_INVALID");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO compensation_templates
             (id, tenant_id, code, name, role_code, employment_type, currency,
              fixed_salary_min, fixed_salary_max, deduction_cap_rate,
@@ -180,20 +180,20 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
     ): Promise<CompensationTemplate[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM compensation_templates
           WHERE tenant_id=$1
           ORDER BY code`,
         [tenantId],
       );
-      return rows.map((row) => this.mapCompensationTemplate(row));
+      return rows.map((row: QueryResultRow) => this.mapCompensationTemplate(row));
     }
     
     async getActiveCompensationTemplate(
       tenantId: string,
       code: string,
     ): Promise<CompensationTemplate | undefined> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM compensation_templates
           WHERE tenant_id=$1 AND code=$2 AND status='ACTIVE'
           LIMIT 1`,
@@ -206,7 +206,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string;
       templateId: string;
     }): Promise<CompensationTemplate> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE compensation_templates
             SET status='RETIRED', updated_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
@@ -214,7 +214,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         [input.tenantId, input.templateId],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           "SELECT status FROM compensation_templates WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.templateId],
         );
@@ -237,7 +237,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       exportedAt?: string;
     }): Promise<SettlementExport> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO settlement_exports
             (id, tenant_id, batch_id, export_ref, export_hash, exported_by,
              exported_at)
@@ -276,15 +276,15 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         sql += " AND batch_id=$2";
       }
       sql += " ORDER BY exported_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapSettlementExport(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapSettlementExport(row));
     }
     
     async getSettlementExport(
       tenantId: string,
       exportId: string,
     ): Promise<SettlementExport> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM settlement_exports WHERE tenant_id=$1 AND id=$2",
         [tenantId, exportId],
       );
@@ -298,7 +298,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       externalReference: string;
       acknowledgedAt?: string;
     }): Promise<SettlementAcknowledgement> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM settlement_exports
             WHERE tenant_id=$1 AND id=$2
@@ -420,7 +420,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError("CONTRACT_END_BEFORE_START");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO employment_contracts
             (id, tenant_id, person_id, contract_code, employment_type,
              start_date, end_date, work_location, legal_entity, currency,
@@ -483,19 +483,19 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
       contractId: string,
     ): Promise<EmploymentContractAmendment[]> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM employment_contract_amendments
           WHERE tenant_id=$1 AND contract_id=$2
           ORDER BY created_at DESC`,
         [tenantId, contractId],
       );
-      return rows.map((row) => this.mapEmploymentContractAmendment(row));
+      return rows.map((row: QueryResultRow) => this.mapEmploymentContractAmendment(row));
     }
     
     async applyDueContractAmendments(
       tenantId: string,
     ): Promise<EmploymentContractAmendment[]> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM employment_contract_amendments
             WHERE tenant_id=$1 AND status='SCHEDULED'
@@ -566,7 +566,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       amendmentId: string;
       reason: string;
     }): Promise<EmploymentContractAmendment> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE employment_contract_amendments
             SET status='CANCELLED', cancelled_at=now(), cancel_reason=$4
           WHERE tenant_id=$1 AND contract_id=$2 AND id=$3
@@ -580,7 +580,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         ],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           `SELECT status FROM employment_contract_amendments
             WHERE tenant_id=$1 AND contract_id=$2 AND id=$3`,
           [input.tenantId, input.contractId, input.amendmentId],
@@ -599,7 +599,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
       contractId: string,
     ): Promise<EmploymentContract> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM employment_contracts WHERE tenant_id=$1 AND id=$2",
         [tenantId, contractId],
       );
@@ -619,7 +619,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError("PAYROLL_PERIOD_INVALID");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO payroll_runs
             (id, tenant_id, cycle_id, period_start, period_end, currency,
              status, prepared_by)
@@ -656,10 +656,10 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         sql += " AND cycle_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
       const runs: PayrollRun[] = [];
       for (const row of rows) {
-        const { rows: lines } = await this.pool.query(
+        const { rows: lines } = await this.tenantQuery(tenantId, 
           "SELECT * FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2 ORDER BY person_id",
           [tenantId, row.id],
         );
@@ -677,12 +677,12 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
       runId: string,
     ): Promise<PayrollRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM payroll_runs WHERE tenant_id=$1 AND id=$2",
         [tenantId, runId],
       );
       if (!rows[0]) notFound("PayrollRun", runId);
-      const { rows: lines } = await this.pool.query(
+      const { rows: lines } = await this.tenantQuery(tenantId, 
         "SELECT * FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2 ORDER BY person_id",
         [tenantId, runId],
       );
@@ -703,7 +703,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       totalNet: string;
       blockedCount: number;
     }): Promise<PayrollRun> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM payroll_runs
             WHERE tenant_id=$1 AND id=$2
@@ -823,7 +823,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       runId: string;
       approvedBy: string;
     }): Promise<PayrollRun> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM payroll_runs
             WHERE tenant_id=$1 AND id=$2
@@ -861,7 +861,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string;
       runId: string;
     }): Promise<PayrollRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE payroll_runs
             SET status='PAID', paid_at=now(), updated_at=now(),
                 version=version+1
@@ -882,12 +882,12 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       reason: string;
       reversedBy: string;
     }): Promise<PayrollRun> {
-      const { rows: personRows } = await this.pool.query(
+      const { rows: personRows } = await this.tenantQuery(input.tenantId, 
         "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
         [input.tenantId, input.reversedBy],
       );
       if (!personRows[0]) notFound("Person", input.reversedBy);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE payroll_runs
             SET status='REVERSED', reversed_at=now(), reversed_by=$3,
                 reversal_reason=$4, updated_at=now(), version=version+1
@@ -911,7 +911,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string;
       runId: string;
     }): Promise<PayrollRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE payroll_runs
             SET status='CANCELLED', updated_at=now(), version=version+1
           WHERE tenant_id=$1 AND id=$2

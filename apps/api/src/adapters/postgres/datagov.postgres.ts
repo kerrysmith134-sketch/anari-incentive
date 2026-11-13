@@ -123,7 +123,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       mitigationSummary?: Record<string, unknown>;
     }): Promise<DpiaRecord> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO dpia_records
             (id, tenant_id, assessment_type, scope, risk_summary,
              mitigation_summary)
@@ -149,17 +149,17 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
     
     async listDpias(tenantId: string): Promise<DpiaRecord[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM dpia_records
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapDpia(row));
+      return rows.map((row: QueryResultRow) => this.mapDpia(row));
     }
     
     async getDpia(tenantId: string, dpiaId: string): Promise<DpiaRecord> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM dpia_records WHERE tenant_id=$1 AND id=$2",
         [tenantId, dpiaId],
       );
@@ -177,7 +177,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         throw new ConflictError(`DPIA ${dpia.id} is already approved`);
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `UPDATE dpia_records
               SET status='APPROVED', approved_by=$3, approved_at=now()
             WHERE tenant_id=$1 AND id=$2
@@ -200,7 +200,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       dueAt?: string;
     }): Promise<DsarRequest> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO dsar_requests
             (id, tenant_id, person_id, request_type, due_at)
            VALUES ($1,$2,$3,$4,$5)
@@ -234,12 +234,12 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY received_at DESC, created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapDsar(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapDsar(row));
     }
     
     async getDsar(tenantId: string, dsarId: string): Promise<DsarRequest> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM dsar_requests WHERE tenant_id=$1 AND id=$2",
         [tenantId, dsarId],
       );
@@ -257,7 +257,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       if (dsar.status !== "OPEN") {
         throw new ConflictError(`DSAR ${dsar.id} is already ${dsar.status}`);
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE dsar_requests
             SET status=$3, resolution_ref=$4, resolved_at=now()
           WHERE tenant_id=$1 AND id=$2
@@ -280,7 +280,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       legalHold: boolean;
     }): Promise<RetentionPolicy> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO retention_policies
             (id, tenant_id, data_category, retention_months, legal_basis,
              legal_hold)
@@ -312,13 +312,13 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
     
     async listRetentionPolicies(tenantId: string): Promise<RetentionPolicy[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM retention_policies
           WHERE tenant_id=$1
           ORDER BY data_category`,
         [tenantId],
       );
-      return rows.map((row) => this.mapRetentionPolicy(row));
+      return rows.map((row: QueryResultRow) => this.mapRetentionPolicy(row));
     }
     
     async setRetentionLegalHold(input: {
@@ -326,7 +326,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       retentionPolicyId: string;
       legalHold: boolean;
     }): Promise<RetentionPolicy> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE retention_policies
             SET legal_hold=$3
           WHERE tenant_id=$1 AND id=$2
@@ -344,7 +344,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       reason: string;
       scheduledFor?: string;
     }): Promise<RetentionDisposalRequest> {
-      const policy = await this.pool.query(
+      const policy = await this.tenantQuery(input.tenantId, 
         `SELECT * FROM retention_policies WHERE tenant_id=$1 AND id=$2`,
         [input.tenantId, input.retentionPolicyId],
       );
@@ -365,7 +365,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         );
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO retention_disposal_requests
             (id, tenant_id, retention_policy_id, data_category, requested_by,
              reason, scheduled_for)
@@ -396,13 +396,13 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       tenantId: string,
     ): Promise<RetentionDisposalRequest[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM retention_disposal_requests
           WHERE tenant_id=$1
           ORDER BY requested_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapRetentionDisposalRequest(row));
+      return rows.map((row: QueryResultRow) => this.mapRetentionDisposalRequest(row));
     }
     
     async approveRetentionDisposalRequest(input: {
@@ -410,7 +410,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       requestId: string;
       approvedBy: string;
     }): Promise<RetentionDisposalRequest> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM retention_disposal_requests
             WHERE tenant_id=$1 AND id=$2
@@ -445,7 +445,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       requestId: string;
       actorPersonId: string;
     }): Promise<RetentionDisposalRequest> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM retention_disposal_requests
             WHERE tenant_id=$1 AND id=$2
@@ -491,7 +491,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       actorPersonId: string;
       reason: string;
     }): Promise<RetentionDisposalRequest> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE retention_disposal_requests
             SET status='CANCELLED', cancelled_at=now(), cancel_reason=$3
           WHERE tenant_id=$1 AND id=$2
@@ -500,7 +500,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         [input.tenantId, input.requestId, input.reason],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           `SELECT status FROM retention_disposal_requests
             WHERE tenant_id=$1 AND id=$2`,
           [input.tenantId, input.requestId],
@@ -529,7 +529,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         throw new ConflictError("SUBGROUP_CONSENT_EXPIRED");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO workforce_subgroup_attributes
             (id, tenant_id, person_id, dimension, value, consent_ref,
              consented_at, expires_at, recorded_by)
@@ -586,8 +586,8 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         sql += ` AND dimension=$${params.length}`;
       }
       sql += " ORDER BY dimension, person_id";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapWorkforceSubgroupAttribute(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapWorkforceSubgroupAttribute(row));
     }
     
     async withdrawWorkforceSubgroupAttribute(input: {
@@ -595,7 +595,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       personId: string;
       dimension: WorkforceSubgroupDimension;
     }): Promise<WorkforceSubgroupAttribute> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `DELETE FROM workforce_subgroup_attributes
           WHERE tenant_id=$1 AND person_id=$2 AND dimension=$3
           RETURNING *`,
@@ -627,7 +627,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       lastReviewedAt?: string;
     }): Promise<DataSource> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO data_sources
             (id, tenant_id, code, name, category, owner_person_id,
              backup_owner_person_id, sla_hours, criticality,
@@ -670,20 +670,20 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
     
     async listDataSources(tenantId: string): Promise<DataSource[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM data_sources
           WHERE tenant_id=$1
           ORDER BY code`,
         [tenantId],
       );
-      return rows.map((row) => this.mapDataSource(row));
+      return rows.map((row: QueryResultRow) => this.mapDataSource(row));
     }
     
     async getDataSource(
       tenantId: string,
       dataSourceId: string,
     ): Promise<DataSource> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM data_sources WHERE tenant_id=$1 AND id=$2",
         [tenantId, dataSourceId],
       );
@@ -695,7 +695,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       tenantId: string;
       dataSourceId: string;
     }): Promise<DataSource> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE data_sources
             SET status='RETIRED', updated_at=now(), version=version+1
           WHERE tenant_id=$1 AND id=$2
@@ -727,7 +727,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         throw new ConflictError("BREAK_GLASS_MAX_24_HOURS");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO break_glass_grants
             (id, tenant_id, scope, grantee_person_id, reason, granted_by,
              expires_at)
@@ -756,20 +756,20 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
     
     async listBreakGlassGrants(tenantId: string): Promise<BreakGlassGrant[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM break_glass_grants
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapBreakGlassGrant(row));
+      return rows.map((row: QueryResultRow) => this.mapBreakGlassGrant(row));
     }
     
     async revokeBreakGlassGrant(input: {
       tenantId: string;
       grantId: string;
     }): Promise<BreakGlassGrant> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE break_glass_grants
             SET status='REVOKED', revoked_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
@@ -777,7 +777,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         [input.tenantId, input.grantId],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           "SELECT 1 FROM break_glass_grants WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.grantId],
         );
@@ -796,7 +796,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
       granteePersonId: string,
       scope: BreakGlassGrant["scope"],
     ): Promise<BreakGlassGrant | undefined> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM break_glass_grants
           WHERE tenant_id=$1 AND grantee_person_id=$2 AND scope=$3
             AND status='ACTIVE' AND expires_at > now()
@@ -821,7 +821,7 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
         );
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO audit_redactions
             (id, tenant_id, audit_event_id, replacement, reason,
              requested_by, approved_by)
@@ -854,13 +854,13 @@ export function PgDatagovMixin(Base: abstract new (...args: ConstructorParameter
     
     async listAuditRedactions(tenantId: string): Promise<AuditRedaction[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM audit_redactions
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapAuditRedaction(row));
+      return rows.map((row: QueryResultRow) => this.mapAuditRedaction(row));
     }
   };
 }

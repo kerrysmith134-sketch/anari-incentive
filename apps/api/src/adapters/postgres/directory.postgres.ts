@@ -123,7 +123,7 @@ export function PgDirectoryMixin(Base: abstract new (...args: ConstructorParamet
       userId?: string;
     }): Promise<PlatformPerson> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO people
             (id, tenant_id, user_id, employee_code, display_name,
              employment_status)
@@ -161,11 +161,11 @@ export function PgDirectoryMixin(Base: abstract new (...args: ConstructorParamet
     
     async listPersons(tenantId: string): Promise<PlatformPerson[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM people WHERE tenant_id=$1 ORDER BY created_at DESC",
         [tenantId],
       );
-      return rows.map((row) => this.mapPerson(row));
+      return rows.map((row: QueryResultRow) => this.mapPerson(row));
     }
     
     async listOrgAssignments(
@@ -181,8 +181,8 @@ export function PgDirectoryMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY valid_from DESC, created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapOrgAssignment(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapOrgAssignment(row));
     }
     
     async listEmploymentContracts(
@@ -197,8 +197,8 @@ export function PgDirectoryMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY start_date DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapEmploymentContract(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapEmploymentContract(row));
     }
   };
 }

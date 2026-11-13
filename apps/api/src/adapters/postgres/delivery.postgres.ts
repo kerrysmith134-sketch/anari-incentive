@@ -124,7 +124,7 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       note?: string;
     }): Promise<AppealEvidenceDisclosure> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO appeal_evidence_disclosures
             (id, tenant_id, appeal_id, disclosed_by, method, evidence_refs,
              note)
@@ -156,13 +156,13 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       appealId: string,
     ): Promise<AppealEvidenceDisclosure[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM appeal_evidence_disclosures
           WHERE tenant_id=$1 AND appeal_id=$2
           ORDER BY disclosed_at DESC`,
         [tenantId, appealId],
       );
-      return rows.map((row) => this.mapAppealEvidenceDisclosure(row));
+      return rows.map((row: QueryResultRow) => this.mapAppealEvidenceDisclosure(row));
     }
     
     async createDeliverable(input: {
@@ -174,7 +174,7 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       dueAt?: string;
     }): Promise<Deliverable> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO deliverables
             (id, tenant_id, work_package_id, title, deliverable_type,
              owner_person_id, due_at)
@@ -211,15 +211,15 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
         sql += " AND work_package_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapDeliverable(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapDeliverable(row));
     }
     
     async getDeliverable(
       tenantId: string,
       deliverableId: string,
     ): Promise<Deliverable> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM deliverables WHERE tenant_id=$1 AND id=$2",
         [tenantId, deliverableId],
       );
@@ -233,7 +233,7 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       artifactRef?: string;
       contentHash?: string;
     }): Promise<Deliverable> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM deliverables
             WHERE tenant_id=$1 AND id=$2
@@ -282,7 +282,7 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       criteriaResults: Record<string, unknown>;
       comments?: string;
     }): Promise<Acceptance> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM deliverables
             WHERE tenant_id=$1 AND id=$2
@@ -345,13 +345,13 @@ export function PgDeliveryMixin(Base: abstract new (...args: ConstructorParamete
       deliverableId: string,
     ): Promise<Acceptance[]> {
       await this.getDeliverable(tenantId, deliverableId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM acceptances
           WHERE tenant_id=$1 AND deliverable_id=$2
           ORDER BY decided_at DESC`,
         [tenantId, deliverableId],
       );
-      return rows.map((row) => this.mapAcceptance(row));
+      return rows.map((row: QueryResultRow) => this.mapAcceptance(row));
     }
   };
 }

@@ -126,7 +126,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
       acknowledgementRequired: boolean;
     }): Promise<EmployeeNotice> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO employee_notices
             (id, tenant_id, policy_version_id, notice_type, title, body_ref,
              published_at, effective_from, acknowledgement_required)
@@ -155,20 +155,20 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
     
     async listNotices(tenantId: string): Promise<EmployeeNotice[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM employee_notices
           WHERE tenant_id=$1
           ORDER BY published_at DESC, created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapNotice(row));
+      return rows.map((row: QueryResultRow) => this.mapNotice(row));
     }
     
     async getNotice(
       tenantId: string,
       noticeId: string,
     ): Promise<EmployeeNotice> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM employee_notices WHERE tenant_id=$1 AND id=$2",
         [tenantId, noticeId],
       );
@@ -185,13 +185,13 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
       declineReason?: string;
     }): Promise<PolicyAcknowledgement> {
       const notice = await this.getNotice(input.tenantId, input.noticeId);
-      const { rows: personRows } = await this.pool.query(
+      const { rows: personRows } = await this.tenantQuery(input.tenantId, 
         "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
         [input.tenantId, input.personId],
       );
       if (!personRows[0]) notFound("Person", input.personId);
       const acknowledge = input.decision === "ACKNOWLEDGE";
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO policy_acknowledgements
           (id, tenant_id, notice_id, person_id, acknowledged_at, signature_ref,
            declined_at, decline_reason)
@@ -226,7 +226,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
       const notice = await this.getNotice(tenantId, noticeId);
       const [{ rows: acknowledgementRows }, { rows: personRows }] =
         await Promise.all([
-          this.pool.query(
+          this.tenantQuery(tenantId, 
             `SELECT pa.*, p.employment_status AS person_employment_status
                FROM policy_acknowledgements pa
                JOIN people p
@@ -235,7 +235,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
               ORDER BY pa.created_at DESC`,
             [tenantId, noticeId],
           ),
-          this.pool.query(
+          this.tenantQuery(tenantId, 
             `SELECT count(*)::int AS count FROM people
               WHERE tenant_id=$1 AND employment_status='ACTIVE'`,
             [tenantId],
@@ -279,7 +279,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
       messageId: string;
     }): Promise<InboxMessage> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO inbox_messages (id, tenant_id, consumer_name, message_id)
            VALUES ($1,$2,$3,$4)
            ON CONFLICT (tenant_id, consumer_name, message_id) DO NOTHING
@@ -292,7 +292,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
           ],
         );
         if (rows[0]) return this.mapInboxMessage(rows[0]);
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           `SELECT * FROM inbox_messages
             WHERE tenant_id=$1 AND consumer_name=$2 AND message_id=$3`,
           [input.tenantId, input.consumerName, input.messageId],
@@ -325,8 +325,8 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
         sql += ` AND status=$${params.length}`;
       }
       sql += " ORDER BY received_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapInboxMessage(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapInboxMessage(row));
     }
     
     async processInboxMessage(input: {
@@ -335,7 +335,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
       status: "PROCESSED" | "FAILED" | "IGNORED";
       errorCode?: string;
     }): Promise<InboxMessage> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE inbox_messages
             SET status=$3, error_code=$4, processed_at=now()
           WHERE tenant_id=$1 AND id=$2 AND processed_at IS NULL
@@ -348,7 +348,7 @@ export function PgCommsMixin(Base: abstract new (...args: ConstructorParameters<
         ],
       );
       if (!rows[0]) {
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           "SELECT * FROM inbox_messages WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.inboxMessageId],
         );

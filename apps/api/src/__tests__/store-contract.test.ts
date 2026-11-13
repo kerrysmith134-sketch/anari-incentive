@@ -15,13 +15,20 @@ import { Pool } from "pg";
 import { expect, describe, it, afterAll } from "vitest";
 import { Store, ConflictError } from "../store.js";
 import type { IncentiveStore } from "../store-interface.js";
-import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
+import { PgStore, DEMO_TENANT_ID, DEMO_REQUESTER_ID } from "../pg-store.js";
 import { referencePolicy } from "../policy-registry.js";
 
-const OWNER = "00000000-0000-4000-8000-000000000001";
-const MEMBER = "00000000-0000-4000-8000-000000000002";
-const ADJUDICATOR = "00000000-0000-4000-8000-000000000003";
-const CYCLE = "00000000-0000-4000-8000-000000000020";
+/**
+ * 契约套件专用租户与人员（NPV2-014 隔离）：与 pg-store.test 的演示
+ * 租户/周期完全隔离，避免结算清扫把契约台账条目算进同一批次。
+ * PG 侧在 beforeAll 间真实建租户/人员/周期；Memory 侧用同名常量
+ * （Store 不做人员外键校验）。
+ */
+const CONTRACT_TENANT_ID = "00000000-0000-4000-8000-00000000c7a2";
+const OWNER = "00000000-0000-4000-8000-00000000c801";
+const MEMBER = "00000000-0000-4000-8000-00000000c802";
+const ADJUDICATOR = "00000000-0000-4000-8000-00000000c803";
+const DEMO_CYCLE_ID = "00000000-0000-4000-8000-000000000020";
 
 const APPLICABILITY = {
   legalEntity: "N-Perform Contract Entity",
@@ -34,8 +41,16 @@ const APPLICABILITY = {
 const databaseUrl = process.env.DATABASE_URL;
 const describePg = databaseUrl ? describe : describe.skip;
 
+interface ContractCtx {
+  cycleId: string;
+}
+
 /** 八域共享契约：对任一 IncentiveStore 实现运行同一组断言。 */
-function registerContractSuite(label: string, store: IncentiveStore) {
+function registerContractSuite(
+  label: string,
+  store: IncentiveStore,
+  ctx: ContractCtx,
+) {
   const suffix = randomUUID().slice(0, 8);
   const contractSubjectId = randomUUID();
   const appealTargetId = randomUUID();
@@ -117,7 +132,7 @@ function registerContractSuite(label: string, store: IncentiveStore) {
   /** 契约造数：完整计算运行（锁定后返回台账 INCENTIVE 分录）。 */
   async function lockedRun(workPackageId: string, policyVersionId: string, orderSuffix: string) {
     const run = await store.createCalculationRun({
-      cycleId: CYCLE,
+      cycleId: ctx.cycleId,
       policyVersionId,
       mode: "FORMAL",
       order: {
@@ -125,6 +140,7 @@ function registerContractSuite(label: string, store: IncentiveStore) {
         grossProfit: "100000",
         currency: "CNY",
       },
+      requestedBy: OWNER,
       participants: [
         {
           personId: OWNER,
@@ -238,8 +254,8 @@ function registerContractSuite(label: string, store: IncentiveStore) {
   });
 
   it("评价域：周期在位；量规→草案→提交→决定；自评拒绝", async () => {
-    const cycle = await store.getEvaluationCycle(CYCLE);
-    expect(cycle.id).toBe(CYCLE);
+    const cycle = await store.getEvaluationCycle(ctx.cycleId);
+    expect(cycle.id).toBe(ctx.cycleId);
 
     const rubric = await store.createRubric({
       code: `CONTRACT_RUBRIC_${suffix}`,
@@ -249,7 +265,7 @@ function registerContractSuite(label: string, store: IncentiveStore) {
       effectiveFrom: "2026-10-01",
     });
     const draft = await store.createEvaluationDraft({
-      cycleId: CYCLE,
+      cycleId: ctx.cycleId,
       personId: OWNER,
       generatedByType: "USER",
       evidenceSnapshotHash: `contract-eval-${suffix}`,
@@ -270,7 +286,7 @@ function registerContractSuite(label: string, store: IncentiveStore) {
 
     // 自评不变量：复核人不得评自己
     const selfDraft = await store.createEvaluationDraft({
-      cycleId: CYCLE,
+      cycleId: ctx.cycleId,
       personId: OWNER,
       generatedByType: "USER",
       evidenceSnapshotHash: `contract-self-${suffix}`,
@@ -417,12 +433,68 @@ function registerContractSuite(label: string, store: IncentiveStore) {
   });
 }
 
-registerContractSuite("MemoryStore 契约", new Store(DEMO_TENANT_ID));
+registerContractSuite(
+  "MemoryStore 契约",
+  new Store(DEMO_TENANT_ID),
+  { cycleId: DEMO_CYCLE_ID },
+);
 
 describePg("PgStore 契约", () => {
   const pool = new Pool({ connectionString: databaseUrl });
+  // 契约租户 + 三名成员（租户上下文插入，RLS 合规），与演示租户隔离。
+  const contractPersons: Array<[string, string]> = [
+    [OWNER, "C001"],
+    [MEMBER, "C002"],
+    [ADJUDICATOR, "C003"],
+    // PgStore.createCalculationRun 的 requested_by 固定为演示请求人（NPV2-003
+    // 范畴的存量行为），契约租户必须补种该人员以满足外键。
+    [DEMO_REQUESTER_ID, "C004"],
+  ];
+  const ctx: ContractCtx = { cycleId: DEMO_CYCLE_ID };
+  beforeAll(async () => {
+    await pool.query(
+      `INSERT INTO tenants (id, name, slug, default_currency)
+       VALUES ($1, 'Contract Tenant', 'contract-suite', 'CNY')
+       ON CONFLICT (id) DO NOTHING`,
+      [CONTRACT_TENANT_ID],
+    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        CONTRACT_TENANT_ID,
+      ]);
+      for (const [id, code] of contractPersons) {
+        await client.query(
+          `INSERT INTO people (tenant_id, id, employee_code, display_name)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [CONTRACT_TENANT_ID, id, code, `Contract Person ${code}`],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    const store = new PgStore(pool, CONTRACT_TENANT_ID);
+    const cycle = await store.createEvaluationCycle({
+      name: `Contract cycle ${randomUUID().slice(0, 8)}`,
+      cycleType: "MONTHLY",
+      startsAt: "2026-10-01T00:00:00.000Z",
+      endsAt: "2026-10-31T23:59:59.000Z",
+      timezone: "Asia/Shanghai",
+    });
+    ctx.cycleId = cycle.id;
+  });
   afterAll(async () => {
     await pool.end();
   });
-  registerContractSuite("PgStore 契约", new PgStore(pool, DEMO_TENANT_ID));
+  registerContractSuite(
+    "PgStore 契约",
+    new PgStore(pool, CONTRACT_TENANT_ID),
+    ctx,
+  );
 });

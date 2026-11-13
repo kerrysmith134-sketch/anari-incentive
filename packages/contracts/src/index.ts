@@ -1636,6 +1636,8 @@ export const createCalculationRunSchema = z.object({
       }),
     )
     .min(1),
+  /** 发起人（NPV2-003：缺省时兼容既有演示请求人）。 */
+  requestedBy: uuidSchema.optional(),
 });
 export type CreateCalculationRunInput = z.infer<
   typeof createCalculationRunSchema

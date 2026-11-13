@@ -145,7 +145,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
           input.reviewedBy,
         ]),
       ];
-      const persons = await this.pool.query(
+      const persons = await this.tenantQuery(input.tenantId, 
         `SELECT id FROM people WHERE tenant_id=$1 AND id = ANY($2::uuid[])`,
         [input.tenantId, personIds],
       );
@@ -154,7 +154,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
           `One or more committee, observer or reviewer people not found`,
         );
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO discretionary_pool_reviews
           (id, tenant_id, pool_id, committee_person_ids,
            employee_observer_person_id, selection_criteria, decision_notes,
@@ -188,8 +188,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         sql += " AND pool_id=$2";
       }
       sql += " ORDER BY reviewed_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapDiscretionaryPoolReview(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapDiscretionaryPoolReview(row));
     }
     
     async createBudgetPool(input: {
@@ -202,7 +202,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       approvedAmount: string;
     }): Promise<BudgetPool> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO budget_pools
             (id, tenant_id, cycle_id, code, name, pool_type, currency,
              approved_amount)
@@ -249,12 +249,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         sql += " AND cycle_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapBudgetPool(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapBudgetPool(row));
     }
     
     async getBudgetPool(tenantId: string, poolId: string): Promise<BudgetPool> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM budget_pools WHERE tenant_id=$1 AND id=$2",
         [tenantId, poolId],
       );
@@ -270,7 +270,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       poolId: string;
       approvedBy: string;
     }): Promise<BudgetPool> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM budget_pools
             WHERE tenant_id=$1 AND id=$2
@@ -308,7 +308,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       targetId: string;
       amount: string;
     }): Promise<BudgetAllocation> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM budget_pools
             WHERE tenant_id=$1 AND id=$2
@@ -358,20 +358,20 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       tenantId: string,
       poolId: string,
     ): Promise<BudgetAllocation[]> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM budget_allocations
           WHERE tenant_id=$1 AND budget_pool_id=$2
           ORDER BY created_at DESC`,
         [tenantId, poolId],
       );
-      return rows.map((row) => this.mapBudgetAllocation(row));
+      return rows.map((row: QueryResultRow) => this.mapBudgetAllocation(row));
     }
     
     async releaseBudgetAllocation(input: {
       tenantId: string;
       allocationId: string;
     }): Promise<BudgetAllocation> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM budget_allocations
             WHERE tenant_id=$1 AND id=$2
@@ -424,7 +424,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       approvedAt?: string;
     }): Promise<CashGateInput> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO cash_gate_inputs
             (id, tenant_id, cycle_id, as_of_date, safety_reserve_months,
              thirteen_week_forecast_ref, passes_gate, approved_by, approved_at)
@@ -469,8 +469,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         sql += " AND cycle_id=$2";
       }
       sql += " ORDER BY as_of_date DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapCashGateInput(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapCashGateInput(row));
     }
     
     async createFinancialFact(input: {
@@ -487,7 +487,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       payload: Record<string, unknown>;
     }): Promise<FinancialFact> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO financial_facts
             (id, tenant_id, source_system, source_record_id, fact_type,
              period_start, period_end, amount, currency, quality_status,
@@ -543,8 +543,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         sql += ` AND source_system=$${params.length}`;
       }
       sql += " ORDER BY ingested_at DESC, created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapFinancialFact(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapFinancialFact(row));
     }
   };
 }

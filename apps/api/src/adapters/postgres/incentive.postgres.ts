@@ -125,7 +125,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       rationale: string;
       requestedBy: string;
     }): Promise<StrategicPoolCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO strategic_pool_cases
            (tenant_id, cycle_id, pool_amount, cap_amount, currency,
             budget_pool_id, rationale, requested_by)
@@ -148,11 +148,11 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
     async listStrategicPoolCases(
       tenantId: string,
     ): Promise<StrategicPoolCase[]> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM strategic_pool_cases WHERE tenant_id=$1 ORDER BY created_at DESC",
         [tenantId],
       );
-      return rows.map((row) => this.mapStrategicPoolCase(row));
+      return rows.map((row: QueryResultRow) => this.mapStrategicPoolCase(row));
     }
     
     async updateStrategicPoolCase(input: {
@@ -164,7 +164,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const current = record.find((candidate) => candidate.id === input.caseId);
       if (!current) notFound("StrategicPoolCase", input.caseId);
       const next = { ...current, ...input.patch };
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE strategic_pool_cases SET
            units=$3, unit_standard_cost=$4, total_standard_cost=$5,
            transfer_pricing_ref=$6, cost_reviewed_by=$7, cost_reviewed_at=$8,
@@ -223,7 +223,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw new ConflictError("CLAWBACK_HARDSHIP_REASON_REQUIRED");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO clawback_cases
             (id, tenant_id, person_id, amount, currency, reason_code,
              explanation, consent_signature_ref, installment_months,
@@ -268,8 +268,8 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapClawbackCase(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapClawbackCase(row));
     }
     
     async approveClawbackCase(input: {
@@ -277,7 +277,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       caseId: string;
       approvedBy: string;
     }): Promise<ClawbackCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM clawback_cases
             WHERE tenant_id=$1 AND id=$2
@@ -313,7 +313,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actorPersonId: string;
     }): Promise<number> {
       if (input.ledgerIds.length === 0) return 0;
-      const { rowCount } = await this.pool.query(
+      const { rowCount } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO ledger_exclusions (tenant_id, ledger_id, reason, created_by)
          SELECT $1, unnest($2::uuid[]), $3, $4
          ON CONFLICT (tenant_id, ledger_id) DO NOTHING`,
@@ -326,7 +326,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string;
       caseId: string;
     }): Promise<ClawbackCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE clawback_cases
             SET status='RECOVERY_GENERATED', updated_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='APPROVED'
@@ -334,7 +334,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         [input.tenantId, input.caseId],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.caseId],
         );
@@ -352,7 +352,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actorPersonId: string;
     }): Promise<ClawbackCase> {
       const status = input.action === "WAIVE" ? "WAIVED" : "CANCELLED";
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE clawback_cases
             SET status=$3,
                 waived_at=CASE WHEN $4 THEN now() ELSE waived_at END,
@@ -372,7 +372,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         ],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.caseId],
         );
@@ -408,7 +408,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       await this.assertTenant(input.tenantId);
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO equity_grants
             (id, tenant_id, person_id, grant_code, grant_type, total_units,
              strike_price, currency, grant_date, vesting_start, cliff_months,
@@ -456,15 +456,15 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY grant_date DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapEquityGrant(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapEquityGrant(row));
     }
     
     async getEquityGrant(
       tenantId: string,
       grantId: string,
     ): Promise<EquityGrant> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM equity_grants WHERE tenant_id=$1 AND id=$2",
         [tenantId, grantId],
       );
@@ -489,7 +489,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       if (!input.reason.trim()) {
         throw new ConflictError("EQ_ADJUST_REASON_REQUIRED");
       }
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM equity_grants
             WHERE tenant_id=$1 AND id=$2
@@ -564,13 +564,13 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       asOf = new Date().toISOString(),
     ): Promise<EquityVesting> {
       const grant = await this.getEquityGrant(tenantId, grantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM equity_exercises WHERE tenant_id=$1 AND grant_id=$2",
         [tenantId, grantId],
       );
       return computeEquityVesting(
         grant,
-        rows.map((row) => this.mapEquityExercise(row)),
+        rows.map((row: QueryResultRow) => this.mapEquityExercise(row)),
         asOf,
       );
     }
@@ -581,7 +581,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       units: string;
       requestedBy: string;
     }): Promise<EquityExercise> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows: grantRows } = await client.query(
           `SELECT * FROM equity_grants
             WHERE tenant_id=$1 AND id=$2
@@ -653,8 +653,8 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND grant_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapEquityExercise(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapEquityExercise(row));
     }
     
     async approveEquityExercise(input: {
@@ -662,7 +662,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       exerciseId: string;
       approvedBy: string;
     }): Promise<EquityExercise> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM equity_exercises
             WHERE tenant_id=$1 AND id=$2
@@ -704,7 +704,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string;
       exerciseId: string;
     }): Promise<EquityExercise> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM equity_exercises
             WHERE tenant_id=$1 AND id=$2
@@ -766,7 +766,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw new ConflictError("BOUNTY_REWARD_MUST_BE_POSITIVE");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO bounties
             (id, tenant_id, title, description, reward_amount, currency,
              status, created_by, due_at, version)
@@ -804,12 +804,12 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND status=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapBounty(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapBounty(row));
     }
     
     async getBounty(tenantId: string, bountyId: string): Promise<Bounty> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM bounties WHERE tenant_id=$1 AND id=$2",
         [tenantId, bountyId],
       );
@@ -822,7 +822,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       bountyId: string;
       personId: string;
     }): Promise<Bounty> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM bounties
             WHERE tenant_id=$1 AND id=$2
@@ -857,7 +857,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       personId: string;
       submissionRef: string;
     }): Promise<Bounty> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM bounties
             WHERE tenant_id=$1 AND id=$2
@@ -890,7 +890,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       reviewerPersonId: string;
       paymentRef?: string;
     }): Promise<Bounty> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM bounties
             WHERE tenant_id=$1 AND id=$2
@@ -933,7 +933,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string;
       bountyId: string;
     }): Promise<Bounty> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE bounties
             SET status='CANCELLED', cancelled_at=now(), updated_at=now(),
                 version=version+1
@@ -958,7 +958,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       evidenceRefs: string[];
       requestedBy: string;
     }): Promise<AdverseActionCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO adverse_action_cases
           (tenant_id, person_id, action_type, status, reason, performance_basis,
            evidence_refs, requested_by)
@@ -988,15 +988,15 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapAdverseAction(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapAdverseAction(row));
     }
     
     async getAdverseAction(
       tenantId: string,
       actionId: string,
     ): Promise<AdverseActionCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM adverse_action_cases WHERE tenant_id=$1 AND id=$2",
         [tenantId, actionId],
       );
@@ -1012,7 +1012,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       decision: "APPROVE" | "REJECT";
       note?: string;
     }): Promise<AdverseActionCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM adverse_action_cases
             WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1064,7 +1064,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actionId: string;
       approvedBy: string;
     }): Promise<AdverseActionCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM adverse_action_cases
             WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1103,7 +1103,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actionId: string;
       effectiveFrom: string;
     }): Promise<AdverseActionCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM adverse_action_cases
             WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1132,7 +1132,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string;
       actionId: string;
     }): Promise<AdverseActionCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM adverse_action_cases
             WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1162,7 +1162,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actionId: string;
       reason: string;
     }): Promise<AdverseActionCase> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM adverse_action_cases
             WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -1217,7 +1217,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         ]),
       ];
       if (sourceRecordIds.length > 0) {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `SELECT batch_no FROM incentive_award_batches
             WHERE tenant_id=$1 AND status <> 'CANCELLED'
               AND source_record_ids ?| $2::text[]
@@ -1243,7 +1243,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         total += amount;
       }
       const batchId = randomUUID();
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         try {
           const { rows } = await client.query(
             `INSERT INTO incentive_award_batches
@@ -1316,7 +1316,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         sql += ` AND status=$${params.length}`;
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
       const batches: IncentiveAwardBatch[] = [];
       for (const row of rows) {
         batches.push(await this.loadIncentiveAwardBatch(this.pool, row));
@@ -1329,7 +1329,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       batchId: string,
     ): Promise<IncentiveAwardBatch> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
         [tenantId, batchId],
       );
@@ -1387,7 +1387,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
         throw new ConflictError("payment reference is required to acknowledge");
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE incentive_award_batches
             SET status=$3,
                 approved_by = CASE WHEN $4='APPROVE' THEN $5 ELSE approved_by END,

@@ -1272,7 +1272,7 @@ export class PgStore implements IncentiveStore {
           result.resultHash,
           JSON.stringify([]),
           JSON.stringify(warnings),
-          DEMO_REQUESTER_ID,
+          input.requestedBy ?? DEMO_REQUESTER_ID,
         ],
       );
 

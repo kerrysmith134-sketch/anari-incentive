@@ -122,7 +122,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       jurisdiction: string;
     }): Promise<EmployeeRepresentation> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO employee_representations
             (id, tenant_id, body_name, body_type, jurisdiction)
            VALUES ($1,$2,$3,$4,$5)
@@ -167,7 +167,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         );
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO conflict_declarations
             (id, tenant_id, person_id, related_person_id, relationship_type,
              description)
@@ -205,8 +205,8 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         sql += " AND (person_id=$2 OR related_person_id=$2)";
       }
       sql += " ORDER BY declared_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapConflictDeclaration(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapConflictDeclaration(row));
     }
     
     async revokeConflictDeclaration(input: {
@@ -214,7 +214,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       declarationId: string;
       reason: string;
     }): Promise<ConflictDeclaration> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE conflict_declarations
             SET status='REVOKED', revoked_at=now(), revocation_reason=$3,
                 updated_at=now()
@@ -231,7 +231,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       personA: string,
       personB: string,
     ): Promise<ConflictDeclaration | undefined> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM conflict_declarations
           WHERE tenant_id=$1 AND status='ACTIVE'
             AND ((person_id=$2 AND related_person_id=$3)
@@ -250,7 +250,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       questions: TrustSurveyQuestion[];
     }): Promise<TrustSurveyRun> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO trust_survey_runs
             (id, tenant_id, code, period, title, questions)
            VALUES ($1,$2,$3,$4,$5,$6::jsonb)
@@ -281,20 +281,20 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
     
     async listTrustSurveys(tenantId: string): Promise<TrustSurveyRun[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM trust_survey_runs
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapTrustSurvey(row));
+      return rows.map((row: QueryResultRow) => this.mapTrustSurvey(row));
     }
     
     async getTrustSurvey(
       tenantId: string,
       surveyId: string,
     ): Promise<TrustSurveyRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM trust_survey_runs WHERE tenant_id=$1 AND id=$2",
         [tenantId, surveyId],
       );
@@ -306,7 +306,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string;
       surveyId: string;
     }): Promise<TrustSurveyRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE trust_survey_runs
             SET status='OPEN', opened_at=now(), updated_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='DRAFT'
@@ -327,7 +327,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string;
       surveyId: string;
     }): Promise<TrustSurveyRun> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE trust_survey_runs
             SET status='CLOSED', closed_at=now(), updated_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='OPEN'
@@ -357,7 +357,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       if (survey.status !== "OPEN") {
         throw new ConflictError(`trust survey is ${survey.status}`);
       }
-      const person = await this.pool.query(
+      const person = await this.tenantQuery(input.tenantId, 
         "SELECT 1 FROM people WHERE tenant_id=$1 AND id=$2",
         [input.tenantId, input.personId],
       );
@@ -374,7 +374,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         `${input.tenantId}:${input.surveyId}:${input.personId}`,
       );
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO trust_survey_responses
             (id, tenant_id, survey_id, respondent_hash, scores)
            VALUES ($1,$2,$3,$4,$5::jsonb)
@@ -403,14 +403,14 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       surveyId: string,
     ): Promise<TrustSurveyReport> {
       const survey = await this.getTrustSurvey(tenantId, surveyId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM trust_survey_responses
           WHERE tenant_id=$1 AND survey_id=$2
           ORDER BY submitted_at`,
         [tenantId, surveyId],
       );
-      const responses = rows.map((row) => this.mapTrustSurveyResponse(row));
-      const baselineQuery = await this.pool.query(
+      const responses = rows.map((row: QueryResultRow) => this.mapTrustSurveyResponse(row));
+      const baselineQuery = await this.tenantQuery(tenantId, 
         `SELECT * FROM trust_survey_runs
           WHERE tenant_id=$1 AND code=$2 AND id<>$3 AND status='CLOSED'
           ORDER BY COALESCE(closed_at, updated_at) DESC
@@ -421,7 +421,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         return aggregateSurveyReport(survey, responses);
       }
       const baselineSurvey = this.mapTrustSurvey(baselineQuery.rows[0]);
-      const baselineResponses = await this.pool.query(
+      const baselineResponses = await this.tenantQuery(tenantId, 
         `SELECT * FROM trust_survey_responses
           WHERE tenant_id=$1 AND survey_id=$2
           ORDER BY submitted_at`,
@@ -441,7 +441,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       ownerPersonId: string;
       channels: string[];
     }): Promise<FairnessCommitment> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         await client.query(
           `UPDATE fairness_commitments
               SET status='SUPERSEDED'
@@ -486,19 +486,19 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
     ): Promise<FairnessCommitment[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM fairness_commitments
           WHERE tenant_id=$1
           ORDER BY version DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapFairnessCommitment(row));
+      return rows.map((row: QueryResultRow) => this.mapFairnessCommitment(row));
     }
     
     async getActiveFairnessCommitment(
       tenantId: string,
     ): Promise<FairnessCommitment | undefined> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM fairness_commitments
           WHERE tenant_id=$1 AND status='ACTIVE'
           ORDER BY version DESC
@@ -524,7 +524,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError("TRAINING_EXPIRY_BEFORE_COMPLETION");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO manager_training_records
             (id, tenant_id, person_id, training_code, title, completed_at,
              expires_at, evidence_ref)
@@ -564,8 +564,8 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY completed_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapManagerTrainingRecord(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapManagerTrainingRecord(row));
     }
     
     async createCalibrationSession(input: {
@@ -579,7 +579,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       notes?: string;
     }): Promise<CalibrationSession> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO calibration_sessions
             (id, tenant_id, code, title, held_at, facilitator_person_id,
              attendee_person_ids, policy_version_id, notes)
@@ -612,13 +612,13 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       tenantId: string,
     ): Promise<CalibrationSession[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM calibration_sessions
           WHERE tenant_id=$1
           ORDER BY held_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapCalibrationSession(row));
+      return rows.map((row: QueryResultRow) => this.mapCalibrationSession(row));
     }
     
     async createPilotEnrollment(input: {
@@ -633,7 +633,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError("PILOT_CONSENT_SIGNATURE_REQUIRED");
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO pilot_enrollments
             (id, tenant_id, person_id, pilot_code, scope,
              consent_signature_ref, consent_signed_at)
@@ -678,8 +678,8 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         sql += " AND person_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapPilotEnrollment(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapPilotEnrollment(row));
     }
     
     async withdrawPilotEnrollment(input: {
@@ -687,7 +687,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       enrollmentId: string;
       reason?: string;
     }): Promise<PilotEnrollment> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE pilot_enrollments
             SET status='WITHDRAWN', withdrawn_at=now(),
                 withdrawal_reason=$3, updated_at=now()
@@ -696,7 +696,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         [input.tenantId, input.enrollmentId, input.reason ?? null],
       );
       if (!rows[0]) {
-        const current = await this.pool.query(
+        const current = await this.tenantQuery(input.tenantId, 
           "SELECT status FROM pilot_enrollments WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.enrollmentId],
         );
@@ -724,7 +724,7 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
       effectiveTo?: string;
     }): Promise<MetricDefinition> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO metric_definitions
             (id, tenant_id, code, version, name, description, data_type,
              unit, aggregation_method, source_contract, effective_from,
@@ -782,22 +782,22 @@ export function PgAssessmentMixin(Base: abstract new (...args: ConstructorParame
         sql += ` AND active=$${params.length}`;
       }
       sql += " ORDER BY code, version DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapMetricDefinition(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapMetricDefinition(row));
     }
     
     async retireMetricDefinition(input: {
       tenantId: string;
       metricId: string;
     }): Promise<MetricDefinition> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE metric_definitions SET active=false
           WHERE tenant_id=$1 AND id=$2 AND active=true
           RETURNING *`,
         [input.tenantId, input.metricId],
       );
       if (!rows[0]) {
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           "SELECT * FROM metric_definitions WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.metricId],
         );

@@ -119,13 +119,13 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string,
     ): Promise<EmployeeRepresentation[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM employee_representations
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapRepresentation(row));
+      return rows.map((row: QueryResultRow) => this.mapRepresentation(row));
     }
     
     async createConsultation(input: {
@@ -140,7 +140,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       outcome: ConsultationOutcome;
     }): Promise<PolicyConsultation> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO policy_consultations
             (id, tenant_id, policy_version_id, representation_id,
              consultation_type, started_at, ended_at, minutes_ref,
@@ -183,15 +183,15 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND policy_version_id=$2";
       }
       sql += " ORDER BY started_at DESC, created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapConsultation(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapConsultation(row));
     }
     
     async getConsultation(
       tenantId: string,
       consultationId: string,
     ): Promise<PolicyConsultation> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM policy_consultations WHERE tenant_id=$1 AND id=$2",
         [tenantId, consultationId],
       );
@@ -221,7 +221,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       ) {
         throw new ConflictError("endedAt must not be before startedAt");
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE policy_consultations
             SET ended_at=$3,
                 outcome=$4,
@@ -253,7 +253,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       requestedBy: string;
     }): Promise<RuleChangeOrder> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO rule_change_orders
             (id, tenant_id, policy_code, from_policy_version_id,
              to_policy_version_id, change_type, reason, impact_simulation,
@@ -298,15 +298,15 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
         sql += ` AND status=$${params.length}`;
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapRuleChangeOrder(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapRuleChangeOrder(row));
     }
     
     async getRuleChangeOrder(
       tenantId: string,
       orderId: string,
     ): Promise<RuleChangeOrder> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM rule_change_orders WHERE tenant_id=$1 AND id=$2",
         [tenantId, orderId],
       );
@@ -334,7 +334,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string;
       orderId: string;
     }): Promise<RuleChangeOrder> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM rule_change_orders
             WHERE tenant_id=$1 AND id=$2
@@ -368,7 +368,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       category: PolicyTestCase["category"];
     }): Promise<PolicyTestCase> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO policy_test_cases
             (id, tenant_id, policy_version_id, case_code, input,
              expected_output, category)
@@ -412,8 +412,8 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND policy_version_id=$2";
       }
       sql += " ORDER BY case_code";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapPolicyTestCase(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapPolicyTestCase(row));
     }
     
     async getPolicyTestCase(
@@ -421,7 +421,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       testCaseId: string,
     ): Promise<PolicyTestCase> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM policy_test_cases WHERE tenant_id=$1 AND id=$2`,
         [tenantId, testCaseId],
       );
@@ -436,7 +436,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       resultHash?: string;
       runAt?: string;
     }): Promise<PolicyTestCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE policy_test_cases
             SET last_run_at=$3, last_run_passed=$4, last_run_result_hash=$5
           WHERE tenant_id=$1 AND id=$2
@@ -466,7 +466,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       results: PolicyTestRun["results"];
     }): Promise<PolicyTestRun> {
       await this.assertTenant(input.tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO policy_test_runs
           (id, tenant_id, policy_version_id, run_at, total, passed_count,
            failed_count, retired_count, passed, results_hash, results)
@@ -495,7 +495,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       limit = 20,
     ): Promise<PolicyTestRun[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM policy_test_runs
           WHERE tenant_id=$1
             AND ($2::uuid IS NULL OR policy_version_id=$2)
@@ -503,21 +503,21 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
           LIMIT $3`,
         [tenantId, policyVersionId ?? null, limit],
       );
-      return rows.map((row) => this.mapPolicyTestRun(row));
+      return rows.map((row: QueryResultRow) => this.mapPolicyTestRun(row));
     }
     
     async retirePolicyTestCase(input: {
       tenantId: string;
       testCaseId: string;
     }): Promise<PolicyTestCase> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE policy_test_cases SET status='RETIRED'
           WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
           RETURNING *`,
         [input.tenantId, input.testCaseId],
       );
       if (!rows[0]) {
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           "SELECT * FROM policy_test_cases WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.testCaseId],
         );
@@ -536,7 +536,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       audience: Record<string, unknown>;
     }): Promise<PolicyNotice> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO policy_notices
             (id, tenant_id, policy_version_id, notice_id, audience)
            VALUES ($1,$2,$3,$4,$5)
@@ -575,8 +575,8 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
         sql += " AND policy_version_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapPolicyNotice(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapPolicyNotice(row));
     }
     
     async savePolicyEngineRecord(input: {
@@ -601,7 +601,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
           status: input.status,
         });
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO policy_engine_records
           (id, tenant_id, record_type, person_id, period, status, payload)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -624,7 +624,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
       recordId: string,
     ): Promise<PolicyEngineRecord> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM policy_engine_records WHERE tenant_id=$1 AND id=$2",
         [tenantId, recordId],
       );
@@ -661,8 +661,8 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
         sql += ` AND status=$${params.length}`;
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapPolicyEngineRecord(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapPolicyEngineRecord(row));
     }
     
     async updatePolicyEngineRecord(input: {
@@ -681,7 +681,7 @@ export function PgPolicygovMixin(Base: abstract new (...args: ConstructorParamet
           `policy record version mismatch: expected ${record.version}`,
         );
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE policy_engine_records
             SET payload = COALESCE($3, payload),
                 status = COALESCE($4, status),

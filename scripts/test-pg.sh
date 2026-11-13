@@ -20,4 +20,5 @@ MIGRATION_URL="postgres://anari:anari@localhost:${PORT}/anari_incentive"
 DATABASE_URL="$MIGRATION_URL" npm run db:migrate
 DATABASE_URL="$MIGRATION_URL" npm run db:seed
 DATABASE_URL="postgres://anari_app:anari_app@localhost:${PORT}/anari_incentive" \
-  npx vitest run apps/api/src/__tests__/pg-store.test.ts
+  npx vitest run apps/api/src/__tests__/pg-store.test.ts \
+    apps/api/src/__tests__/store-contract.test.ts

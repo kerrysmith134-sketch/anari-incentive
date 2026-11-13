@@ -151,7 +151,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
         "SELECT * FROM memberships WHERE user_id=$1 AND status='ACTIVE' ORDER BY joined_at",
         [userId],
       );
-      return rows.map((row) => this.mapMembership(row));
+      return rows.map((row: QueryResultRow) => this.mapMembership(row));
     }
     
     async setUserPassword(userId: string, passwordHash: string): Promise<void> {
@@ -187,7 +187,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
       const { rows } = await this.pool.query(
         "SELECT * FROM users ORDER BY created_at DESC",
       );
-      return rows.map((row) => this.mapUser(row));
+      return rows.map((row: QueryResultRow) => this.mapUser(row));
     }
     
     async addMembership(input: {
@@ -196,7 +196,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
       roleCodes: string[];
     }): Promise<PlatformMembership> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO memberships
             (id, tenant_id, user_id, status, role_codes, joined_at)
            VALUES ($1,$2,$3,'ACTIVE',$4,now())
@@ -218,7 +218,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
     
     async listMemberships(tenantId: string): Promise<PlatformMembership[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT m.*, u.display_name AS user_display_name,
                 u.email AS user_email
            FROM memberships m
@@ -227,7 +227,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
           ORDER BY m.created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapMembership(row));
+      return rows.map((row: QueryResultRow) => this.mapMembership(row));
     }
     
     async resolveIdentity(input: {
@@ -237,7 +237,7 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
     }): Promise<PlatformIdentity> {
       const [{ rows: personRows }, { rows: membershipRows }, { rows: nameRows }] =
         await Promise.all([
-          this.pool.query(
+          this.tenantQuery(input.tenantId, 
             `SELECT id FROM people
               WHERE tenant_id=$1
                 AND ($3::uuid IS NOT NULL AND id = $3
@@ -246,12 +246,12 @@ export function PgIdentityMixin(Base: abstract new (...args: ConstructorParamete
               LIMIT 1`,
             [input.tenantId, input.userId, input.personId ?? null],
           ),
-          this.pool.query(
+          this.tenantQuery(input.tenantId, 
             `SELECT role_codes FROM memberships
               WHERE tenant_id=$1 AND user_id=$2`,
             [input.tenantId, input.userId],
           ),
-          this.pool.query(
+          this.tenantQuery(input.tenantId, 
             `SELECT COALESCE(p.display_name, u.display_name, u.email) AS display_name,
                     t.name AS tenant_name
                FROM users u

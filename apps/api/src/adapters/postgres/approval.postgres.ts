@@ -130,7 +130,7 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
       idempotencyKey: string;
     }): Promise<ApprovalRequest> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO approval_requests
             (id, tenant_id, action_type, target_type, target_id,
              target_version, requested_by_type, requested_by_id, risk_tier,
@@ -156,7 +156,7 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
         return this.mapApprovalRequest(rows[0]);
       } catch (error) {
         if ((error as { code?: string }).code === "23505") {
-          const { rows } = await this.pool.query(
+          const { rows } = await this.tenantQuery(input.tenantId, 
             `SELECT * FROM approval_requests
               WHERE tenant_id=$1 AND idempotency_key=$2`,
             [input.tenantId, input.idempotencyKey],
@@ -199,15 +199,15 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
         sql += ` AND target_id=$${params.length}`;
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapApprovalRequest(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapApprovalRequest(row));
     }
     
     async getApprovalRequest(
       tenantId: string,
       requestId: string,
     ): Promise<ApprovalRequest> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM approval_requests WHERE tenant_id=$1 AND id=$2",
         [tenantId, requestId],
       );
@@ -220,13 +220,13 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
       requestId: string,
     ): Promise<ApprovalDecision[]> {
       await this.getApprovalRequest(tenantId, requestId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM approval_decisions
           WHERE tenant_id=$1 AND request_id=$2
           ORDER BY decided_at`,
         [tenantId, requestId],
       );
-      return rows.map((row) => this.mapApprovalDecision(row));
+      return rows.map((row: QueryResultRow) => this.mapApprovalDecision(row));
     }
     
     async decideApprovalRequest(input: {
@@ -238,7 +238,7 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
       reason?: string;
       authContext: Record<string, unknown>;
     }): Promise<ApprovalRequest> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM approval_requests
             WHERE tenant_id=$1 AND id=$2
@@ -332,7 +332,7 @@ export function PgApprovalMixin(Base: abstract new (...args: ConstructorParamete
       requestId: string;
       consumedBy: string;
     }): Promise<ApprovalRequest> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM approval_requests
             WHERE tenant_id=$1 AND id=$2

@@ -124,7 +124,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       signerPersonId: string;
     }): Promise<ESignEnvelope> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO esign_envelopes
             (id, tenant_id, contract_id, provider, envelope_ref, document_hash,
              signer_person_id)
@@ -169,8 +169,8 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += " AND contract_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapESignEnvelope(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapESignEnvelope(row));
     }
     
     async completeESignEnvelope(input: {
@@ -184,7 +184,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       if (input.status === "SIGNED" && !input.signatureRef?.trim()) {
         throw new ConflictError("ESIGN_SIGNATURE_REF_REQUIRED");
       }
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM esign_envelopes
             WHERE tenant_id=$1 AND provider=$2 AND envelope_ref=$3
@@ -233,7 +233,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       config: Record<string, unknown>;
     }): Promise<IntegrationConnection> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO integration_connections
             (id, tenant_id, provider, connection_name, credential_ref, config)
            VALUES ($1,$2,$3,$4,$5,$6)
@@ -260,20 +260,20 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       tenantId: string,
     ): Promise<IntegrationConnection[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM integration_connections
           WHERE tenant_id=$1
           ORDER BY created_at DESC`,
         [tenantId],
       );
-      return rows.map((row) => this.mapIntegrationConnection(row));
+      return rows.map((row: QueryResultRow) => this.mapIntegrationConnection(row));
     }
     
     async getIntegrationConnection(
       tenantId: string,
       connectionId: string,
     ): Promise<IntegrationConnection> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM integration_connections WHERE tenant_id=$1 AND id=$2",
         [tenantId, connectionId],
       );
@@ -286,7 +286,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       connectionId: string;
       status: string;
     }): Promise<IntegrationConnection> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE integration_connections
             SET status=$3, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
@@ -312,7 +312,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         input.tenantId,
         input.connectionId,
       );
-      const { rows: active } = await this.pool.query(
+      const { rows: active } = await this.tenantQuery(input.tenantId, 
         `SELECT version FROM integration_mappings
           WHERE tenant_id=$1 AND connection_id=$2 AND name=$3
             AND status='ACTIVE'`,
@@ -324,7 +324,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         );
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO integration_mappings
             (id, tenant_id, connection_id, name, mapping_type, source_system,
              target_type, field_map, config, version, status)
@@ -368,15 +368,15 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += ` AND status=$${params.length}`;
       }
       sql += " ORDER BY name, version DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapIntegrationMapping(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapIntegrationMapping(row));
     }
     
     async getIntegrationMapping(
       tenantId: string,
       mappingId: string,
     ): Promise<IntegrationMapping> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM integration_mappings WHERE tenant_id=$1 AND id=$2",
         [tenantId, mappingId],
       );
@@ -388,7 +388,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       tenantId: string;
       mappingId: string;
     }): Promise<IntegrationMapping> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE integration_mappings
             SET status='RETIRED', retired_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'
@@ -419,7 +419,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         input.connectionId,
       );
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO sync_schedules
             (id, tenant_id, connection_id, name, interval_minutes, enabled,
              next_run_at)
@@ -459,15 +459,15 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += ` AND connection_id=$${params.length}`;
       }
       sql += " ORDER BY next_run_at";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapSyncSchedule(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapSyncSchedule(row));
     }
     
     async getSyncSchedule(
       tenantId: string,
       scheduleId: string,
     ): Promise<SyncSchedule> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM sync_schedules WHERE tenant_id=$1 AND id=$2",
         [tenantId, scheduleId],
       );
@@ -480,7 +480,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       scheduleId: string;
       enabled: boolean;
     }): Promise<SyncSchedule> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE sync_schedules
             SET enabled=$3, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
@@ -496,7 +496,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       limit: number;
       now?: string;
     }): Promise<SyncSchedule[]> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const now = input.now ?? new Date().toISOString();
         const { rows } = await client.query(
           `SELECT * FROM sync_schedules
@@ -531,7 +531,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       cursorBefore?: Record<string, unknown>;
     }): Promise<SyncRun> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO sync_runs
             (id, tenant_id, connection_id, status, started_at, cursor_before)
            VALUES ($1,$2,$3,$4,
@@ -568,8 +568,8 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += " AND connection_id=$2";
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapSyncRun(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapSyncRun(row));
     }
     
     async finishSyncRun(input: {
@@ -581,7 +581,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       cursorAfter?: Record<string, unknown>;
       errorSummary?: string;
     }): Promise<SyncRun> {
-      return this.transaction(async (client) => {
+      return this.transactionFor(input.tenantId, async (client) => {
         const { rows } = await client.query(
           `SELECT * FROM sync_runs
             WHERE tenant_id=$1 AND id=$2
@@ -628,7 +628,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       objectType: string;
     }): Promise<ExternalIdentity> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO external_identity_map
             (id, tenant_id, source_system, external_id, person_id, object_type)
            VALUES ($1,$2,$3,$4,$5,$6)
@@ -671,8 +671,8 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += ` AND object_type=$${params.length}`;
       }
       sql += " ORDER BY created_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapExternalIdentity(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapExternalIdentity(row));
     }
     
     async receiveWebhook(input: {
@@ -682,7 +682,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       payloadHash: string;
     }): Promise<WebhookInboxMessage> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO webhook_inbox
             (id, tenant_id, source_system, message_id, payload_hash)
            VALUES ($1,$2,$3,$4,$5)
@@ -697,7 +697,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
           ],
         );
         if (rows[0]) return this.mapWebhook(rows[0]);
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           `SELECT * FROM webhook_inbox
             WHERE tenant_id=$1 AND source_system=$2 AND message_id=$3`,
           [input.tenantId, input.sourceSystem, input.messageId],
@@ -730,8 +730,8 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         sql += ` AND source_system=$${params.length}`;
       }
       sql += " ORDER BY received_at DESC";
-      const { rows } = await this.pool.query(sql, params);
-      return rows.map((row) => this.mapWebhook(row));
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapWebhook(row));
     }
     
     async processWebhook(input: {
@@ -740,7 +740,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       status: "PROCESSED" | "FAILED";
       errorCode?: string;
     }): Promise<WebhookInboxMessage> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE webhook_inbox
             SET status=$3, error_code=$4, processed_at=now()
           WHERE tenant_id=$1 AND id=$2 AND processed_at IS NULL
@@ -753,7 +753,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         ],
       );
       if (!rows[0]) {
-        const { rows: existing } = await this.pool.query(
+        const { rows: existing } = await this.tenantQuery(input.tenantId, 
           "SELECT * FROM webhook_inbox WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.webhookId],
         );

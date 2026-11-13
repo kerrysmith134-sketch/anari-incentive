@@ -148,11 +148,11 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       const { rows } = await this.pool.query(
         "SELECT * FROM tenants ORDER BY created_at DESC",
       );
-      return rows.map((row) => this.mapTenant(row));
+      return rows.map((row: QueryResultRow) => this.mapTenant(row));
     }
     
     async getTenant(tenantId: string): Promise<PlatformTenant> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM tenants WHERE id=$1",
         [tenantId],
       );
@@ -164,7 +164,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       tenantId: string;
       settings: Record<string, unknown>;
     }): Promise<PlatformTenant> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE tenants
             SET settings = COALESCE(settings, '{}'::jsonb) || $2::jsonb,
                 updated_at=now()
@@ -225,7 +225,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
           ? "SELECT * FROM subscription_plans WHERE active ORDER BY created_at"
           : "SELECT * FROM subscription_plans ORDER BY created_at",
       );
-      return rows.map((row) => this.mapSubscriptionPlan(row));
+      return rows.map((row: QueryResultRow) => this.mapSubscriptionPlan(row));
     }
     
     async setTenantSubscription(input: {
@@ -239,12 +239,12 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       cancelReason?: string;
     }): Promise<TenantSubscription> {
       await this.assertTenant(input.tenantId);
-      const plan = await this.pool.query(
+      const plan = await this.tenantQuery(input.tenantId, 
         "SELECT * FROM subscription_plans WHERE code=$1",
         [input.planCode],
       );
       if (plan.rows.length === 0) notFound("SubscriptionPlan", input.planCode);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO tenant_subscriptions
            (tenant_id, plan_id, status, seats, current_period_start,
             current_period_end, trial_ends_at, canceled_at, cancel_reason)
@@ -282,7 +282,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
     async getTenantSubscription(
       tenantId: string,
     ): Promise<TenantSubscription | null> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT s.*, p.code AS plan_code, p.name AS plan_name
            FROM tenant_subscriptions s
            JOIN subscription_plans p ON p.id = s.plan_id
@@ -302,7 +302,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
     }): Promise<TenantInvoice> {
       const subscription = await this.getTenantSubscription(input.tenantId);
       if (!subscription) notFound("TenantSubscription", input.tenantId);
-      const plan = await this.pool.query(
+      const plan = await this.tenantQuery(input.tenantId, 
         "SELECT * FROM subscription_plans WHERE id=$1",
         [subscription.planId],
       );
@@ -310,7 +310,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
         (sum, item) => sum + parseDecimal(item.amount),
         0n,
       );
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `INSERT INTO invoices
            (tenant_id, subscription_id, number, currency, line_items,
             total_amount, period_start, period_end, due_date)
@@ -334,18 +334,18 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
     }
     
     async listInvoices(tenantId: string): Promise<TenantInvoice[]> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         "SELECT * FROM invoices WHERE tenant_id=$1 ORDER BY created_at DESC",
         [tenantId],
       );
-      return rows.map((row) => this.mapInvoice(row));
+      return rows.map((row: QueryResultRow) => this.mapInvoice(row));
     }
     
     async setInvoiceStatus(input: {
       invoiceId: string;
       status: TenantInvoiceStatus;
     }): Promise<TenantInvoice> {
-      const { rows } = await this.pool.query(
+      const { rows } = await this.platformQuery(
         `UPDATE invoices SET
            status = $2,
            issued_at = CASE WHEN $2 = 'ISSUED'
@@ -366,7 +366,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       userId: string;
     }): Promise<PlatformPerson> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `UPDATE people SET user_id=$3, updated_at=now()
             WHERE tenant_id=$1 AND id=$2
             RETURNING *`,
@@ -398,7 +398,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
     }): Promise<PlatformOrgNode> {
       let parentPath: string | undefined;
       if (input.parentId) {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           "SELECT path FROM org_nodes WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.parentId],
         );
@@ -406,7 +406,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
         parentPath = rows[0].path ?? undefined;
       }
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO org_nodes
             (id, tenant_id, parent_id, node_type, name, path, external_id)
            VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -432,13 +432,13 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
     
     async listOrgNodes(tenantId: string): Promise<PlatformOrgNode[]> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(tenantId, 
         `SELECT * FROM org_nodes
           WHERE tenant_id=$1
           ORDER BY COALESCE(path, name), name`,
         [tenantId],
       );
-      return rows.map((row) => this.mapOrgNode(row));
+      return rows.map((row: QueryResultRow) => this.mapOrgNode(row));
     }
     
     async assignPersonOrg(input: {
@@ -450,7 +450,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       allocation?: string;
     }): Promise<PlatformOrgAssignment> {
       try {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `INSERT INTO person_org_assignments
             (id, tenant_id, person_id, org_node_id, valid_from, valid_to,
              allocation)
@@ -486,14 +486,14 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       personId: string;
       managerPersonId: string | null;
     }): Promise<PlatformPerson> {
-      const { rows: personRows } = await this.pool.query(
+      const { rows: personRows } = await this.tenantQuery(input.tenantId, 
         "SELECT id FROM people WHERE tenant_id=$1 AND id=$2",
         [input.tenantId, input.personId],
       );
       if (!personRows[0]) notFound("Person", input.personId);
   
       if (input.managerPersonId === null) {
-        const { rows } = await this.pool.query(
+        const { rows } = await this.tenantQuery(input.tenantId, 
           `UPDATE people SET manager_person_id=NULL, updated_at=now()
             WHERE tenant_id=$1 AND id=$2
             RETURNING *`,
@@ -505,13 +505,13 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       if (input.managerPersonId === input.personId) {
         throw new ConflictError("a person cannot be their own manager");
       }
-      const { rows: managerRows } = await this.pool.query(
+      const { rows: managerRows } = await this.tenantQuery(input.tenantId, 
         "SELECT id FROM people WHERE tenant_id=$1 AND id=$2",
         [input.tenantId, input.managerPersonId],
       );
       if (!managerRows[0]) notFound("Person", input.managerPersonId);
   
-      const { rows: cycleRows } = await this.pool.query(
+      const { rows: cycleRows } = await this.tenantQuery(input.tenantId, 
         `WITH RECURSIVE chain AS (
            SELECT id, manager_person_id
              FROM people
@@ -528,7 +528,7 @@ export function PgTenantMixin(Base: abstract new (...args: ConstructorParameters
       if (cycleRows[0]) {
         throw new ConflictError("manager assignment would create a cycle");
       }
-      const { rows } = await this.pool.query(
+      const { rows } = await this.tenantQuery(input.tenantId, 
         `UPDATE people SET manager_person_id=$3, updated_at=now()
           WHERE tenant_id=$1 AND id=$2
           RETURNING *`,
