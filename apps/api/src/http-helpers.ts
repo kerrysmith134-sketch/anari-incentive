@@ -23,6 +23,13 @@ export function idOf(request: FastifyRequest): string {
   return (request.params as IdParams).id;
 }
 
+export function paramOf(
+  request: FastifyRequest,
+  name: string,
+): string {
+  return (request.params as Record<string, string>)[name] ?? "";
+}
+
 export function data(data: unknown, request: FastifyRequest) {
   return { data, meta: { correlation_id: request.id } };
 }
@@ -133,3 +140,13 @@ export function runPolicyInput<T>(calculation: () => T): T {
     );
   }
 }
+
+export function normalizeHeaderKey(value: string): string {
+  return value.replace(/^\uFEFF/, "").trim().toLowerCase();
+}
+
+export function columnIndexFor(header: string[], aliases: string[]): number {
+  const normalized = header.map(normalizeHeaderKey);
+  return normalized.findIndex((cell) => aliases.includes(cell));
+}
+

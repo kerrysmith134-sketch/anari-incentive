@@ -346,6 +346,8 @@ import {
   policyBody,
   requireString,
   runPolicyInput,
+  paramOf,
+  columnIndexFor,
 } from "./http-helpers.js";
 import {
   findActivityMetricKeys,
@@ -359,6 +361,8 @@ import { registerAttributionRoutes } from "./modules/attribution/attribution.rou
 import { notifyBestEffort } from "./notify.js";
 import { registerContributionRoutes } from "./modules/contribution/contribution.routes.js";
 import { registerPolicyEngineRoutes } from "./modules/policy/policy.routes.js";
+import { registerApprovalRoutes } from "./modules/approvals/approval-requests.routes.js";
+import { registerPayrollRoutes } from "./modules/settlement/payroll.routes.js";
 import { registerWorkPackageRoutes } from "./modules/workpackages/work-packages.routes.js";
 
 type IdParams = { id: string };
@@ -378,10 +382,6 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0
     ? 0
     : Math.round((numerator / denominator) * 10_000) / 10_000;
-}
-
-function paramOf(request: FastifyRequest, name: string): string {
-  return (request.params as Record<string, string>)[name] ?? "";
 }
 
 const employeeUi = readFileSync(
@@ -537,6 +537,43 @@ async function assertWorkPackageParticipant(
   ) {
     throw new ForbiddenError("work package is not visible to this person");
   }
+}
+
+export function redactContractAmendmentTerms<
+  T extends {
+    beforeTerms: Record<string, unknown>;
+    afterTerms: Record<string, unknown>;
+  },
+>(
+  amendment: T,
+  viewer: {
+    personId?: string;
+    recordPersonId?: string;
+    roles: string[];
+    policies?: Record<string, FieldAccessPolicy>;
+    matchContext?: FieldAccessMatchContext;
+  },
+): T & { redactedFields?: string[] } {
+  const before = redactResourceFields(
+    amendment.beforeTerms,
+    "EMPLOYMENT_CONTRACT",
+    viewer,
+  );
+  const after = redactResourceFields(
+    amendment.afterTerms,
+    "EMPLOYMENT_CONTRACT",
+    viewer,
+  );
+  const redactedFields = [
+    ...new Set([...(before.redactedFields ?? []), ...(after.redactedFields ?? [])]),
+  ];
+  if (redactedFields.length === 0) return amendment;
+  return {
+    ...amendment,
+    beforeTerms: before,
+    afterTerms: after,
+    redactedFields,
+  };
 }
 
 
@@ -920,42 +957,6 @@ export function redactResourceFields<T extends object>(
  * contract fields. Apply the contract field policies to both snapshots so the
  * history cannot bypass the contract list rules.
  */
-export function redactContractAmendmentTerms<
-  T extends {
-    beforeTerms: Record<string, unknown>;
-    afterTerms: Record<string, unknown>;
-  },
->(
-  amendment: T,
-  viewer: {
-    personId?: string;
-    recordPersonId?: string;
-    roles: string[];
-    policies?: Record<string, FieldAccessPolicy>;
-    matchContext?: FieldAccessMatchContext;
-  },
-): T & { redactedFields?: string[] } {
-  const before = redactResourceFields(
-    amendment.beforeTerms,
-    "EMPLOYMENT_CONTRACT",
-    viewer,
-  );
-  const after = redactResourceFields(
-    amendment.afterTerms,
-    "EMPLOYMENT_CONTRACT",
-    viewer,
-  );
-  const redactedFields = [
-    ...new Set([...(before.redactedFields ?? []), ...(after.redactedFields ?? [])]),
-  ];
-  if (redactedFields.length === 0) return amendment;
-  return {
-    ...amendment,
-    beforeTerms: before,
-    afterTerms: after,
-    redactedFields,
-  };
-}
 
 /** Apply settlement-line field policies while leaving batch totals intact. */
 export function redactSettlementBatchFields(
@@ -1676,14 +1677,6 @@ export function buildApp(
     }
   }
 
-  function normalizeHeaderKey(value: string): string {
-    return value.replace(/^\uFEFF/, "").trim().toLowerCase();
-  }
-
-  function columnIndexFor(header: string[], aliases: string[]): number {
-    const normalized = header.map(normalizeHeaderKey);
-    return normalized.findIndex((cell) => aliases.includes(cell));
-  }
 
   function exportHeaders(
     request: FastifyRequest,
@@ -2060,6 +2053,36 @@ export function buildApp(
           resourceType as Parameters<typeof redactResourceFields>[1],
           viewer as Parameters<typeof redactResourceFields>[2],
         ),
+    }),
+  );
+
+  app.register(registerApprovalRoutes({ platformStore, countEvent }));
+  app.register(
+    registerPayrollRoutes({
+      platformStore,
+      storeFor,
+      countEvent,
+      ensureApproval,
+      consumeApprovalForAction,
+      assertExportAllowed,
+      assertExportDlp: (request, text, targetType, targetId, approvalRequestId) =>
+        assertExportDlp(request, text, targetType, targetId, approvalRequestId),
+      exportHeaders,
+      auditExport,
+      fieldPoliciesFor: (request) => fieldPoliciesFor(request),
+      fieldMatchContextFor: (request, policies) =>
+        fieldMatchContextFor(
+          request,
+          policies as Record<string, FieldAccessPolicy> | undefined,
+        ),
+      redactResourceFields: (record, resourceType, viewer) =>
+        redactResourceFields(
+          record as Parameters<typeof redactResourceFields>[0],
+          resourceType as Parameters<typeof redactResourceFields>[1],
+          viewer as Parameters<typeof redactResourceFields>[2],
+        ),
+      payrollRunForViewer: (request, run) => payrollRunForViewer(request, run),
+      redactContractAmendmentTerms,
     }),
   );
 
@@ -8400,120 +8423,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     );
   });
 
-  app.post("/api/v1/approval-requests", async (request, reply) => {
-    requireRoles(request, "manager", "finance");
-    const body = parse(createApprovalRequestSchema, request.body);
-    // The requester identity comes from the session, not the body: otherwise a
-    // caller can claim requestedByType=SYSTEM and then approve their own action.
-    const requesterPersonId = ownPersonId(request);
-    const approval = await platformStore.createApprovalRequest({
-      tenantId: tenantOf(request),
-      actionType: body.actionType,
-      targetType: body.targetType,
-      targetId: body.targetId,
-      targetVersion: body.targetVersion ?? 1,
-      requestedByType: requesterPersonId ? "USER" : body.requestedByType,
-      requestedById: requesterPersonId ?? body.requestedById,
-      riskTier: body.riskTier,
-      requiredApprovals: body.requiredApprovals ?? 1,
-      expiresAt: body.expiresAt,
-      payloadHash: sha256(body.payload ?? {}),
-      idempotencyKey: body.idempotencyKey,
-    });
-    countEvent("approval_created");
-    return reply.status(201).send(data(approval, request));
-  });
-
-  app.get("/api/v1/approval-requests", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const query = request.query as {
-      status?: string;
-      targetType?: string;
-      targetId?: string;
-    };
-    return data(
-      await platformStore.listApprovalRequests(tenantOf(request), {
-        status: query.status as
-          | "PENDING"
-          | "APPROVED"
-          | "REJECTED"
-          | "EXPIRED"
-          | "CANCELLED"
-          | undefined,
-        targetType: query.targetType,
-        targetId: query.targetId,
-      }),
-      request,
-    );
-  });
-
-  app.get("/api/v1/approval-requests/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.getApprovalRequest(
-        tenantOf(request),
-        idOf(request),
-      ),
-      request,
-    );
-  });
-
-  app.get("/api/v1/approval-requests/:id/decisions", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listApprovalDecisions(
-        tenantOf(request),
-        idOf(request),
-      ),
-      request,
-    );
-  });
-
-  app.post("/api/v1/approval-requests/:id/decide", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const body = parse(decideApprovalRequestSchema, request.body);
-    const person = ownPersonId(request);
-    if (person && !isPlatformAdmin(request) && body.approverPersonId !== person) {
-      throw new ForbiddenError(
-        "approvals must be decided under your own identity",
-      );
-    }
-    const persons = await platformStore.listPersons(tenantOf(request));
-    if (!persons.some((candidate) => candidate.id === body.approverPersonId)) {
-      throw new NotFoundError(`Person ${body.approverPersonId} not found`);
-    }
-    const decided = await platformStore.decideApprovalRequest({
-      tenantId: tenantOf(request),
-      requestId: idOf(request),
-      decision: body.decision,
-      approverPersonId: body.approverPersonId,
-      payloadHash: body.payloadHash,
-      reason: body.reason,
-      authContext: body.authContext ?? {},
-    });
-    countEvent(
-      body.decision === "APPROVE"
-        ? "approval_approved"
-        : "approval_rejected",
-    );
-    return data(decided, request);
-  });
-
-  app.post("/api/v1/approval-requests/:id/consume", async (request) => {
-    requireRoles(request, "finance");
-    const body = parse(consumeApprovalRequestSchema, request.body);
-    const person = ownPersonId(request);
-    if (person && !isPlatformAdmin(request) && body.consumedBy !== person) {
-      throw new ForbiddenError("approvals must be consumed under your own identity");
-    }
-    const consumed = await platformStore.consumeApprovalRequest({
-      tenantId: tenantOf(request),
-      requestId: idOf(request),
-      consumedBy: body.consumedBy,
-    });
-    countEvent("approval_consumed");
-    return data(consumed, request);
-  });
 
   app.post("/api/v1/settlement-batches/:id/exports", async (request, reply) => {
     requireRoles(request, "finance");
@@ -10687,482 +10596,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     );
   });
 
-  app.post("/api/v1/compensation-templates", async (request, reply) => {
-    requireRoles(request, "admin");
-    const body = parse(createCompensationTemplateSchema, request.body);
-    return reply.status(201).send(
-      data(
-        await platformStore.createCompensationTemplate({
-          tenantId: tenantOf(request),
-          code: body.code,
-          name: body.name,
-          roleCode: body.roleCode,
-          employmentType: body.employmentType,
-          currency: body.currency,
-          fixedSalaryMin: body.fixedSalaryMin,
-          fixedSalaryMax: body.fixedSalaryMax,
-          deductionCapRate: body.deductionCapRate ?? "0.2",
-          variableShareCapRate: body.variableShareCapRate ?? "1",
-          smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
-          deductionOrder: body.deductionOrder ?? [
-            "RECOVERY",
-            "REVERSAL",
-            "ADJUSTMENT",
-            "OTHER",
-          ],
-          deductionTypeCaps: body.deductionTypeCaps ?? {},
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/compensation-templates", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listCompensationTemplates(tenantOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/compensation-templates/:id/retire", async (request) => {
-    requireRoles(request, "admin");
-    return data(
-      await platformStore.retireCompensationTemplate({
-        tenantId: tenantOf(request),
-        templateId: idOf(request),
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/employment-contracts/apply-due", async (request) => {
-    requireRoles(request, "manager");
-    return data(
-      await platformStore.applyDueContractAmendments(tenantOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/employment-contracts", async (request, reply) => {
-    requireRoles(request, "admin");
-    const body = parse(createEmploymentContractSchema, request.body);
-    if (body.compensationTemplateCode) {
-      const template = await platformStore.getActiveCompensationTemplate(
-        tenantOf(request),
-        body.compensationTemplateCode,
-      );
-      if (!template) {
-        throw new NotFoundError(
-          `CompensationTemplate ${body.compensationTemplateCode} not found`,
-        );
-      }
-      if (
-        template.employmentType !== body.employmentType ||
-        template.currency !== body.currency
-      ) {
-        throw new ConflictError(
-          "COMPENSATION_TEMPLATE_TYPE_OR_CURRENCY_MISMATCH",
-        );
-      }
-      const salary = parseDecimal(body.fixedMonthlySalary);
-      if (
-        salary < parseDecimal(template.fixedSalaryMin) ||
-        salary > parseDecimal(template.fixedSalaryMax)
-      ) {
-        throw new ConflictError(
-          "COMPENSATION_TEMPLATE_SALARY_OUT_OF_RANGE",
-        );
-      }
-    }
-    const existingContracts = await platformStore.listEmploymentContracts(
-      tenantOf(request),
-      body.personId,
-    );
-    const newStart = Date.parse(body.startDate);
-    const newEnd = body.endDate ? Date.parse(body.endDate) : Infinity;
-    const overlapping = existingContracts.find(
-      (contract) =>
-        contract.status === "ACTIVE" &&
-        contract.currency === body.currency &&
-        Date.parse(contract.startDate) <= newEnd &&
-        (!contract.endDate || Date.parse(contract.endDate) >= newStart),
-    );
-    if (overlapping) {
-      throw new ConflictError(
-        `EMPLOYMENT_CONTRACT_OVERLAP: ${overlapping.contractCode} already covers this person and period`,
-      );
-    }
-    return reply.status(201).send(
-      data(
-        await platformStore.createEmploymentContract({
-          tenantId: tenantOf(request),
-          personId: body.personId,
-          contractCode: body.contractCode,
-          employmentType: body.employmentType,
-          startDate: body.startDate,
-          endDate: body.endDate,
-          workLocation: body.workLocation,
-          legalEntity: body.legalEntity,
-          currency: body.currency,
-          fixedMonthlySalary: body.fixedMonthlySalary,
-          minimumMonthlyWage: body.minimumMonthlyWage,
-          taxRate: body.taxRate ?? "0",
-          socialInsuranceRate: body.socialInsuranceRate ?? "0",
-          deductionCapRate: body.deductionCapRate ?? "0.2",
-          variableShareCapRate: body.variableShareCapRate ?? "1",
-          deductionOrder: body.deductionOrder ?? [
-            "RECOVERY",
-            "REVERSAL",
-            "ADJUSTMENT",
-            "OTHER",
-          ],
-          deductionTypeCaps: body.deductionTypeCaps ?? {},
-          smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
-          smoothingMode: body.smoothingMode,
-          smoothingWindowPeriods: body.smoothingWindowPeriods,
-          smoothingMaxStepRate: body.smoothingMaxStepRate,
-          compensationTemplateCode: body.compensationTemplateCode,
-          bankAccountRef: body.bankAccountRef,
-          consentSignatureRef: body.consentSignatureRef,
-          consentSignedAt: body.consentSignedAt,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.post("/api/v1/employment-contracts/:id/amendments", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(amendEmploymentContractSchema, request.body);
-    return data(
-      await platformStore.amendEmploymentContract({
-        tenantId: tenantOf(request),
-        contractId: idOf(request),
-        fixedMonthlySalary: body.fixedMonthlySalary,
-        minimumMonthlyWage: body.minimumMonthlyWage,
-        taxRate: body.taxRate,
-        socialInsuranceRate: body.socialInsuranceRate,
-        deductionCapRate: body.deductionCapRate,
-        variableShareCapRate: body.variableShareCapRate,
-        deductionOrder: body.deductionOrder ?? [],
-        deductionTypeCaps: body.deductionTypeCaps ?? {},
-        smoothingThresholdRate: body.smoothingThresholdRate ?? "1",
-        compensationTemplateCode: body.compensationTemplateCode,
-        bankAccountRef: body.bankAccountRef,
-        effectiveFrom: body.effectiveFrom,
-        consentSignatureRef: body.consentSignatureRef,
-        approvedBy: body.approvedBy,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/employment-contracts/:id/amendments/:amendmentId/cancel", async (request) => {
-    requireRoles(request, "manager");
-    const body = parse(cancelContractAmendmentSchema, request.body);
-    return data(
-      await platformStore.cancelContractAmendment({
-        tenantId: tenantOf(request),
-        contractId: idOf(request),
-        amendmentId: paramOf(request, "amendmentId"),
-        reason: body.reason,
-      }),
-      request,
-    );
-  });
-
-  app.get("/api/v1/employment-contracts/:id/amendments", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const tenantId = tenantOf(request);
-    const contractId = idOf(request);
-    const amendments = await platformStore.listEmploymentContractAmendments(
-      tenantId,
-      contractId,
-    );
-    const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin")) return data(amendments, request);
-    const policies = await fieldPoliciesFor(request);
-    const matchContext = await fieldMatchContextFor(request, policies);
-    let contractPersonId: string | undefined;
-    try {
-      contractPersonId = (
-        await platformStore.getEmploymentContract(tenantId, contractId)
-      ).personId;
-    } catch {
-      contractPersonId = undefined;
-    }
-    const personId = ownPersonId(request);
-    return data(
-      amendments.map((amendment) =>
-        redactContractAmendmentTerms(amendment, {
-          personId,
-          recordPersonId: contractPersonId,
-          roles,
-          policies,
-          matchContext,
-        }),
-      ),
-      request,
-    );
-  });
-
-  // 批量导入：CSV 一次登记多名员工的劳动合同。
-  app.post("/api/v1/employment-contracts:import", async (request) => {
-    requireRoles(request, "admin");
-    const body = parse(importEmploymentContractsSchema, request.body);
-    const rows = parseCsv(body.csv);
-    if (rows.length < 2) {
-      throw new BadRequestError(
-        "CSV_NO_DATA_ROWS",
-        "CSV 需要表头和至少一行数据",
-      );
-    }
-    const header = rows[0]!;
-    const col = {
-      personId: columnIndexFor(header, ["person_id", "人员id"]),
-      employeeCode: columnIndexFor(header, [
-        "employee_code",
-        "employeecode",
-        "工号",
-        "员工编号",
-        "empno",
-      ]),
-      contractCode: columnIndexFor(header, ["contract_code", "合同编号"]),
-      employmentType: columnIndexFor(header, ["employment_type", "用工类型"]),
-      startDate: columnIndexFor(header, ["start_date", "开始日期", "入职日期"]),
-      endDate: columnIndexFor(header, ["end_date", "结束日期"]),
-      workLocation: columnIndexFor(header, ["work_location", "工作地点"]),
-      legalEntity: columnIndexFor(header, ["legal_entity", "法人主体"]),
-      currency: columnIndexFor(header, ["currency", "币种"]),
-      fixedMonthlySalary: columnIndexFor(header, [
-        "fixed_monthly_salary",
-        "固定月薪",
-        "月薪",
-      ]),
-      minimumMonthlyWage: columnIndexFor(header, [
-        "minimum_monthly_wage",
-        "最低工资",
-      ]),
-      taxRate: columnIndexFor(header, ["tax_rate", "个税率"]),
-      socialInsuranceRate: columnIndexFor(header, [
-        "social_insurance_rate",
-        "社保率",
-      ]),
-      deductionCapRate: columnIndexFor(header, [
-        "deduction_cap_rate",
-        "扣款上限率",
-      ]),
-      variableShareCapRate: columnIndexFor(header, [
-        "variable_share_cap_rate",
-        "浮动占比上限率",
-      ]),
-      consentSignatureRef: columnIndexFor(header, [
-        "consent_signature_ref",
-        "同意签名",
-        "签署引用",
-      ]),
-    };
-    if (
-      (col.personId === -1 && col.employeeCode === -1) ||
-      col.contractCode === -1 ||
-      col.startDate === -1 ||
-      col.fixedMonthlySalary === -1
-    ) {
-      throw new BadRequestError(
-        "CSV_COLUMNS_REQUIRED",
-        "CSV 必须包含：工号/人员ID、合同编号、开始日期、固定月薪",
-      );
-    }
-    const persons = await platformStore.listPersons(tenantOf(request));
-    const byCode = new Map(
-      persons.map((person) => [person.employeeCode.toLowerCase(), person.id]),
-    );
-    const existing = await platformStore.listEmploymentContracts(
-      tenantOf(request),
-    );
-    const contractsByPerson = new Map<string, typeof existing>();
-    for (const contract of existing) {
-      const list = contractsByPerson.get(contract.personId) ?? [];
-      list.push(contract);
-      contractsByPerson.set(contract.personId, list);
-    }
-    const typeMap: Record<string, "FULL_TIME" | "PART_TIME" | "CONTRACTOR"> = {
-      "全职": "FULL_TIME",
-      full_time: "FULL_TIME",
-      "兼职": "PART_TIME",
-      part_time: "PART_TIME",
-      "外包": "CONTRACTOR",
-      contractor: "CONTRACTOR",
-      "劳务": "CONTRACTOR",
-    };
-    const defaultConsent = `CSV-CONSENT-${new Date().toISOString().slice(0, 10)}`;
-    const created: Array<{ row: number; contractId: string }> = [];
-    const failed: Array<{ row: number; error: string }> = [];
-    for (const [rowIndex, cells] of rows.slice(1).entries()) {
-      const row = rowIndex + 2;
-      if (cells.every((cell) => !cell.trim())) continue;
-      const fail = (error: string) => failed.push({ row, error });
-      try {
-        let personId: string | undefined;
-        if (col.personId >= 0 && cells[col.personId]?.trim()) {
-          personId = cells[col.personId]!.trim();
-          if (!persons.some((person) => person.id === personId)) {
-            fail(`人员 ${personId} 不存在`);
-            continue;
-          }
-        } else {
-          const code = cells[col.employeeCode]?.trim().toLowerCase() ?? "";
-          personId = byCode.get(code);
-          if (!personId) {
-            fail(`工号「${code}」没有匹配的员工`);
-            continue;
-          }
-        }
-        const contractCode = cells[col.contractCode]?.trim() ?? "";
-        if (!contractCode) {
-          fail("合同编号不能为空");
-          continue;
-        }
-        const rawStart = cells[col.startDate]?.trim() ?? "";
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawStart)) {
-          fail(`开始日期「${rawStart}」需要 YYYY-MM-DD`);
-          continue;
-        }
-        const rawEnd = cells[col.endDate]?.trim() ?? "";
-        if (rawEnd && !/^\d{4}-\d{2}-\d{2}$/.test(rawEnd)) {
-          fail(`结束日期「${rawEnd}」需要 YYYY-MM-DD`);
-          continue;
-        }
-        const rawFixed = cells[col.fixedMonthlySalary]?.trim() ?? "";
-        if (!/^\d+(\.\d{1,2})?$/.test(rawFixed) || Number(rawFixed) <= 0) {
-          fail(`固定月薪「${rawFixed}」无效`);
-          continue;
-        }
-        const employmentTypeRaw =
-          (col.employmentType >= 0
-            ? cells[col.employmentType]?.trim().toLowerCase()
-            : "") || "full_time";
-        const employmentType = typeMap[employmentTypeRaw];
-        if (!employmentType) {
-          fail(`用工类型「${employmentTypeRaw}」无效（全职/兼职/外包）`);
-          continue;
-        }
-        const currency =
-          (col.currency >= 0 ? cells[col.currency]?.trim() : "") || "CNY";
-        const startDate = `${rawStart}T00:00:00.000Z`;
-        const endDate = rawEnd ? `${rawEnd}T23:59:59.999Z` : undefined;
-        // 与单笔创建一致：同一员工同币种的 ACTIVE 合同不允许期间重叠。
-        const overlap = (contractsByPerson.get(personId) ?? []).find(
-          (contract) =>
-            contract.status === "ACTIVE" &&
-            contract.currency === currency &&
-            Date.parse(contract.startDate) <=
-              Date.parse(endDate ?? "9999-12-31T23:59:59.999Z") &&
-            (!contract.endDate ||
-              Date.parse(contract.endDate) >= Date.parse(startDate)),
-        );
-        if (overlap) {
-          fail(`与已有合同 ${overlap.contractCode} 期间重叠`);
-          continue;
-        }
-        const contract = await platformStore.createEmploymentContract({
-          tenantId: tenantOf(request),
-          personId,
-          contractCode,
-          employmentType,
-          startDate,
-          endDate,
-          workLocation:
-            (col.workLocation >= 0
-              ? cells[col.workLocation]?.trim()
-              : "") || "深圳",
-          legalEntity:
-            col.legalEntity >= 0
-              ? cells[col.legalEntity]?.trim() || undefined
-              : undefined,
-          currency,
-          fixedMonthlySalary: rawFixed,
-          minimumMonthlyWage:
-            (col.minimumMonthlyWage >= 0
-              ? cells[col.minimumMonthlyWage]?.trim()
-              : "") || "2360",
-          taxRate:
-            (col.taxRate >= 0 ? cells[col.taxRate]?.trim() : "") || "0",
-          socialInsuranceRate:
-            (col.socialInsuranceRate >= 0
-              ? cells[col.socialInsuranceRate]?.trim()
-              : "") || "0",
-          deductionCapRate:
-            (col.deductionCapRate >= 0
-              ? cells[col.deductionCapRate]?.trim()
-              : "") || "0.2",
-          variableShareCapRate:
-            (col.variableShareCapRate >= 0
-              ? cells[col.variableShareCapRate]?.trim()
-              : "") || "1",
-          consentSignatureRef:
-            (col.consentSignatureRef >= 0
-              ? cells[col.consentSignatureRef]?.trim()
-              : "") || defaultConsent,
-          deductionOrder: [
-            "RECOVERY",
-            "REVERSAL",
-            "ADJUSTMENT",
-            "OTHER",
-          ],
-          deductionTypeCaps: {},
-          smoothingThresholdRate: "1",
-          smoothingMode: "BLOCK",
-          smoothingWindowPeriods: 3,
-          smoothingMaxStepRate: "0.5",
-        });
-        const list = contractsByPerson.get(personId) ?? [];
-        list.push(contract);
-        contractsByPerson.set(personId, list);
-        created.push({ row, contractId: contract.id });
-      } catch (error) {
-        fail(error instanceof Error ? error.message : "创建失败");
-      }
-    }
-    countEvent("employment_contracts_csv_imported");
-    return data(
-      {
-        created: created.length,
-        failed: failed.length,
-        createdContractIds: created.map((entry) => entry.contractId),
-        errors: failed,
-        defaultConsentRef: defaultConsent,
-      },
-      request,
-    );
-  });
-
-  app.get("/api/v1/employment-contracts", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const query = request.query as { personId?: string };
-    const contracts = await platformStore.listEmploymentContracts(
-      tenantOf(request),
-      query.personId,
-    );
-    const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin")) return data(contracts, request);
-    const policies = await fieldPoliciesFor(request);
-    const matchContext = await fieldMatchContextFor(request, policies);
-    const personId = ownPersonId(request);
-    return data(
-      contracts.map((contract) =>
-        redactResourceFields(contract, "EMPLOYMENT_CONTRACT", {
-          personId,
-          recordPersonId: contract.personId,
-          roles,
-          policies,
-          matchContext,
-        }),
-      ),
-      request,
-    );
-  });
 
   app.post("/api/v1/tax/cn-iit/calculate", async (request) => {
     requireRoles(request, "manager", "finance");
