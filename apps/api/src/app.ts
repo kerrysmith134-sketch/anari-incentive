@@ -342,6 +342,7 @@ import {
   isPlatformAdmin,
   requirePlatformAdmin,
   requireTenantAdmin,
+  personFilter,
 } from "./http-helpers.js";
 import {
   findActivityMetricKeys,
@@ -349,6 +350,7 @@ import {
 } from "./modules/governance/activity-monitoring.js";
 import { RETENTION_RECOMMENDATIONS } from "./modules/governance/retention-defaults.js";
 import { registerDataGovernanceRoutes } from "./modules/governance/data-governance.routes.js";
+import { registerEvidenceRoutes } from "./modules/evidence/evidence.routes.js";
 
 type IdParams = { id: string };
 
@@ -574,17 +576,6 @@ function redactRunForPerson(
  * Employees may only see their own rows and must carry a person identity.
  * Privileged roles see the tenant and get no filter.
  */
-function personFilter(request: FastifyRequest): string | undefined {
-  if (isPrivileged(request)) return undefined;
-  const person = ownPersonId(request);
-  if (!person) {
-    throw new ForbiddenError(
-      "employee identity is required (person_id claim or X-Person-Id)",
-    );
-  }
-  return person;
-}
-
 /** Recalculation targets must exist before a request can be recorded. */
 async function assertRecalculationTarget(
   store: IncentiveStore,
@@ -2030,6 +2021,26 @@ export function buildApp(
       amount: formatDecimal(total),
     });
   }
+
+  // NPV2-011：证据/摄取域路由已拆分至 modules/evidence（行为等价迁移）。
+  app.register(
+    registerEvidenceRoutes({
+      storeFor,
+      countEvent,
+      fieldPoliciesFor: (request) => fieldPoliciesFor(request),
+      fieldMatchContextFor: (request, policies) =>
+        fieldMatchContextFor(
+          request,
+          policies as Record<string, FieldAccessPolicy> | undefined,
+        ),
+      redactResourceFields: (record, resourceType, viewer) =>
+        redactResourceFields(
+          record as Parameters<typeof redactResourceFields>[0],
+          resourceType as Parameters<typeof redactResourceFields>[1],
+          viewer as Parameters<typeof redactResourceFields>[2],
+        ),
+    }),
+  );
 
   // NPV2-011：数据治理域路由已拆分至 modules/governance（行为等价迁移）。
   app.register(
@@ -5798,108 +5809,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(summarizeAgentMetrics(tasks), request);
   });
 
-  app.post("/api/v1/ingestion/events:batch", async (request) => {
-    requireRoles(request, "integration");
-    const body = parse(ingestionBatchSchema, request.body);
-    return data(await storeFor(request).ingestEvents(body), request);
-  });
-
-  app.post("/api/v1/evidence", async (request, reply) => {
-    const body = parse(createEvidenceSchema, request.body);
-    const activityFields = findActivityMetricKeys(body.normalizedPayload);
-    if (activityFields.length > 0) {
-      throw new ConflictError(
-        `DATA_MINIMIZATION_ACTIVITY_BLOCKED:${activityFields.join(",")}`,
-      );
-    }
-    const activityText = findActivityMonitoringText(body.normalizedPayload);
-    if (activityText.length > 0) {
-      throw new ConflictError(
-        `DATA_MINIMIZATION_ACTIVITY_TEXT_BLOCKED:${activityText.join(",")}`,
-      );
-    }
-    const person = personFilter(request);
-    if (person && body.submittedBy && body.submittedBy !== person) {
-      throw new ForbiddenError("cannot submit evidence as another person");
-    }
-    if (person) {
-      const selfEvidence =
-        body.subjectType === "PERSON" && body.subjectId === person;
-      if (!selfEvidence) {
-        if (body.subjectType !== "WORK_PACKAGE") {
-          throw new ForbiddenError(
-            "employees may only attach evidence to their own work packages or person",
-          );
-        }
-        const wp = await storeFor(request).getWorkPackage(body.subjectId);
-        if (
-          wp.ownerPersonId !== person &&
-          !wp.members.some((member) => member.personId === person)
-        ) {
-          throw new ForbiddenError(
-            "work package is not visible to this person",
-          );
-        }
-      }
-    }
-    const submittedBy = person ?? body.submittedBy;
-    return reply.status(201).send(
-      data(
-        await storeFor(request).createEvidence({ ...body, submittedBy }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/evidence", async (request) => {
-    const person = personFilter(request);
-    const query = request.query as {
-      subjectType?: string;
-      subjectId?: string;
-    };
-    const evidence = await storeFor(request).listEvidence(
-      query.subjectType,
-      query.subjectId,
-    );
-    if (person) {
-      return data(
-        evidence.filter((node) => node.submittedBy === person),
-        request,
-      );
-    }
-    const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin")) return data(evidence, request);
-    const policies = await fieldPoliciesFor(request);
-    const matchContext = await fieldMatchContextFor(request, policies);
-    const viewerPersonId = ownPersonId(request);
-    return data(
-      evidence.map((node) =>
-        redactResourceFields(node, "EVIDENCE", {
-          personId: viewerPersonId,
-          recordPersonId: node.submittedBy,
-          roles,
-          policies,
-          matchContext,
-        }),
-      ),
-      request,
-    );
-  });
-
-  app.post("/api/v1/evidence/:id/links", async (request, reply) => {
-    const body = parse(createEvidenceLinkSchema, request.body);
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).linkEvidence(idOf(request), body), request));
-  });
-
-  app.get("/api/v1/evidence/:id/links", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await storeFor(request).listEvidenceLinks(idOf(request)),
-      request,
-    );
-  });
 
   app.post("/api/v1/work-packages", async (request, reply) => {
     const body = parse(createWorkPackageSchema, request.body);

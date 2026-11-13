@@ -78,3 +78,14 @@ export function requireTenantAdmin(
     "requires platform_admin or the admin of this tenant",
   );
 }
+
+export function personFilter(request: FastifyRequest): string | undefined {
+  if (isPrivileged(request)) return undefined;
+  const person = ownPersonId(request);
+  if (!person) {
+    throw new ForbiddenError(
+      "employee identity is required (person_id claim or X-Person-Id)",
+    );
+  }
+  return person;
+}
