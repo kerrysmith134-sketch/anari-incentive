@@ -21,5 +21,7 @@ export function createAgentContext(store: IncentiveStore): AgentContext {
     createNotification: (input) => store.createNotification(input),
     upsertAgentTodo: (input) => store.upsertAgentTodo(input),
     listAgentTodos: (filter) => store.listAgentTodos(filter),
+    completeAgentTodo: (id, completedByPersonId) =>
+      store.completeAgentTodo(id, completedByPersonId),
   };
 }

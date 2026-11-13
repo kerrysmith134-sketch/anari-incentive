@@ -14,6 +14,7 @@ import {
   enqueueAgentTaskSchema,
   rejectAgentActionSchema,
   scanAgentTasksSchema,
+  upsertAgentTodoSchema,
 } from "@anari/contracts";
 import {
   data,
@@ -427,6 +428,14 @@ export function registerAgentTaskRoutes(deps: {
   // NPV2-020：Agent 待办——持久业务对象（责任人/dueAt/关联对象/幂等/来源），
   // 业务 UI 可查、可处理、可验证。
   // ------------------------------------------------------------------
+  app.post("/api/v1/agent-todos:upsert", async (request, reply) => {
+    requireRoles(request, "integration", "manager", "finance");
+    const body = parse(upsertAgentTodoSchema, request.body);
+    return reply.status(201).send(
+      data(await storeFor(request).upsertAgentTodo(body), request),
+    );
+  });
+
   app.get("/api/v1/agent-todos", async (request) => {
     const query = request.query as Record<string, string | undefined>;
     const person = personFilter(request);

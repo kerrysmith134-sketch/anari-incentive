@@ -1683,8 +1683,13 @@ evidenceOpened: 1,rationale: "Self",
     expect(allIds.length).toBe(3);
 
     // 崩溃恢复：poller-a 崩溃不释放租约 → 过期后可重新领取（不丢失）。
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const recovered = await outbox.recoverExpiredClaims();
+    // 并行负载下调度延迟大：轮询等待租约过期而非固定 sleep。
+    let recovered = 0;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      recovered = await outbox.recoverExpiredClaims();
+      if (recovered >= batchA.length) break;
+    }
     expect(recovered).toBeGreaterThanOrEqual(batchA.length);
     const reclaimed = await outbox.claimBatchAtomic({
       workerId: "poller-c",

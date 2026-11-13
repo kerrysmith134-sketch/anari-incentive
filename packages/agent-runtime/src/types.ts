@@ -145,6 +145,15 @@ export interface AgentContext {
     sourceType: string;
     sourceId: string;
   }>;
+  completeAgentTodo(
+    id: string,
+    completedByPersonId: string,
+  ): Promise<{
+    id: string;
+    status: string;
+    completedByPersonId?: string;
+    completedAt?: string;
+  }>;
   listAgentTodos(filter?: {
     assigneePersonId?: string;
     status?: "OPEN" | "DONE" | "CANCELLED";

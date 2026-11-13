@@ -249,6 +249,15 @@ export class HttpAgentContext implements AgentContext {
     };
   }
 
+  async completeAgentTodo(id: string, completedByPersonId: string) {
+    return postData(
+      this.baseUrl,
+      `/api/v1/agent-todos/${id}/complete`,
+      await this.headers(),
+      { completedByPersonId },
+    );
+  }
+
   async listAgentTodos(filter?: {
     assigneePersonId?: string;
     status?: "OPEN" | "DONE" | "CANCELLED";

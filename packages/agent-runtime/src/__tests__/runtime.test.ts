@@ -33,6 +33,7 @@ import {
   type AgentAction,
   type ToolInvocationRecord,
   type AgentTaskRepository,
+  EvidenceCompletenessWorkflow,
 } from "../index.js";
 
 class FakeContext implements AgentContext {
@@ -42,6 +43,7 @@ class FakeContext implements AgentContext {
     assigneePersonId: string;
     status: string;
     dueAt?: string;
+    targetId?: string;
     idempotencyKey: string;
     sourceType: string;
     sourceId: string;
@@ -51,6 +53,8 @@ class FakeContext implements AgentContext {
     title: string;
     assigneePersonId: string;
     dueAt?: string;
+    targetType?: string;
+    targetId?: string;
     sourceType: string;
     sourceId: string;
     idempotencyKey: string;
@@ -65,11 +69,19 @@ class FakeContext implements AgentContext {
       assigneePersonId: input.assigneePersonId,
       status: "OPEN",
       dueAt: input.dueAt,
+      targetId: input.targetId,
       idempotencyKey: input.idempotencyKey,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
     };
     this.todos.set(todo.id, todo);
+    return todo;
+  }
+
+  async completeAgentTodo(id: string, completedByPersonId: string) {
+    const todo = this.todos.get(id);
+    if (!todo) throw new Error("todo not found");
+    todo.status = "DONE";
     return todo;
   }
 
@@ -363,6 +375,62 @@ class FakeRepository implements AgentTaskRepository {
     return recovered;
   }
 }
+
+describe("evidence completeness workflow (NPV2-024)", () => {
+  function setup() {
+    const context = new FakeContext();
+    const workflow = new EvidenceCompletenessWorkflow(context);
+    return { context, workflow };
+  }
+
+  it("end-to-end: gap → todo + nudge → evidence arrives → todo verified closed", async () => {
+    const { context, workflow } = setup();
+    const wp = workPackage();
+    context.workPackages = [wp];
+    // 第一轮：无证据 → 建待办 + 催补证通知
+    const round1 = await workflow.runOnce();
+    expect(round1.todosCreated).toBe(1);
+    expect(round1.audit.some((entry) => entry.action === "TODO_CREATED")).toBe(true);
+    expect(context.notifications.some((n) => n.title === "Evidence requested")).toBe(true);
+
+    // 幂等：再跑一轮不重复建待办
+    const round2 = await workflow.runOnce();
+    expect(round2.todosCreated).toBe(0);
+
+    // 证据入库（模拟上传）→ 再跑一轮：待办被验证关闭
+    context.evidence.push({
+      id: `ev-${wp.id}`,
+      subjectType: "WORK_PACKAGE",
+      subjectId: wp.id,
+    } as never);
+    const round3 = await workflow.runOnce();
+    expect(round3.todosVerifiedClosed).toBe(1);
+    expect(round3.audit.some((entry) => entry.action === "TODO_VERIFIED_CLOSED")).toBe(true);
+    const todos = await context.listAgentTodos();
+    const closed = todos.find((t) => t.targetId === wp.id)!;
+    expect((closed as { status: string }).status).toBe("DONE");
+  });
+
+  it("overdue open todos escalate to the manager channel", async () => {
+    const { context, workflow } = setup();
+    const wp = workPackage();
+    context.workPackages = [wp];
+    // 预置一条过期待办（绕过 workflow 直接落）
+    await context.upsertAgentTodo({
+      title: "过期证据待办",
+      assigneePersonId: wp.ownerPersonId,
+      dueAt: "2026-01-01T00:00:00.000Z",
+      targetType: "WORK_PACKAGE",
+      targetId: wp.id,
+      sourceType: "AGENT_FINDING",
+      sourceId: "NO_EVIDENCE",
+      idempotencyKey: `evidence-gap:${wp.id}`,
+    });
+    const round = await workflow.runOnce();
+    expect(round.escalations).toBeGreaterThanOrEqual(1);
+    expect(context.notifications.some((n) => n.title === "Evidence todo overdue")).toBe(true);
+  });
+});
 
 describe("tool contract: timeout/retry/postcondition (NPV2-021)", () => {
   function makeRuntimeWith(tools: AgentTool[]) {
