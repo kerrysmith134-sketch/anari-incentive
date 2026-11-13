@@ -364,6 +364,7 @@ import { registerPolicyEngineRoutes } from "./modules/policy/policy.routes.js";
 import { registerApprovalRoutes } from "./modules/approvals/approval-requests.routes.js";
 import { registerPayrollRoutes } from "./modules/settlement/payroll.routes.js";
 import { registerRewardsRoutes } from "./modules/rewards/rewards.routes.js";
+import { registerSettlementRoutes } from "./modules/settlement/settlement-budget.routes.js";
 import { registerWorkPackageRoutes } from "./modules/workpackages/work-packages.routes.js";
 
 type IdParams = { id: string };
@@ -2059,6 +2060,29 @@ export function buildApp(
 
   app.register(registerApprovalRoutes({ platformStore, countEvent }));
   app.register(registerRewardsRoutes({ platformStore, storeFor, countEvent }));
+  app.register(
+    registerSettlementRoutes({
+      platformStore,
+      storeFor,
+      countEvent,
+      notifyBestEffort,
+      ensureApproval,
+      consumeApprovalForAction,
+      assertExportDlp,
+      assertExportAllowed,
+      fieldPoliciesFor: (request) => fieldPoliciesFor(request),
+      fieldMatchContextFor: (request, policies) =>
+        fieldMatchContextFor(
+          request,
+          policies as Record<string, FieldAccessPolicy> | undefined,
+        ),
+      redactSettlementBatchFields: (batch, viewer) =>
+        redactSettlementBatchFields(
+          batch as Parameters<typeof redactSettlementBatchFields>[0],
+          viewer as Parameters<typeof redactSettlementBatchFields>[1],
+        ),
+    }),
+  );
   app.register(
     registerPayrollRoutes({
       platformStore,
@@ -8491,83 +8515,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     );
   });
 
-  app.post("/api/v1/budget-pools", async (request, reply) => {
-    requireRoles(request, "finance");
-    const body = parse(createBudgetPoolSchema, request.body);
-    await storeFor(request).getEvaluationCycle(body.cycleId);
-    return reply.status(201).send(
-      data(
-        await platformStore.createBudgetPool({
-          tenantId: tenantOf(request),
-          cycleId: body.cycleId,
-          code: body.code,
-          name: body.name,
-          poolType: body.poolType,
-          currency: body.currency,
-          approvedAmount: body.approvedAmount,
-        }),
-        request,
-      ),
-    );
-  });
-
-  app.get("/api/v1/budget-pools", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const query = request.query as { cycleId?: string };
-    return data(
-      await platformStore.listBudgetPools(
-        tenantOf(request),
-        query.cycleId,
-      ),
-      request,
-    );
-  });
-
-  app.get("/api/v1/budget-pools/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.getBudgetPool(tenantOf(request), idOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/budget-pools/:id/approve", async (request) => {
-    requireRoles(request, "finance");
-    const body = parse(approveBudgetPoolSchema, request.body);
-    return data(
-      await platformStore.approveBudgetPool({
-        tenantId: tenantOf(request),
-        poolId: idOf(request),
-        approvedBy: body.approvedBy,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/budget-pools/:id/allocations", async (request, reply) => {
-    requireRoles(request, "finance");
-    const body = parse(createBudgetAllocationSchema, request.body);
-    const allocation = await platformStore.createBudgetAllocation({
-      tenantId: tenantOf(request),
-      poolId: idOf(request),
-      targetType: body.targetType,
-      targetId: body.targetId,
-      amount: body.amount,
-    });
-    countEvent("budget_allocated");
-    return reply.status(201).send(data(allocation, request));
-  });
-
-  app.get("/api/v1/budget-pools/:id/allocations", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await platformStore.listBudgetAllocations(
-        tenantOf(request),
-        idOf(request),
-      ),
-      request,
-    );
-  });
 
   app.post("/api/v1/budget-allocations/:id/release", async (request) => {
     requireRoles(request, "finance");
@@ -11760,128 +11707,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data({ valid: await storeFor(request).verifyLedger() }, request);
   });
 
-  app.post("/api/v1/settlement-batches", async (request, reply) => {
-    requireRoles(request, "finance");
-    const body = parse(createSettlementBatchSchema, request.body);
-    const store = storeFor(request);
-    const batch = await store.createSettlementBatch(body);
-    if (batch.kind === "RECOVERY") {
-      const lines = await store.listSettlementLines(batch.id);
-      const affected = [
-        ...new Set(
-          lines
-            .filter((line) => Number(line.amount) < 0)
-            .map((line) => line.personId),
-        ),
-      ];
-      for (const personId of affected) {
-        await notifyBestEffort(store, {
-          recipientPersonId: personId,
-          audience: "PERSON",
-          title: "Recovery settlement requires confirmation",
-          body: `Batch ${batch.batchNo} contains a negative adjustment; please review and confirm or object.`,
-          sourceType: "SETTLEMENT_BATCH",
-          sourceId: batch.id,
-        });
-      }
-    }
-    return reply.status(201).send(data(batch, request));
-  });
-
-  app.get("/api/v1/settlement-batches", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const batches = await storeFor(request).listSettlementBatches();
-    const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin")) return data(batches, request);
-    const policies = await fieldPoliciesFor(request);
-    const matchContext = await fieldMatchContextFor(request, policies);
-    const personId = ownPersonId(request);
-    return data(
-      batches.map((batch) =>
-        redactSettlementBatchFields(batch, {
-          personId,
-          roles,
-          policies,
-          matchContext,
-        }),
-      ),
-      request,
-    );
-  });
-
-  app.get("/api/v1/settlement-batches/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const batch = await storeFor(request).getSettlementBatch(idOf(request));
-    const roles = request.authContext?.roles ?? [];
-    if (roles.includes("admin")) return data(batch, request);
-    const policies = await fieldPoliciesFor(request);
-    const matchContext = await fieldMatchContextFor(request, policies);
-    return data(
-      redactSettlementBatchFields(batch, {
-        personId: ownPersonId(request),
-        roles,
-        policies,
-        matchContext,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/settlement-batches/:id/commands", async (request) => {
-    requireRoles(request, "finance");
-    // A malformed id used to reach Postgres as a uuid literal and surface as a
-    // 500; treat it as a missing batch instead.
-    if (
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        idOf(request),
-      )
-    ) {
-      throw new NotFoundError(`SettlementBatch ${idOf(request)} not found`);
-    }
-    const body = parse(settlementCommandSchema, request.body);
-    if (body.command === "EXPORT") assertExportAllowed(request);
-    const store = storeFor(request);
-    if (body.command === "APPROVE" || body.command === "LOCK") {
-      const actionType =
-        body.command === "APPROVE"
-          ? "SETTLEMENT_APPROVE"
-          : "SETTLEMENT_LOCK";
-      await ensureApproval(request, actionType, body.approvalRequestId);
-      if (body.approvalRequestId) {
-        await consumeApprovalForAction(request, {
-          approvalRequestId: body.approvalRequestId,
-          actionType,
-          targetType: "SETTLEMENT_BATCH",
-          targetId: idOf(request),
-        });
-      }
-    } else if (body.approvalRequestId) {
-      throw new ConflictError(
-        "APPROVAL_NOT_APPLICABLE: only APPROVE and LOCK consume approvals",
-      );
-    }
-    const result = await store.commandSettlementBatch(idOf(request), body);
-    if (body.command === "EXPORT" && result.csv) {
-      await assertExportDlp(
-        request,
-        result.csv,
-        "SETTLEMENT_BATCH",
-        idOf(request),
-        body.approvalRequestId,
-      );
-    }
-    countEvent(`settlement_${body.command.toLowerCase()}`);
-    if (body.command === "REQUIRE_ADJUSTMENT") {
-      await notifyBestEffort(store, {
-        audience: "FINANCE",
-        title: "Settlement adjustment required",
-        body: body.reason ?? `Batch ${result.batch.batchNo} needs correction.`,
-        sourceType: "SETTLEMENT_BATCH",
-        sourceId: result.batch.id,
-      });
-    }
-    return data(result, request);
-  });
 
 
 
