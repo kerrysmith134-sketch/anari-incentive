@@ -363,6 +363,8 @@ import { registerContributionRoutes } from "./modules/contribution/contribution.
 import { registerPolicyEngineRoutes } from "./modules/policy/policy.routes.js";
 import { registerClawbackRoutes } from "./modules/clawback/clawback.routes.js";
 import { registerStrategicPoolRoutes } from "./modules/strategicpool/strategic-pool.routes.js";
+import { registerEvaluationRoutes } from "./modules/evaluation/evaluation.routes.js";
+import { registerNotificationRoutes } from "./modules/notifications/notifications.routes.js";
 import { registerApprovalRoutes } from "./modules/approvals/approval-requests.routes.js";
 import { registerPayrollRoutes } from "./modules/settlement/payroll.routes.js";
 import { registerRewardsRoutes } from "./modules/rewards/rewards.routes.js";
@@ -2062,6 +2064,8 @@ export function buildApp(
 
   app.register(registerApprovalRoutes({ platformStore, countEvent }));
   app.register(registerClawbackRoutes({ platformStore, storeFor, countEvent, notifyBestEffort }));
+  app.register(registerEvaluationRoutes({ platformStore, storeFor, countEvent }));
+  app.register(registerNotificationRoutes({ storeFor }));
   app.register(registerStrategicPoolRoutes({ platformStore, storeFor, countEvent }));
   app.register(registerRewardsRoutes({ platformStore, storeFor, countEvent }));
   app.register(
@@ -2491,61 +2495,6 @@ export function buildApp(
     });
   });
 
-  app.post("/api/v1/notifications", async (request, reply) => {
-    requireRoles(request, "manager", "integration");
-    const body = parse(createNotificationSchema, request.body);
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).createNotification(body), request));
-  });
-
-  app.get("/api/v1/notifications", async (request) => {
-    const query = request.query as { status?: string; audience?: string };
-    const person = personFilter(request);
-    return data(
-      await storeFor(request).listNotifications({
-        recipientPersonId: person,
-        audience: query.audience,
-        status: query.status,
-      }),
-      request,
-    );
-  });
-
-  app.post("/api/v1/notifications/read-all", async (request) => {
-    const person = personFilter(request);
-    const notifications = await storeFor(request).listNotifications(
-      person ? { recipientPersonId: person } : {},
-    );
-    let marked = 0;
-    for (const notification of notifications) {
-      if (notification.status === "UNREAD") {
-        await storeFor(request).markNotificationRead(notification.id);
-        marked += 1;
-      }
-    }
-    return data({ marked }, request);
-  });
-
-  app.post("/api/v1/notifications/:id/read", async (request) => {
-    const person = personFilter(request);
-    if (person) {
-      const own = (
-        await storeFor(request).listNotifications({
-          recipientPersonId: person,
-        })
-      ).find((notification) => notification.id === idOf(request));
-      if (!own) {
-        throw new ForbiddenError(
-          "notification is not visible to this person",
-        );
-      }
-    }
-    return data(
-      await storeFor(request).markNotificationRead(idOf(request)),
-      request,
-    );
-  });
 
   app.post("/api/v1/data-quality-issues", async (request, reply) => {
     requireRoles(request, "manager");
@@ -2592,130 +2541,6 @@ export function buildApp(
 
   // AI-04 草稿生成 workflow：确定性证据覆盖预审。
   // AI 只产草稿（无分数）；决策必须人工作出（store 层强制）。
-  app.post("/api/v1/evaluation-cycles/:id/pre-review", async (request) => {
-    requireRoles(request, "manager", "admin");
-    const body = parse(preReviewSchema, request.body);
-    const store = storeFor(request);
-    const cycle = await store.getEvaluationCycle(idOf(request));
-    const windowStart = Date.parse(cycle.startsAt);
-    const windowEnd = Date.parse(cycle.endsAt);
-
-    // 参与人：周期窗口内提交过申报的人（或显式指定）。
-    const claims = await store.listClaims();
-    const claimByPerson = new Map<string, number>();
-    for (const claim of claims) {
-      const at = Date.parse(claim.createdAt);
-      if (at < windowStart || at > windowEnd) continue;
-      claimByPerson.set(
-        claim.claimantPersonId,
-        (claimByPerson.get(claim.claimantPersonId) ?? 0) + 1,
-      );
-    }
-    const personIds =
-      body.personIds && body.personIds.length > 0
-        ? body.personIds
-        : [...claimByPerson.keys()];
-    if (personIds.length === 0) {
-      return data(
-        { created: [], skipped: [], note: "周期窗口内没有申报人，无可预审对象" },
-        request,
-      );
-    }
-
-    // 幂等：同一周期同一人只生成一次 AGENT 草稿。
-    const existingDrafts = await store.listEvaluationDrafts({ cycleId: cycle.id });
-    const alreadyDone = new Set(
-      existingDrafts
-        .filter((draft) => draft.generatedByType === "AGENT")
-        .map((draft) => draft.personId),
-    );
-
-    const evidence = await store.listEvidence();
-    const created: Array<Record<string, unknown>> = [];
-    const skipped: Array<{ personId: string; reason: string }> = [];
-    const timestamp = new Date().toISOString();
-    for (const personId of personIds) {
-      if (alreadyDone.has(personId)) {
-        skipped.push({ personId, reason: "ALREADY_PRE_REVIEWED" });
-        continue;
-      }
-      // 证据：主体为本人，或主体为其参与的工作包。
-      const ownEvidence = evidence.filter(
-        (node) =>
-          (node.subjectType === "PERSON" && node.subjectId === personId) ||
-          (node.subjectType === "WORK_PACKAGE" &&
-            claimByPerson.has(personId) === true &&
-            node.normalizedPayload?.workPackageId === personId),
-      );
-      const verifiedCount = ownEvidence.filter(
-        (node) => node.qualityStatus === "VALID",
-      ).length;
-      const dimensions = ["QUALITY", "TIMELINESS", "COLLABORATION"];
-      const strengths = verifiedCount >= 2
-        ? ["已验收交付并附有效证据", "贡献链路完整可追溯"]
-        : [];
-      const missingInformation =
-        verifiedCount === 0
-          ? ["缺少已验证证据：所有维度需人工核定"]
-          : dimensions.filter(
-              (_, index) => index >= Math.min(verifiedCount, dimensions.length),
-            ).map((dimension) => `${dimension} 维度证据不足`);
-      const snapshot = {
-        personId,
-        cycleId: cycle.id,
-        claims: claimByPerson.get(personId) ?? 0,
-        evidenceCount: ownEvidence.length,
-        verifiedCount,
-        generatedAt: timestamp,
-      };
-      const snapshotHash = sha256(snapshot);
-      const draft = await store.createEvaluationDraft({
-        cycleId: cycle.id,
-        personId,
-        generatedByType: "AGENT",
-        modelProvider: "builtin",
-        modelName: "evidence-coverage-v1",
-        promptVersion: "pre-review-v1",
-        evidenceSnapshotHash: snapshotHash,
-        draftPayload: snapshot,
-        strengths,
-        counterEvidence: [],
-        missingInformation,
-        uncertainty: {
-          confidence: verifiedCount >= 2 ? 0.8 : 0.3,
-          basis: "evidence-coverage",
-        },
-      });
-      await platformStore.createAiSuggestion({
-        tenantId: tenantOf(request),
-        agentTaskId: randomUUID(),
-        targetType: "EVALUATION_DRAFT",
-        targetId: draft.id,
-        suggestionType: "PRE_REVIEW_DRAFT",
-        modelProvider: "builtin",
-        modelName: "evidence-coverage-v1",
-        promptVersion: "pre-review-v1",
-        inputHash: snapshotHash,
-        outputJson: {
-          draftId: draft.id,
-          personId,
-          evidenceCount: ownEvidence.length,
-          verifiedCount,
-        },
-        validationStatus: "VALIDATED",
-      });
-      countEvent("pre_review_draft_generated");
-      created.push({
-        draftId: draft.id,
-        personId,
-        evidenceCount: ownEvidence.length,
-        verifiedCount,
-        strengths,
-        missingInformation,
-      });
-    }
-    return data({ created, skipped }, request);
-  });
 
   // 周期推进状态机（AI_PRE_REVIEW→HUMAN_REVIEW 与 HUMAN_REVIEW→DECIDED 带门禁）。
   // 结算单 HTML（打印即 PDF，中文）。
