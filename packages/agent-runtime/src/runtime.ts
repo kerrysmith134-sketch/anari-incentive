@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AgentTaskCasError } from "./types.js";
 import type {
   AgentAction,
   AgentActionResult,
@@ -151,6 +152,7 @@ export class AgentRuntime {
       actions: [],
       results: [],
       attempts: 0,
+      version: 1,
       idempotencyKey: input.idempotencyKey,
       correlationId: input.correlationId ?? randomUUID(),
       createdAt: now(),
@@ -172,6 +174,13 @@ export class AgentRuntime {
     const task = await this.get(taskId);
     if (task.status === "SUCCEEDED" || task.status === "WAITING_APPROVAL") {
       return task;
+    }
+    // NPV2-018：只有 READY 状态可执行；RUNNING 由租约持有者独占。
+    if (task.status !== "QUEUED" && task.status !== "RETRY_PENDING") {
+      throw new AgentRuntimeError(
+        "AGENT_TASK_NOT_CLAIMABLE",
+        `task ${taskId} is ${task.status} and cannot be started`,
+      );
     }
     task.status = "RUNNING";
     task.attempts += 1;
@@ -240,6 +249,118 @@ export class AgentRuntime {
     return task;
   }
 
+  // ------------------------------------------------------------------
+  // NPV2-018：任务执行权协议（DB claim / lease / CAS）。
+  // 有 repository 时走 SQL（FOR UPDATE SKIP LOCKED + 版本检查）；
+  // 无 repository（进程内单 worker）时在 Map 上实现同语义 CAS。
+  // ------------------------------------------------------------------
+
+  async claimNextReadyTask(
+    input: { workerId: string; leaseMs: number },
+  ): Promise<AgentTask | undefined> {
+    if (this.options.repository) {
+      return this.options.repository.claimNextReadyTask(input);
+    }
+    await this.ensureLoaded();
+    const nowMs = Date.now();
+    const candidate = [...this.tasks.values()]
+      .filter(
+        (task) =>
+          (task.status === "QUEUED" || task.status === "RETRY_PENDING") &&
+          (!task.leaseUntil || new Date(task.leaseUntil).getTime() < nowMs),
+      )
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))[0];
+    if (!candidate) return undefined;
+    candidate.leaseOwner = input.workerId;
+    candidate.leaseUntil = new Date(nowMs + input.leaseMs).toISOString();
+    candidate.version += 1;
+    candidate.updatedAt = now();
+    await this.persist(candidate);
+    return candidate;
+  }
+
+  async renewTaskLease(input: {
+    taskId: string;
+    workerId: string;
+    leaseMs: number;
+  }): Promise<boolean> {
+    if (this.options.repository) {
+      return this.options.repository.renewTaskLease(input);
+    }
+    await this.ensureLoaded();
+    const task = this.tasks.get(input.taskId);
+    if (!task || task.leaseOwner !== input.workerId) return false;
+    task.leaseUntil = new Date(Date.now() + input.leaseMs).toISOString();
+    task.version += 1;
+    task.updatedAt = now();
+    await this.persist(task);
+    return true;
+  }
+
+  async releaseTaskLease(input: {
+    taskId: string;
+    workerId: string;
+  }): Promise<boolean> {
+    if (this.options.repository) {
+      return this.options.repository.releaseTaskLease(input);
+    }
+    await this.ensureLoaded();
+    const task = this.tasks.get(input.taskId);
+    if (!task || task.leaseOwner !== input.workerId) return false;
+    task.leaseOwner = undefined;
+    task.leaseUntil = undefined;
+    task.version += 1;
+    task.updatedAt = now();
+    await this.persist(task);
+    return true;
+  }
+
+  async recoverExpiredLeases(): Promise<number> {
+    if (this.options.repository) {
+      return this.options.repository.recoverExpiredLeases();
+    }
+    await this.ensureLoaded();
+    const nowMs = Date.now();
+    let recovered = 0;
+    for (const task of this.tasks.values()) {
+      if (!task.leaseUntil) continue;
+      if (new Date(task.leaseUntil).getTime() >= nowMs) continue;
+      // 过期租约：清租约；RUNNING 任务复位为 QUEUED（可被重新领取）。
+      if (task.status === "RUNNING") task.status = "QUEUED";
+      task.leaseOwner = undefined;
+      task.leaseUntil = undefined;
+      task.version += 1;
+      task.updatedAt = now();
+      await this.persist(task);
+      recovered += 1;
+    }
+    return recovered;
+  }
+
+  /**
+   * Worker 编排：领取一个就绪任务（租约）→ 执行 → 交还租约。
+   * 两个 worker 竞争同一任务时，输家 claim 返回 undefined。
+   */
+  async runClaimed(
+    workerId: string,
+    leaseMs = 300_000,
+  ): Promise<AgentTask | undefined> {
+    const claimed = await this.claimNextReadyTask({ workerId, leaseMs });
+    if (!claimed) return undefined;
+    // DB claim 已把 version+1：同步进本地副本，否则 run 的 persist 会 CAS 失败。
+    const local = this.tasks.get(claimed.id);
+    if (local) {
+      local.version = claimed.version;
+      local.leaseOwner = claimed.leaseOwner;
+      local.leaseUntil = claimed.leaseUntil;
+    }
+    try {
+      return await this.run(claimed.id);
+    } finally {
+      await this.releaseTaskLease({ taskId: claimed.id, workerId });
+    }
+  }
+
   /**
    * Retries failed tasks that did not execute any action. A task with an
    * EXECUTED action is never retried automatically: a partial side effect
@@ -264,6 +385,10 @@ export class AgentRuntime {
         continue;
       }
       if (new Date(task.updatedAt).getTime() > threshold) continue;
+      // NPV2-018：FAILED → RETRY_PENDING（READY 态）才能被重新领取执行。
+      task.status = "RETRY_PENDING";
+      task.updatedAt = now();
+      await this.persist(task);
       retried.push(await this.run(task.id));
     }
     return retried;

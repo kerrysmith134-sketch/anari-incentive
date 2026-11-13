@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
-import type {
-  AgentAuditEntry,
-  AgentTask,
-  AgentTaskRepository,
+import {
+  AgentTaskCasError,
+  type AgentAuditEntry,
+  type AgentTask,
+  type AgentTaskRepository,
 } from "@anari/agent-runtime";
 
 function iso(value: Date | string | null): string | undefined {
@@ -71,15 +72,16 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
       );
     }
     await this.tx(async (client) => {
-      await client.query(
+      const { rowCount } = await client.query(
         `INSERT INTO agent_tasks
           (id, tenant_id, agent_type, trigger_type, trigger_ref, status,
            risk_tier, actor_role, requested_by_type, input_ref, output_ref,
            attempt_count, idempotency_key, correlation_id, findings, actions,
-           results, approved_by, approved_at, created_at, updated_at)
+           results, approved_by, approved_at, created_at, updated_at,
+           version, lease_owner, lease_until)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AGENT',$9,$10,$11,$12,
-                 $13,$14,$15,$16,$17,$18,$19,$20)
-         ON CONFLICT (id) DO UPDATE
+                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         ON CONFLICT (tenant_id, id) DO UPDATE
            SET status = EXCLUDED.status,
                trigger_ref = EXCLUDED.trigger_ref,
                risk_tier = EXCLUDED.risk_tier,
@@ -91,8 +93,12 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
                results = EXCLUDED.results,
                approved_by = EXCLUDED.approved_by,
                approved_at = EXCLUDED.approved_at,
-               updated_at = EXCLUDED.updated_at
-           WHERE agent_tasks.tenant_id = EXCLUDED.tenant_id`,
+               updated_at = EXCLUDED.updated_at,
+               version = agent_tasks.version + 1,
+               lease_owner = EXCLUDED.lease_owner,
+               lease_until = EXCLUDED.lease_until
+           WHERE agent_tasks.tenant_id = EXCLUDED.tenant_id
+             AND agent_tasks.version = EXCLUDED.version`,
         [
           task.id,
           this.tenantId,
@@ -114,8 +120,110 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
           task.approvedAt ?? null,
           task.createdAt,
           task.updatedAt,
+          task.version,
+          task.leaseOwner ?? null,
+          task.leaseUntil ?? null,
         ],
       );
+      // NPV2-018：CAS 版本冲突——任务已被其他持有者修改。
+      if (rowCount === 0) {
+        throw new AgentTaskCasError(task.id);
+      }
+      const { rows } = await client.query(
+        "SELECT version FROM agent_tasks WHERE tenant_id = $1 AND id = $2",
+        [this.tenantId, task.id],
+      );
+      task.version = Number(rows[0].version);
+    });
+  }
+
+  /**
+   * NPV2-018：原子领取——FOR UPDATE SKIP LOCKED + 无有效租约的 READY 任务。
+   * 两个 worker 竞争同一任务时，后到者要么拿到另一条，要么拿到 undefined。
+   */
+  async claimNextReadyTask(
+    input: { workerId: string; leaseMs: number },
+  ): Promise<AgentTask | undefined> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM agent_tasks
+          WHERE tenant_id = $1
+            AND status IN ('QUEUED','RETRY_PENDING')
+            AND (lease_until IS NULL OR lease_until < now())
+          ORDER BY created_at, id
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED`,
+        [this.tenantId],
+      );
+      if (!rows[0]) return undefined;
+      const { rows: updated } = await client.query(
+        `UPDATE agent_tasks
+            SET lease_owner = $3, lease_until = $4, version = version + 1,
+                updated_at = now()
+          WHERE tenant_id = $1 AND id = $2
+          RETURNING *`,
+        [
+          this.tenantId,
+          rows[0].id,
+          input.workerId,
+          new Date(Date.now() + input.leaseMs).toISOString(),
+        ],
+      );
+      return this.mapTask(updated[0]);
+    });
+  }
+
+  async renewTaskLease(input: {
+    taskId: string;
+    workerId: string;
+    leaseMs: number;
+  }): Promise<boolean> {
+    return this.tx(async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE agent_tasks
+            SET lease_until = $4, version = version + 1, updated_at = now()
+          WHERE tenant_id = $1 AND id = $2 AND lease_owner = $3`,
+        [
+          this.tenantId,
+          input.taskId,
+          input.workerId,
+          new Date(Date.now() + input.leaseMs).toISOString(),
+        ],
+      );
+      return rowCount === 1;
+    });
+  }
+
+  async releaseTaskLease(input: {
+    taskId: string;
+    workerId: string;
+  }): Promise<boolean> {
+    return this.tx(async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE agent_tasks
+            SET lease_owner = NULL, lease_until = NULL,
+                version = version + 1, updated_at = now()
+          WHERE tenant_id = $1 AND id = $2 AND lease_owner = $3`,
+        [this.tenantId, input.taskId, input.workerId],
+      );
+      return rowCount === 1;
+    });
+  }
+
+  /** 过期租约复位：RUNNING → QUEUED，清租约，可被重新领取。 */
+  async recoverExpiredLeases(): Promise<number> {
+    return this.tx(async (client) => {
+      const { rowCount } = await client.query(
+        `UPDATE agent_tasks
+            SET lease_owner = NULL, lease_until = NULL,
+                status = CASE WHEN status = 'RUNNING' THEN 'QUEUED' ELSE status END,
+                version = version + 1, updated_at = now()
+          WHERE tenant_id = $1
+            AND lease_until IS NOT NULL AND lease_until < now()
+            AND status IN ('RUNNING','QUEUED','RETRY_PENDING')`,
+        [this.tenantId],
+      );
+      return rowCount ?? 0;
     });
   }
 
@@ -158,6 +266,9 @@ export class PgAgentTaskRepository implements AgentTaskRepository {
       actions: asJson<AgentTask["actions"]>(row.actions, []),
       results: asJson<AgentTask["results"]>(row.results, []),
       attempts: Number(row.attempt_count),
+      version: Number(row.version ?? 1),
+      leaseOwner: row.lease_owner ?? undefined,
+      leaseUntil: iso(row.lease_until),
       idempotencyKey: row.idempotency_key,
       correlationId: row.correlation_id,
       approvedBy: row.approved_by ?? undefined,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T17:51:48.307Z",
+  "generatedAt": "2026-11-13T19:11:09.406Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -420,6 +420,11 @@
       "file": "084_metric_measurement_snapshots.sql",
       "bytes": 1812,
       "sha256": "eb37cfc884563f4605a09192af18e14731b9081d3cd40588361e5ed546d48016"
+    },
+    {
+      "file": "085_agent_task_leases.sql",
+      "bytes": 1107,
+      "sha256": "0ba1d30a8632e744d082a65032dfec0614f584bfd4b193f2a35464d0acb5d7e8"
     }
   ]
 }

@@ -73,6 +73,11 @@ export interface AgentTask {
   actions: AgentAction[];
   results: AgentActionResult[];
   attempts: number;
+  /** NPV2-018：乐观锁版本——每次持久化 +1，CAS 竞争失败的写会被拒绝。 */
+  version: number;
+  /** NPV2-018：租约持有者与到期时间（DB claim 语义）。 */
+  leaseOwner?: string;
+  leaseUntil?: string;
   idempotencyKey: string;
   correlationId: string;
   approvedBy?: string;
@@ -177,8 +182,41 @@ export interface AgentAuditEntry {
  * Durable task/audit adapter. The runtime stays synchronous internally but
  * loads once on first use and persists each task snapshot after a mutation.
  */
+export interface AgentTaskClaimInput {
+  workerId: string;
+  /** 租约时长（毫秒）；到期后其他 worker 可恢复该任务。 */
+  leaseMs: number;
+}
+
+/**
+ * NPV2-018：任务执行权协议——DB claim / lease / CAS。
+ * - claimNextReadyTask：原子领取（FOR UPDATE SKIP LOCKED），两个 worker
+ *   竞争同一任务时恰有一个成功；
+ * - renewTaskLease / releaseTaskLease：持有者续期或交还；
+ * - recoverExpiredLeases：过期租约复位（RUNNING → QUEUED）可恢复。
+ */
 export interface AgentTaskRepository {
   load(): Promise<{ tasks: AgentTask[]; audit: AgentAuditEntry[] }>;
+  /** 乐观锁写：task.version 必须与库中一致，冲突抛 AgentTaskCasError。 */
   saveTask(task: AgentTask): Promise<void>;
   appendAudit(entry: AgentAuditEntry): Promise<void>;
+  claimNextReadyTask(input: AgentTaskClaimInput): Promise<AgentTask | undefined>;
+  renewTaskLease(input: {
+    taskId: string;
+    workerId: string;
+    leaseMs: number;
+  }): Promise<boolean>;
+  releaseTaskLease(input: { taskId: string; workerId: string }): Promise<boolean>;
+  recoverExpiredLeases(): Promise<number>;
+}
+
+/** NPV2-018：CAS 版本冲突——任务已被其他持有者修改。 */
+export class AgentTaskCasError extends Error {
+  constructor(
+    readonly taskId: string,
+    message = "agent task version conflict (CAS failed)",
+  ) {
+    super(`${message}: ${taskId}`);
+    this.name = "AgentTaskCasError";
+  }
 }

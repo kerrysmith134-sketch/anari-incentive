@@ -1294,6 +1294,150 @@ evidenceOpened: 1,rationale: "Self",
     expect(replay.id).toBe(task.id);
   });
 
+  // ------------------------------------------------------------------
+  // NPV2-018：任务执行权协议——原子 claim / lease / CAS / 过期恢复。
+  // ------------------------------------------------------------------
+  it("claims a task atomically: racing workers get exactly one winner (NPV2-018)", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "test", repository },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `pg-agent-claim-${Date.now()}`,
+      actorRole: "READER",
+    });
+
+    // 两个 worker 并发领取同一任务：恰有一个成功。
+    const [workerA, workerB] = await Promise.all([
+      repository.claimNextReadyTask({ workerId: "worker-a", leaseMs: 60_000 }),
+      repository.claimNextReadyTask({ workerId: "worker-b", leaseMs: 60_000 }),
+    ]);
+    const claims = [workerA, workerB].filter((t) => t?.id === task.id);
+    expect(claims.length).toBe(1);
+    const winner = claims[0]!;
+    expect(["worker-a", "worker-b"]).toContain(winner.leaseOwner);
+    expect(winner.version).toBeGreaterThan(1);
+
+    // 持有者可续期；非持有者续期失败。
+    const owner = winner.leaseOwner!;
+    const other = owner === "worker-a" ? "worker-b" : "worker-a";
+    expect(
+      await repository.renewTaskLease({
+        taskId: task.id,
+        workerId: owner,
+        leaseMs: 60_000,
+      }),
+    ).toBe(true);
+    expect(
+      await repository.renewTaskLease({
+        taskId: task.id,
+        workerId: other,
+        leaseMs: 60_000,
+      }),
+    ).toBe(false);
+
+    // 交还租约后可被再次领取。
+    expect(
+      await repository.releaseTaskLease({ taskId: task.id, workerId: owner }),
+    ).toBe(true);
+    const reclaimed = await repository.claimNextReadyTask({
+      workerId: other,
+      leaseMs: 60_000,
+    });
+    expect(reclaimed?.id).toBe(task.id);
+    expect(reclaimed?.leaseOwner).toBe(other);
+  });
+
+  it("recovers expired leases and re-queues interrupted RUNNING tasks (NPV2-018)", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "test", repository },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `pg-agent-lease-${Date.now()}`,
+      actorRole: "READER",
+    });
+    const claimed = await repository.claimNextReadyTask({
+      workerId: "dead-worker",
+      leaseMs: 50,
+    });
+    expect(claimed?.id).toBe(task.id);
+
+    // 模拟 worker 领取后开始执行但崩溃在 RUNNING。
+    await pool.query(
+      `UPDATE agent_tasks SET status = 'RUNNING'
+        WHERE tenant_id = $1 AND id = $2`,
+      [DEMO_TENANT_ID, task.id],
+    );
+    // 等租约过期。
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const recovered = await repository.recoverExpiredLeases();
+    expect(recovered).toBeGreaterThanOrEqual(1);
+    const reloaded = await repository.load();
+    const restored = reloaded.tasks.find((t) => t.id === task.id)!;
+    expect(restored.status).toBe("QUEUED");
+    expect(restored.leaseOwner).toBeUndefined();
+    expect(restored.leaseUntil).toBeUndefined();
+  });
+
+  it("rejects stale writes via version CAS (NPV2-018)", async () => {
+    const repository = new PgAgentTaskRepository(pool, DEMO_TENANT_ID);
+    const runtime = new AgentRuntime(
+      createAgentContext(store),
+      createDefaultTools(),
+      createDefaultSkills(),
+      { actor: "test", repository },
+    );
+    const task = await runtime.enqueue({
+      tenantId: DEMO_TENANT_ID,
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: `pg-agent-cas-${Date.now()}`,
+      actorRole: "READER",
+    });
+    // 直接推进 DB 版本（模拟另一持有者已写入），本地快照成为过期版本。
+    // agent_tasks 有 FORCE RLS：直接 SQL 必须带租户上下文（withTenantContext）。
+    await withTenantContext(DEMO_TENANT_ID, (client) =>
+      client.query(
+        "UPDATE agent_tasks SET version = version + 1 WHERE tenant_id = $1 AND id = $2",
+        [DEMO_TENANT_ID, task.id],
+      ),
+    );
+    const dbVersion = await withTenantContext(DEMO_TENANT_ID, (client) =>
+      client.query(
+        "SELECT version FROM agent_tasks WHERE tenant_id = $1 AND id = $2",
+        [DEMO_TENANT_ID, task.id],
+      ),
+    );
+    const stale = structuredClone(task);
+    stale.version = Number(dbVersion.rows[0].version) - 1;
+    await expect(repository.saveTask(stale)).rejects.toThrow(
+      /version conflict|CAS/,
+    );
+    // 持有最新版本的写成功（saveTask 回写递增后的版本）。
+    const fresh = await repository.load();
+    const current = fresh.tasks.find((t) => t.id === task.id)!;
+    current.status = "QUEUED";
+    await repository.saveTask(current);
+    const after = await repository.load();
+    expect(after.tasks.find((t) => t.id === task.id)!.version).toBe(
+      current.version,
+    );
+  });
+
   it("scopes reads to the store's tenant", async () => {
     const other = new PgStore(
       pool,

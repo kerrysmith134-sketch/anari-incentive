@@ -257,7 +257,127 @@ class FakeRepository implements AgentTaskRepository {
   async appendAudit(entry: AgentAuditEntry) {
     this.audit.push({ ...entry });
   }
+
+  async claimNextReadyTask(input: { workerId: string; leaseMs: number }) {
+    const nowMs = Date.now();
+    const candidate = [...this.tasks.values()]
+      .filter(
+        (task) =>
+          (task.status === "QUEUED" || task.status === "RETRY_PENDING") &&
+          (!task.leaseUntil || new Date(task.leaseUntil).getTime() < nowMs),
+      )
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))[0];
+    if (!candidate) return undefined;
+    candidate.leaseOwner = input.workerId;
+    candidate.leaseUntil = new Date(nowMs + input.leaseMs).toISOString();
+    candidate.version += 1;
+    this.tasks.set(candidate.id, structuredClone(candidate));
+    return candidate;
+  }
+
+  async renewTaskLease(input: {
+    taskId: string;
+    workerId: string;
+    leaseMs: number;
+  }) {
+    const task = this.tasks.get(input.taskId);
+    if (!task || task.leaseOwner !== input.workerId) return false;
+    task.leaseUntil = new Date(Date.now() + input.leaseMs).toISOString();
+    task.version += 1;
+    this.tasks.set(task.id, structuredClone(task));
+    return true;
+  }
+
+  async releaseTaskLease(input: { taskId: string; workerId: string }) {
+    const task = this.tasks.get(input.taskId);
+    if (!task || task.leaseOwner !== input.workerId) return false;
+    task.leaseOwner = undefined;
+    task.leaseUntil = undefined;
+    task.version += 1;
+    this.tasks.set(task.id, structuredClone(task));
+    return true;
+  }
+
+  async recoverExpiredLeases() {
+    const nowMs = Date.now();
+    let recovered = 0;
+    for (const task of this.tasks.values()) {
+      if (!task.leaseUntil) continue;
+      if (new Date(task.leaseUntil).getTime() >= nowMs) continue;
+      if (task.status === "RUNNING") task.status = "QUEUED";
+      task.leaseOwner = undefined;
+      task.leaseUntil = undefined;
+      task.version += 1;
+      this.tasks.set(task.id, structuredClone(task));
+      recovered += 1;
+    }
+    return recovered;
+  }
 }
+
+describe("agent task claim / lease / CAS (NPV2-018)", () => {
+  function makeRuntime() {
+    const context = new FakeContext();
+    const repository = new FakeRepository();
+    const runtime = new AgentRuntime(context, createDefaultTools(), createDefaultSkills(), {
+      actor: "test",
+      repository,
+    });
+    return { runtime, repository };
+  }
+
+  it("runClaimed executes exactly one queued task and releases the lease", async () => {
+    const { runtime, repository } = makeRuntime();
+    await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "claim-1",
+    });
+    const ran = await runtime.runClaimed("worker-1", 60_000);
+    expect(ran).toBeDefined();
+    expect(ran!.status).not.toBe("QUEUED");
+    const reloaded = await repository.load();
+    const task = reloaded.tasks.find((t) => t.id === ran!.id)!;
+    expect(task.leaseOwner).toBeUndefined();
+    expect(task.leaseUntil).toBeUndefined();
+    // 队列已空：下一个 worker 领不到。
+    expect(await runtime.runClaimed("worker-2", 60_000)).toBeUndefined();
+  });
+
+  it("racing claims on the same task produce exactly one winner", async () => {
+    const { runtime } = makeRuntime();
+    await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "claim-2",
+    });
+    const [a, b] = await Promise.all([
+      runtime.claimNextReadyTask({ workerId: "worker-a", leaseMs: 60_000 }),
+      runtime.claimNextReadyTask({ workerId: "worker-b", leaseMs: 60_000 }),
+    ]);
+    const winners = [a, b].filter(Boolean);
+    expect(winners.length).toBe(1);
+  });
+
+  it("expired leases are recoverable and RUNNING resets to QUEUED", async () => {
+    const { runtime } = makeRuntime();
+    const task = await runtime.enqueue({
+      tenantId: "t1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "MANUAL",
+      idempotencyKey: "claim-3",
+    });
+    await runtime.claimNextReadyTask({ workerId: "dead-worker", leaseMs: 30 });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const recovered = await runtime.recoverExpiredLeases();
+    expect(recovered).toBeGreaterThanOrEqual(1);
+    const loaded = await runtime.get(task.id);
+    expect(loaded.leaseOwner).toBeUndefined();
+    expect(loaded.leaseUntil).toBeUndefined();
+  });
+});
 
 describe("agent runtime role isolation", () => {
   it("blocks WRITE tools when the runtime is in READER role", async () => {
