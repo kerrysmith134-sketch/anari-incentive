@@ -6,6 +6,17 @@ import type { ZodType } from "zod";
 import type { FastifyRequest } from "fastify";
 import { ForbiddenError } from "@anari/auth";
 
+/** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
+class BadRequestError extends Error {
+  readonly statusCode = 400;
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export type IdParams = { id: string };
 
 export function idOf(request: FastifyRequest): string {
@@ -88,4 +99,37 @@ export function personFilter(request: FastifyRequest): string | undefined {
     );
   }
   return person;
+}
+
+export function policyBody(request: FastifyRequest): Record<string, unknown> {
+  const body = request.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new BadRequestError("INVALID_BODY", "请求体必须为 JSON 对象");
+  }
+  return body as Record<string, unknown>;
+}
+
+export function requireString(
+  body: Record<string, unknown>,
+  field: string,
+): string {
+  const value = body[field];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new BadRequestError(
+      "INVALID_INPUT",
+      `字段 ${field} 必须为非空字符串`,
+    );
+  }
+  return value;
+}
+
+export function runPolicyInput<T>(calculation: () => T): T {
+  try {
+    return calculation();
+  } catch (error) {
+    throw new BadRequestError(
+      "POLICY_INPUT_INVALID",
+      error instanceof Error ? error.message : "制度计算输入无效",
+    );
+  }
 }
