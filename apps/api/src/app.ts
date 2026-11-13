@@ -351,7 +351,11 @@ import {
 import { RETENTION_RECOMMENDATIONS } from "./modules/governance/retention-defaults.js";
 import { registerDataGovernanceRoutes } from "./modules/governance/data-governance.routes.js";
 import { registerEvidenceRoutes } from "./modules/evidence/evidence.routes.js";
+import { registerAppealsRoutes } from "./modules/appeals/appeals.routes.js";
+import { registerAttributionRoutes } from "./modules/attribution/attribution.routes.js";
+import { notifyBestEffort } from "./notify.js";
 import { registerContributionRoutes } from "./modules/contribution/contribution.routes.js";
+import { registerWorkPackageRoutes } from "./modules/workpackages/work-packages.routes.js";
 
 type IdParams = { id: string };
 
@@ -531,23 +535,6 @@ async function assertWorkPackageParticipant(
   }
 }
 
-async function notifyBestEffort(
-  store: IncentiveStore,
-  input: {
-    recipientPersonId?: string;
-    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
-    title: string;
-    body: string;
-    sourceType?: string;
-    sourceId?: string;
-  },
-): Promise<void> {
-  try {
-    await store.createNotification(input);
-  } catch (error) {
-    console.error("[notification] failed", error);
-  }
-}
 
 /** Employee view of a run: own lines only, no pool trace or order economics. */
 function redactRunForPerson(
@@ -2025,6 +2012,29 @@ export function buildApp(
 
   // NPV2-011：证据/摄取域路由已拆分至 modules/evidence（行为等价迁移）。
   app.register(registerContributionRoutes({ platformStore, storeFor }));
+
+  app.register(registerAttributionRoutes({
+    storeFor,
+    countEvent,
+    assertNoAdjudicatorConflict,
+  }));
+
+  app.register(
+    registerAppealsRoutes({
+      platformStore,
+      storeFor,
+      countEvent,
+      assertRecalculationTarget,
+    }),
+  );
+
+  app.register(
+    registerWorkPackageRoutes({
+      storeFor,
+      assertWorkPackageParticipant: (request, store, workPackageId) =>
+        assertWorkPackageParticipant(request, store, workPackageId),
+    }),
+  );
 
   app.register(
     registerEvidenceRoutes({
@@ -5813,132 +5823,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   });
 
 
-  app.post("/api/v1/work-packages", async (request, reply) => {
-    const body = parse(createWorkPackageSchema, request.body);
-    const person = personFilter(request);
-    if (person && body.ownerPersonId !== person) {
-      throw new ForbiddenError("cannot create a package owned by another person");
-    }
-    return reply.status(201).send(data(await storeFor(request).createWorkPackage(body), request));
-  });
-
-  app.get("/api/v1/work-packages", async (request) => {
-    const packages = await storeFor(request).listWorkPackages();
-    const person = personFilter(request);
-    return data(
-      person
-        ? packages.filter(
-            (wp) =>
-              wp.ownerPersonId === person ||
-              wp.members.some((member) => member.personId === person),
-          )
-        : packages,
-      request,
-    );
-  });
-
-  app.get("/api/v1/work-packages/:id", async (request) => {
-    const wp = await storeFor(request).getWorkPackage(idOf(request));
-    const person = personFilter(request);
-    if (
-      person &&
-      wp.ownerPersonId !== person &&
-      !wp.members.some((member) => member.personId === person)
-    ) {
-      throw new ForbiddenError("work package is not visible to this person");
-    }
-    return data(wp, request);
-  });
-
-  app.get("/api/v1/work-packages/:id/versions", async (request) => {
-    const wp = await storeFor(request).getWorkPackage(idOf(request));
-    const person = personFilter(request);
-    if (
-      person &&
-      wp.ownerPersonId !== person &&
-      !wp.members.some((member) => member.personId === person)
-    ) {
-      throw new ForbiddenError("work package is not visible to this person");
-    }
-    return data(
-      await storeFor(request).listWorkPackageVersions(idOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/work-packages/:id/commit", async (request) => {
-    const body = parse(commitWorkPackageSchema, request.body);
-    const store = storeFor(request);
-    await assertWorkPackageParticipant(request, store, idOf(request));
-    return data(
-      await store.commitWorkPackage(idOf(request), body.expectedVersion),
-      request,
-    );
-  });
-
-  app.post("/api/v1/work-packages/:id/start", async (request) => {
-    const body = parse(workPackageCommandSchema, request.body ?? {});
-    const store = storeFor(request);
-    await assertWorkPackageParticipant(request, store, idOf(request));
-    return data(
-      await store.startWorkPackage(idOf(request), body.expectedVersion),
-      request,
-    );
-  });
-
-  app.post("/api/v1/work-packages/:id/submit", async (request) => {
-    const body = parse(workPackageCommandSchema, request.body ?? {});
-    const store = storeFor(request);
-    await assertWorkPackageParticipant(request, store, idOf(request));
-    return data(
-      await store.submitWorkPackage(idOf(request), body.expectedVersion),
-      request,
-    );
-  });
-
-  app.post("/api/v1/work-packages/:id/accept", async (request) => {
-    requireRoles(request, "manager");
-    const body = parse(acceptWorkPackageSchema, request.body);
-    return data(
-      await storeFor(request).acceptWorkPackage(
-        idOf(request),
-        body.reviewerPersonId,
-        body.expectedVersion,
-      ),
-      request,
-    );
-  });
-
-  app.post("/api/v1/work-packages:accept-batch", async (request, reply) => {
-    requireRoles(request, "manager");
-    const body = parse(acceptWorkPackagesBatchSchema, request.body);
-    return reply
-      .status(200)
-      .send(
-        data(
-          {
-            workPackages: await storeFor(request).acceptWorkPackagesBatch(
-              body.items,
-            ),
-          },
-          request,
-        ),
-      );
-  });
-
-  app.post("/api/v1/work-packages/:id/reject", async (request) => {
-    requireRoles(request, "manager");
-    const body = parse(rejectWorkPackageSchema, request.body);
-    return data(
-      await storeFor(request).rejectWorkPackage(
-        idOf(request),
-        body.reviewerPersonId,
-        body.reason,
-        body.expectedVersion,
-      ),
-      request,
-    );
-  });
 
 
   app.post("/api/v1/conflict-declarations", async (request, reply) => {
@@ -7639,59 +7523,7 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     );
   });
 
-  app.post("/api/v1/attribution-decisions", async (request, reply) => {
-    requireRoles(request, "manager");
-    const body = parse(createAttributionDecisionSchema, request.body);
-    const claim = await storeFor(request).getClaim(body.claimId);
-    await assertNoAdjudicatorConflict(
-      request,
-      body.adjudicatorPersonId,
-      claim.claimantPersonId,
-    );
-    return reply
-      .status(201)
-      .send(data(await storeFor(request).createAttributionDecision(body), request));
-  });
 
-  app.post("/api/v1/attribution-decisions:batch", async (request, reply) => {
-    requireRoles(request, "manager");
-    const body = parse(createAttributionDecisionsBatchSchema, request.body);
-    for (const item of body.items) {
-      const claim = await storeFor(request).getClaim(item.claimId);
-      await assertNoAdjudicatorConflict(
-        request,
-        item.adjudicatorPersonId,
-        claim.claimantPersonId,
-      );
-    }
-    const decisions = await storeFor(request).createAttributionDecisionsBatch(
-      body.items,
-    );
-    return reply.status(201).send(data({ decisions }, request));
-  });
-
-  app.get("/api/v1/attribution-decisions", async (request) => {
-    const query = request.query as { claimId?: string };
-    const person = personFilter(request);
-    if (person) {
-      const claims = await storeFor(request).listClaims();
-      const own = new Set(
-        claims
-          .filter((claim) => claim.claimantPersonId === person)
-          .map((claim) => claim.id),
-      );
-      if (query.claimId && !own.has(query.claimId)) {
-        throw new ForbiddenError("claim is not visible to this person");
-      }
-      return data(
-        (await storeFor(request).listDecisions(query.claimId)).filter(
-          (decision) => own.has(decision.claimId),
-        ),
-        request,
-      );
-    }
-    return data(await storeFor(request).listDecisions(query.claimId), request);
-  });
 
   app.post("/api/v1/policy-versions/:id/legal-gate", async (request) => {
     requireRoles(request, "admin");
@@ -12870,241 +12702,6 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
     return data(result, request);
   });
 
-  app.post("/api/v1/appeals", async (request, reply) => {
-    const body = parse(createAppealSchema, request.body);
-    const person = personFilter(request);
-    if (person && body.appellantPersonId !== person) {
-      throw new ForbiddenError("cannot file an appeal for another person");
-    }
-    if (!isPrivileged(request) && !ownPersonId(request)) {
-      throw new ForbiddenError("employee identity is required");
-    }
-    const dueAt =
-      body.dueAt ??
-      new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
-    return reply
-      .status(201)
-      .send(
-        data(
-          await storeFor(request).createAppeal({ ...body, dueAt }),
-          request,
-        ),
-      );
-  });
-
-  app.get("/api/v1/appeals", async (request) => {
-    const appeals = await storeFor(request).listAppeals();
-    const person = personFilter(request);
-    return data(
-      person
-        ? appeals.filter((appeal) => appeal.appellantPersonId === person)
-        : appeals,
-      request,
-    );
-  });
-
-  app.get("/api/v1/appeals/:id", async (request) => {
-    const appeal = await storeFor(request).getAppeal(idOf(request));
-    const person = personFilter(request);
-    if (person && appeal.appellantPersonId !== person) {
-      throw new ForbiddenError("appeal is not visible to this person");
-    }
-    return data(appeal, request);
-  });
-
-  app.post("/api/v1/appeals/:id/evidence-disclosures", async (request, reply) => {
-    requireRoles(request, "manager", "finance");
-    const body = parse(createAppealEvidenceDisclosureSchema, request.body);
-    const appeal = await storeFor(request).getAppeal(idOf(request));
-    if (body.disclosedBy === appeal.appellantPersonId) {
-      throw new ConflictError(
-        "APPEAL_DISCLOSER_IS_APPELLANT: another person must make the disclosure",
-      );
-    }
-    const allowed = new Set(appeal.evidenceRefs ?? []);
-    if (body.evidenceRefs.some((reference) => !allowed.has(reference))) {
-      throw new ConflictError(
-        "APPEAL_DISCLOSURE_EVIDENCE_NOT_ON_APPEAL",
-      );
-    }
-    const disclosure = await platformStore.createAppealEvidenceDisclosure({
-      tenantId: tenantOf(request),
-      appealId: appeal.id,
-      disclosedBy: body.disclosedBy,
-      method: body.method,
-      evidenceRefs: body.evidenceRefs,
-      note: body.note,
-    });
-    await notifyBestEffort(storeFor(request), {
-      recipientPersonId: appeal.appellantPersonId,
-      audience: "PERSON",
-      title: "Appeal evidence disclosed",
-      body: "The evidence considered in your appeal is now available.",
-      sourceType: "APPEAL",
-      sourceId: appeal.id,
-    });
-    return reply.status(201).send(data(disclosure, request));
-  });
-
-  app.get("/api/v1/appeals/:id/evidence-disclosures", async (request) => {
-    const appeal = await storeFor(request).getAppeal(idOf(request));
-    const person = personFilter(request);
-    if (person && appeal.appellantPersonId !== person) {
-      throw new ForbiddenError("appeal is not visible to this person");
-    }
-    return data(
-      await platformStore.listAppealEvidenceDisclosures(
-        tenantOf(request),
-        appeal.id,
-      ),
-      request,
-    );
-  });
-
-  app.post("/api/v1/appeals/:id/triage", async (request) => {
-    requireRoles(request, "manager");
-    const body = parse(triageAppealSchema, request.body);
-    const store = storeFor(request);
-    const appeal = await store.triageAppeal(
-      idOf(request),
-      body.reviewerPersonId,
-    );
-    await notifyBestEffort(store, {
-      recipientPersonId: appeal.appellantPersonId,
-      audience: "PERSON",
-      title: "Appeal triaged",
-      body: `Your appeal is now ${appeal.status}.`,
-      sourceType: "APPEAL",
-      sourceId: appeal.id,
-    });
-    return data(appeal, request);
-  });
-
-  app.post("/api/v1/appeals/:id/review", async (request) => {
-    requireRoles(request, "manager");
-    const store = storeFor(request);
-    const appeal = await store.reviewAppeal(idOf(request));
-    await notifyBestEffort(store, {
-      recipientPersonId: appeal.appellantPersonId,
-      audience: "PERSON",
-      title: "Appeal under review",
-      body: "A reviewer is examining your appeal.",
-      sourceType: "APPEAL",
-      sourceId: appeal.id,
-    });
-    return data(appeal, request);
-  });
-
-  app.post("/api/v1/appeals/:id/resolve", async (request) => {
-    requireRoles(request, "manager");
-    const body = parse(resolveAppealSchema, request.body);
-    const store = storeFor(request);
-    const existing = await store.getAppeal(idOf(request));
-    if ((existing.evidenceRefs?.length ?? 0) > 0) {
-      const disclosures =
-        await platformStore.listAppealEvidenceDisclosures(
-          tenantOf(request),
-          existing.id,
-        );
-      if (disclosures.length === 0) {
-        throw new ConflictError(
-          "APPEAL_EVIDENCE_DISCLOSURE_REQUIRED: disclose the evidence before resolving",
-        );
-      }
-    }
-    const appeal = await store.resolveAppeal(idOf(request), body);
-    await notifyBestEffort(store, {
-      recipientPersonId: appeal.appellantPersonId,
-      audience: "PERSON",
-      title: "Appeal resolved",
-      body: appeal.resolution ?? `Appeal status: ${appeal.status}`,
-      sourceType: "APPEAL",
-      sourceId: appeal.id,
-    });
-    return data(appeal, request);
-  });
-
-  app.post("/api/v1/recalculation-requests", async (request, reply) => {
-    requireRoles(request, "manager", "finance");
-    const body = parse(createRecalculationRequestSchema, request.body);
-    const store = storeFor(request);
-    await assertRecalculationTarget(
-      store,
-      body.targetType,
-      body.targetId,
-    );
-    const recalculation = await store.createRecalculationRequest(body);
-    countEvent("recalculation_created");
-    return reply.status(201).send(data(recalculation, request));
-  });
-
-  app.get("/api/v1/recalculation-requests", async (request) => {
-    requireRoles(request, "manager", "finance");
-    const query = request.query as {
-      status?: string;
-      targetType?: string;
-    };
-    return data(
-      await storeFor(request).listRecalculationRequests({
-        status: query.status as
-          | "OPEN"
-          | "APPROVED"
-          | "REJECTED"
-          | "COMPLETED"
-          | undefined,
-        targetType: query.targetType as
-          | "EVIDENCE"
-          | "ATTRIBUTION"
-          | "EVALUATION"
-          | "LEDGER"
-          | undefined,
-      }),
-      request,
-    );
-  });
-
-  app.get("/api/v1/recalculation-requests/:id", async (request) => {
-    requireRoles(request, "manager", "finance");
-    return data(
-      await storeFor(request).getRecalculationRequest(idOf(request)),
-      request,
-    );
-  });
-
-  app.post("/api/v1/recalculation-requests/:id/approve", async (request) => {
-    requireRoles(request, "finance");
-    const body = parse(reviewRecalculationRequestSchema, request.body);
-    const approved = await storeFor(request).approveRecalculationRequest(
-      idOf(request),
-      body.approvedBy,
-    );
-    countEvent("recalculation_approved");
-    return data(approved, request);
-  });
-
-  app.post("/api/v1/recalculation-requests/:id/reject", async (request) => {
-    requireRoles(request, "finance");
-    const body = parse(reviewRecalculationRequestSchema, request.body);
-    const rejected = await storeFor(request).rejectRecalculationRequest(
-      idOf(request),
-      body.approvedBy,
-    );
-    countEvent("recalculation_rejected");
-    return data(rejected, request);
-  });
-
-  app.post("/api/v1/recalculation-requests/:id/complete", async (request) => {
-    requireRoles(request, "finance");
-    const body = parse(completeRecalculationRequestSchema, request.body);
-    const store = storeFor(request);
-    await store.getRun(body.newCalculationRunId);
-    const completed = await store.completeRecalculationRequest(
-      idOf(request),
-      body.newCalculationRunId,
-    );
-    countEvent("recalculation_completed");
-    return data(completed, request);
-  });
 
   // -------------------------------------------------------------------------
   // 2026 institutional policy set: performance, incentive, equity, task pods.
