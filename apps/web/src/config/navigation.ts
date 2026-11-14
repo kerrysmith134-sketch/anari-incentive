@@ -26,6 +26,7 @@ export const NAV: NavGroup[] = [
     icon: "overview",
     items: [
       { to: "/", label: "总览", icon: "overview" },
+      { to: "/my-workbench", label: "我的工作台", icon: "clock" },
       { to: "/my-ai", label: "我的 AI 记录", icon: "ai" },
       { to: "/my-rewards", label: "我的激励", icon: "rewards" },
       { to: "/notifications", label: "通知中心", icon: "info" },

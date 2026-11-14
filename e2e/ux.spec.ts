@@ -167,6 +167,28 @@ test.describe("2026 policy centre UX", () => {
     await expect(page.getByText("任务组已创建")).toBeVisible();
   });
 
+  test("my workbench aggregates personal scopes without cross-tenant data (NPV2-028)", async ({
+    page,
+  }) => {
+    await page.goto("/console/my-workbench");
+    await expect(
+      page.getByRole("heading", { name: "我的工作台" }),
+    ).toBeVisible();
+    // 六个作用域面板全部在位
+    for (const panel of [
+      "我的待办",
+      "我的贡献申报",
+      "我的贡献事件",
+      "我的绩效与解释",
+      "我的确认",
+      "我的申诉",
+    ]) {
+      await expect(page.getByRole("heading", { name: panel })).toBeVisible();
+    }
+    // 可追溯性提示在绩效面板
+    await expect(page.getByText(/指标计量快照/)).toBeVisible();
+  });
+
   test("downloads a personal data package and files a DSAR", async ({ page }) => {
     await page.goto("/console/privacy");
     const downloadPromise = page.waitForEvent("download");

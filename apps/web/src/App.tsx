@@ -32,6 +32,11 @@ const MyRewardsPage = lazy(() =>
     default: module.MyRewardsPage,
   })),
 );
+const MyWorkbenchPage = lazy(() =>
+  import("./pages/MyWorkbenchPage.js").then((module) => ({
+    default: module.MyWorkbenchPage,
+  })),
+);
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage.js").then((module) => ({
     default: module.PerformancePage,
@@ -258,6 +263,7 @@ export function App() {
                     <Route path="/cycles" element={<CyclesPage />} />
                     <Route path="/contribution" element={<ContributionPage />} />
                     <Route path="/performance" element={<PerformancePage />} />
+                    <Route path="/my-workbench" element={<MyWorkbenchPage />} />
                     <Route path="/my-rewards" element={<MyRewardsPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/commission" element={<CommissionPage />} />
