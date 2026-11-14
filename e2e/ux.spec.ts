@@ -167,6 +167,30 @@ test.describe("2026 policy centre UX", () => {
     await expect(page.getByText("任务组已创建")).toBeVisible();
   });
 
+  test("finance center aggregates reconciliation, blockers and budgets (NPV2-030)", async ({
+    page,
+  }) => {
+    await page.goto("/console/finance-center");
+    await expect(
+      page.getByRole("heading", { name: "财务中心" }),
+    ).toBeVisible();
+    for (const panel of [
+      /引用对账/,
+      /阻断与提示/,
+      /计算运行/,
+      /利润池与预算/,
+      /来源事实/,
+      /政策版本/,
+    ]) {
+      await expect(
+        page.getByRole("heading", { name: panel }).first(),
+      ).toBeVisible();
+    }
+    // 只读声明 + cap/舍入说明
+    await expect(page.getByText(/留在结算与薪酬模块/)).toBeVisible();
+    await expect(page.getByText(/HALF_UP/)).toBeVisible();
+  });
+
   test("management center hides AI drafts until independent judgment completes (NPV2-029)", async ({
     page,
   }) => {

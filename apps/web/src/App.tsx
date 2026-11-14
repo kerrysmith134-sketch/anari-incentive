@@ -42,6 +42,11 @@ const ManagementCenterPage = lazy(() =>
     default: module.ManagementCenterPage,
   })),
 );
+const FinanceCenterPage = lazy(() =>
+  import("./pages/FinanceCenterPage.js").then((module) => ({
+    default: module.FinanceCenterPage,
+  })),
+);
 const PerformancePage = lazy(() =>
   import("./pages/PerformancePage.js").then((module) => ({
     default: module.PerformancePage,
@@ -271,6 +276,7 @@ export function App() {
                     <Route path="/my-workbench" element={<MyWorkbenchPage />} />
                     <Route path="/my-rewards" element={<MyRewardsPage />} />
                     <Route path="/management" element={<ManagementCenterPage />} />
+                    <Route path="/finance-center" element={<FinanceCenterPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/commission" element={<CommissionPage />} />
                     <Route path="/equity" element={<EquityPage />} />

@@ -61,6 +61,12 @@ export const NAV: NavGroup[] = [
     label: "激励",
     icon: "rewards",
     items: [
+      {
+        to: "/finance-center",
+        label: "财务中心",
+        icon: "wallet",
+        allowed: ["finance", "admin"],
+      },
       { to: "/rewards", label: "激励总览", icon: "rewards" },
       { to: "/commission", label: "奖金提成", icon: "wallet", allowed: ["manager", "finance", "admin"] },
       {
