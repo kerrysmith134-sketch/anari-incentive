@@ -731,14 +731,19 @@ export class Store implements IncentiveStore {
       cycleId: input.cycleId,
       personId: input.personId,
       rubricVersionId: input.rubricVersionId,
-      measurements: input.measurements,
+      // 冻结语义：深拷贝，外部变异不影响 verify 复算。
+      measurements: structuredClone(input.measurements),
       contentHash: this.computeSnapshotHash(input.measurements),
       frozenAt: timestamp,
       frozenBy: input.frozenBy,
       status: "FROZEN",
       createdAt: timestamp,
     };
-    this.metricSnapshots.set(snapshot.id, snapshot);
+    // NPV2-035 TDD R13：存副本——调用方变异返回值不影响冻结完整性。
+    this.metricSnapshots.set(
+      snapshot.id,
+      { ...snapshot, measurements: structuredClone(snapshot.measurements) },
+    );
     return snapshot;
   }
 
@@ -961,6 +966,12 @@ export class Store implements IncentiveStore {
     const inserted: ContributionEvent[] = [];
     const duplicates: ContributionEvent[] = [];
     for (const input of inputs) {
+      // NPV2-015：更正链必须指向已存在的事件（与 PG 实现一致）。
+      if (input.correctionOfEventId && !this.contributionEvents.has(input.correctionOfEventId)) {
+        throw new NotFoundError(
+          `ContributionEvent ${input.correctionOfEventId} not found (correction target)`,
+        );
+      }
       const key =
         input.source && input.externalId
           ? `${input.source}:${input.externalId}`
