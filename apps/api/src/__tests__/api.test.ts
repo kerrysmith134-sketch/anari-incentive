@@ -8671,7 +8671,7 @@ evidenceOpened: 1,
     const agentMetrics = await call("GET", "/api/v1/reports/agent-metrics");
     expect(agentMetrics.status).toBe(200);
     expect(agentMetrics.body.data.totalTasks).toBeGreaterThanOrEqual(0);
-    expect(agentMetrics.body.data.note).toContain("external");
+    expect(agentMetrics.body.data.note).toContain("unavailable");
   });
 
   it("breaks confirmation, payroll and appeal cycle times down by responsibility", async () => {

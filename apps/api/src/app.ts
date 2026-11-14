@@ -501,6 +501,8 @@ export interface BuildAppOptions {
     model: string;
     fetchImpl?: typeof fetch;
   };
+  /** NPV2-031：Agent 步骤/工具调用持久化仓库（按租户）。 */
+  agentStepRepositoryFor?: (tenantId: string) => import("@anari/agent-persistence").AgentStepRepository;
 }
 
 class TooManyRequestsError extends Error {
@@ -1928,6 +1930,7 @@ export function buildApp(
       countEvent,
       runtimeFor,
       agentChat: options.agentChat,
+      stepRepositoryFor: options.agentStepRepositoryFor,
     }),
   );
   app.register(

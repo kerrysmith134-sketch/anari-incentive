@@ -189,6 +189,10 @@ const app = buildApp(
   authenticator,
   platformStore,
   {
+    // NPV2-031：Agent 步骤/工具调用持久化（按租户，postgres 模式）。
+    agentStepRepositoryFor: usePostgres
+      ? (tenantId) => new PgAgentTaskRepository(pool!, tenantId)
+      : undefined,
     requiredApprovals: (process.env.REQUIRE_APPROVAL_FOR ?? "")
       .split(",")
       .map((value) => value.trim())

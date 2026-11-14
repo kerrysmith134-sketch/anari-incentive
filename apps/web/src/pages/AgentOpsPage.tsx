@@ -26,6 +26,8 @@ import type {
   AgentActionView,
   AgentTaskView,
   AgentMetricsView,
+  AgentStepView,
+  ToolInvocationView,
   AiSuggestionLogView,
   WorkflowRunView,
 } from "../lib/ops-types.js";
@@ -47,6 +49,17 @@ export function AgentOpsPage() {
   const toast = useToast();
   const { people } = usePeople();
   const tasks = useApiQuery<AgentTaskView[]>("/api/v1/agent-tasks");
+  // NPV2-031：任务事实溯源——步骤链与工具调用记录；成本指标卡。
+  const [traceTaskId, setTraceTaskId] = useState<string | undefined>(undefined);
+  const stepsQuery = useApiQuery<AgentStepView[]>(
+    traceTaskId ? `/api/v1/agent-tasks/${traceTaskId}/steps` : null,
+    traceTaskId,
+  );
+  const invocationsQuery = useApiQuery<ToolInvocationView[]>(
+    traceTaskId ? `/api/v1/agent-tasks/${traceTaskId}/invocations` : null,
+    traceTaskId,
+  );
+  const metricsQuery = useApiQuery<AgentMetricsView>("/api/v1/agent-metrics");
   const workflows = useApiQuery<WorkflowRunView[]>("/api/v1/workflow-runs");
   const suggestions = useApiQuery<AiSuggestionLogView[]>(
     "/api/v1/ai-suggestion-logs",
@@ -309,6 +322,113 @@ export function AgentOpsPage() {
         }
       />
 
+      {traceTaskId ? (
+        <Panel
+          title={`任务溯源：${shortId(traceTaskId, 10)}`}
+          subtitle="步骤链与工具调用记录（NPV2-019 持久化）——任务事实溯源"
+          flush
+        >
+          {stepsQuery.loading || invocationsQuery.loading ? (
+            <div style={{ padding: 16 }}>
+              <LoadingRows rows={3} />
+            </div>
+          ) : (
+            <>
+              <ul className="stack-list">
+                {(stepsQuery.data ?? []).map((step) => (
+                  <li key={step.id}>
+                    <Badge
+                      status={
+                        step.status === "SUCCEEDED"
+                          ? "APPROVED"
+                          : step.status === "RUNNING"
+                            ? "WAITING_APPROVAL"
+                            : step.status === "FAILED"
+                              ? "REJECTED"
+                              : "CANCELLED"
+                      }
+                    >
+                      {step.kind}
+                    </Badge>{" "}
+                    <span className="muted">
+                      #{step.stepIndex} · {step.executedBy ?? "system"} ·{" "}
+                      {step.durationMs ?? 0}ms
+                    </span>
+                    {step.error ? (
+                      <div className="muted">错误：{step.error}</div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              <ul className="stack-list">
+                {(invocationsQuery.data ?? []).map((record) => (
+                  <li key={record.id}>
+                    <Badge
+                      status={
+                        record.status === "EXECUTED"
+                          ? "APPROVED"
+                          : record.status === "FAILED"
+                            ? "REJECTED"
+                            : "WAITING_APPROVAL"
+                      }
+                    >
+                      {record.tool}
+                    </Badge>{" "}
+                    <span className="muted">
+                      输入 {record.inputHash.slice(0, 12)}… · 重试{" "}
+                      {record.retries} · {record.durationMs ?? 0}ms
+                    </span>
+                    {record.error ? (
+                      <div className="muted">错误：{record.error}</div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setTraceTaskId(undefined)}
+          >
+            关闭溯源
+          </Button>
+        </Panel>
+      ) : null}
+
+      <Panel title="Agent 成本与质量指标">
+        {metricsQuery.data ? (
+          <ul className="stack-list">
+            <li>
+              verified 闭环率：
+              {metricsQuery.data.verifiedClosureRate !== null
+                ? `${Math.round(metricsQuery.data.verifiedClosureRate * 10000) / 100}`
+                : "不可测（窗口内无 EXECUTED 结果）"}
+            </li>
+            <li>
+              误报率：
+              {metricsQuery.data.falsePositiveRate !== null
+                ? `${Math.round(metricsQuery.data.falsePositiveRate * 10000) / 100}`
+                : "不可测（需人工标注）"}
+            </li>
+            <li>
+              每闭环任务成本：
+              {metricsQuery.data.costPerClosedLoop !== null
+                ? `${metricsQuery.data.costPerClosedLoop}（模型 ${metricsQuery.data.costBreakdown.modelCost ?? "-"} / 工具 ${metricsQuery.data.costBreakdown.toolCost ?? "-"}）`
+                : "不可测（需成本核算接入）"}
+            </li>
+            <li>
+              AI-off 对照差：
+              {metricsQuery.data.aiOffFloor.delta !== null
+                ? `${metricsQuery.data.aiOffFloor.delta}`
+                : "不可测（需 AI-off 对照组）"}
+            </li>
+          </ul>
+        ) : (
+          <LoadingRows rows={2} />
+        )}
+      </Panel>
+
       <Tabs
         items={[
           { id: "tasks", label: "Agent 任务", count: taskList.length },
@@ -387,6 +507,13 @@ export function AgentOpsPage() {
                           {formatDateTime(task.updatedAt)}
                         </td>
                         <td className="cell-actions">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setTraceTaskId(task.id)}
+                          >
+                            溯源
+                          </Button>
                           <Button
                             size="sm"
                             variant="secondary"

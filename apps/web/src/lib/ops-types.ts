@@ -370,10 +370,54 @@ export interface AgentMetricsView {
   escalationRate: number | null;
   humanOverrideRate: number | null;
   falsePositiveRate: number | null;
+  verifiedClosureRate: number | null;
   averageAttempts: number | null;
-  costPerClosedLoop: null;
-  aiOffFloor: null;
+  costPerClosedLoop: number | null;
+  costBreakdown: { modelCost: number | null; toolCost: number | null };
+  aiOffFloor: {
+    baselineCompletionRate: number | null;
+    autoCompletionRate: number | null;
+    delta: number | null;
+    sampleSize?: number;
+  };
+  availability: Array<{
+    metric: string;
+    available: boolean;
+    reason?: string;
+    source: string;
+    window: { from: string | null; to: string | null };
+    denominator: string;
+  }>;
   note: string;
+}
+
+export interface AgentStepView {
+  id: string;
+  taskId: string;
+  stepIndex: number;
+  kind: string;
+  status: string;
+  inputHash?: string;
+  outputHash?: string;
+  error?: string;
+  attempts: number;
+  executedBy?: string;
+  durationMs?: number;
+}
+
+export interface ToolInvocationView {
+  id: string;
+  taskId: string;
+  actionId: string;
+  tool: string;
+  riskTier: string;
+  status: string;
+  inputHash: string;
+  outputHash?: string;
+  retries: number;
+  executedBy?: string;
+  durationMs?: number;
+  error?: string;
 }
 
 export interface MarginalSimulationView {

@@ -2,7 +2,7 @@
  * Agent 域路由（任务/聊天/命令/收件箱）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { AgentRuntime } from "@anari/agent-runtime";
+import type { AgentRuntime, AgentStepRepository } from "@anari/agent-runtime";
 import { llmChatComplete, extractJson, type LlmMessage } from "../../llm.js";
 import { notifyBestEffort } from "../../notify.js";
 import type { ApprovalPort, ModelgovPort } from "../../store-ports.js";
@@ -110,8 +110,12 @@ export function registerAgentTaskRoutes(deps: {
     model: string;
     fetchImpl?: typeof fetch;
   };
+  /** NPV2-031：可选——未提供时步骤端点返回空数组（内存模式）。 */
+  stepRepositoryFor?: (tenantId: string) => AgentStepRepository;
 }): FastifyPluginAsync {
-  const { platformStore, storeFor, countEvent, runtimeFor, agentChat } = deps;
+  const { platformStore, storeFor, countEvent, runtimeFor, agentChat,
+    stepRepositoryFor,
+  } = deps;
   return async (app: FastifyInstance) => {
   app.post("/api/v1/agent-tasks/scan", async (request) => {
     requireRoles(request, "manager");
@@ -434,6 +438,17 @@ export function registerAgentTaskRoutes(deps: {
     return reply.status(201).send(
       data(await storeFor(request).upsertAgentTodo(body), request),
     );
+  });
+
+  // NPV2-019/031：步骤与工具调用记录只读暴露（运维面板任务事实溯源）。
+  app.get("/api/v1/agent-tasks/:id/steps", async (request) => {
+    const repository = stepRepositoryFor?.(tenantOf(request));
+    return data(repository ? await repository.listSteps(idOf(request)) : [], request);
+  });
+
+  app.get("/api/v1/agent-tasks/:id/invocations", async (request) => {
+    const repository = stepRepositoryFor?.(tenantOf(request));
+    return data(repository ? await repository.listToolInvocations(idOf(request)) : [], request);
   });
 
   app.get("/api/v1/agent-todos", async (request) => {

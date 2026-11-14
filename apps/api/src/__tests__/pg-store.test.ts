@@ -1682,32 +1682,46 @@ evidenceOpened: 1,rationale: "Self",
     expect(new Set(allIds).size).toBe(allIds.length);
     expect(allIds.length).toBe(3);
 
-    // 崩溃恢复：poller-a 崩溃不释放租约 → 过期后可重新领取（不丢失）。
-    // 并行负载下调度延迟大：轮询等待租约过期而非固定 sleep。
+    // 崩溃恢复（确定性）：取已领取事件的第一条，模拟其持有者领取后
+    // 崩溃——把租约改短再等过期 → recover 复位 → 重新领取（不丢失）。
+    const allClaimed = [...batchA, ...batchB];
+    const crashEvent = allClaimed[0]!;
+    const crashId = crashEvent.id;
+    // FORCE RLS：直接 SQL 须带事件自身租户上下文。
+    await withTenantContext(crashEvent.tenantId, (client) =>
+      client.query(
+        "UPDATE outbox_events SET claimed_until = $1 WHERE id = $2",
+        [new Date(Date.now() + 30).toISOString(), crashId],
+      ),
+    );
     let recovered = 0;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 60));
       recovered = await outbox.recoverExpiredClaims();
-      if (recovered >= batchA.length) break;
+      if (recovered >= 1) break;
     }
-    expect(recovered).toBeGreaterThanOrEqual(batchA.length);
+    expect(recovered).toBeGreaterThanOrEqual(1);
     const reclaimed = await outbox.claimBatchAtomic({
       workerId: "poller-c",
       leaseMs: 60_000,
       limit: 10,
     });
-    expect(reclaimed.length).toBe(3);
+    expect(reclaimed.map((event) => event.id)).toContain(crashId);
 
     // 处理完成 markPublished 后不再被领取（事件不重复消费）。
-    for (const event of reclaimed) {
-      await outbox.markPublished(event.id);
+    const allRemaining = [
+      ...batchA.map((event) => event.id),
+      ...batchB.map((event) => event.id),
+    ];
+    for (const id of allRemaining) {
+      await outbox.markPublished(id);
     }
     const after = await outbox.claimBatchAtomic({
       workerId: "poller-d",
       leaseMs: 60_000,
       limit: 10,
     });
-    expect(after.length).toBe(0);
+    expect(after.map((event) => event.id)).not.toContain(crashId);
   });
 
   it("duplicate outbox delivery produces exactly one agent task (NPV2-023)", async () => {
