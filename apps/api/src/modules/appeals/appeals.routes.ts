@@ -25,6 +25,8 @@ import {
   personFilter,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 import { notifyBestEffort } from "../../notify.js";
 
@@ -246,7 +248,7 @@ export function registerAppealsRoutes(deps: {
       const body = parse(reviewRecalculationRequestSchema, request.body);
       const approved = await storeFor(request).approveRecalculationRequest(
         idOf(request),
-        body.approvedBy,
+        requireActorRequired(request, body.approvedBy, "approve"),
       );
       countEvent("recalculation_approved");
       return data(approved, request);
@@ -257,7 +259,7 @@ export function registerAppealsRoutes(deps: {
       const body = parse(reviewRecalculationRequestSchema, request.body);
       const rejected = await storeFor(request).rejectRecalculationRequest(
         idOf(request),
-        body.approvedBy,
+        requireActorRequired(request, body.approvedBy, "approve"),
       );
       countEvent("recalculation_rejected");
       return data(rejected, request);

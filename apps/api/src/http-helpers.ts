@@ -162,3 +162,47 @@ export function requireTenantMember(
     throw new ForbiddenError("cannot read another tenant's directory");
   }
 }
+
+/**
+ * NPV2-003：执行者身份统一收口——body 声称的 actor 必须等于会话身份
+ * （平台管理员可代操作）。返回校验后的 id，供审计与持久化使用。
+ */
+/** NPV2-003：必填执行者字段——未提供或伪造一律拒绝。 */
+export function requireActorRequired(
+  request: FastifyRequest,
+  claimed: unknown,
+  action: string,
+): string {
+  const resolved = requireActor(request, claimed, action);
+  if (resolved === undefined) {
+    throw new ForbiddenError(`${action}: actor is required`);
+  }
+  return resolved;
+}
+
+export function requireActor(
+  request: FastifyRequest,
+  claimed: unknown,
+  action: string,
+): string | undefined {
+  // 未提供：字段本身可选（zod 必填已先行拦截），放行。
+  if (claimed === undefined || claimed === null || claimed === "") {
+    return undefined;
+  }
+  if (typeof claimed !== "string") {
+    throw new ForbiddenError(`${action}: actor must be a string`);
+  }
+  const own = ownPersonId(request);
+  if (own) {
+    // 会话声明了 person：body actor 必须是会话身份（平台管理员可代操作）。
+    if (own === claimed) return claimed;
+    if (!isPlatformAdmin(request)) {
+      throw new ForbiddenError(
+        `${action}: must use the authenticated identity (got ${claimed})`,
+      );
+    }
+    return claimed;
+  }
+  // 无 person 声明的会话（机器/admin token）：角色鉴权已把关，放行。
+  return claimed;
+}

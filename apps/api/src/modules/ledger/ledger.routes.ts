@@ -24,6 +24,8 @@ import {
   ownPersonId,
   policyBody,
   requireString,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -102,7 +104,7 @@ export function registerLedgerRoutes(deps: {
         amount: body.amount,
         reasonCode: body.reasonCode,
         explanation: body.explanation,
-        approvedBy: body.approvedBy,
+        approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         idempotencyKey: body.idempotencyKey,
       },
     );
@@ -157,7 +159,7 @@ export function registerLedgerRoutes(deps: {
   app.post("/api/v1/incentive-award-batches", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createIncentiveAwardBatchSchema, request.body);
-    const createdBy = body.createdBy ?? ownPersonId(request) ?? "system";
+    const createdBy = requireActor(request, body.createdBy, "create") ?? ownPersonId(request) ?? "system";
     const batch = await platformStore.createIncentiveAwardBatch({
       tenantId: tenantOf(request),
       batchNo: body.batchNo,
@@ -294,7 +296,7 @@ export function registerLedgerRoutes(deps: {
         meta: { correlation_id: request.id },
       });
     }
-    const createdBy = body.createdBy ?? ownPersonId(request) ?? "system";
+    const createdBy = requireActor(request, body.createdBy, "create") ?? ownPersonId(request) ?? "system";
     const batch = await platformStore.createIncentiveAwardBatch({
       tenantId: tenantOf(request),
       batchNo: body.batchNo,

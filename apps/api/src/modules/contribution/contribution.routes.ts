@@ -27,6 +27,7 @@ import {
   personFilter,
   requireRoles,
   tenantOf,
+  requireActor,
 } from "../../http-helpers.js";
 
 export function registerContributionRoutes(deps: {
@@ -310,7 +311,7 @@ export function registerContributionRoutes(deps: {
     const body = parse(linkContributionAssessmentDecisionSchema, request.body);
     // 会话身份绑定：链接人必须是会话主体（平台管理员除外）。
     const own = ownPersonId(request);
-    if (own && !isPrivileged(request) && body.linkedBy !== own) {
+    if (own && !isPrivileged(request) && requireActor(request, body.linkedBy, "link") !== own) {
       throw new ForbiddenError(
         "assessment decision link must use the authenticated identity",
       );

@@ -30,6 +30,8 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 import { RETENTION_RECOMMENDATIONS } from "./retention-defaults.js";
 import {
@@ -301,7 +303,7 @@ export function registerDataGovernanceRoutes(deps: {
           await platformStore.createRetentionDisposalRequest({
             tenantId: tenantOf(request),
             retentionPolicyId: idOf(request),
-            requestedBy: body.requestedBy,
+            requestedBy: requireActorRequired(request, body.requestedBy, "request"),
             reason: body.reason,
             scheduledFor: body.scheduledFor,
           }),
@@ -318,7 +320,7 @@ export function registerDataGovernanceRoutes(deps: {
           await platformStore.createRetentionDisposalRequest({
             tenantId: tenantOf(request),
             retentionPolicyId: body.retentionPolicyId,
-            requestedBy: body.requestedBy,
+            requestedBy: requireActorRequired(request, body.requestedBy, "request"),
             reason: body.reason,
             scheduledFor: body.scheduledFor,
           }),
@@ -391,7 +393,7 @@ export function registerDataGovernanceRoutes(deps: {
         await platformStore.approveRetentionDisposalRequest({
           tenantId: tenantOf(request),
           requestId: idOf(request),
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       );

@@ -16,6 +16,8 @@ import {
   requireRoles,
   tenantOf,
   idOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerAdverseActionRoutes(deps: {
@@ -34,7 +36,7 @@ export function registerAdverseActionRoutes(deps: {
       reason: body.reason,
       performanceBasis: body.performanceBasis,
       evidenceRefs: body.evidenceRefs ?? [],
-      requestedBy: body.requestedBy,
+      requestedBy: requireActorRequired(request, body.requestedBy, "request"),
     });
     countEvent("adverse_action_created");
     return reply.status(201).send(data(action, request));
@@ -85,7 +87,7 @@ export function registerAdverseActionRoutes(deps: {
     const action = await platformStore.approveAdverseAction({
       tenantId: tenantOf(request),
       actionId: idOf(request),
-      approvedBy: body.approvedBy,
+      approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
     });
     countEvent("adverse_action_approved");
     return data(action, request);

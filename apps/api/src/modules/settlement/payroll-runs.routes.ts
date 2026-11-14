@@ -27,6 +27,8 @@ import {
   ownPersonId,
   isPlatformAdmin,
   policyBody,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -544,19 +546,19 @@ export function registerPayrollRunRoutes(deps: {
     const body = parse(approvePayrollRunSchema, request.body);
     // NPV2-003：审批人必须是会话主体；body 中的 approvedBy 不再是执行者真相源。
     const own = ownPersonId(request);
-    if (own && !isPlatformAdmin(request) && body.approvedBy !== own) {
+    if (own && !isPlatformAdmin(request) && requireActor(request, body.approvedBy, "approve") !== own) {
       throw new ForbiddenError(
         "payroll approval must use the authenticated identity",
       );
     }
     const persons = await platformStore.listPersons(tenantOf(request));
-    if (!persons.some((person) => person.id === body.approvedBy)) {
-      throw new NotFoundError(`Person ${body.approvedBy} not found`);
+    if (!persons.some((person) => person.id === requireActor(request, body.approvedBy, "approve"))) {
+      throw new NotFoundError(`Person ${requireActor(request, body.approvedBy, "approve")} not found`);
     }
     const run = await platformStore.approvePayrollRun({
       tenantId: tenantOf(request),
       runId: idOf(request),
-      approvedBy: body.approvedBy,
+      approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
     });
     countEvent("payroll_run_approved");
     return data(run, request);

@@ -27,6 +27,8 @@ import {
   requireRoles,
   tenantOf,
   idOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerPolicyAdminRoutes(deps: {
@@ -150,7 +152,7 @@ export function registerPolicyAdminRoutes(deps: {
       policy: { ...source.policy, version: nextVersion },
       policyVersionId: body.newPolicyVersionId,
       effectiveFrom: body.effectiveFrom,
-      approvedBy: body.approvedBy,
+      approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
       scope: source.scope,
       applicability,
     });
@@ -274,7 +276,7 @@ export function registerPolicyAdminRoutes(deps: {
       dataProtectionAssessmentRef,
       minimumWageChecked: body.minimumWageChecked,
       policyApproved: body.policyApproved,
-      recordedBy: body.recordedBy,
+      recordedBy: requireActorRequired(request, body.recordedBy, "record"),
     });
     countEvent("legal_gate_recorded");
     return data(gate, request);
@@ -355,7 +357,7 @@ export function registerPolicyAdminRoutes(deps: {
           reason: body.reason,
           impactSimulation: body.impactSimulation ?? {},
           effectiveFrom: body.effectiveFrom,
-          requestedBy: body.requestedBy,
+          requestedBy: requireActorRequired(request, body.requestedBy, "request"),
         }),
         request,
       ),
@@ -407,7 +409,7 @@ export function registerPolicyAdminRoutes(deps: {
       await platformStore.approveRuleChangeOrder({
         tenantId: tenantOf(request),
         orderId: idOf(request),
-        approvedBy: body.approvedBy,
+        approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
       }),
       request,
     );
@@ -420,7 +422,7 @@ export function registerPolicyAdminRoutes(deps: {
       await platformStore.rejectRuleChangeOrder({
         tenantId: tenantOf(request),
         orderId: idOf(request),
-        approvedBy: body.approvedBy,
+        approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
       }),
       request,
     );

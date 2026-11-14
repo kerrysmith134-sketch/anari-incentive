@@ -26,6 +26,8 @@ import {
   isPrivileged,
   ownPersonId,
   policyBody,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -137,7 +139,7 @@ export function registerAuditPrivacyRoutes(deps: {
       await platformStore.approveDpia({
         tenantId: tenantOf(request),
         dpiaId: idOf(request),
-        approvedBy: body.approvedBy,
+        approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
       }),
       request,
     );
@@ -387,8 +389,8 @@ export function registerAuditPrivacyRoutes(deps: {
       auditEventId: idOf(request),
       replacement: body.replacement ?? "[REDACTED]",
       reason: body.reason,
-      requestedBy: body.requestedBy,
-      approvedBy: body.approvedBy,
+      requestedBy: requireActorRequired(request, body.requestedBy, "request"),
+      approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
     });
     countEvent("audit_redaction_created");
     return reply.status(201).send(data(redaction, request));

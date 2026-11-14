@@ -38,6 +38,8 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerRewardsRoutes(deps: {
@@ -172,7 +174,7 @@ export function registerRewardsRoutes(deps: {
       const body = parse(createEquityExerciseSchema, request.body);
       if (!isPrivileged(request)) {
         const own = ownPersonId(request);
-        if (!own || body.requestedBy !== own) {
+        if (!own || requireActor(request, body.requestedBy, "request") !== own) {
           throw new ForbiddenError("员工只能为本人发起行权");
         }
       }
@@ -182,7 +184,7 @@ export function registerRewardsRoutes(deps: {
             tenantId: tenantOf(request),
             grantId: idOf(request),
             units: body.units,
-            requestedBy: body.requestedBy,
+            requestedBy: requireActorRequired(request, body.requestedBy, "request"),
           }),
           request,
         ),
@@ -208,7 +210,7 @@ export function registerRewardsRoutes(deps: {
         await platformStore.approveEquityExercise({
           tenantId: tenantOf(request),
           exerciseId: idOf(request),
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       );
@@ -236,7 +238,7 @@ export function registerRewardsRoutes(deps: {
             description: body.description,
             rewardAmount: body.rewardAmount,
             currency: body.currency,
-            createdBy: body.createdBy,
+            createdBy: requireActorRequired(request, body.createdBy, "create"),
             dueAt: body.dueAt,
           }),
           request,

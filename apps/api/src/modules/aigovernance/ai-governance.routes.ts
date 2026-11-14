@@ -49,6 +49,8 @@ import {
   isPlatformAdmin,
   policyBody,
   requireString,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -209,7 +211,7 @@ export function registerAiGovernanceRoutes(deps: {
           dpaRef: body.dpaRef,
           inferenceRegion: body.inferenceRegion,
           egressAllowlist: body.egressAllowlist,
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       ),
@@ -540,7 +542,7 @@ export function registerAiGovernanceRoutes(deps: {
           passed: body.passed,
           findings: body.findings ?? [],
           artifactRef: body.artifactRef,
-          createdBy: body.createdBy,
+          createdBy: requireActorRequired(request, body.createdBy, "create"),
         }),
         request,
       ),
@@ -691,7 +693,7 @@ export function registerAiGovernanceRoutes(deps: {
       riskAssessedAt: riskAssessedAt.toISOString(),
       secondReviewDueAt,
       zeroScoreRationale: body.zeroScoreRationale,
-      requestedBy: body.requestedBy,
+      requestedBy: requireActorRequired(request, body.requestedBy, "request"),
     });
     countEvent("ai_score_proposal_created");
     return reply.status(201).send(data(proposal, request));
@@ -948,14 +950,14 @@ export function registerAiGovernanceRoutes(deps: {
     const tenantId = tenantOf(request);
     // NPV2-003：裁决人必须是会话主体（平台管理员除外）。
     const deciderOwn = ownPersonId(request);
-    if (deciderOwn && !isPlatformAdmin(request) && body.decidedBy !== deciderOwn) {
+    if (deciderOwn && !isPlatformAdmin(request) && requireActor(request, body.decidedBy, "decide") !== deciderOwn) {
       throw new ForbiddenError(
         "AI proposal decisions must use the authenticated identity",
       );
     }
     const persons = await platformStore.listPersons(tenantId);
-    if (!persons.some((person) => person.id === body.decidedBy)) {
-      throw new NotFoundError(`Person ${body.decidedBy} not found`);
+    if (!persons.some((person) => person.id === requireActor(request, body.decidedBy, "decide"))) {
+      throw new NotFoundError(`Person ${requireActor(request, body.decidedBy, "decide")} not found`);
     }
     const existing = await platformStore.getAiScoreProposal(
       tenantId,
@@ -1013,7 +1015,7 @@ export function registerAiGovernanceRoutes(deps: {
         );
       }
       if (
-        body.secondReviewerPersonId === body.decidedBy ||
+        body.secondReviewerPersonId === requireActor(request, body.decidedBy, "decide") ||
         body.secondReviewerPersonId === existing.requestedBy
       ) {
         throw new ConflictError(
@@ -1077,7 +1079,7 @@ export function registerAiGovernanceRoutes(deps: {
       tenantId,
       proposalId: idOf(request),
       decision: body.decision,
-      decidedBy: body.decidedBy,
+      decidedBy: requireActorRequired(request, body.decidedBy, "decide"),
       note: body.note,
       independentScores: body.independentScores,
       independentRationale: body.independentRationale,
@@ -1568,10 +1570,11 @@ export function registerAiGovernanceRoutes(deps: {
         status: "COMPLETED",
         payload: {
           ...record.payload,
-          completedBy:
-            typeof body.completedBy === "string"
-              ? body.completedBy
-              : ownPersonId(request),
+          completedBy: requireActor(
+            request,
+            typeof body.completedBy === "string" ? body.completedBy : undefined,
+            "complete",
+          ),
           completedAt: new Date().toISOString(),
           adjudicatedBy:
             typeof body.adjudicatedBy === "string"

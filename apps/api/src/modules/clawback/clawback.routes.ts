@@ -23,6 +23,8 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -91,7 +93,7 @@ export function registerClawbackRoutes(deps: ClawbackDeps): FastifyPluginAsync {
             installmentMonths: body.installmentMonths ?? 1,
             hardshipWaiver: body.hardshipWaiver ?? false,
             hardshipReason: body.hardshipReason,
-            requestedBy: body.requestedBy,
+            requestedBy: requireActorRequired(request, body.requestedBy, "request"),
           }),
           request,
         ),
@@ -183,14 +185,14 @@ export function registerClawbackRoutes(deps: ClawbackDeps): FastifyPluginAsync {
       // ledger entries before closing the case; validate the person up front so a
       // typo cannot leave a reversal behind without an audit trail entry.
       const persons = await platformStore.listPersons(tenantOf(request));
-      if (!persons.some((person) => person.id === body.approvedBy)) {
-        throw new NotFoundError(`Person ${body.approvedBy} not found`);
+      if (!persons.some((person) => person.id === requireActor(request, body.approvedBy, "approve"))) {
+        throw new NotFoundError(`Person ${requireActor(request, body.approvedBy, "approve")} not found`);
       }
       return data(
         await platformStore.approveClawbackCase({
           tenantId: tenantOf(request),
           caseId: idOf(request),
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       );

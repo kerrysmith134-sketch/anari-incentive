@@ -47,6 +47,8 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export interface PayrollDeps {
@@ -297,7 +299,7 @@ export function registerPayrollRoutes(deps: PayrollDeps): FastifyPluginAsync {
           bankAccountRef: body.bankAccountRef,
           effectiveFrom: body.effectiveFrom,
           consentSignatureRef: body.consentSignatureRef,
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       );

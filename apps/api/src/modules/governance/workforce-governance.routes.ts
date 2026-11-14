@@ -18,6 +18,7 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -69,7 +70,7 @@ export function registerWorkforceGovernanceRoutes(deps: {
           consentRef: body.consentRef,
           consentedAt: body.consentedAt,
           expiresAt: body.expiresAt,
-          recordedBy: body.recordedBy,
+          recordedBy: requireActor(request, body.recordedBy, "record"),
         }),
         request,
       ),

@@ -15,6 +15,8 @@ import {
   requireRoles,
   tenantOf,
   idOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerBudgetRoutes(deps: {
@@ -87,7 +89,7 @@ export function registerBudgetRoutes(deps: {
           safetyReserveMonths: body.safetyReserveMonths,
           thirteenWeekForecastRef: body.thirteenWeekForecastRef,
           passesGate: body.passesGate,
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
           approvedAt: body.approvedAt,
         }),
         request,

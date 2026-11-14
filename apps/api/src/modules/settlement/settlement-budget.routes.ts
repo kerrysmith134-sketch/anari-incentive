@@ -20,6 +20,8 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export interface SettlementDeps {
@@ -261,7 +263,7 @@ export function registerSettlementRoutes(deps: SettlementDeps): FastifyPluginAsy
         await platformStore.approveBudgetPool({
           tenantId: tenantOf(request),
           poolId: idOf(request),
-          approvedBy: body.approvedBy,
+          approvedBy: requireActorRequired(request, body.approvedBy, "approve"),
         }),
         request,
       );

@@ -91,6 +91,7 @@ describe("AI numeric scoring gate (NPV2-006)", () => {
     const response = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
       personId: OWNER,
+      requestedBy: OWNER,
       evaluationRunId: evaluation.body.data.id,
       dimensions: ["QUALITY"],
       evidence,
@@ -109,6 +110,7 @@ describe("AI numeric scoring gate (NPV2-006)", () => {
     const response = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
       personId: OWNER,
+      requestedBy: OWNER,
       evaluationRunId: evaluation.body.data.id,
       dimensions: ["QUALITY", "TIMELINESS"],
       evidence,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /*
  * Security hardening regressions found by the full-surface audit:
  * tenant admin must not act as a platform operator, signup must never reset an
@@ -589,5 +590,31 @@ describe("clawback cannot recover more than the award", () => {
     );
     expect(recovery.status).toBe(409);
     expect(recovery.body.error.message).toContain("CLAWBACK_EXCEEDS_REMAINING");
+  });
+});
+
+
+describe("forged body actor rejection (NPV2-003 sweep)", () => {
+  it("employee cannot file a claim for another person (NPV2-003)", async () => {
+    const appStore = new Store(TENANT);
+    const memberApp = buildApp(
+      appStore,
+      undefined,
+      authFor(["employee"], MEMBER),
+      platformStore,
+    );
+    const response = await memberApp.inject({
+      method: "POST",
+      url: "/api/v1/contribution-claims",
+      payload: {
+        workPackageId: randomUUID(),
+        claimantPersonId: OWNER,
+        claimType: "DELIVERABLE_CONTRIBUTION",
+        claimedContribution: { dimensions: ["QUALITY"], summary: "x" },
+        evidenceRefs: [],
+        rationale: "forged claimant",
+      } as never,
+    });
+    expect(response.statusCode).toBe(403);
   });
 });

@@ -22,6 +22,7 @@ import {
   parse,
   requireRoles,
   tenantOf,
+  requireActor,
 } from "../../http-helpers.js";
 
 export function registerStrategicPoolRoutes(deps: {
@@ -132,7 +133,7 @@ export function registerStrategicPoolRoutes(deps: {
       const body = parse(strategicPoolFinanceApproveSchema, request.body);
       // NPV2-003：财务批准人必须是会话主体（平台管理员除外）。
       const approverOwn = ownPersonId(request);
-      if (approverOwn && !isPlatformAdmin(request) && body.approvedBy !== approverOwn) {
+      if (approverOwn && !isPlatformAdmin(request) && requireActor(request, body.approvedBy, "approve") !== approverOwn) {
         throw new ForbiddenError(
           "strategic pool approval must use the authenticated identity",
         );
@@ -143,7 +144,7 @@ export function registerStrategicPoolRoutes(deps: {
           `STRATEGIC_POOL_NOT_COST_REVIEWED: case is ${record.status}`,
         );
       }
-      if (body.approvedBy === record.requestedBy) {
+      if (requireActor(request, body.approvedBy, "approve") === record.requestedBy) {
         throw new ConflictError(
           "STRATEGIC_POOL_SELF_APPROVAL: finance approver must differ from the requester",
         );
@@ -155,7 +156,7 @@ export function registerStrategicPoolRoutes(deps: {
         tenantId: tenantOf(request),
         caseId: record.id,
         patch: {
-          financeApprovedBy: body.approvedBy,
+          financeApprovedBy: requireActor(request, body.approvedBy, "approve"),
           financeApprovedAt: new Date().toISOString(),
           deferredInstallmentMonths: body.deferredInstallmentMonths,
           status: "FINANCE_APPROVED",
