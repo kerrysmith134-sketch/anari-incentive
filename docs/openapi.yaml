@@ -324,6 +324,45 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/agent-tasks/{id}/steps:
+    get:
+      tags: [Agent ops]
+      summary: List persisted steps for an agent task (NPV2-019 trace)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Step chain (kind/status/hashes/duration)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/agent-tasks/{id}/invocations:
+    get:
+      tags: [Agent ops]
+      summary: List tool invocation records for an agent task (NPV2-019 trace)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Tool invocation records (input/output hashes, retries, errors)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/agent-todos:upsert:
     post:
       tags: [Agent todos]

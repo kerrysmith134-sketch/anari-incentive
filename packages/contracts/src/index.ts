@@ -2758,3 +2758,19 @@ export const linkMetricMeasurementSnapshotSchema = z.object({
   evaluationDecisionId: uuidSchema,
   linkedBy: uuidSchema,
 });
+
+/**
+ * NPV2-020/023：Agent 待办 upsert（worker 经 API 落库；幂等键必填）。
+ */
+export const upsertAgentTodoSchema = z.object({
+  title: z.string().min(1),
+  detail: z.string().optional(),
+  assigneePersonId: uuidSchema,
+  dueAt: z.string().datetime().optional(),
+  targetType: z.string().max(64).optional(),
+  targetId: z.string().min(1).max(256).optional(),
+  sourceType: z.string().min(1).max(64),
+  sourceId: z.string().min(1).max(256),
+  idempotencyKey: z.string().min(1).max(256),
+  createdByAgentTaskId: uuidSchema.optional(),
+});
