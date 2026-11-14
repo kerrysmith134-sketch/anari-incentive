@@ -41,6 +41,12 @@ export const NAV: NavGroup[] = [
     items: [
       { to: "/cycles", label: "考核周期", icon: "clock" },
       {
+        to: "/management",
+        label: "管理中心",
+        icon: "approvals",
+        allowed: ["manager", "finance", "admin"],
+      },
+      {
         to: "/performance",
         label: "绩效管理",
         icon: "policy",

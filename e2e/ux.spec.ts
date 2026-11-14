@@ -167,6 +167,27 @@ test.describe("2026 policy centre UX", () => {
     await expect(page.getByText("任务组已创建")).toBeVisible();
   });
 
+  test("management center hides AI drafts until independent judgment completes (NPV2-029)", async ({
+    page,
+  }) => {
+    await page.goto("/console/management");
+    await expect(
+      page.getByRole("heading", { name: "管理中心" }),
+    ).toBeVisible();
+    // 周期选择与四大面板在位
+    await expect(
+      page.getByRole("heading", { name: "周期准备度（七门禁）" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /独立评价进度/ }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /异常申报/ }).first()).toBeVisible();
+    // ATT-06：无草案数据时显示空态；有草案时按独立判断状态隐藏/揭示。
+    await expect(page.getByText(/暂无评价草案|AI 草稿已隐藏|待完成独立判断/).first()).toBeVisible();
+    // 红线声明：不自动锁账/结算
+    await expect(page.getByText(/不执行锁账\/结算/)).toBeVisible();
+  });
+
   test("my workbench aggregates personal scopes without cross-tenant data (NPV2-028)", async ({
     page,
   }) => {
