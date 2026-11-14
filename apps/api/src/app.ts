@@ -503,6 +503,10 @@ export interface BuildAppOptions {
   };
   /** NPV2-031：Agent 步骤/工具调用持久化仓库（按租户）。 */
   agentStepRepositoryFor?: (tenantId: string) => import("@anari/agent-persistence").AgentStepRepository;
+  /** NPV2-033：可观测性探针（db pool / outbox 积压 / agent task 状态计数）。 */
+  dbPoolProbe?: () => { total: number; idle: number; waiting: number } | undefined;
+  outboxProbe?: () => Promise<{ backlog: number; oldestAgeMs: number | null }>;
+  agentTaskProbe?: () => Promise<Record<string, number>>;
 }
 
 class TooManyRequestsError extends Error {
@@ -1166,6 +1170,11 @@ export function buildApp(
       ? { level: process.env.LOG_LEVEL }
       : false,
     bodyLimit: options.bodyLimitBytes ?? 1_048_576,
+  });
+
+  // NPV2-033：请求/响应关联——X-Request-Id 透传给客户端与日志。
+  app.addHook("onRequest", async (request, reply) => {
+    reply.header("x-request-id", request.id);
   });
   if (consoleBuilt) {
     app.register(fastifyStatic, {
@@ -2575,11 +2584,41 @@ export function buildApp(
     }
   });
 
-  app.get("/metrics", async (_request, reply) =>
-    reply
+  app.get("/metrics", async (_request, reply) => {
+    // NPV2-033：db pool / agent task / outbox 实时 gauge（探针由 composition
+    // 注入；探针失败不阻塞 scrape）。
+    try {
+      if (options.dbPoolProbe) {
+        const poolStats = options.dbPoolProbe();
+        if (poolStats) {
+          metrics.setGauge("n_perform_db_pool_total", poolStats.total);
+          metrics.setGauge("n_perform_db_pool_idle", poolStats.idle);
+          metrics.setGauge("n_perform_db_pool_waiting", poolStats.waiting);
+        }
+      }
+      if (options.outboxProbe) {
+        const outbox = await options.outboxProbe();
+        metrics.setGauge("n_perform_outbox_backlog", outbox.backlog);
+        if (outbox.oldestAgeMs !== null) {
+          metrics.setGauge("n_perform_outbox_oldest_age_ms", outbox.oldestAgeMs);
+        }
+      }
+      if (options.agentTaskProbe) {
+        const byStatus = await options.agentTaskProbe();
+        for (const [status, count] of Object.entries(byStatus)) {
+          metrics.setGauge(
+            `n_perform_agent_tasks{status="${status}"}`,
+            count as number,
+          );
+        }
+      }
+    } catch {
+      /* 指标探针失败不阻塞 scrape */
+    }
+    return reply
       .type("text/plain; version=0.0.4; charset=utf-8")
-      .send(metrics.render()),
-  );
+      .send(metrics.render());
+  });
 
   return app;
 }

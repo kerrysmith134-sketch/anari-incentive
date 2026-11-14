@@ -193,6 +193,40 @@ const app = buildApp(
     agentStepRepositoryFor: usePostgres
       ? (tenantId) => new PgAgentTaskRepository(pool!, tenantId)
       : undefined,
+    dbPoolProbe: usePostgres
+      ? () => ({
+          total: pool!.totalCount,
+          idle: pool!.idleCount,
+          waiting: pool!.waitingCount,
+        })
+      : undefined,
+    outboxProbe: usePostgres
+      ? async () => {
+          const { rows } = await platformPool!.query(
+            `SELECT count(*)::int AS backlog,
+                    EXTRACT(EPOCH FROM (now() - MIN(occurred_at))) * 1000 AS oldest_ms
+               FROM outbox_events
+              WHERE published_at IS NULL`,
+          );
+          const row = rows[0] ?? {};
+          return {
+            backlog: Number(row.backlog ?? 0),
+            oldestAgeMs: row.oldest_ms === null ? null : Number(row.oldest_ms),
+          };
+        }
+      : undefined,
+    agentTaskProbe: usePostgres
+      ? async () => {
+          const { rows } = await platformPool!.query(
+            "SELECT status, count(*)::int AS count FROM agent_tasks GROUP BY status",
+          );
+          const byStatus: Record<string, number> = {};
+          for (const row of rows) {
+            byStatus[String(row.status)] = Number(row.count);
+          }
+          return byStatus;
+        }
+      : undefined,
     requiredApprovals: (process.env.REQUIRE_APPROVAL_FOR ?? "")
       .split(",")
       .map((value) => value.trim())

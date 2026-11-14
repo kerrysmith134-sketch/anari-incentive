@@ -19,10 +19,17 @@ function escapeLabel(value: string): string {
 export class ApiMetrics {
   private readonly series = new Map<string, Series>();
   private readonly events = new Map<string, number>();
+  /** NPV2-033：实时 gauge（agent task / outbox / db pool），每次 scrape 覆盖。 */
+  private readonly gauges = new Map<string, number>();
   private readonly startedAt = Date.now();
 
   increment(event: string, amount = 1): void {
     this.events.set(event, (this.events.get(event) ?? 0) + amount);
+  }
+
+  /** NPV2-033：设置 gauge 值（覆盖语义）。 */
+  setGauge(name: string, value: number): void {
+    this.gauges.set(name, value);
   }
 
   observeRequest(
@@ -94,6 +101,22 @@ export class ApiMetrics {
     for (const [event, count] of this.events) {
       lines.push(
         `n_perform_business_events_total{event="${escapeLabel(event)}"} ${count}`,
+      );
+    }
+    // NPV2-033：实时 gauge（agent task 状态 / outbox 积压 / db pool）。
+    const gaugeHelp: Record<string, string> = {
+      n_perform_agent_tasks: "Agent tasks by status.",
+      n_perform_outbox_backlog: "Unpublished outbox events.",
+      n_perform_outbox_oldest_age_ms: "Age of the oldest unpublished outbox event in ms.",
+      n_perform_db_pool_total: "DB pool total connections.",
+      n_perform_db_pool_idle: "DB pool idle connections.",
+      n_perform_db_pool_waiting: "DB pool waiting requests.",
+    };
+    for (const [name, value] of this.gauges) {
+      lines.push(
+        `# HELP ${name} ${gaugeHelp[name] ?? name}`,
+        `# TYPE ${name} gauge`,
+        `${name} ${value}`,
       );
     }
     lines.push(
