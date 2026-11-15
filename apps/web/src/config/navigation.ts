@@ -36,7 +36,13 @@ export const NAV: NavGroup[] = [
       { to: "/my-rewards", label: "我的激励", icon: "rewards" },
       { to: "/notifications", label: "通知中心", icon: "info" },
       { to: "/privacy", label: "隐私与数据", icon: "shield" },
-      { to: "/approvals", label: "审批收件箱", icon: "approvals" },
+      {
+        to: "/approvals",
+        label: "审批收件箱",
+        icon: "approvals",
+        // 页面主查询是 manager/finance 接口——员工可见会整页 403。
+        allowed: ["manager", "finance", "admin"],
+      },
     ],
   },
   {
@@ -44,7 +50,13 @@ export const NAV: NavGroup[] = [
     label: "考核与认定",
     icon: "clock",
     items: [
-      { to: "/cycles", label: "考核周期", icon: "clock" },
+      {
+        to: "/cycles",
+        label: "考核周期",
+        icon: "clock",
+        // 周期/草案/政策接口均为 manager/finance——员工入口会给 403 墙。
+        allowed: ["manager", "finance", "admin"],
+      },
       {
         to: "/management",
         label: "管理中心",

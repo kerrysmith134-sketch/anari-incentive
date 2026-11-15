@@ -7,6 +7,7 @@ import {
   PageHeader,
   Panel,
   Select,
+  InfoNotice,
 } from "../components/ui.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import { api } from "../lib/api.js";
@@ -91,6 +92,10 @@ export function NotificationsPage() {
       >
         {notifications.loading && notifications.data === undefined ? (
           <LoadingRows rows={4} />
+        ) : notifications.error ? (
+          <InfoNotice tone="warning">
+            通知加载失败：{notifications.error.message}
+          </InfoNotice>
         ) : filtered.length === 0 ? (
           <EmptyState
             icon="approvals"

@@ -17,7 +17,8 @@ import {
 import { useToast } from "../contexts/ToastContext.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { api, ApiError } from "../lib/api.js";
-import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
+import { formatMoney } from "../lib/format.js";
 
 interface BountyView {
   id: string;
@@ -75,8 +76,11 @@ export function MyRewardsPage() {
   const toast = useToast();
   const { session } = useAuth();
   const me = session.personId;
+  const { modules: enabledModules } = useTenantModules();
   const bounties = useApiQuery<BountyView[]>("/api/v1/bounties");
-  const grants = useApiQuery<GrantView[]>("/api/v1/equity-grants");
+  const grants = useApiQuery<GrantView[]>(
+    enabledModules.has("EQUITY") ? "/api/v1/equity-grants" : null,
+  );
   const runs = useApiQuery<RunView[]>("/api/v1/calculation-runs");
   const [tab, setTab] = useState("bounties");
   const packages = useApiQuery<WorkPackageView[]>("/api/v1/work-packages");
@@ -299,7 +303,7 @@ export function MyRewardsPage() {
                         <div className="hint">{bounty.description}</div>
                       </td>
                       <td className="mono">
-                        {bounty.rewardAmount} {bounty.currency}
+                        {formatMoney(bounty.rewardAmount, bounty.currency)}
                       </td>
                       <td>
                         <Badge status={bounty.status} />
@@ -341,7 +345,23 @@ export function MyRewardsPage() {
 
         {tab === "equity" ? (
           <Panel title="我的股权" flush>
-            {grantList.length === 0 ? (
+            {!enabledModules.has("EQUITY") ? (
+              <div style={{ padding: 16 }}>
+                <InfoNotice tone="warning">
+                  本租户未启用股权模块（FEATURE_DISABLED），授予与归属信息不可用。
+                </InfoNotice>
+              </div>
+            ) : grants.loading ? (
+              <div style={{ padding: 16 }}>
+                <LoadingRows rows={4} />
+              </div>
+            ) : grants.error ? (
+              <div style={{ padding: 16 }}>
+                <InfoNotice tone="warning">
+                  股权数据加载失败：{grants.error.message}
+                </InfoNotice>
+              </div>
+            ) : grantList.length === 0 ? (
               <EmptyState
                 icon="rewards"
                 title="暂无授予"

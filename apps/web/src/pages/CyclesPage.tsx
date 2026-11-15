@@ -22,6 +22,7 @@ import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, downloadJson, qs } from "../lib/api.js";
 import { zhStatus } from "../lib/zh.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import {
   displayName,
   formatDate,
@@ -605,7 +606,7 @@ export function CyclesPage() {
                       <tr
                         key={cycle.id}
                         className={cycle.id === selectedId ? "is-selected" : ""}
-                        onClick={() => setSelectedId(cycle.id)}
+                        {...clickableRowProps(() => setSelectedId(cycle.id))}
                       >
                         <td>
                           <span className="cell-primary">{cycle.name}</span>

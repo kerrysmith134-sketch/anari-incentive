@@ -288,7 +288,7 @@ export class MemoryPlatformStoreBase {
       // 显式传 modules: [] 即 P0-only（新租户生产默认）。
       settings: {
         modules:
-          demo.modules ?? ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"],
+          demo.modules ?? ["PAYROLL", "EQUITY", "STRATEGIC_POOL"],
       },
       createdAt,
     });

@@ -78,8 +78,9 @@ interface ReconciliationReport {
 interface BudgetPoolView {
   id: string;
   cycleId: string;
-  totalAmount: string;
-  allocatedAmount?: string;
+  /** 与 /api/v1/budget-pools 返回一致（BudgetPool）。 */
+  approvedAmount: string;
+  committedAmount?: string;
   status: string;
 }
 
@@ -169,7 +170,7 @@ export function FinanceCenterPage() {
                       <ul className="stack-list muted">
                         {row.declared.facts.map((fact) => (
                           <li key={fact.factId}>
-                            逐笔 {fact.factType}（{fact.sourceSystem}）{fact.amount}{" "}
+                            逐笔 {fact.factType}（{fact.sourceSystem}）{formatMoney(fact.amount)}{" "}
                             {fact.qualityStatus !== "VALID" ? `[${fact.qualityStatus}]` : ""}
                             {fact.error ? ` ⚠ ${fact.error}` : ""}
                           </li>
@@ -241,12 +242,12 @@ export function FinanceCenterPage() {
                 {pools.map((pool) => (
                   <li key={pool.id}>
                     <Badge status={pool.status}>{pool.status}</Badge>{" "}
-                    周期 {pool.cycleId.slice(0, 8)} 预算{" "}
-                    {formatMoney(pool.totalAmount)}
-                    {pool.allocatedAmount ? (
+                    周期 {pool.cycleId.slice(0, 8)} 核准预算{" "}
+                    {formatMoney(pool.approvedAmount)}
+                    {pool.committedAmount ? (
                       <span className="muted">
                         {" "}
-                        · 已分配 {formatMoney(pool.allocatedAmount)}
+                        · 已占用 {formatMoney(pool.committedAmount)}
                       </span>
                     ) : null}
                   </li>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import {
   Badge,
   Button,
@@ -21,7 +21,8 @@ import { Icon } from "../components/Icon.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, getApiSession } from "../lib/api.js";
-import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import {
   displayName,
   formatDate,
@@ -54,10 +55,30 @@ type BountyAction = "claim" | "submit" | "accept" | "cancel";
 
 export function RewardsPage() {
   useDocumentTitle("激励");
-  const [tab, setTab] = useState("equity");
-  const grants = useApiQuery<EquityGrant[]>("/api/v1/equity-grants");
-  const exercises = useApiQuery<EquityExercise[]>("/api/v1/equity-exercises");
+  // AUD-017：扩展域未启用时不要发请求（默认 P0 租户会 403）。
+  const { modules: enabledModules, loading: modulesLoading } = useTenantModules();
+  const equityEnabled = enabledModules.has("EQUITY");
+  const poolEnabled = enabledModules.has("STRATEGIC_POOL");
+  const [tab, setTab] = useState("bounties");
+  const grants = useApiQuery<EquityGrant[]>(
+    equityEnabled ? "/api/v1/equity-grants" : null,
+  );
+  const exercises = useApiQuery<EquityExercise[]>(
+    equityEnabled ? "/api/v1/equity-exercises" : null,
+  );
   const bounties = useApiQuery<Bounty[]>("/api/v1/bounties");
+
+  // 模块能力加载完成后，把默认标签落到第一个已启用的标签上。
+  useEffect(() => {
+    if (modulesLoading) return;
+    const enabledTabs = [
+      ...(equityEnabled ? ["equity"] : []),
+      "bounties",
+      ...(poolEnabled ? ["pools"] : []),
+    ];
+    if (!enabledTabs.includes(tab)) setTab(enabledTabs[0] ?? "bounties");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modulesLoading, equityEnabled, poolEnabled]);
 
   const grantList = grants.data ?? [];
   const exerciseList = exercises.data ?? [];
@@ -136,9 +157,11 @@ export function RewardsPage() {
 
       <Tabs
         items={[
-          { id: "equity", label: "股权", count: grantList.length },
+          ...(equityEnabled
+            ? [{ id: "equity", label: "股权", count: grantList.length }]
+            : []),
           { id: "bounties", label: "悬赏", count: bountyList.length },
-          { id: "pools", label: "战略池" },
+          ...(poolEnabled ? [{ id: "pools", label: "战略池" }] : []),
         ]}
         active={tab}
         onChange={setTab}
@@ -646,7 +669,7 @@ function EquityTab({
               </thead>
               <tbody>
                 {grants.map((grant) => (
-                  <tr key={grant.id} onClick={() => openGrant(grant)}>
+                  <tr key={grant.id} {...clickableRowProps(() => openGrant(grant))}>
                     <td>
                       <span className="cell-primary">{grant.grantCode}</span>
                       <span className="cell-sub">

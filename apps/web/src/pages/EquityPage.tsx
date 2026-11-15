@@ -85,7 +85,11 @@ interface GrantCasePayload {
 export function EquityPage() {
   useDocumentTitle("期权股权");
   // AUD-017：股权为扩展域——capability 在 hooks 全部执行后判定。
-  const { modules: enabledModules } = useTenantModules();
+  const {
+    modules: enabledModules,
+    loading: modulesLoading,
+    error: modulesError,
+  } = useTenantModules();
   const toast = useToast();
   const { session } = useAuth();
   const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
@@ -355,6 +359,20 @@ export function EquityPage() {
     }
   }
 
+  // capability 未加载完成/加载失败时不要误判为"未启用"。
+  if (modulesLoading && enabledModules.size === 0) {
+    return <LoadingRows rows={4} />;
+  }
+  if (modulesError && enabledModules.size === 0) {
+    return (
+      <>
+        <PageHeader eyebrow="激励" title="期权股权" description="模块能力加载失败。" />
+        <InfoNotice tone="warning">
+          无法确认租户模块能力：{modulesError.message}（请联系管理员或在设置页重试）
+        </InfoNotice>
+      </>
+    );
+  }
   if (!enabledModules.has("EQUITY")) {
     return (
       <div className="page">

@@ -9,7 +9,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- AUD-017/D-04：演示/试点租户显式开启扩展域（操作者动作；新租户默认 P0-only）。
 UPDATE tenants
-   SET settings = COALESCE(settings, '{}'::jsonb) || '{"modules": ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"]}'::jsonb
+   SET settings = COALESCE(settings, '{}'::jsonb) || '{"modules": ["PAYROLL", "EQUITY", "STRATEGIC_POOL"]}'::jsonb
  WHERE id = '00000000-0000-4000-8000-000000000001';
 
 INSERT INTO people (id, tenant_id, employee_code, display_name)

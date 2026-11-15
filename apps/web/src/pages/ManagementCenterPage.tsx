@@ -37,6 +37,9 @@ interface DraftView {
   cycleId: string;
   personId: string;
   status: string;
+  strengths?: string[];
+  counterEvidence?: string[];
+  missingInformation?: string[];
 }
 
 interface DecisionView {
@@ -279,6 +282,23 @@ export function ManagementCenterPage() {
                       <Badge status="APPROVED">AI 草稿已揭示</Badge>{" "}
                       人员 {draft.personId.slice(0, 8)}{" "}
                       <span className="muted">独立判断已记录，可对比 AI 草稿。</span>
+                      {(draft.strengths?.length ??
+                        0 + (draft.counterEvidence?.length ?? 0) +
+                          (draft.missingInformation?.length ?? 0)) > 0 ? (
+                        <ul className="stack-list muted">
+                          {(draft.strengths ?? []).map((item, index) => (
+                            <li key={`s-${index}`}>支持证据：{item}</li>
+                          ))}
+                          {(draft.counterEvidence ?? []).map((item, index) => (
+                            <li key={`c-${index}`}>反证：{item}</li>
+                          ))}
+                          {(draft.missingInformation ?? []).map((item, index) => (
+                            <li key={`m-${index}`}>缺失信息：{item}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="muted">该草稿无支持/反证/缺失信息条目。</div>
+                      )}
                     </li>
                   ))}
                 </ul>

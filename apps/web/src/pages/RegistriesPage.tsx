@@ -15,7 +15,7 @@ import {
 } from "../components/ui.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api } from "../lib/api.js";
-import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
 import { formatDate, shortId, titleCase } from "../lib/format.js";
 import type {
   CompensationTemplateView,
@@ -28,8 +28,11 @@ export function RegistriesPage() {
   const metrics = useApiQuery<MetricDefinitionView[]>(
     "/api/v1/metric-definitions",
   );
+  // 薪酬模板属扩展域（PAYROLL）——未启用时不发请求，避免 403 被当成空列表。
+  const { modules: enabledModules } = useTenantModules();
+  const payrollEnabled = enabledModules.has("PAYROLL");
   const templates = useApiQuery<CompensationTemplateView[]>(
-    "/api/v1/compensation-templates",
+    payrollEnabled ? "/api/v1/compensation-templates" : null,
   );
   const [metricOpen, setMetricOpen] = useState(false);
   const [metricCode, setMetricCode] = useState("");

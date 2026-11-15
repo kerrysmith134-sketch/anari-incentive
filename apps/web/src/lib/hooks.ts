@@ -74,11 +74,21 @@ export function useDocumentTitle(title: string): void {
  * AUD-017：当前租户扩展模块 capability。
  * 加载失败按未启用处理（fail-closed，与后端 FEATURE_DISABLED 一致）。
  */
-export function useTenantModules(): { modules: Set<string>; loading: boolean } {
+export function useTenantModules(): {
+  modules: Set<string>;
+  loading: boolean;
+  error?: Error;
+  reload: () => void;
+} {
   const query = useApiQuery<{ modules: string[] }>(
     "/api/v1/tenant-modules",
     "tenant-modules",
   );
   const modules = new Set(query.data?.modules ?? []);
-  return { modules, loading: query.loading };
+  return {
+    modules,
+    loading: query.loading,
+    error: query.error instanceof Error ? query.error : undefined,
+    reload: query.reload,
+  };
 }

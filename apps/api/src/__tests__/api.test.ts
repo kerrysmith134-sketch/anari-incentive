@@ -816,7 +816,7 @@ describe("employee notices and acknowledgements", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const first = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -1025,7 +1025,7 @@ describe("employee representation and policy consultations", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const hrPerson = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -1176,7 +1176,7 @@ describe("DPIA records", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const approver = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -1304,7 +1304,7 @@ describe("DSAR requests", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const first = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -1548,7 +1548,7 @@ describe("retention policies", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const adminAuth: Authenticator = {
       async authenticate() {
@@ -1649,7 +1649,7 @@ describe("approval requests", () => {
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const requester = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -7027,7 +7027,7 @@ evidenceOpened: 1,
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const person = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -7395,7 +7395,7 @@ evidenceOpened: 1,
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const managerA = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -7652,7 +7652,7 @@ evidenceOpened: 1,
     // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
     await platformStore.updateTenantSettings({
       tenantId: tenant.id,
-      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"] },
     });
     const person = await platformStore.createPerson({
       tenantId: tenant.id,

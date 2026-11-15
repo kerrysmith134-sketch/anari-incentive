@@ -22,6 +22,7 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import {
   displayName,
   formatDateTime,
@@ -29,6 +30,7 @@ import {
   formatRelative,
   shortId,
   titleCase,
+  sumMoney,
 } from "../lib/format.js";
 import type {
   BudgetAllocation,
@@ -251,17 +253,24 @@ export function SettlementsPage() {
     });
   }, [ledgerEntries, ledgerSearch, ledgerStatus]);
   // Never add different currencies together: show one total per currency.
+  // 金额按 decimal 字符串精确累加（sumMoney），不用 Number 浮点求和。
   const lockedByCurrency = ledgerEntries
     .filter((entry) => entry.status === "LOCKED")
-    .reduce<Record<string, number>>((totals, entry) => {
+    .reduce<Record<string, string[]>>((totals, entry) => {
       const currency = entry.currency || "CNY";
-      totals[currency] = (totals[currency] ?? 0) + Number(entry.amount);
+      totals[currency] = [...(totals[currency] ?? []), entry.amount];
       return totals;
     }, {});
+  const lockedTotals = Object.fromEntries(
+    Object.entries(lockedByCurrency).map(([currency, values]) => [
+      currency,
+      sumMoney(values),
+    ]),
+  );
   const lockedTotalLabel =
     Object.keys(lockedByCurrency).length === 0
       ? formatMoney(0, "CNY", { compact: true })
-      : Object.entries(lockedByCurrency)
+      : Object.entries(lockedTotals)
           .map(([currency, total]) =>
             formatMoney(total, currency, { compact: true }),
           )
@@ -752,7 +761,7 @@ export function SettlementsPage() {
                         <tr
                           key={batch.id}
                           className={selectedBatchId === batch.id ? "is-selected" : ""}
-                          onClick={() => setSelectedBatchId(batch.id)}
+                          {...clickableRowProps(() => setSelectedBatchId(batch.id))}
                         >
                           <td>
                             <span className="cell-primary">{batch.batchNo}</span>
@@ -1324,7 +1333,7 @@ export function SettlementsPage() {
                               {fact.periodStart ?? "—"} – {fact.periodEnd ?? "—"}
                             </td>
                             <td>
-                              {fact.amount} {fact.currency}
+                              {formatMoney(fact.amount, fact.currency)}
                             </td>
                             <td>
                               <Badge status={fact.qualityStatus} />

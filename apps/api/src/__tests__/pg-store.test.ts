@@ -1670,17 +1670,51 @@ evidenceOpened: 1,rationale: "Self",
       );
     }
     void stamp;
+    // 另一个租户的事件：单租户 claim 必须看不到它（跨租户消费防护）。
+    const otherTenant = "00000000-0000-4000-8000-0000000000b2";
+    await pool.query(
+      `INSERT INTO tenants (id, name, slug) VALUES ($1,'Other tenant','other-tenant')
+       ON CONFLICT (id) DO NOTHING`,
+      [otherTenant],
+    );
+    const foreignInsert = await withTenantContext(otherTenant, (client) =>
+      client.query(
+        `INSERT INTO outbox_events
+          (tenant_id, aggregate_type, aggregate_id, event_type, schema_version,
+           payload, correlation_id, actor_type)
+         VALUES ($1,'TEST','00000000-0000-4000-8000-0000000000aa','CONTRACT_EVENT','1','{}'::jsonb,
+                 '00000000-0000-4000-8000-0000000000cc','SYSTEM')
+         RETURNING id`,
+        [otherTenant],
+      ),
+    );
+    const foreignEventId = String(foreignInsert.rows[0]!.id);
     const outbox = new PgOutboxSource(pool, DEMO_TENANT_ID);
 
     // 两个 poller 并发 claim 3 条：各自独占子集，合计恰 3 条，无重复。
     // poller-a 用短租约模拟崩溃（领取后失联）；poller-b 长租约正常消费。
     const [batchA, batchB] = await Promise.all([
-      outbox.claimBatchAtomic({ workerId: "poller-a", leaseMs: 50, limit: 10 }),
-      outbox.claimBatchAtomic({ workerId: "poller-b", leaseMs: 60_000, limit: 10 }),
+      outbox.claimBatchAtomic({
+        workerId: "poller-a",
+        leaseMs: 50,
+        limit: 10,
+        tenantId: DEMO_TENANT_ID,
+      }),
+      outbox.claimBatchAtomic({
+        workerId: "poller-b",
+        leaseMs: 60_000,
+        limit: 10,
+        tenantId: DEMO_TENANT_ID,
+      }),
     ]);
     const allIds = [...batchA, ...batchB].map((event) => event.id);
     expect(new Set(allIds).size).toBe(allIds.length);
     expect(allIds.length).toBe(3);
+    // 租户作用域：绝不返回其它租户的事件。
+    expect(
+      [...batchA, ...batchB].every((event) => event.tenantId === DEMO_TENANT_ID),
+    ).toBe(true);
+    expect(allIds).not.toContain(foreignEventId);
 
     // 崩溃恢复（确定性）：取已领取事件的第一条，模拟其持有者领取后
     // 崩溃——把租约改短再等过期 → recover 复位 → 重新领取（不丢失）。
@@ -1688,25 +1722,30 @@ evidenceOpened: 1,rationale: "Self",
     const crashEvent = allClaimed[0]!;
     const crashId = crashEvent.id;
     // FORCE RLS：直接 SQL 须带事件自身租户上下文。
+    // 确定性：直接写入“已过期”的租约（不依赖真实 sleep）。
     await withTenantContext(crashEvent.tenantId, (client) =>
       client.query(
         "UPDATE outbox_events SET claimed_until = $1 WHERE id = $2",
-        [new Date(Date.now() + 30).toISOString(), crashId],
+        [new Date(Date.now() - 60_000).toISOString(), crashId],
       ),
     );
-    let recovered = 0;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      recovered = await outbox.recoverExpiredClaims();
-      if (recovered >= 1) break;
-    }
+    const recovered = await outbox.recoverExpiredClaims();
     expect(recovered).toBeGreaterThanOrEqual(1);
     const reclaimed = await outbox.claimBatchAtomic({
       workerId: "poller-c",
       leaseMs: 60_000,
       limit: 10,
+      tenantId: DEMO_TENANT_ID,
     });
     expect(reclaimed.map((event) => event.id)).toContain(crashId);
+    // attempt_count 单调递增：崩溃回收后重新领取 = 至少 2 次尝试。
+    const attempts = await withTenantContext(DEMO_TENANT_ID, (client) =>
+      client.query(
+        "SELECT attempt_count FROM outbox_events WHERE id = $1",
+        [crashId],
+      ),
+    );
+    expect(Number(attempts.rows[0]!.attempt_count)).toBeGreaterThanOrEqual(2);
 
     // 处理完成 markPublished 后不再被领取（事件不重复消费）。
     const allRemaining = [
@@ -1716,6 +1755,7 @@ evidenceOpened: 1,rationale: "Self",
     for (const id of allRemaining) {
       await outbox.markPublished(id);
     }
+    await outbox.markPublished(foreignEventId);
     const after = await outbox.claimBatchAtomic({
       workerId: "poller-d",
       leaseMs: 60_000,

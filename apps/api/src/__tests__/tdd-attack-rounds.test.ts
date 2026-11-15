@@ -44,7 +44,7 @@ async function seedAcceptedClaim(store: Store, tag: string) {
 async function seedLockedRun(store: Store, tagParam: string, gross: string) {
   const published = await store.publishPolicy({
     policy: {
-      code: `ATTACK_${tag}`,
+      code: `ATTACK_${tagParam}`,
       version: 1,
       currency: "CNY",
       poolRate: "0.05",
@@ -65,15 +65,15 @@ async function seedLockedRun(store: Store, tagParam: string, gross: string) {
   });
   await store.recordLegalGate({
     policyVersionId: published.policyVersionId,
-    democraticProcedureRef: `dp-${tag}`,
-    employeeNoticeRef: `notice-${tag}`,
-    dataProtectionAssessmentRef: `dpia-${tag}`,
+    democraticProcedureRef: `dp-${tagParam}`,
+    employeeNoticeRef: `notice-${tagParam}`,
+    dataProtectionAssessmentRef: `dpia-${tagParam}`,
     minimumWageChecked: true,
     policyApproved: true,
     recordedBy: ADJUDICATOR,
   });
   const wp = await store.createWorkPackage({
-    title: `attack-run-${tag}`,
+    title: `attack-run-${tagParam}`,
     objective: "attack run objective",
     ownerPersonId: OWNER,
     members: [
@@ -140,7 +140,7 @@ async function seedLockedRun(store: Store, tagParam: string, gross: string) {
       cycleId: CYCLE,
       personId: person,
       generatedByType: "SYSTEM",
-      evidenceSnapshotHash: `attack-${person}-${tag}`,
+      evidenceSnapshotHash: `attack-${person}-${tagParam}`,
       draftPayload: {},
     });
     await store.submitEvaluationDraft(draft.id);
@@ -160,7 +160,7 @@ async function seedLockedRun(store: Store, tagParam: string, gross: string) {
     cycleId: CYCLE,
     policyVersionId: published.policyVersionId,
     mode: "FORMAL",
-    order: { id: `order-${tag}`, grossProfit: gross, currency: "CNY" },
+    order: { id: `order-${tagParam}`, grossProfit: gross, currency: "CNY" },
     participants: [
       { personId: OWNER, workPackageId: wp.id, attributionWeight: "0.6", role: "OWNER", evaluationDecisionId: decisions[OWNER] },
       { personId: MEMBER, workPackageId: wp.id, attributionWeight: "0.4", role: "CONTRIBUTOR", evaluationDecisionId: decisions[MEMBER] },

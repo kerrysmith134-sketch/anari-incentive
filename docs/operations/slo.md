@@ -28,13 +28,14 @@
 n_perform_outbox_backlog > 200
 # DB pool 饱和
 n_perform_db_pool_waiting > 0
-# agent 任务失败率（24h 窗口需 recording rule）
-sum(rate(n_perform_agent_tasks{status="FAILED"}[30m]))
+# agent 任务失败率（gauge 比值——不能对 gauge 使用 rate()）
+sum(n_perform_agent_tasks{status="FAILED"})
   / clamp_min(sum(n_perform_agent_tasks), 1) > 0.10
 ```
 
 ## 采集频率与责任
 
-- Prometheus scrape 15s；/metrics 与 /health、/ready 同端口（worker 3100 / api 3000）。
+- Prometheus scrape 15s；API 在 3000 端口暴露 /metrics；worker 的 3100 端口只有
+  /health 与 /ready（不提供 /metrics）。
 - worker 侧 dispatcher/outbox 错误已打结构化日志（含 error 对象）；pool 饱和
   通过 waiting gauge 观测，连接数上限由部署侧 maxConnections 控制。

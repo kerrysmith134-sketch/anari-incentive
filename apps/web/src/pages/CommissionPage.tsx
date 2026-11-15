@@ -93,6 +93,15 @@ export function CommissionPage() {
   const claims = useApiQuery<ClaimView[]>("/api/v1/contribution-claims");
   const decisions = useApiQuery<DecisionView[]>("/api/v1/attribution-decisions");
   const [tab, setTab] = useState("pipeline");
+  // 任一查询失败都要显式提示——不能把 403/网络错误显示成"暂无数据"。
+  const loadError =
+    runs.error ??
+    cycles.error ??
+    versions.error ??
+    batches.error ??
+    packages.error ??
+    claims.error ??
+    decisions.error;
 
   // 新建计算
   const [runOpen, setRunOpen] = useState(false);
@@ -484,6 +493,10 @@ export function CommissionPage() {
           </>
         }
       />
+      {loadError ? (
+        <InfoNotice tone="warning">数据加载失败：{loadError.message}</InfoNotice>
+      ) : null}
+
       <Tabs
         items={[
           { id: "pipeline", label: "业务链路", count: packageList.length },

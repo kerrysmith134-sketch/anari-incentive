@@ -1281,6 +1281,57 @@ describe("agent runtime", () => {
     ).toBe(true);
   });
 
+  it("renews only its own lease", async () => {
+    const context = new FakeContext();
+    const agent = runtime(context);
+    await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "SCHEDULE",
+      idempotencyKey: "lease-renew-1",
+    });
+    const claimed = await agent.claimNextReadyTask({
+      workerId: "worker-a",
+      leaseMs: 60_000,
+    });
+    expect(claimed).toBeDefined();
+    // 他人不能续租
+    await expect(
+      agent.renewTaskLease({
+        taskId: claimed!.id,
+        workerId: "worker-b",
+        leaseMs: 60_000,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      agent.renewTaskLease({
+        taskId: claimed!.id,
+        workerId: "worker-a",
+        leaseMs: 60_000,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("rejects a task after approval has completed it", async () => {
+    const context = new FakeContext();
+    context.workPackages = [workPackage()];
+    const agent = runtime(context);
+    const task = await agent.enqueue({
+      tenantId: "tenant-1",
+      agentType: "EVIDENCE_GAP",
+      triggerType: "SCHEDULE",
+      idempotencyKey: "approve-then-reject",
+    });
+    const ran = await agent.run(task.id);
+    expect(ran.status).toBe("WAITING_APPROVAL");
+    const escalation = ran.actions.find((action) => action.tool === "escalate")!;
+    const approved = await agent.approve(ran.id, escalation.id, "manager-1");
+    expect(approved.status).toBe("SUCCEEDED");
+    await expect(
+      agent.reject(ran.id, escalation.id, "manager-1", "late rejection"),
+    ).rejects.toThrow(/AGENT_TASK_NOT_WAITING|is not pending approval/);
+  });
+
   it("executes low-risk evidence requests automatically", async () => {
     const context = new FakeContext();
     context.workPackages = [

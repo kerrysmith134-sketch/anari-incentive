@@ -25,6 +25,7 @@ import {
   formatRelative,
   shortId,
   titleCase,
+  sumMoney,
 } from "../lib/format.js";
 import type {
   AppealCase,
@@ -250,19 +251,20 @@ export function DashboardPage() {
           detail={
             openBounties.length > 0
               ? Object.entries(
-                  openBounties.reduce<Record<string, number>>(
+                  openBounties.reduce<Record<string, string[]>>(
                     (totals, bounty) => {
                       const currency = bounty.currency || "CNY";
-                      totals[currency] =
-                        (totals[currency] ?? 0) +
-                        Number(bounty.rewardAmount || 0);
+                      totals[currency] = [
+                        ...(totals[currency] ?? []),
+                        bounty.rewardAmount || "0",
+                      ];
                       return totals;
                     },
                     {},
                   ),
                 )
-                  .map(([currency, total]) =>
-                    formatMoney(total, currency, { compact: true }),
+                  .map(([currency, values]) =>
+                    formatMoney(sumMoney(values), currency, { compact: true }),
                   )
                   .join(" · ")
               : "暂无进行中悬赏"

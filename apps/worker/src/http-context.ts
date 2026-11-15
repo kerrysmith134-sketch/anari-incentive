@@ -332,11 +332,15 @@ export class HttpAgentContext implements AgentContext {
     Array<{
       id: string;
       title: string;
+      detail?: string;
       assigneePersonId: string;
       status: string;
       dueAt?: string;
+      targetType?: string;
       targetId?: string;
+      sourceType?: string;
       sourceId: string;
+      idempotencyKey?: string;
     }>
   > {
     const params = new URLSearchParams();
@@ -347,7 +351,10 @@ export class HttpAgentContext implements AgentContext {
       `/api/v1/agent-todos${params.size ? `?${params.toString()}` : ""}`,
       await this.headers(),
     );
-    const rows = (body as { data?: Array<Record<string, unknown>> }).data ?? [];
+    // readData 已解包 envelope.data——body 就是数组；兼容旧形态兜底。
+    const rows = Array.isArray(body)
+      ? (body as Array<Record<string, unknown>>)
+      : (((body as { data?: Array<Record<string, unknown>> }).data) ?? []);
     // AUD-010/P0：API 返回 camelCase（AgentTodo）——此前按 snake_case 读取，
     // dueAt/targetId/idempotencyKey 恒为 undefined，导致 workflow 死代码。
     return rows.map((row) => ({

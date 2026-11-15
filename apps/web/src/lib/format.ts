@@ -16,6 +16,37 @@ export function toNumber(value: string | number | undefined | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * 精确求和（1e6 微单位 BigInt）：金额字符串累加后返回 DecimalString。
+ * 展示前再交给 formatMoney——绝不先用 Number 累加（浮点漂移）。
+ */
+export function sumMoney(
+  values: Array<string | number | undefined | null>,
+): string {
+  const FACTOR = 1_000_000n;
+  let total = 0n;
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const text = String(value).trim();
+    if (!/^-?\d+(\.\d+)?$/.test(text)) continue;
+    const negative = text.startsWith("-");
+    const [intPart = "0", fraction = ""] = (negative
+      ? text.slice(1)
+      : text
+    ).split(".");
+    const micros =
+      BigInt(intPart) * FACTOR + BigInt((fraction + "000000").slice(0, 6));
+    total += negative ? -micros : micros;
+  }
+  const sign = total < 0n ? "-" : "";
+  const absolute = total < 0n ? -total : total;
+  const whole = absolute / FACTOR;
+  const fraction = String(absolute % FACTOR)
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return `${sign}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
 export function formatMoney(
   value: string | number | undefined | null,
   currency = "CNY",

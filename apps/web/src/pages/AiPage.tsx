@@ -638,7 +638,7 @@ async function saveRefresh(event: FormEvent) {
       });
       toast.success(
         decision === "ACCEPT" ? "Score accepted" : "Score rejected",
-        `${shortId(selected.id)} · ${selected.overallScore}/5`,
+        `${shortId(selected.id)} · 旧提案（数值评分已退役）`,
       );
       setSelected(null);
       proposals.reload();
@@ -958,7 +958,7 @@ async function saveRefresh(event: FormEvent) {
                           </span>
                         </td>
                         <td className="cell-num">
-                          {proposal.overallScore.toFixed(2)} / 5
+                          旧提案（数值评分已退役）
                         </td>
                         <td className="cell-num">
                           {formatPercent(proposal.confidence)}
@@ -1256,7 +1256,7 @@ async function saveRefresh(event: FormEvent) {
                           </span>
                         </td>
                         <td>
-                          {proposal.overallScore.toFixed(2)}
+                          已退役
                           <span className="cell-sub">
                             confidence {formatPercent(proposal.confidence)}
                           </span>
@@ -2062,7 +2062,7 @@ async function saveRefresh(event: FormEvent) {
                   <div className="coverage-cell">
                     <div className="coverage-cell__label">总分</div>
                     <div className="coverage-cell__value">
-                      {selected.overallScore.toFixed(2)} / 5
+                      旧提案（数值评分已退役）
                     </div>
                     <div className="coverage-cell__sub">仅提案</div>
                   </div>

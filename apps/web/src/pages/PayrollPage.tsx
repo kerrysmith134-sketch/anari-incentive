@@ -22,6 +22,7 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, downloadFile } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import {
   displayName,
   formatDate,
@@ -89,7 +90,11 @@ export function PayrollPage() {
   useDocumentTitle("薪酬");
   // AUD-017：薪酬（含个税）为扩展域——capability 在 hooks 全部执行后判定
   // （early-return 不能放在其它 hooks 之前，否则数据到达时 hooks 顺序变化）。
-  const { modules: enabledModules } = useTenantModules();
+  const {
+    modules: enabledModules,
+    loading: modulesLoading,
+    error: modulesError,
+  } = useTenantModules();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") ?? "runs";
   const setTab = (next: string) => {
@@ -106,6 +111,20 @@ export function PayrollPage() {
   const runList = runs.data ?? [];
   const contractList = contracts.data ?? [];
 
+  // capability 未加载完成/加载失败时不要误判为"未启用"。
+  if (modulesLoading && enabledModules.size === 0) {
+    return <LoadingRows rows={4} />;
+  }
+  if (modulesError && enabledModules.size === 0) {
+    return (
+      <>
+        <PageHeader eyebrow="激励" title="薪酬发放" description="模块能力加载失败。" />
+        <InfoNotice tone="warning">
+          无法确认租户模块能力：{modulesError.message}（请联系管理员或在设置页重试）
+        </InfoNotice>
+      </>
+    );
+  }
   if (!enabledModules.has("PAYROLL")) {
     return (
       <>
@@ -426,7 +445,7 @@ function RunsTab({
                       <tr
                         key={run.id}
                         className={selectedRunId === run.id ? "is-selected" : ""}
-                        onClick={() => onSelect(run.id)}
+                        {...clickableRowProps(() => onSelect(run.id))}
                       >
                         <td>
                           <span className="cell-primary nowrap">

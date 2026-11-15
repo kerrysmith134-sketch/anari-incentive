@@ -1148,7 +1148,7 @@ export function buildApp(
       slug: "demo-tenant",
       // AUD-017/D-04：演示租户显式开启扩展域（与 db/seed/001_demo.sql 一致）；
       // 新租户默认 P0-only，由平台管理员按租户开启。
-      modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"],
+      modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL"],
       persons: [
         {
           id: "00000000-0000-4000-8000-000000000001",

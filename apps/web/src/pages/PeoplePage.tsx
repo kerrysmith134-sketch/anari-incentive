@@ -31,6 +31,9 @@ export function PeoplePage() {
   useDocumentTitle("人员");
   const { session } = useAuth();
   const toast = useToast();
+  // 人员写操作走 requireTenantAdmin——非管理员不渲染入口（避免 403 墙）。
+  const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
+  const isAdmin = (identity.data?.roles ?? []).includes("admin");
   const people = useApiQuery<PlatformPerson[]>(
     `/api/v1/platform/tenants/${session.tenantId}/persons`,
   );
@@ -167,9 +170,11 @@ export function PeoplePage() {
             >
               刷新
             </Button>
-            <Button variant="primary" icon="plus" onClick={openCreate}>
-              人员
-            </Button>
+            {isAdmin ? (
+              <Button variant="primary" icon="plus" onClick={openCreate}>
+                人员
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -235,7 +240,7 @@ export function PeoplePage() {
                 : "清空搜索查看完整通讯录。"
             }
             action={
-              list.length === 0 ? (
+              list.length === 0 && isAdmin ? (
                 <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
                   新建人员
                 </Button>
@@ -292,22 +297,26 @@ export function PeoplePage() {
                     </td>
                     <td className="nowrap">{formatDate(person.createdAt)}</td>
                     <td className="cell-actions">
-                      <div className="row-actions">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => openLink(person)}
-                        >
-                          用户
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => openManager(person)}
-                        >
-                          经理
-                        </Button>
-                      </div>
+                      {isAdmin ? (
+                        <div className="row-actions">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openLink(person)}
+                          >
+                            用户
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openManager(person)}
+                          >
+                            经理
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Badge,
   Button,
@@ -68,7 +68,17 @@ export function ExceptionsPage() {
   const recalculations = useApiQuery<RecalculationRequestView[]>(
     "/api/v1/recalculation-requests",
   );
-  const [tab, setTab] = useState("quality");
+  // 员工默认落在申诉（本人可办）；数据质量/重算仅管理/财务可读。
+  const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
+  const roles = identity.data?.roles ?? [];
+  const privileged = roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+  const [tab, setTab] = useState("appeals");
+  useEffect(() => {
+    if (identity.data && !privileged && tab !== "appeals") setTab("appeals");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity.data, privileged]);
   const [dqTarget, setDqTarget] = useState<DataQualityIssue | null>(null);
   const [dqCommand, setDqCommand] = useState<DqCommand>("ASSIGN");
   const [assignee, setAssignee] = useState(session.personId);
@@ -377,13 +387,19 @@ export function ExceptionsPage() {
 
       <Tabs
         items={[
-          { id: "quality", label: "数据质量", count: issueList.length },
+          ...(privileged
+            ? [{ id: "quality", label: "数据质量", count: issueList.length }]
+            : []),
           { id: "appeals", label: "申诉", count: appealList.length },
-          {
-            id: "recalculation",
-            label: "重新计算",
-            count: recalcList.length,
-          },
+          ...(privileged
+            ? [
+                {
+                  id: "recalculation",
+                  label: "重新计算",
+                  count: recalcList.length,
+                },
+              ]
+            : []),
         ]}
         active={tab}
         onChange={setTab}

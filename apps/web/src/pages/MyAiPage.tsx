@@ -201,7 +201,7 @@ export function MyAiPage() {
                     </div>
                     <p>
                       {proposal.modelProvider}/{proposal.modelName} ·{" "}
-                      {proposal.overallScore.toFixed(2)}/5 · confidence{" "}
+                      旧提案（数值评分已退役，仅保留覆盖度语义）· 置信带{" "}
                       {formatPercent(proposal.confidence)}
                     </p>
                     <p>{proposal.rationale}</p>

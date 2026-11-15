@@ -59,7 +59,6 @@ export function AgentOpsPage() {
     traceTaskId ? `/api/v1/agent-tasks/${traceTaskId}/invocations` : null,
     traceTaskId,
   );
-  const metricsQuery = useApiQuery<AgentMetricsView>("/api/v1/agent-metrics");
   const workflows = useApiQuery<WorkflowRunView[]>("/api/v1/workflow-runs");
   const suggestions = useApiQuery<AiSuggestionLogView[]>(
     "/api/v1/ai-suggestion-logs",
@@ -397,30 +396,34 @@ export function AgentOpsPage() {
       ) : null}
 
       <Panel title="Agent 成本与质量指标">
-        {metricsQuery.data ? (
+        {agentMetrics.error ? (
+          <InfoNotice tone="warning">
+            指标加载失败：{(agentMetrics.error as Error).message}
+          </InfoNotice>
+        ) : agentMetrics.data ? (
           <ul className="stack-list">
             <li>
               verified 闭环率：
-              {metricsQuery.data.verifiedClosureRate !== null
-                ? `${Math.round(metricsQuery.data.verifiedClosureRate * 10000) / 100}`
+              {agentMetrics.data.verifiedClosureRate !== null
+                ? `${Math.round(agentMetrics.data.verifiedClosureRate * 10000) / 100}`
                 : "不可测（窗口内无 EXECUTED 结果）"}
             </li>
             <li>
               误报率：
-              {metricsQuery.data.falsePositiveRate !== null
-                ? `${Math.round(metricsQuery.data.falsePositiveRate * 10000) / 100}`
+              {agentMetrics.data.falsePositiveRate !== null
+                ? `${Math.round(agentMetrics.data.falsePositiveRate * 10000) / 100}`
                 : "不可测（需人工标注）"}
             </li>
             <li>
               每闭环任务成本：
-              {metricsQuery.data.costPerClosedLoop !== null
-                ? `${metricsQuery.data.costPerClosedLoop}（模型 ${metricsQuery.data.costBreakdown.modelCost ?? "-"} / 工具 ${metricsQuery.data.costBreakdown.toolCost ?? "-"}）`
+              {agentMetrics.data.costPerClosedLoop !== null
+                ? `${agentMetrics.data.costPerClosedLoop}（模型 ${agentMetrics.data.costBreakdown.modelCost ?? "-"} / 工具 ${agentMetrics.data.costBreakdown.toolCost ?? "-"}）`
                 : "不可测（需成本核算接入）"}
             </li>
             <li>
               AI-off 对照差：
-              {metricsQuery.data.aiOffFloor.delta !== null
-                ? `${metricsQuery.data.aiOffFloor.delta}`
+              {agentMetrics.data.aiOffFloor.delta !== null
+                ? `${agentMetrics.data.aiOffFloor.delta}`
                 : "不可测（需 AI-off 对照组）"}
             </li>
           </ul>

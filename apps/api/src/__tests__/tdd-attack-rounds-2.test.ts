@@ -49,8 +49,9 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
         acceptanceCriteria: ["done"],
       },
     });
-    // 员工创建 WP 时 owner 必须是自己——否则 403
-    expect([201, 403]).toContain(res.statusCode);
+    // 员工创建 WP 时 owner 必须是自己——必须是 403（不允许 201 冒充通过）
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBeTruthy();
   });
 
   it("R17: SQL/NoSQL 注入 payload 不破坏列表查询（返回结构正常）", async () => {
@@ -72,7 +73,8 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
         acceptanceCriteria: ["done"],
       },
     });
-    // 类型注入被 zod 拒（400）或正常处理，不 500
+    // 类型注入被 zod 拒（400），不得 2xx/5xx。
+    expect(probe.statusCode).toBeGreaterThanOrEqual(400);
     expect(probe.statusCode).toBeLessThan(500);
   });
 
@@ -90,6 +92,7 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
         acceptanceCriteria: ["done"],
       },
     });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
     expect(res.statusCode).toBeLessThan(500);
   });
 
@@ -127,10 +130,9 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
       method: "GET",
       url: "/api/v1/reports/cycle-readiness?cycleId=c1",
     });
-    expect([200, 403]).toContain(res.statusCode);
-    if (res.statusCode === 403) {
-      expect(res.json().error.code).toBe("FORBIDDEN");
-    }
+    // 周期准备度是 manager/finance 路由——员工必须恰好 403。
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("FORBIDDEN");
   });
 
   it("R23: 大 limit 参数不 500（被 cap 或优雅处理）", async () => {
@@ -148,7 +150,8 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
       method: "GET",
       url: "/api/v1/agent-tasks/not-a-uuid",
     });
-    expect(res.statusCode).toBeLessThan(500);
+    // 非法标识符按 NOT_FOUND（22P02 映射）处理，不得 5xx。
+    expect(res.statusCode).toBe(404);
   });
 
   it("R25: 负数分页 limit → 不 500", async () => {
@@ -157,51 +160,22 @@ describe("TDD 攻击面批次 2：HTTP 层越权与注入（R16-R25）", () => {
       method: "GET",
       url: "/api/v1/agent-tasks?limit=-1",
     });
-    expect(res.statusCode).toBeLessThan(500);
+    // 合法数字但无意义：要么被规范化(200)要么 4xx，不能 5xx。
+    expect([200, 400]).toContain(res.statusCode);
   });
 });
 
-describe("TDD 攻击面批次 2：Agent 并发与租约（R26-R32）", () => {
-  it("R26: 双 worker 并发 claim 同一任务恰一成功", async () => {
-    const store = new Store();
-    const todo = await store.upsertAgentTodo({
-      title: "claim race probe",
-      assigneePersonId: OWNER,
-      sourceType: "AGENT_TASK",
-      sourceId: `race-${Date.now()}`,
-      idempotencyKey: `race-${Date.now()}`,
-    });
-    void todo;
-  });
-
-  it("R27: 同一 worker 重续不存在的租约 → false", async () => {
-    // 无 repository 时 runtime 在 Map 上实现——测试协议返回 false
-    const store = new Store();
-    void store;
-  });
-
-  it("R28: 冲销后 adjustment 不影响已冲销分录的验证", async () => {
-    const store = new Store();
-    void store;
-  });
-
-  it("R29: attempt 计数在重试后递增", async () => {
-    const store = new Store();
-    void store;
-  });
-
-  it("R30: workflow run finish 后状态不可逆", async () => {
-    const store = new Store();
-    void store;
-  });
-
-  it("R31: agent task approve 后不可 reject", async () => {
-    const store = new Store();
-    void store;
-  });
-
-  it("R32: outbox 事件 attempt 计数单调递增", async () => {
-    const store = new Store();
-    void store;
+describe("TDD 攻击面批次 2：Agent 并发与租约（覆盖说明）", () => {
+  // R26/R27/R29/R31 的等价真实覆盖（不再保留 void 存根）：
+  // - 并发 claim 恰一成功：packages/agent-runtime/src/__tests__/runtime.test.ts
+  //   "claims exactly one winner"（Promise.all 双 worker）
+  // - 过期租约回收：runtime.test.ts "expired leases are recoverable..."
+  // - attempts 递增：runtime.test.ts 重试用例（attempts === 2）
+  // - approve 后 reject：runtime.test.ts "rejects after approval"
+  // - 租约 renew 归属：runtime.test.ts "renews only its own lease"
+  // - 冲销/调整验证：store-contract.test.ts 台账域
+  // - outbox attempt 单调：apps/api/src/__tests__/pg-store.test.ts outbox 用例
+  it("批次 2 的空壳占位已移除（真实覆盖见 runtime/pg 套件）", () => {
+    expect(true).toBe(true);
   });
 });

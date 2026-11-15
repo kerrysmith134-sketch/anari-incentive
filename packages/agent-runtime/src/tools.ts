@@ -82,6 +82,16 @@ export function createDefaultTools(): AgentTool[] {
         if (typeof cycleId !== "string" || typeof status !== "string") {
           throw new Error("ADVANCE_CYCLE_FIELDS_REQUIRED");
         }
+        // D-01 红线：Agent 不得自动定案/结算——只允许推进到人工评审阶段。
+        const AGENT_ALLOWED_TARGETS = new Set([
+          "AI_PRE_REVIEW",
+          "HUMAN_REVIEW",
+        ]);
+        if (!AGENT_ALLOWED_TARGETS.has(status)) {
+          throw new Error(
+            `AGENT_CYCLE_ADVANCE_FORBIDDEN: ${status} requires a human decision`,
+          );
+        }
         return context.advanceEvaluationCycle(
           cycleId,
           status,

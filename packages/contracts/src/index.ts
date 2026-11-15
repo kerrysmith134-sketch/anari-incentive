@@ -1891,10 +1891,11 @@ export type AcknowledgeSettlementExportBody = z.infer<
  * P0 核心域永远启用；扩展域（薪酬含个税/股权/计费/战略池）默认关闭，
  * 由租户 settings.modules 显式开启，变更留审计。
  */
+// 计费（BILLING）当前没有租户面路由，故不列入可开关模块键——
+// 避免"开关存在但无任何门禁"的假能力（审计 F5/D-04）。
 export const TENANT_MODULE_KEYS = [
   "PAYROLL",
   "EQUITY",
-  "BILLING",
   "STRATEGIC_POOL",
 ] as const;
 export type TenantModuleKey = (typeof TENANT_MODULE_KEYS)[number];

@@ -15,6 +15,7 @@ import { PersonSelect } from "../components/PersonSelect.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { api, ApiError } from "../lib/api.js";
 import { useDocumentTitle } from "../lib/hooks.js";
+import { formatMoney } from "../lib/format.js";
 
 interface PerformanceComponent {
   metricId: string;
@@ -983,9 +984,9 @@ export function InstitutionsPage() {
               </form>
               {bonusResult ? (
                 <div className="stat-grid stat-grid--three">
-                  <div className="stat-card"><span>奖金基数</span><strong>{bonusResult.baseAmount}</strong></div>
+                  <div className="stat-card"><span>奖金基数</span><strong>{formatMoney(bonusResult.baseAmount)}</strong></div>
                   <div className="stat-card"><span>Kq</span><strong>{bonusResult.kq}</strong></div>
-                  <div className="stat-card"><span>应发 / 资格</span><strong>{bonusResult.amount} · {bonusResult.eligible ? "具备" : "不具备"}</strong></div>
+                  <div className="stat-card"><span>应发 / 资格</span><strong>{formatMoney(bonusResult.amount)} · {bonusResult.eligible ? "具备" : "不具备"}</strong></div>
                 </div>
               ) : null}
             </Panel>
@@ -1025,12 +1026,12 @@ export function InstitutionsPage() {
                 <div className="stack">
                   <div className="stat-grid stat-grid--three">
                     <div className="stat-card"><span>净利润条件</span><strong>{sharingResult.eligible ? "已达成" : "未达成"}</strong></div>
-                    <div className="stat-card"><span>奖金池</span><strong>{sharingResult.poolAmount}</strong></div>
-                    <div className="stat-card"><span>批准池（受预算约束）</span><strong>{sharingResult.approvedPoolAmount}</strong></div>
+                    <div className="stat-card"><span>奖金池</span><strong>{formatMoney(sharingResult.poolAmount)}</strong></div>
+                    <div className="stat-card"><span>批准池（受预算约束）</span><strong>{formatMoney(sharingResult.approvedPoolAmount)}</strong></div>
                   </div>
                   {sharingResult.allocations.map((row) => (
                     <InfoNotice key={row.personId} tone="info">
-                      个人点数 {row.points}（岗位价值点 {row.valuePoints}）→ 分配 {row.amount} 元
+                      个人点数 {row.points}（岗位价值点 {row.valuePoints}）→ 分配 {formatMoney(row.amount)}
                     </InfoNotice>
                   ))}
                 </div>
@@ -1063,7 +1064,7 @@ export function InstitutionsPage() {
                 <div className="stat-grid stat-grid--three">
                   <div className="stat-card"><span>时间系数</span><strong>{bountyResult.timeCoefficient}</strong></div>
                   <div className="stat-card"><span>质量系数</span><strong>{bountyResult.qualityCoefficient}</strong></div>
-                  <div className="stat-card"><span>核定金额</span><strong>{bountyResult.amount}</strong></div>
+                  <div className="stat-card"><span>核定金额</span><strong>{formatMoney(bountyResult.amount)}</strong></div>
                 </div>
               ) : null}
             </Panel>
