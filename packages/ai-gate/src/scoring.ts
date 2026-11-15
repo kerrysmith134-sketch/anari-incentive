@@ -1,4 +1,4 @@
-import { assertScoringAllowed, type EvaluationGate } from "./index.js";
+import type { EvaluationGate } from "./index.js";
 
 export type ScoringEvidenceQuality =
   | "VALID"
@@ -14,6 +14,10 @@ export interface ScoringEvidence {
   /** Optional dimension tag; untagged evidence applies to every dimension. */
   dimension?: string;
   quality?: ScoringEvidenceQuality;
+  /** Authoritative source identity (e.g. hubspot, feishu, erp). */
+  sourceSystem?: string;
+  /** Hash of the canonical source payload when available. */
+  payloadHash?: string;
 }
 
 export interface ScoreEvidenceInput {
@@ -46,65 +50,16 @@ function round(value: number): number {
 }
 
 /**
- * @deprecated NPV2-004（PRD V4.2 D-02）：证据覆盖不得映射为 0–5 绩效分。
- * 新代码一律使用 `assessEvidenceCoverage()`（./coverage.ts），它只输出
- * 覆盖率与缺口，不含任何数字评分。本函数仅保留给已通过 Gold Set 门禁的
- * numeric 提案通道（`aiNumericScoringEnabled`），且其结果永远是提案、
- * 永远需要人工独立判断，不得自动升级为正式决定。
+ * @deprecated NPV2-004 / PRD V4.2 D-02. Numeric AI evidence scoring is
+ * permanently retired. Keep this symbol only so old clients fail explicitly
+ * with a stable error instead of silently reintroducing score generation.
+ * Use `assessEvidenceCoverage()` for coverage metadata; it is not a score.
  */
 export function scoreEvidence(
-  input: ScoreEvidenceInput,
-  gate: EvaluationGate,
+  _input: ScoreEvidenceInput,
+  _gate: EvaluationGate,
 ): ScoreEvidenceResult {
-  assertScoringAllowed(gate);
-  if (input.dimensions.length === 0) {
-    throw new Error("at least one scoring dimension is required");
-  }
-  const scale = input.scale ?? 5;
-  if (!Number.isFinite(scale) || scale <= 0) {
-    throw new Error("score scale must be a positive number");
-  }
-
-  const scores: Record<string, number> = {};
-  const rationale: string[] = [];
-  const insufficientEvidence: string[] = [];
-  for (const dimension of input.dimensions) {
-    const relevant = input.evidence.filter(
-      (item) => !item.dimension || item.dimension === dimension,
-    );
-    const weighted = relevant.reduce(
-      (sum, item) =>
-        sum + (QUALITY_WEIGHT[item.quality ?? "UNVERIFIED"] ?? 0),
-      0,
-    );
-    if (weighted === 0) insufficientEvidence.push(dimension);
-    const coverage = Math.min(1, weighted / 3);
-    scores[dimension] = round(scale * coverage);
-    rationale.push(
-      `${dimension}: ${relevant.length} item(s), weighted coverage ${round(
-        coverage,
-      )}`,
-    );
-  }
-
-  const values = Object.values(scores);
-  const overallScore =
-    values.length === 0
-      ? 0
-      : round(values.reduce((sum, value) => sum + value, 0) / values.length);
-  const weighted = input.evidence.reduce(
-    (sum, item) => sum + (QUALITY_WEIGHT[item.quality ?? "UNVERIFIED"] ?? 0),
-    0,
+  throw new Error(
+    "AI_NUMERIC_SCORING_DISABLED: evidence coverage must never be converted to a performance score (PRD V4.2 D-02)",
   );
-  const confidence = round(Math.min(1, weighted / 3));
-
-  return {
-    scores,
-    overallScore,
-    confidence,
-    citations: input.evidence.map((item) => item.id),
-    rationale: rationale.join("; "),
-    evidenceCount: input.evidence.length,
-    insufficientEvidence,
-  };
 }

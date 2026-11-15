@@ -1,10 +1,7 @@
 /**
- * Deterministic risk classification for AI score proposals.
- *
- * The caller may request a higher tier, but can never lower the tier the
- * system derives from the proposal's impact, confidence and evidence. HIGH and
- * CRITICAL proposals always require an independent second review before a
- * decision is recorded (PRD AI-03).
+ * Legacy numeric-score risk types are retained for historical record reads.
+ * Numeric-score-derived risk classification is permanently retired (PRD V4.2
+ * D-02); new workflows must use qualitative evidence and workflow-risk gates.
  */
 
 export type AiRiskTier = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -51,71 +48,13 @@ function maxTier(a: AiRiskTier, b: AiRiskTier): AiRiskTier {
 }
 
 /**
- * Classify a proposal. Scores are always proposals; an adverse high score is
- * still high impact because a human may accept it. A zero score is critical
- * because it can suppress pay and must never pass through a single reviewer.
+ * Fail closed. A numeric score must never be created or classified as an AI
+ * proposal, regardless of whether a historical model gate passed.
  */
 export function assessAiRisk(
-  input: AiRiskAssessmentInput,
+  _input: AiRiskAssessmentInput,
 ): AiRiskAssessment {
-  const scale = input.scale ?? AI_RISK_DEFAULTS.scale;
-  if (!Number.isFinite(scale) || scale <= 0) {
-    throw new Error("AI risk assessment requires a positive score scale");
-  }
-  const scoreRatio = input.overallScore / scale;
-  let tier: AiRiskTier = "LOW";
-  const reasons: string[] = [];
-
-  const requested = input.requestedTier ?? "MEDIUM";
-  if (requested !== "LOW") {
-    tier = maxTier(tier, requested);
-    reasons.push(`CALLER_REQUESTED_${requested}`);
-  }
-
-  if (input.hasZeroScore || scoreRatio <= 0) {
-    tier = maxTier(tier, "CRITICAL");
-    reasons.push("ZERO_SCORE_ADVERSE_IMPACT");
-  } else if (scoreRatio <= AI_RISK_DEFAULTS.adverseScoreRatio) {
-    tier = maxTier(tier, "HIGH");
-    reasons.push("LOW_SCORE_ADVERSE_IMPACT");
-  }
-
-  if (input.confidence < AI_RISK_DEFAULTS.lowConfidence) {
-    tier = maxTier(tier, "HIGH");
-    reasons.push("LOW_CONFIDENCE");
-  } else if (input.confidence < AI_RISK_DEFAULTS.mediumConfidence) {
-    tier = maxTier(tier, "MEDIUM");
-    reasons.push("MEDIUM_CONFIDENCE");
-  }
-
-  if (input.evidenceCount <= 0) {
-    tier = maxTier(tier, "HIGH");
-    reasons.push("NO_EVIDENCE");
-  } else if (input.evidenceCount < AI_RISK_DEFAULTS.minimumEvidence) {
-    tier = maxTier(tier, "MEDIUM");
-    reasons.push("LIMITED_EVIDENCE");
-  }
-
-  if (tier === "LOW" && requested === "LOW") {
-    reasons.push("CALLER_LOW_TIER_CONFIRMED");
-  }
-  if (
-    tier === "MEDIUM" &&
-    requested === "MEDIUM" &&
-    reasons.length === 1
-  ) {
-    reasons.push("DEFAULT_REVIEW_TIER");
-  }
-
-  const secondReviewRequired = tier === "HIGH" || tier === "CRITICAL";
-  return {
-    riskTier: tier,
-    riskReasons: [...new Set(reasons)],
-    secondReviewRequired,
-    secondReviewSlaHours: secondReviewRequired
-      ? AI_RISK_DEFAULTS.secondReviewSlaHours[
-          tier as "HIGH" | "CRITICAL"
-        ]
-      : undefined,
-  };
+  throw new Error(
+    "AI_NUMERIC_SCORING_DISABLED: numeric-score risk classification is retired; use evidence-quality and workflow-risk assessments",
+  );
 }

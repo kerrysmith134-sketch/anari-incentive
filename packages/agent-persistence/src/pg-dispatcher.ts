@@ -104,7 +104,9 @@ export class MultiTenantAgentDispatcher {
       }
       if (claimed > 0) perTenant[tenantId] = claimed;
     }
-    this.cursor = (this.cursor + tenants.length) % Math.max(tenants.length, 1);
+    // Advance the starting tenant by one each round. Adding tenants.length
+    // kept the same cursor modulo N and silently disabled round-robin rotation.
+    this.cursor = (this.cursor + 1) % tenants.length;
     return { perTenant, total };
   }
 

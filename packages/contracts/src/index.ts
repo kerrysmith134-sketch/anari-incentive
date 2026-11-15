@@ -1096,8 +1096,11 @@ export const assessEvidenceCoverageSchema = z.object({
   subjectType: z.enum(["PERSON", "WORK_PACKAGE", "CONTRIBUTION_CLAIM"]),
   subjectId: uuidSchema,
   cycleId: uuidSchema,
-  dimensions: z.array(z.string().min(1)).min(1),
-  evidence: z.array(scoringEvidenceSchema).min(0),
+  dimensions: z.array(z.string().min(1).max(128)).min(1).max(50)
+    .refine((items) => new Set(items).size === items.length, "dimensions must be unique"),
+  /** References only. Evidence content and quality are loaded from the tenant store. */
+  evidenceRefs: z.array(z.string().min(1).max(256)).max(500).default([])
+    .refine((items) => new Set(items).size === items.length, "evidenceRefs must be unique"),
   requirements: z
     .array(
       z.object({
@@ -1107,7 +1110,7 @@ export const assessEvidenceCoverageSchema = z.object({
     )
     .max(50)
     .optional(),
-});
+}).strict();
 export type CreateAiScoreProposalBody = z.infer<
   typeof createAiScoreProposalSchema
 >;
@@ -2486,9 +2489,9 @@ export type FeishuSyncBody = z.infer<typeof feishuSyncSchema>;
 export const modelSummarySchema = z.object({
   dimensions: z.array(z.string().min(1)).min(1).max(8),
   evidenceRefs: z.array(z.string().min(1)).min(1).max(20),
-  rubric: z.string().optional(),
-  context: z.string().optional(),
-});
+  rubric: z.string().max(8_000).optional(),
+  context: z.string().max(8_000).optional(),
+}).strict();
 export type ModelSummaryBody = z.infer<typeof modelSummarySchema>;
 
 export const publicSignupSchema = z.object({
@@ -2610,6 +2613,7 @@ export const requestSchemaRegistry = {
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,
   CreateAiScoreProposal: createAiScoreProposalSchema,
+  AssessEvidenceCoverage: assessEvidenceCoverageSchema,
   CreateAppeal: createAppealSchema,
   CreateStrategicPoolCase: createStrategicPoolCaseSchema,
   CreateSubscriptionPlan: createSubscriptionPlanSchema,
@@ -2672,6 +2676,18 @@ export const createContributionEventSchema = z.object({
   evidenceRefs: z.array(z.string().min(1)).default([]),
   correctionOfEventId: uuidSchema.optional(),
 });
+
+export const createManualContributionEventSchema = z.object({
+  subjectPersonId: uuidSchema,
+  action: z.string().min(1).max(256),
+  targetType: z.string().min(1).max(64),
+  targetId: z.string().min(1).max(256),
+  occurredAt: z.string().datetime(),
+  kind: z.enum(["CONTRIBUTION", "ACTIVITY", "CONTEXT"]),
+  outcome: contributionEventOutcomeSchema,
+  evidenceRefs: z.array(z.string().min(1).max(256)).max(100).default([]),
+  correctionOfEventId: uuidSchema.optional(),
+}).strict();
 
 export const contributionEventBatchSchema = z.object({
   events: z.array(createContributionEventSchema).min(1).max(200),
@@ -2751,13 +2767,11 @@ export const createMetricMeasurementSnapshotSchema = z.object({
   personId: uuidSchema,
   rubricVersionId: uuidSchema,
   measurements: z.array(metricMeasurementRecordSchema).min(1).max(100),
-  frozenBy: uuidSchema,
-});
+}).strict();
 
 export const linkMetricMeasurementSnapshotSchema = z.object({
   evaluationDecisionId: uuidSchema,
-  linkedBy: uuidSchema,
-});
+}).strict();
 
 /**
  * NPV2-020/023：Agent 待办 upsert（worker 经 API 落库；幂等键必填）。

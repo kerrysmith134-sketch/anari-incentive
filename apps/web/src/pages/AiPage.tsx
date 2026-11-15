@@ -125,8 +125,15 @@ export function AiPage() {
   const [summaryRubric, setSummaryRubric] = useState("");
   const [summaryResult, setSummaryResult] = useState<{
     summary: string;
-    dimensionScores: Record<string, number>;
-    confidence: number;
+    dimensionAssessments: Array<{
+      dimension: string;
+      status: "SUPPORTED" | "PARTIALLY_SUPPORTED" | "CONTRADICTED" | "INSUFFICIENT_EVIDENCE";
+      rationale: string;
+      supportingEvidenceRefs: string[];
+      counterEvidenceRefs: string[];
+      missingInformation: string[];
+    }>;
+    uncertainty: { band: "LOW" | "MEDIUM" | "HIGH"; reasons: string[] };
     model: string;
   } | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -220,8 +227,15 @@ export function AiPage() {
         suggestionLogId: string;
         summary: {
           summary: string;
-          dimensionScores: Record<string, number>;
-          confidence: number;
+          dimensionAssessments: Array<{
+            dimension: string;
+            status: "SUPPORTED" | "PARTIALLY_SUPPORTED" | "CONTRADICTED" | "INSUFFICIENT_EVIDENCE";
+            rationale: string;
+            supportingEvidenceRefs: string[];
+            counterEvidenceRefs: string[];
+            missingInformation: string[];
+          }>;
+          uncertainty: { band: "LOW" | "MEDIUM" | "HIGH"; reasons: string[] };
           model: string;
         };
       }>("/api/v1/ai/model-summary", {
@@ -1475,7 +1489,7 @@ async function saveRefresh(event: FormEvent) {
         {tab === "summary" ? (
           <Panel
             title="模型证据摘要"
-            subtitle="仅供参考：模型汇总证据并给出 0–5 维度建议分；结果记入 AI 建议日志"
+            subtitle="仅作证据归纳：识别支持、反证与信息缺口，不生成绩效分或置信度分数"
             action={
               <Button
                 variant="primary"
@@ -1490,11 +1504,12 @@ async function saveRefresh(event: FormEvent) {
             }
           >
             <InfoNotice>
-              Requires a configured model provider (MODEL_SCORING_* on the
-              server); unconfigured deployments return
-              MODEL_PROVIDER_NOT_CONFIGURED. Evidence is passed to the model
-              as untrusted data with an injection-resistant scaffold, and the
-              JSON output is schema-validated before anything is logged.
+              Requires a configured and tenant-approved model provider. In
+              production, an active provider policy with DPA, zero-retention
+              confirmation and a matching egress allowlist is mandatory.
+              Evidence is sent as JSON data, never as prompt instructions. The
+              model can only produce qualitative support/counter-evidence
+              findings; numeric performance scores are not accepted.
             </InfoNotice>
             {summaryResult ? (
               <div className="stack">
@@ -1503,39 +1518,34 @@ async function saveRefresh(event: FormEvent) {
                   <Badge tone="neutral">Advisory — never enters money paths</Badge>
                 </div>
                 <DefinitionList
-                  items={Object.entries(
-                    summaryResult.dimensionScores,
-                  ).map(([dimension, score]) => ({
-                    label: dimension,
-                    value: `${score}/5`,
+                  items={summaryResult.dimensionAssessments.map((item) => ({
+                    label: item.dimension,
+                    value: item.status.replaceAll("_", " "),
                   }))}
                 />
-                <div>
+                <div className="stack">
                   <div className="stat-label">
-                    Confidence {Math.round(summaryResult.confidence * 100)}%
+                    Uncertainty: {summaryResult.uncertainty.band}
                   </div>
-                  <div
-                    className="confidence-bar"
-                    role="meter"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(summaryResult.confidence * 100)}
-                    aria-label="模型置信度"
-                  >
-                    <span
-                      className="confidence-bar__fill"
-                      style={{
-                        width: `${Math.round(summaryResult.confidence * 100)}%`,
-                        background:
-                          summaryResult.confidence > 0.7
-                            ? "var(--brand)"
-                            : summaryResult.confidence > 0.4
-                              ? "var(--warning)"
-                              : "var(--critical)",
-                      }}
-                    />
-                  </div>
+                  {summaryResult.uncertainty.reasons.length > 0 ? (
+                    <ul>
+                      {summaryResult.uncertainty.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
+                {summaryResult.dimensionAssessments.map((item) => (
+                  <div className="card" key={item.dimension}>
+                    <strong>{item.dimension} · {item.status.replaceAll("_", " ")}</strong>
+                    <p>{item.rationale}</p>
+                    <p className="hint">Supporting: {item.supportingEvidenceRefs.join(", ") || "—"}</p>
+                    <p className="hint">Counter-evidence: {item.counterEvidenceRefs.join(", ") || "—"}</p>
+                    {item.missingInformation.length > 0 ? (
+                      <p className="hint">Missing: {item.missingInformation.join("; ")}</p>
+                    ) : null}
+                  </div>
+                ))}
                 <p>{summaryResult.summary}</p>
               </div>
             ) : (
@@ -2702,12 +2712,10 @@ async function saveRefresh(event: FormEvent) {
           {summaryResult ? (
             <div className="field--full">
               <DefinitionList
-                items={Object.entries(summaryResult.dimensionScores).map(
-                  ([dimension, score]) => ({
-                    label: dimension,
-                    value: `${score}/5`,
-                  }),
-                )}
+                items={summaryResult.dimensionAssessments.map((item) => ({
+                  label: item.dimension,
+                  value: item.status.replaceAll("_", " "),
+                }))}
               />
               <p>{summaryResult.summary}</p>
             </div>

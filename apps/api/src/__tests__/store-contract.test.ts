@@ -739,6 +739,7 @@ function registerContractSuite(
     );
     expect(consumed.status).toBe("CONSUMED");
     expect(consumed.evaluationDecisionId).toBe(decisionId);
+    expect(consumed.linkedByPersonId).toBe(ADJUDICATOR);
 
     // 已消费快照不可再次绑定
     await expect(

@@ -3259,246 +3259,21 @@ describe("AI suggestion logs and workflow runs", () => {
     );
   });
 
-  it("creates gated AI score proposals with human decisions", async () => {
+  it("retires AI-originated numeric score proposals regardless of tenant settings", async () => {
     await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
       aiNumericScoringEnabled: true,
+      evidenceDefaultRule: "ZERO",
     });
-    const evaluation = await createHarnessEvaluation(
-      "IRR",
-      "claude",
-      true,
-      "score-gold-set",
-    );
-    const evidence = [
-      {
-        id: "score-e1",
-        type: "DELIVERY",
-        text: "Signed acceptance",
-        dimension: "QUALITY",
-        quality: "VALID",
-      },
-      {
-        id: "score-e2",
-        type: "DELIVERY",
-        text: "Delivered on time",
-        dimension: "TIMELINESS",
-        quality: "VALID",
-      },
-    ];
-    const proposal = await call("POST", "/api/v1/ai-score-proposals", {
+    const response = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
       personId: OWNER,
-      evaluationRunId: evaluation.body.data.id,
-      dimensions: ["QUALITY", "TIMELINESS"],
-      evidence,
+      evaluationRunId: "00000000-0000-4000-8000-000000000099",
+      dimensions: ["QUALITY"],
+      evidence: [{ id: "e1", type: "DELIVERY", text: "Signed acceptance", quality: "VALID" }],
       requestedBy: OWNER,
     });
-    expect(proposal.status).toBe(201);
-    expect(proposal.body.data.status).toBe("PENDING");
-    expect(proposal.body.data.scores.QUALITY).toBeGreaterThan(0);
-    expect(proposal.body.data.overallScore).toBeGreaterThan(0);
-    expect(proposal.body.data.evidenceRefs).toEqual([
-      "score-e1",
-      "score-e2",
-    ]);
-    expect(proposal.body.data.gateMetrics).toMatchObject({
-      harnessVersion: "ai-gate-v1",
-      humanHumanAgreement: 1,
-    });
-    const reviewEvidence = {
-      independentScores: proposal.body.data.scores as Record<string, number>,
-      reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
-      evidenceOpened: 2,
-      blindReview: true,
-    };
-
-    const missingIndependent = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      {
-        decision: "ACCEPT",
-        decidedBy: ADJUDICATOR,
-        reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-    );
-    expect(missingIndependent.status).toBe(400);
-
-    const overrideWithoutReason = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      {
-        decision: "ACCEPT",
-        decidedBy: ADJUDICATOR,
-        ...reviewEvidence,
-        independentScores: Object.fromEntries(
-          Object.keys(proposal.body.data.scores).map((key) => [key, 0]),
-        ),
-      },
-    );
-    expect(overrideWithoutReason.status).toBe(409);
-    expect(overrideWithoutReason.body.error.message).toContain(
-      "AI_OVERRIDE_REASON_REQUIRED",
-    );
-
-    const selfDecision = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      { decision: "ACCEPT", decidedBy: OWNER, ...reviewEvidence },
-    );
-    expect(selfDecision.status).toBe(409);
-    expect(selfDecision.body.error.message).toContain(
-      "AI_SCORE_SELF_REVIEW",
-    );
-
-    const accepted = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      {
-        decision: "ACCEPT",
-        decidedBy: ADJUDICATOR,
-        note: "Evidence supports the proposal",
-        ...reviewEvidence,
-      },
-    );
-    expect(accepted.status).toBe(200);
-    expect(accepted.body.data.override).toBe(false);
-    expect(accepted.body.data.evidenceOpened).toBe(2);
-    expect(accepted.body.data.blindReview).toBe(true);
-    expect(accepted.body.data.status).toBe("ACCEPTED");
-    expect(accepted.body.data.decidedBy).toBe(ADJUDICATOR);
-
-    const redecided = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      { decision: "REJECT", decidedBy: ADJUDICATOR, ...reviewEvidence },
-    );
-    expect(redecided.status).toBe(409);
-
-    const explanation = await call(
-      "GET",
-      `/api/v1/me/ai-explanations?personId=${OWNER}`,
-    );
-    expect(explanation.status).toBe(200);
-    expect(explanation.body.data.personId).toBe(OWNER);
-    expect(explanation.body.data.aiUsed).toBe(true);
-    expect(explanation.body.data.aiScoreProposals).toHaveLength(1);
-    expect(explanation.body.data.explanation.autonomousDecision).toBe(false);
-    expect(explanation.body.data.explanation.humanReviewRequired).toBe(true);
-
-    const reviewMetrics = await call("GET", "/api/v1/ai-review-metrics");
-    expect(reviewMetrics.status).toBe(200);
-    expect(reviewMetrics.body.data.decided).toBe(1);
-    expect(reviewMetrics.body.data.accepted).toBe(1);
-    expect(reviewMetrics.body.data.overrideRate).toBe(0);
-    expect(reviewMetrics.body.data.blindReviewCount).toBe(1);
-    expect(reviewMetrics.body.data.rubberStampAlert).toBe(false);
-
-    const acceptedList = await call(
-      "GET",
-      "/api/v1/ai-score-proposals?status=ACCEPTED",
-    );
-    expect(acceptedList.body.data).toHaveLength(1);
-    const overrideProposal = await call(
-      "POST",
-      "/api/v1/ai-score-proposals",
-      {
-        cycleId: CYCLE,
-        personId: MEMBER,
-        evaluationRunId: evaluation.body.data.id,
-        dimensions: ["QUALITY", "TIMELINESS"],
-        evidence,
-        requestedBy: OWNER,
-      },
-    );
-    expect(overrideProposal.status).toBe(201);
-    const overridden = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/decide`,
-      {
-        decision: "ACCEPT",
-        decidedBy: ADJUDICATOR,
-        note: "Override for audit test",
-        independentScores: Object.fromEntries(
-          Object.keys(overrideProposal.body.data.scores).map((key) => [
-            key,
-            0,
-          ]),
-        ),
-        overrideReason: "Independent review disagrees with the evidence weight",
-        reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
-        evidenceOpened: 1,
-      },
-    );
-    expect(overridden.status).toBe(200);
-    expect(overridden.body.data.override).toBe(true);
-    expect(overridden.body.data.auditSample).toBe(true);
-
-    const auditQueue = await call(
-      "GET",
-      "/api/v1/ai-score-proposals/audit-queue",
-    );
-    expect(auditQueue.status).toBe(200);
-    expect(
-      auditQueue.body.data.some(
-        (proposal: { id: string }) =>
-          proposal.id === overrideProposal.body.data.id,
-      ),
-    ).toBe(true);
-    const audited = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/audit-review`,
-      {
-        reviewerPersonId: MEMBER,
-        scores: overrideProposal.body.data.scores,
-        rationale: "Second reviewer agrees with the AI evidence weights",
-        reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
-        evidenceOpened: 2,
-      },
-    );
-    expect(audited.status).toBe(200);
-    expect(audited.body.data.secondReviewerPersonId).toBe(MEMBER);
-    expect(audited.body.data.secondReviewOutcome).toBe("AGREE");
-    expect(audited.body.data.secondReviewAgreementRate).toBe(1);
-    const duplicateAudit = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${overrideProposal.body.data.id}/audit-review`,
-      {
-        reviewerPersonId: MEMBER,
-        scores: overrideProposal.body.data.scores,
-        
-independentScores: { QUALITY: 4 },
-independentRationale: "先独立判断：证据覆盖充分",
-evidenceOpened: 1,
-        rationale: "Duplicate",
-        reviewStartedAt: new Date(Date.now() - 30_000).toISOString(),
-      },
-    );
-    expect(duplicateAudit.status).toBe(409);
-    const auditedMetrics = await call("GET", "/api/v1/ai-review-metrics");
-    expect(auditedMetrics.body.data.auditReviewedCount).toBe(1);
-    expect(auditedMetrics.body.data.auditAgreementRate).toBe(1);
-    expect(auditedMetrics.body.data.auditSampledCount).toBeGreaterThanOrEqual(
-      1,
-    );
-
-
-    const failedEvaluation = await createHarnessEvaluation(
-      "IRR",
-      "claude",
-      false,
-      "score-gold-set",
-    );
-    const blocked = await call("POST", "/api/v1/ai-score-proposals", {
-      cycleId: CYCLE,
-      personId: OWNER,
-      evaluationRunId: failedEvaluation.body.data.id,
-      dimensions: ["QUALITY"],
-      evidence,
-    });
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error.message).toContain(
-      "AI_EVALUATION_GATE_NOT_PASSED",
-    );
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain("AI_NUMERIC_SCORING_RETIRED");
   });
 });
 
@@ -8066,69 +7841,20 @@ evidenceOpened: 1,
     expect(list.body.data).toHaveLength(2);
   });
 
-  it("blocks AI scoring for dimensions without evidence unless zeroing is configured", async () => {
+  it("does not allow legacy zero-default configuration to revive numeric AI scoring", async () => {
     await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
       aiNumericScoringEnabled: true,
+      evidenceDefaultRule: "ZERO",
     });
-    const evaluation = await createHarnessEvaluation(
-      "IRR",
-      "claude",
-      true,
-      "evidence-rule-set",
-    );
-    const evidence = [
-      {
-        id: "evidence-rule-1",
-        type: "DELIVERY",
-        text: "Signed acceptance",
-        dimension: "QUALITY",
-        quality: "VALID",
-      },
-    ];
-    const body = {
+    const response = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
       personId: OWNER,
-      evaluationRunId: evaluation.body.data.id,
       dimensions: ["QUALITY", "COLLABORATION"],
-      evidence,
+      evidence: [{ id: "legacy-e1", type: "DELIVERY", text: "Signed acceptance", quality: "VALID" }],
       requestedBy: OWNER,
-    };
-    const blocked = await call("POST", "/api/v1/ai-score-proposals", body);
-    expect(blocked.status).toBe(409);
-    expect(blocked.body.error.message).toContain(
-      "AI_EVIDENCE_INSUFFICIENT",
-    );
-    await call(
-      "POST",
-      "/api/v1/platform/tenants/tenant-demo/settings",
-      { evidenceDefaultRule: "ZERO" },
-    );
-    const noZeroRationale = await call(
-      "POST",
-      "/api/v1/ai-score-proposals",
-      body,
-    );
-    expect(noZeroRationale.status).toBe(409);
-    expect(noZeroRationale.body.error.message).toContain(
-      "AI_ZERO_SCORE_RATIONALE_REQUIRED",
-    );
-    const allowed = await call("POST", "/api/v1/ai-score-proposals", {
-      ...body,
-      zeroScoreRationale:
-        "Collaboration was not observed this cycle; keep it open for human review.",
     });
-    expect(allowed.status).toBe(201);
-    expect(allowed.body.data.scores.COLLABORATION).toBe(0);
-    expect(allowed.body.data.zeroScoreRationale).toContain(
-      "not observed",
-    );
-    expect(allowed.body.data.riskTier).toBe("CRITICAL");
-    expect(allowed.body.data.secondReviewRequired).toBe(true);
-    expect(allowed.body.data.riskReasons).toContain(
-      "ZERO_SCORE_ADVERSE_IMPACT",
-    );
-    expect(allowed.body.data.riskAssessedAt).toBeTruthy();
-    expect(allowed.body.data.secondReviewDueAt).toBeTruthy();
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain("AI_NUMERIC_SCORING_RETIRED");
   });
 
   it("requires a passed red-team run before prompt activation when enabled", async () => {
@@ -8242,76 +7968,23 @@ evidenceOpened: 1,
     expect(retired.body.data.status).toBe("RETIRED");
   });
 
-  it("requires a second independent review before deciding high-risk AI proposals", async () => {
+  it("retains legacy risk configuration only as inert data after numeric scoring retirement", async () => {
     await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
       aiNumericScoringEnabled: true,
     });
-    const evaluation = await createHarnessEvaluation(
-      "IRR",
-      "claude",
-      true,
-      "high-risk-set",
-    );
-    const createBody = {
+    const response = await call("POST", "/api/v1/ai-score-proposals", {
       cycleId: CYCLE,
       personId: OWNER,
-      evaluationRunId: evaluation.body.data.id,
       dimensions: ["QUALITY"],
-      evidence: [
-        {
-          id: "high-risk-e1",
-          type: "DELIVERY",
-          text: "Signed acceptance",
-          dimension: "QUALITY",
-          quality: "VALID" as const,
-        },
-      ],
+      evidence: [{ id: "legacy-risk-e1", type: "DELIVERY", text: "Signed acceptance", quality: "VALID" }],
       riskTier: "HIGH",
       requestedBy: OWNER,
-    };
-    const proposal = await call(
-      "POST",
-      "/api/v1/ai-score-proposals",
-      createBody,
-    );
-    expect(proposal.status).toBe(201);
-    expect(proposal.body.data.riskTier).toBe("HIGH");
-    expect(proposal.body.data.secondReviewRequired).toBe(true);
-    const baseDecision = {
-      decision: "ACCEPT",
-      decidedBy: ADJUDICATOR,
-      independentScores: proposal.body.data.scores,
-      reviewStartedAt: new Date(Date.now() - 60_000).toISOString(),
-    };
-    const missingSecond = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      baseDecision,
-    );
-    expect(missingSecond.status).toBe(409);
-    expect(missingSecond.body.error.message).toContain(
-      "AI_SECOND_REVIEW_REQUIRED",
-    );
-    const deciding = await call(
-      "POST",
-      `/api/v1/ai-score-proposals/${proposal.body.data.id}/decide`,
-      {
-        ...baseDecision,
-        secondReviewerPersonId: MEMBER,
-        secondIndependentScores: proposal.body.data.scores,
-        secondIndependentRationale: "Second reviewer independently agrees",
-        secondReviewStartedAt: new Date(
-          Date.now() - 30_000,
-        ).toISOString(),
-      },
-    );
-    expect(deciding.status).toBe(200);
-    expect(deciding.body.data.secondReviewOutcome).toBe("AGREE");
-    expect(deciding.body.data.secondReviewerPersonId).toBe(MEMBER);
-    expect(deciding.body.data.auditSample).toBe(false);
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain("AI_NUMERIC_SCORING_RETIRED");
   });
 
-  it("enforces model-provider policies when the tenant requires them", async () => {
+  it("keeps model-provider governance records while numeric proposal creation remains retired", async () => {
     await call("POST", "/api/v1/platform/tenants/tenant-demo/settings", {
       aiNumericScoringEnabled: true,
     });
@@ -8345,7 +8018,7 @@ evidenceOpened: 1,
     });
     expect(blocked.status).toBe(409);
     expect(blocked.body.error.message).toContain(
-      "MODEL_PROVIDER_POLICY_REQUIRED",
+      "AI_NUMERIC_SCORING_RETIRED",
     );
     const policy = await call("POST", "/api/v1/model-provider-policies", {
       provider: "anthropic",
@@ -8365,7 +8038,8 @@ evidenceOpened: 1,
       evidence,
       requestedBy: OWNER,
     });
-    expect(allowed.status).toBe(201);
+    expect(allowed.status).toBe(409);
+    expect(allowed.body.error.message).toContain("AI_NUMERIC_SCORING_RETIRED");
     const list = await call("GET", "/api/v1/model-provider-policies");
     expect(list.body.data).toHaveLength(1);
     const retired = await call(

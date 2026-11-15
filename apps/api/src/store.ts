@@ -737,6 +737,7 @@ export class Store implements IncentiveStore {
       frozenAt: timestamp,
       frozenBy: input.frozenBy,
       status: "FROZEN",
+      legacyLinkedActorUnknown: false,
       createdAt: timestamp,
     };
     // NPV2-035 TDD R13：存副本——调用方变异返回值不影响冻结完整性。
@@ -760,7 +761,9 @@ export class Store implements IncentiveStore {
     if (filter?.status) {
       snapshots = snapshots.filter((s) => s.status === filter.status);
     }
-    return snapshots.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return snapshots
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .map((snapshot) => ({ ...snapshot, measurements: structuredClone(snapshot.measurements) }));
   }
 
   async getMetricMeasurementSnapshot(
@@ -770,7 +773,7 @@ export class Store implements IncentiveStore {
     if (!snapshot) {
       throw new NotFoundError(`MetricMeasurementSnapshot ${id} not found`);
     }
-    return snapshot;
+    return { ...snapshot, measurements: structuredClone(snapshot.measurements) };
   }
 
   async verifyMetricMeasurementSnapshot(id: string) {
@@ -788,7 +791,11 @@ export class Store implements IncentiveStore {
     id: string,
     input: { evaluationDecisionId: string; linkedBy: string },
   ): Promise<MetricMeasurementSnapshot> {
-    const snapshot = await this.getMetricMeasurementSnapshot(id);
+    const stored = this.metricSnapshots.get(id);
+    if (!stored) {
+      throw new NotFoundError(`MetricMeasurementSnapshot ${id} not found`);
+    }
+    const snapshot = { ...stored, measurements: structuredClone(stored.measurements) };
     if (snapshot.status !== "FROZEN") {
       throw new ConflictError(
         `SNAPSHOT_NOT_FROZEN: snapshot is ${snapshot.status}`,
@@ -799,15 +806,22 @@ export class Store implements IncentiveStore {
     );
     if (
       decision.personId !== snapshot.personId ||
-      decision.cycleId !== snapshot.cycleId
+      decision.cycleId !== snapshot.cycleId ||
+      decision.rubricVersionId !== snapshot.rubricVersionId
     ) {
       throw new ConflictError(
-        "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person or cycle",
+        "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person, cycle or rubric version",
       );
     }
     snapshot.status = "CONSUMED";
     snapshot.evaluationDecisionId = decision.id;
-    return snapshot;
+    snapshot.linkedByPersonId = input.linkedBy;
+    snapshot.legacyLinkedActorUnknown = false;
+    this.metricSnapshots.set(id, {
+      ...snapshot,
+      measurements: structuredClone(snapshot.measurements),
+    });
+    return { ...snapshot, measurements: structuredClone(snapshot.measurements) };
   }
 
   /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */

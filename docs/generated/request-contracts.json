@@ -39,6 +39,18 @@
       ],
       "optional": []
     },
+    "AssessEvidenceCoverage": {
+      "required": [
+        "cycleId",
+        "dimensions",
+        "subjectId",
+        "subjectType"
+      ],
+      "optional": [
+        "evidenceRefs",
+        "requirements"
+      ]
+    },
     "CreateAiScoreProposal": {
       "required": [
         "cycleId",

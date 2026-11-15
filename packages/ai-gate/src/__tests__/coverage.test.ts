@@ -14,8 +14,8 @@ describe("assessEvidenceCoverage (NPV2-004)", () => {
     const result = assessEvidenceCoverage({
       ...base,
       evidence: [
-        { id: "e1", type: "DELIVERY", text: "a", dimension: "QUALITY", quality: "VALID" },
-        { id: "e2", type: "DELIVERY", text: "b", dimension: "TIMELINESS", quality: "VALID" },
+        { id: "e1", type: "DELIVERY", text: "a", dimension: "QUALITY", quality: "VALID", sourceSystem: "erp" },
+        { id: "e2", type: "DELIVERY", text: "b", dimension: "TIMELINESS", quality: "VALID", sourceSystem: "crm" },
       ],
     });
     const serialized = JSON.stringify(result);
@@ -23,6 +23,9 @@ describe("assessEvidenceCoverage (NPV2-004)", () => {
     expect(serialized).not.toContain('"scores"');
     expect(result.coverageBand).toBe("ADEQUATE");
     expect(result.missingDimensions).toEqual([]);
+    expect(result.sourceSystemCount).toBe(2);
+    expect(result.sourceDiversity).toBe(1);
+    expect(result.evidenceSnapshotHash).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
   it("marks insufficient dimensions instead of scoring them zero", () => {
@@ -56,8 +59,8 @@ describe("assessEvidenceCoverage (NPV2-004)", () => {
 
   it("is deterministic for identical input and order-insensitive", () => {
     const evidence: ScoringEvidence[] = [
-      { id: "e1", type: "DELIVERY", text: "a", dimension: "QUALITY", quality: "VALID" },
-      { id: "e2", type: "NOTES", text: "b", dimension: "TIMELINESS", quality: "VALID" },
+      { id: "e1", type: "DELIVERY", text: "a", dimension: "QUALITY", quality: "VALID", sourceSystem: "erp" },
+      { id: "e2", type: "NOTES", text: "b", dimension: "TIMELINESS", quality: "VALID", sourceSystem: "crm" },
     ];
     const a = assessEvidenceCoverage({ ...base, evidence });
     const b = assessEvidenceCoverage({ ...base, evidence: [...evidence].reverse() });

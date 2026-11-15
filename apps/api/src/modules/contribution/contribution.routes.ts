@@ -13,6 +13,7 @@ import {
   createContributionAttestationSchema,
   createContributionClaimSchema,
   createContributionEventSchema,
+  createManualContributionEventSchema,
   linkContributionAssessmentDecisionSchema,
   withdrawContributionAttestationSchema,
 } from "@anari/contracts";
@@ -168,15 +169,50 @@ export function registerContributionRoutes(deps: {
   // 事实，不得作为贡献认定依据（认定只能引用 CONTRIBUTION 事件）。
   // ------------------------------------------------------------------
   app.post("/api/v1/contribution-events", async (request, reply) => {
-    const body = parse(createContributionEventSchema, request.body);
-    const person = personFilter(request);
-    if (person && body.subjectPersonId !== person) {
+    // Manual contribution facts are explicitly self-attributed observations.
+    // Actor and source cannot be supplied by the client: actor comes from the
+    // authenticated session and source is fixed to MANUAL.
+    const body = parse(createManualContributionEventSchema, request.body);
+    const actorPersonId = ownPersonId(request);
+    if (!actorPersonId) {
       throw new ForbiddenError(
-        "cannot record a contribution event for another person",
+        "manual contribution event requires an authenticated employee identity; service integrations must use the integration ingestion endpoint",
       );
     }
-    const result = await storeFor(request).ingestContributionEvents([
-      { ...body, evidenceRefs: body.evidenceRefs ?? [] },
+    // A manual assertion is always self-attributed, including when submitted
+    // by a manager/admin session. Third-party facts must arrive through a
+    // trusted integration credential, never through this employee endpoint.
+    if (body.subjectPersonId !== actorPersonId) {
+      throw new ForbiddenError(
+        "manual contribution events can only describe the authenticated actor; use a trusted integration ingestion flow for another person's facts",
+      );
+    }
+    const store = storeFor(request);
+    if ((body.evidenceRefs ?? []).length > 0) {
+      const evidence = await store.listEvidence();
+      const available = new Set(evidence.map((item) => item.id));
+      const missing = (body.evidenceRefs ?? []).filter((ref) => !available.has(ref));
+      if (missing.length > 0) {
+        throw new NotFoundError(
+          `contribution evidence reference(s) not found: ${missing.join(", ")}`,
+        );
+      }
+    }
+    if (body.correctionOfEventId) {
+      const original = await store.getContributionEvent(body.correctionOfEventId);
+      if (original.subjectPersonId !== actorPersonId || original.source !== "MANUAL") {
+        throw new ForbiddenError(
+          "manual corrections may only amend the authenticated person's prior manual event",
+        );
+      }
+    }
+    const result = await store.ingestContributionEvents([
+      {
+        ...body,
+        actorPersonId,
+        source: "MANUAL",
+        evidenceRefs: body.evidenceRefs ?? [],
+      },
     ]);
     return reply.status(201).send(data(result.inserted[0], request));
   });

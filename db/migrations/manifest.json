@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T21:42:56.942Z",
+  "generatedAt": "2026-11-15T12:55:06.844Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -440,6 +440,11 @@
       "file": "088_outbox_claims.sql",
       "bytes": 808,
       "sha256": "bb28e09bf1af72a8f77c4e9ac9266dd6c7ec5b061baa5dd274ce1f6663cff0a7"
+    },
+    {
+      "file": "089_metric_snapshot_immutability.sql",
+      "bytes": 6318,
+      "sha256": "226a5de94722600eae742caa20e913f26815954f30d4f8b2cbc42541edf41b91"
     }
   ]
 }

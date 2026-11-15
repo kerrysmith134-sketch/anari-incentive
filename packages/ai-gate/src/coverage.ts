@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ScoringEvidence, ScoringEvidenceQuality } from "./scoring.js";
 
 /**
@@ -53,6 +54,7 @@ export interface EvidenceCoverageAssessment {
   staleEvidenceIds: string[];
   conflictedEvidenceIds: string[];
   sourceDiversity: number;
+  sourceSystemCount: number;
   coverageBand: CoverageBand;
   /** 输入证据的确定性快照哈希，绑定后续任何人工判断。 */
   evidenceSnapshotHash: string;
@@ -68,13 +70,7 @@ const WEIGHT: Record<ScoringEvidenceQuality, number> = {
 };
 
 function sha256Hex(input: string): string {
-  // 轻量 FNV-1a：确定性快照指纹；不承担密码学职责。
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }
 
 function band(ratio: number): CoverageBand {
@@ -132,18 +128,35 @@ export function assessEvidenceCoverage(
     .filter((d) => d.status !== "COVERED")
     .map((d) => d.dimension);
   const fullyCovered = dimensions.filter((d) => d.status === "COVERED").length;
+  // Diversity is measured across authoritative source systems, never evidence
+  // types. Evidence types describe what a record is; sourceSystem describes
+  // where it came from. Missing source identity is deliberately not counted.
+  const sourceSystems = new Set(
+    input.evidence
+      .map((item) => item.sourceSystem?.trim())
+      .filter((value): value is string => Boolean(value)),
+  );
   const sourceDiversity =
-    input.evidence.length === 0
-      ? 0
-      : new Set(input.evidence.map((item) => item.type)).size / input.evidence.length;
+    input.evidence.length === 0 ? 0 : sourceSystems.size / input.evidence.length;
   const snapshot = JSON.stringify({
     subjectType: input.subjectType,
     subjectId: input.subjectId,
     cycleId: input.cycleId,
-    dimensions: input.dimensions,
-    evidence: [...input.evidence]
-      .map((item) => [item.id, item.quality ?? "UNVERIFIED", item.dimension ?? null])
+    dimensions: [...input.dimensions].sort(),
+    requirements: [...(input.requirements ?? [])]
+      .map((item) => [item.dimension, item.minValidEvidence ?? 1])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    evidence: [...input.evidence]
+      .map((item) => ({
+        id: item.id,
+        quality: item.quality ?? "UNVERIFIED",
+        dimension: item.dimension ?? null,
+        type: item.type,
+        sourceSystem: item.sourceSystem ?? null,
+        payloadHash: item.payloadHash ?? null,
+        text: item.text,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
   });
 
   return {
@@ -156,8 +169,9 @@ export function assessEvidenceCoverage(
     staleEvidenceIds: input.evidence.filter((e) => e.quality === "STALE").map((e) => e.id),
     conflictedEvidenceIds: input.evidence.filter((e) => e.quality === "CONFLICTED").map((e) => e.id),
     sourceDiversity: Math.round(sourceDiversity * 100) / 100,
+    sourceSystemCount: sourceSystems.size,
     coverageBand: band(fullyCovered / input.dimensions.length),
-    evidenceSnapshotHash: `fnv1a:${sha256Hex(snapshot)}`,
+    evidenceSnapshotHash: `sha256:${sha256Hex(snapshot)}`,
     computedAt: new Date().toISOString(),
   };
 }

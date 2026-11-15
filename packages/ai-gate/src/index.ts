@@ -1,10 +1,9 @@
 /**
  * AI evaluation gate and a deliberately non-scoring evidence assistant.
  *
- * The first slice must not produce AI score recommendations. This package
- * makes that a type/flow constraint: only summarisation and gap detection are
- * available; scoring requires an explicit gate object that passed the
- * evaluation protocol.
+ * AI-derived numeric evaluation is retired. This package exposes evidence
+ * summarisation and coverage analysis only; formal numeric evaluation belongs
+ * to the versioned deterministic rubric and authorized human decision flow.
  */
 
 export interface EvaluationGate {
@@ -54,8 +53,8 @@ export interface EvidenceSummary {
 
 /**
  * Deterministic, non-LLM evidence assistant used to prove the workflow.
- * A production implementation may call a model behind the same interface, but
- * it must not return a score until the gate above passes.
+ * A production implementation may call a model behind the same interface,
+ * but the result must remain qualitative and evidence-cited.
  */
 export class EvidenceAssistant {
   summarize(

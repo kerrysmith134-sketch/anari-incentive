@@ -10,7 +10,6 @@ import {
   acceptAiSuggestionSchema,
   activateModelPromptSchema,
   assessEvidenceCoverageSchema,
-  createAiScoreProposalSchema,
   createAiSuggestionLogSchema,
   createModelCanaryRunSchema,
   createModelEvaluationDatasetSchema,
@@ -31,9 +30,6 @@ import {
   ModelProviderError,
   evaluateGate,
   assessEvidenceCoverage,
-  assessAiRisk,
-  scoreEvidence,
-  type EvaluationGate,
 } from "@anari/ai-gate";
 import { sha256 } from "@anari/policy-dsl";
 import {
@@ -104,12 +100,17 @@ async function assertModelProviderPolicy(
   platformStore: PlatformStore,
   request: FastifyRequest,
   provider: string,
+  targetUrl?: string,
 ): Promise<void> {
   const tenant = await platformStore.getTenant(tenantOf(request));
-  const required = Boolean(
-    (tenant.settings as { requireModelProviderPolicy?: unknown })
-      .requireModelProviderPolicy,
-  );
+  // External model egress is governed by default in production; a tenant
+  // setting may opt into the same stricter gate in non-production.
+  const required =
+    process.env.NODE_ENV === "production" ||
+    Boolean(
+      (tenant.settings as { requireModelProviderPolicy?: unknown })
+        .requireModelProviderPolicy,
+    );
   if (!required) return;
   const policy = await platformStore.getActiveModelProviderPolicy(
     tenantOf(request),
@@ -129,6 +130,36 @@ async function assertModelProviderPolicy(
     throw new ConflictError(
       `MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED: ${provider}`,
     );
+  }
+  if (targetUrl) {
+    let targetHost: string;
+    try {
+      const parsedTarget = new URL(targetUrl);
+      if (process.env.NODE_ENV === "production" && parsedTarget.protocol !== "https:") {
+        throw new Error("HTTPS required in production");
+      }
+      if (parsedTarget.username || parsedTarget.password) {
+        throw new Error("credentials in provider URL are forbidden");
+      }
+      targetHost = parsedTarget.hostname.toLowerCase();
+    } catch {
+      throw new ConflictError("MODEL_PROVIDER_URL_INVALID: HTTPS without embedded credentials is required in production");
+    }
+    const allowed = policy.egressAllowlist.some((entry) => {
+      const raw = entry.trim().toLowerCase();
+      const host = raw.includes("://")
+        ? (() => { try { return new URL(raw).hostname.toLowerCase(); } catch { return ""; } })()
+        : raw.replace(/^\*\./, "");
+      if (!host) return false;
+      return raw.startsWith("*.")
+        ? targetHost.endsWith(`.${host}`)
+        : targetHost === host;
+    });
+    if (!allowed) {
+      throw new ConflictError(
+        `MODEL_PROVIDER_EGRESS_NOT_ALLOWLISTED: ${targetHost} is not approved for ${provider}`,
+      );
+    }
   }
 }
 
@@ -558,145 +589,14 @@ export function registerAiGovernanceRoutes(deps: {
   });
 
 
-  app.post("/api/v1/ai-score-proposals", async (request, reply) => {
+  // PRD V4.2 D-02: AI-originated numeric score proposals are retired.
+  // Keep the historical endpoint as an explicit fail-closed compatibility
+  // response so old clients cannot revive this path via tenant settings.
+  app.post("/api/v1/ai-score-proposals", async (request) => {
     requireRoles(request, "manager", "finance");
-    const body = parse(createAiScoreProposalSchema, request.body);
-    const tenantId = tenantOf(request);
-    const persons = await platformStore.listPersons(tenantId);
-    if (!persons.some((person) => person.id === body.personId)) {
-      throw new NotFoundError(`Person ${body.personId} not found`);
-    }
-    const evaluation = await platformStore.getModelEvaluationRun(
-      tenantId,
-      body.evaluationRunId,
+    throw new ConflictError(
+      "AI_NUMERIC_SCORING_RETIRED: AI may produce evidence coverage, qualitative support/counter-evidence analysis and missing-information findings only; formal numeric evaluation is determined by the versioned rubric and authorized human reviewer",
     );
-    assertHarnessEvaluation(evaluation);
-    await assertModelProviderPolicy(platformStore, request, evaluation.modelProvider);
-    if (!evaluation.passed) {
-      throw new ConflictError(
-        `AI_EVALUATION_GATE_NOT_PASSED: ${
-          evaluation.blockers.join(", ") || "evaluation did not pass"
-        }`,
-      );
-    }
-    let prompt;
-    if (body.modelPromptId) {
-      prompt = await platformStore.getModelPrompt(
-        tenantId,
-        body.modelPromptId,
-      );
-      if (prompt.status !== "ACTIVE") {
-        throw new ConflictError(
-          `MODEL_PROMPT_NOT_ACTIVE: ${prompt.id} is ${prompt.status}`,
-        );
-      }
-      if (
-        prompt.modelProvider !== evaluation.modelProvider ||
-        prompt.modelName !== evaluation.modelName
-      ) {
-        throw new ConflictError(
-          `MODEL_PROMPT_EVALUATION_MODEL_MISMATCH: ${prompt.id}`,
-        );
-      }
-    }
-    // NPV2-006：numeric 提案默认关闭。租户必须显式开启
-    // aiNumericScoringEnabled，并已通过上方评测门禁；未开启时一律走
-    // /ai-evidence-coverage 的确定性覆盖评估。
-    const tenantSettings = (
-      (await platformStore.getTenant(tenantId)).settings ?? {}
-    ) as { aiNumericScoringEnabled?: unknown };
-    if (tenantSettings.aiNumericScoringEnabled !== true) {
-      throw new ConflictError(
-        "AI_NUMERIC_SCORING_DISABLED: numeric AI score proposals are gated off (PRD V4.2 D-02); use POST /api/v1/ai-evidence-coverage for deterministic evidence coverage assessment",
-      );
-    }
-    const gate: EvaluationGate = {
-      passed: evaluation.passed,
-      sampleSize: evaluation.sampleSize,
-      metrics: {},
-      blockers: evaluation.blockers,
-    };
-    const scored = scoreEvidence(
-      {
-        dimensions: body.dimensions,
-        evidence: body.evidence,
-      },
-      gate,
-    );
-    // NPV2-005：零分只能出现在 ASSESSED 维度；非 ASSESSED 维度禁止数字分。
-    const states = body.dimensionStates ?? {};
-    const nonAssessedWithScore = Object.entries(scored.scores).filter(
-      ([dimension, value]) =>
-        value === 0 &&
-        states[dimension] !== undefined &&
-        states[dimension] !== "ASSESSED",
-    );
-    if (nonAssessedWithScore.length > 0) {
-      throw new ConflictError(
-        `AI_ZERO_SCORE_REQUIRES_ASSESSED:${nonAssessedWithScore
-          .map(([dimension]) => dimension)
-          .join(",")}; zero is only valid when the dimension state is ASSESSED`,
-      );
-    }
-    const tenant = await platformStore.getTenant(tenantId);
-    const evidenceRule =
-      (tenant.settings as { evidenceDefaultRule?: unknown })
-        .evidenceDefaultRule === "ZERO"
-        ? "ZERO"
-        : "BLOCK";
-    if (scored.insufficientEvidence.length > 0 && evidenceRule === "BLOCK") {
-      throw new ConflictError(
-        `AI_EVIDENCE_INSUFFICIENT:${scored.insufficientEvidence.join(",")}; add evidence or set evidenceDefaultRule=ZERO`,
-      );
-    }
-    const zeroDimensions = Object.entries(scored.scores)
-      .filter(([, value]) => value === 0)
-      .map(([dimension]) => dimension);
-    if (zeroDimensions.length > 0 && !body.zeroScoreRationale?.trim()) {
-      throw new ConflictError(
-        `AI_ZERO_SCORE_RATIONALE_REQUIRED:${zeroDimensions.join(",")}; unpriced or unobserved work must not be silently defaulted to zero`,
-      );
-    }
-    const risk = assessAiRisk({
-      overallScore: scored.overallScore,
-      confidence: scored.confidence,
-      evidenceCount: scored.evidenceCount,
-      hasZeroScore: zeroDimensions.length > 0,
-      requestedTier: body.riskTier,
-    });
-    const riskAssessedAt = new Date();
-    const secondReviewDueAt = risk.secondReviewSlaHours
-      ? new Date(
-          riskAssessedAt.getTime() +
-            risk.secondReviewSlaHours * 60 * 60 * 1000,
-        ).toISOString()
-      : undefined;
-    const proposal = await platformStore.createAiScoreProposal({
-      tenantId,
-      cycleId: body.cycleId,
-      personId: body.personId,
-      evaluationRunId: evaluation.id,
-      modelPromptId: prompt?.id,
-      modelProvider: prompt?.modelProvider ?? evaluation.modelProvider,
-      modelName: prompt?.modelName ?? evaluation.modelName,
-      promptVersion: evaluation.promptVersion,
-      dimensions: body.dimensions,
-      scores: scored.scores,
-      overallScore: scored.overallScore,
-      confidence: scored.confidence,
-      rationale: scored.rationale,
-      evidenceRefs: scored.citations,
-      evidenceSnapshotHash: sha256(body.evidence),
-      gateMetrics: evaluation.metrics,
-      riskTier: risk.riskTier,
-      riskReasons: risk.riskReasons,
-      riskAssessedAt: riskAssessedAt.toISOString(),
-      secondReviewDueAt,
-      zeroScoreRationale: body.zeroScoreRationale,
-      requestedBy: requireActorRequired(request, body.requestedBy, "request"),
-    });
-    countEvent("ai_score_proposal_created");
-    return reply.status(201).send(data(proposal, request));
   });
 
   app.get("/api/v1/me/ai-explanations", async (request) => {
@@ -1199,6 +1099,38 @@ export function registerAiGovernanceRoutes(deps: {
         meta: { correlation_id: request.id },
       });
     }
+    // Apply the same field-level redaction as the evidence read API before
+    // any external model egress. If the payload is wholly redacted, fail
+    // closed instead of sending a placeholder or accidentally bypassing ACLs.
+    const policies = await fieldPoliciesFor(request);
+    const matchContext = await fieldMatchContextFor(request, policies);
+    const roles = request.authContext?.roles ?? [];
+    const modelEvidence = selected.map((node) => {
+      const visible = redactResourceFields(node, "EVIDENCE", {
+        personId: ownPersonId(request),
+        recordPersonId: node.submittedBy,
+        roles,
+        policies,
+        matchContext,
+      }) as { normalizedPayload?: unknown; redactedFields?: string[] };
+      if (
+        !visible.normalizedPayload ||
+        typeof visible.normalizedPayload !== "object" ||
+        Array.isArray(visible.normalizedPayload) ||
+        String(visible.normalizedPayload) === "[REDACTED]"
+      ) {
+        throw new ForbiddenError(
+          `MODEL_EVIDENCE_FIELD_REDACTED: evidence ${node.id} has no model-readable payload for this role`,
+        );
+      }
+      return { node, payload: visible.normalizedPayload as Record<string, unknown> };
+    });
+    await assertModelProviderPolicy(
+      platformStore,
+      request,
+      "openai-compatible",
+      modelScoring.baseUrl,
+    );
     const provider = new HttpModelScoringProvider({
       baseUrl: modelScoring.baseUrl,
       apiKey: modelScoring.apiKey,
@@ -1211,10 +1143,11 @@ export function registerAiGovernanceRoutes(deps: {
         dimensions: body.dimensions,
         rubric: body.rubric,
         context: body.context,
-        evidence: selected.map((node) => ({
+        evidence: modelEvidence.map(({ node, payload }) => ({
           ref: node.id,
-          text: JSON.stringify(node.normalizedPayload),
+          text: JSON.stringify(payload),
           qualityStatus: node.qualityStatus,
+          sourceSystem: node.sourceSystem,
         })),
       });
     } catch (caught) {
@@ -1233,7 +1166,10 @@ export function registerAiGovernanceRoutes(deps: {
       modelProvider: summary.provider,
       modelName: summary.model,
       promptVersion: "model-summary-v1",
-      inputHash: sha256(body),
+      inputHash: sha256({
+        request: body,
+        evidence: selected.map((node) => ({ id: node.id, payloadHash: node.payloadHash, qualityStatus: node.qualityStatus })),
+      }),
       outputJson: summary as unknown as Record<string, unknown>,
       validationStatus: "VALIDATED",
     });
@@ -1487,33 +1423,69 @@ export function registerAiGovernanceRoutes(deps: {
     requireRoles(request, "manager", "finance");
     const body = parse(assessEvidenceCoverageSchema, request.body);
     const tenantId = tenantOf(request);
-    const persons = await platformStore.listPersons(tenantId);
-    if (
-      body.subjectType === "PERSON" &&
-      !persons.some((person) => person.id === body.subjectId)
-    ) {
-      throw new NotFoundError(`Person ${body.subjectId} not found`);
+    const domainStore = storeFor(request);
+    await domainStore.getEvaluationCycle(body.cycleId);
+    if (body.subjectType === "PERSON") {
+      const persons = await platformStore.listPersons(tenantId);
+      if (!persons.some((person) => person.id === body.subjectId)) {
+        throw new NotFoundError(`Person ${body.subjectId} not found`);
+      }
+    } else if (body.subjectType === "WORK_PACKAGE") {
+      await domainStore.getWorkPackage(body.subjectId);
+    } else if (body.subjectType === "CONTRIBUTION_CLAIM") {
+      await domainStore.getClaim(body.subjectId);
     }
+    const subjectEvidence = await domainStore.listEvidence(
+      body.subjectType,
+      body.subjectId,
+    );
+    const requestedRefs: string[] = body.evidenceRefs ?? [];
+    const selectedEvidence = requestedRefs.length > 0
+      ? subjectEvidence.filter((node) => requestedRefs.includes(node.id))
+      : subjectEvidence;
+    const selectedIds = new Set(selectedEvidence.map((node) => node.id));
+    const missingRefs = requestedRefs.filter((ref) => !selectedIds.has(ref));
+    if (missingRefs.length > 0) {
+      throw new NotFoundError(
+        `evidence reference(s) not found for this subject: ${missingRefs.join(", ")}`,
+      );
+    }
+    // MISSING 状态的证据代表"缺失"而非"存在但有瑕疵"，不参与覆盖计算。
+    type ReceivedEvidence = typeof selectedEvidence[number] & {
+      qualityStatus: Exclude<
+        typeof selectedEvidence[number]["qualityStatus"],
+        "MISSING"
+      >;
+    };
+    const receivedEvidence = selectedEvidence.filter(
+      (node): node is ReceivedEvidence => node.qualityStatus !== "MISSING",
+    );
     const assessment = assessEvidenceCoverage({
       subjectType: body.subjectType,
       subjectId: body.subjectId,
       cycleId: body.cycleId,
       dimensions: body.dimensions,
-      evidence: body.evidence,
+      evidence: receivedEvidence.map((node) => ({
+        id: node.id,
+        type: node.evidenceType,
+        text: JSON.stringify(node.normalizedPayload),
+        dimension: typeof node.normalizedPayload.dimension === "string"
+          ? node.normalizedPayload.dimension
+          : undefined,
+        quality: node.qualityStatus,
+        sourceSystem: node.sourceSystem,
+        payloadHash: node.payloadHash,
+      })),
       requirements: body.requirements,
     });
-    try {
-      await storeFor(request).recordAuditEvent({
-        actorType: "USER",
-        actorId: ownPersonId(request) ?? request.authContext?.userId,
-        action: "AI_EVIDENCE_COVERAGE_ASSESSED",
-        objectType: body.subjectType,
-        objectId: body.subjectId,
-        reason: `cycle=${body.cycleId} band=${assessment.coverageBand} snapshot=${assessment.evidenceSnapshotHash}`,
-      });
-    } catch {
-      /* audit is best-effort for legacy stores */
-    }
+    await domainStore.recordAuditEvent({
+      actorType: "USER",
+      actorId: ownPersonId(request) ?? request.authContext?.userId,
+      action: "AI_EVIDENCE_COVERAGE_ASSESSED",
+      objectType: body.subjectType,
+      objectId: body.subjectId,
+      reason: `cycle=${body.cycleId} band=${assessment.coverageBand} snapshot=${assessment.evidenceSnapshotHash}`,
+    });
     countEvent("ai_evidence_coverage_assessed");
     return reply.status(200).send(data(assessment, request));
   });

@@ -2457,6 +2457,10 @@ export interface MetricMeasurementSnapshot {
   status: "FROZEN" | "CONSUMED";
   /** 链接的正式评价决定（FROZEN→CONSUMED 时写入）。 */
   evaluationDecisionId?: UUID;
+  /** 执行快照绑定的认证人员；与 decisionId 在同一原子状态转换中写入。 */
+  linkedByPersonId?: UUID;
+  /** 历史记录在绑定操作时未留存 actor；不得伪造，需明确显示为未知。 */
+  legacyLinkedActorUnknown?: boolean;
   createdAt: string;
 }
 

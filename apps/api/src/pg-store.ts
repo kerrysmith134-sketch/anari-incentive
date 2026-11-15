@@ -756,9 +756,11 @@ export class PgStore implements IncentiveStore {
   private computeSnapshotHash(
     measurements: MetricMeasurementSnapshot["measurements"],
   ): string {
-    const ordered = [...measurements].sort((a, b) =>
-      `${a.metricId}|${a.observedAt}` < `${b.metricId}|${b.observedAt}` ? -1 : 1,
-    );
+    const ordered = [...measurements].sort((a, b) => {
+      const left = `${a.metricId}|${a.observedAt}`;
+      const right = `${b.metricId}|${b.observedAt}`;
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
     return sha256(ordered);
   }
 
@@ -859,7 +861,7 @@ export class PgStore implements IncentiveStore {
         );
       }
       const { rows: decisionRows } = await client.query(
-        "SELECT id, person_id, cycle_id FROM evaluation_decisions WHERE tenant_id = $1 AND id = $2",
+        "SELECT id, person_id, cycle_id, rubric_version_id FROM evaluation_decisions WHERE tenant_id = $1 AND id = $2",
         [this.tenantId, input.evaluationDecisionId],
       );
       if (!decisionRows[0]) {
@@ -869,18 +871,19 @@ export class PgStore implements IncentiveStore {
       }
       if (
         decisionRows[0].person_id !== snapshot.personId ||
-        decisionRows[0].cycle_id !== snapshot.cycleId
+        decisionRows[0].cycle_id !== snapshot.cycleId ||
+        decisionRows[0].rubric_version_id !== snapshot.rubricVersionId
       ) {
         throw new ConflictError(
-          "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person or cycle",
+          "SNAPSHOT_DECISION_MISMATCH: decision belongs to a different person, cycle or rubric version",
         );
       }
       const { rows: updated } = await client.query(
         `UPDATE metric_measurement_snapshots
-            SET status = 'CONSUMED', evaluation_decision_id = $3
+            SET status = 'CONSUMED', evaluation_decision_id = $3, linked_by_person_id = $4
           WHERE tenant_id = $1 AND id = $2
           RETURNING *`,
-        [this.tenantId, id, input.evaluationDecisionId],
+        [this.tenantId, id, input.evaluationDecisionId, input.linkedBy],
       );
       return this.mapMetricSnapshot(updated[0]);
     });
@@ -899,6 +902,8 @@ export class PgStore implements IncentiveStore {
       frozenBy: row.frozen_by,
       status: row.status,
       evaluationDecisionId: row.evaluation_decision_id ?? undefined,
+      linkedByPersonId: row.linked_by_person_id ?? undefined,
+      legacyLinkedActorUnknown: row.legacy_linked_actor_unknown === true,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }

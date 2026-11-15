@@ -287,9 +287,16 @@ export function registerEvaluationCycleRoutes(deps: {
   app.post("/api/v1/metric-measurement-snapshots", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createMetricMeasurementSnapshotSchema, request.body);
+    const actorPersonId = ownPersonId(request);
+    if (!actorPersonId) {
+      throw new ForbiddenError("freezing a metric snapshot requires an authenticated employee identity");
+    }
     return reply.status(201).send(
       data(
-        await storeFor(request).createMetricMeasurementSnapshot(body),
+        await storeFor(request).createMetricMeasurementSnapshot({
+          ...body,
+          frozenBy: actorPersonId,
+        }),
         request,
       ),
     );
@@ -309,13 +316,20 @@ export function registerEvaluationCycleRoutes(deps: {
   });
 
   app.get("/api/v1/metric-measurement-snapshots/:id", async (request) => {
-    return data(
-      await storeFor(request).getMetricMeasurementSnapshot(idOf(request)),
-      request,
-    );
+    const snapshot = await storeFor(request).getMetricMeasurementSnapshot(idOf(request));
+    const person = personFilter(request);
+    if (person && snapshot.personId !== person) {
+      throw new ForbiddenError("metric measurement snapshot is not visible to this person");
+    }
+    return data(snapshot, request);
   });
 
   app.get("/api/v1/metric-measurement-snapshots/:id/verify", async (request) => {
+    const snapshot = await storeFor(request).getMetricMeasurementSnapshot(idOf(request));
+    const person = personFilter(request);
+    if (person && snapshot.personId !== person) {
+      throw new ForbiddenError("metric measurement snapshot is not visible to this person");
+    }
     return data(
       await storeFor(request).verifyMetricMeasurementSnapshot(idOf(request)),
       request,
@@ -325,10 +339,14 @@ export function registerEvaluationCycleRoutes(deps: {
   app.post("/api/v1/metric-measurement-snapshots/:id/link-decision", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(linkMetricMeasurementSnapshotSchema, request.body);
+    const actorPersonId = ownPersonId(request);
+    if (!actorPersonId) {
+      throw new ForbiddenError("linking a metric snapshot requires an authenticated employee identity");
+    }
     return data(
       await storeFor(request).linkMetricMeasurementSnapshotToDecision(
         idOf(request),
-        body,
+        { ...body, linkedBy: actorPersonId },
       ),
       request,
     );
