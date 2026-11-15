@@ -29,6 +29,7 @@ import {
   policyBody,
   requireActor,
   requireActorRequired,  requireTenantModule,
+  requireSettlementGo,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -575,6 +576,8 @@ export function registerPayrollRunRoutes(deps: {
 
   app.post("/api/v1/payroll-runs/:id/pay", async (request) => {
     requireRoles(request, "finance");
+    // D-07：向员工实际支付属正式结算动作，需租户 GO。
+    await requireSettlementGo(request, platformStore);
     const run = await platformStore.payPayrollRun({
       tenantId: tenantOf(request),
       runId: idOf(request),

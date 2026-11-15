@@ -740,10 +740,12 @@ describePg("PgStore vertical slice", () => {
         rubricVersionId: rubric.id,
         decision: "APPROVE",
         scores: { QUALITY: score },
-        
-independentScores: { QUALITY: 4 },
-independentRationale: "先独立判断：证据覆盖充分",
-evidenceOpened: 1,rationale: "Reviewed",
+        independentScores: { QUALITY: 4 },
+        independentRationale: "先独立判断：证据覆盖充分",
+        evidenceOpened: 1,
+        rationale: "Reviewed",
+        // D-03：0 分为 ASSESSED 结论（本用例验证乘数下限）。
+        dimensionStates: { QUALITY: "ASSESSED" },
       });
       return result.decision!.id;
     }

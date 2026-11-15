@@ -21,6 +21,7 @@ import { useToast } from "../contexts/ToastContext.js";
 import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import {
   displayName,
@@ -841,7 +842,9 @@ export function PolicyPage() {
                       className={
                         version.policyVersionId === selectedId ? "is-selected" : ""
                       }
-                      onClick={() => setSelectedId(version.policyVersionId)}
+                      {...clickableRowProps(() =>
+                        setSelectedId(version.policyVersionId),
+                      )}
                     >
                       <td>
                         <span className="cell-primary" style={{ overflowWrap: "anywhere" }}>

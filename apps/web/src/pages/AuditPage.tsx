@@ -14,6 +14,7 @@ import {
   Select,
 } from "../components/ui.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import { downloadJson } from "../lib/api.js";
 import {
   formatDateTime,
@@ -270,7 +271,7 @@ export function AuditPage() {
                   <tr
                     key={event.id}
                     className="table-clickable"
-                    onClick={() => setSelected(event)}
+                    {...clickableRowProps(() => setSelected(event))}
                   >
                     <td className="cell-mono">{event.sequence}</td>
                     <td>

@@ -4690,11 +4690,12 @@ describe("vertical slice", () => {
           rubricVersionId,
           decision: "APPROVE",
           scores: { QUALITY: score },
-          
-independentScores: { QUALITY: 4 },
-independentRationale: "先独立判断：证据覆盖充分",
-evidenceOpened: 1,
-        rationale: "Reviewed evidence",
+          independentScores: { QUALITY: 4 },
+          independentRationale: "先独立判断：证据覆盖充分",
+          evidenceOpened: 1,
+          rationale: "Reviewed evidence",
+          // D-03：0 分是 ASSESSED 结论（本用例故意用 0 分验证乘数下限）。
+          dimensionStates: { QUALITY: "ASSESSED" },
         },
       );
       expect(decision.status).toBe(200);

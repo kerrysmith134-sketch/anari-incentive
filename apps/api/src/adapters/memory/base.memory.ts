@@ -289,6 +289,8 @@ export class MemoryPlatformStoreBase {
       settings: {
         modules:
           demo.modules ?? ["PAYROLL", "EQUITY", "STRATEGIC_POOL"],
+        // D-07：演示/试点租户已获结算 GO；新建租户默认只跑影子结算。
+        settlementGo: true,
       },
       createdAt,
     });

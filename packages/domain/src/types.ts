@@ -2182,6 +2182,11 @@ export interface EvaluationDecision {
   /** ATT-06：看 AI 草稿前的独立判断记录。 */
   independentScores: Record<string, number>;
   independentRationale: string;
+  /** D-03：维度认定状态（零分必须 ASSESSED 且有理由）。 */
+  dimensionStates?: Record<
+    string,
+    "ASSESSED" | "NOT_APPLICABLE" | "INSUFFICIENT_EVIDENCE"
+  >;
   evidenceOpened?: number;
   reviewStartedAt?: string;
   approvedAt?: string;

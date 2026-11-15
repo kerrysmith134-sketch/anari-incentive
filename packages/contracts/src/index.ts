@@ -2169,6 +2169,13 @@ export const decideEvaluationDraftSchema = z.object({
   independentScores: z.record(z.number().min(0).max(5)),
   independentRationale: z.string().min(3),
   evidenceOpened: z.number().int().min(0).default(0),
+  /**
+   * D-03：每个维度的认定状态。任何维度打 0 分必须是 ASSESSED（有依据的
+   * 人工认定），并附独立理由——零分不是"未评"的默认值。
+   */
+  dimensionStates: z
+    .record(z.enum(["ASSESSED", "NOT_APPLICABLE", "INSUFFICIENT_EVIDENCE"]))
+    .optional(),
 });
 export type DecideEvaluationDraftBody = z.infer<
   typeof decideEvaluationDraftSchema

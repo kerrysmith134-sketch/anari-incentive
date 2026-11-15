@@ -3261,6 +3261,10 @@ export class PgStore implements IncentiveStore {
       independentRationale: string;
       evidenceOpened?: number;
       reviewStartedAt?: string;
+      dimensionStates?: Record<
+        string,
+        "ASSESSED" | "NOT_APPLICABLE" | "INSUFFICIENT_EVIDENCE"
+      >;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }> {
     return this.tx(async (client) => {
@@ -3291,6 +3295,19 @@ export class PgStore implements IncentiveStore {
         if (!(dimension in input.scores)) {
           throw new ConflictError(`EVALUATION_DIMENSION_MISSING: ${dimension}`);
         }
+        // D-03：零分必须是 ASSESSED 且有独立理由。
+        if (input.scores[dimension] === 0) {
+          if (input.dimensionStates?.[dimension] !== "ASSESSED") {
+            throw new ConflictError(
+              `ZERO_SCORE_REQUIRES_ASSESSED_STATE: ${dimension} scored 0 without an ASSESSED dimension state`,
+            );
+          }
+          if ((input.independentRationale ?? "").trim().length < 3) {
+            throw new ConflictError(
+              `ZERO_SCORE_REQUIRES_ASSESSED_STATE: ${dimension} scored 0 without an evidence-backed rationale`,
+            );
+          }
+        }
       }
 
       const { rows: priorRows } = await client.query(
@@ -3314,8 +3331,9 @@ export class PgStore implements IncentiveStore {
           (id, tenant_id, cycle_id, person_id, decision_version, status,
            rubric_version_id, evidence_snapshot_hash, scores, rationale,
            reviewer_person_id, approved_at, supersedes_id,
-           independent_scores, independent_rationale, evidence_opened)
-         VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10,now(),$11,$12,$13,$14)
+           independent_scores, independent_rationale, evidence_opened,
+           dimension_states)
+         VALUES ($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10,now(),$11,$12,$13,$14,$15)
          RETURNING *`,
         [
           decisionId,
@@ -3332,6 +3350,7 @@ export class PgStore implements IncentiveStore {
           JSON.stringify(input.independentScores ?? {}),
           input.independentRationale ?? "",
           input.evidenceOpened ?? null,
+          JSON.stringify(input.dimensionStates ?? {}),
         ],
       );
       await client.query(
@@ -3478,6 +3497,14 @@ export class PgStore implements IncentiveStore {
         {},
       ),
       independentRationale: row.independent_rationale ?? "",
+      dimensionStates:
+        Object.keys(asJson<Record<string, unknown>>(row.dimension_states, {}))
+          .length > 0
+          ? asJson<EvaluationDecision["dimensionStates"]>(
+              row.dimension_states,
+              {},
+            )
+          : undefined,
       evidenceOpened:
         row.evidence_opened === null || row.evidence_opened === undefined
           ? undefined

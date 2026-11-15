@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T19:25:54.067Z",
+  "generatedAt": "2026-11-15T21:36:05.135Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -465,6 +465,11 @@
       "file": "093_audit_hardening.sql",
       "bytes": 6076,
       "sha256": "d9b704d164a970479268170c28c48234427c34db512d7ca093e46b896c669dbd"
+    },
+    {
+      "file": "094_decision_dimension_states.sql",
+      "bytes": 282,
+      "sha256": "8186daeb78f066f0f3b3af9ed245471bda3f6370bd310532d6be3d00082e0fca"
     }
   ]
 }

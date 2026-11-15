@@ -726,6 +726,67 @@ function registerContractSuite(
     ).rejects.toThrow("ASSESSMENT_EVIDENCE_CROSS_SUBJECT");
   });
 
+  it("D-03：零分必须 ASSESSED 且有理由；合法零分带状态持久化", async () => {
+    const workPackageId = await acceptedWorkPackage(`zero-score ${suffix}`);
+    const { claimId } = await confirmedClaim(workPackageId, OWNER);
+    const rubric = await store.createRubric({
+      code: `ZERO_RUBRIC_${suffix}`,
+      name: "zero score rubric",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const draft = await store.createEvaluationDraft({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+      generatedByType: "SYSTEM",
+      evidenceSnapshotHash: `zero-${suffix}`,
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(draft.id);
+
+    // 零分但未声明 ASSESSED → 拒绝
+    await expect(
+      store.decideEvaluationDraft(draft.id, {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 0 },
+        independentScores: { QUALITY: 0 },
+        independentRationale: "no evidence of delivery",
+        rationale: "zero",
+      }),
+    ).rejects.toThrow(/ZERO_SCORE_REQUIRES_ASSESSED_STATE/);
+
+    // NOT_APPLICABLE 不能配 0 分（0 分本身是 ASSESSED 结论）
+    await expect(
+      store.decideEvaluationDraft(draft.id, {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 0 },
+        independentScores: { QUALITY: 0 },
+        independentRationale: "not applicable",
+        rationale: "zero",
+        dimensionStates: { QUALITY: "NOT_APPLICABLE" },
+      }),
+    ).rejects.toThrow(/ZERO_SCORE_REQUIRES_ASSESSED_STATE/);
+
+    // ASSESSED + 理由 → 通过并持久化状态
+    const decided = await store.decideEvaluationDraft(draft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: { QUALITY: 0 },
+      independentScores: { QUALITY: 0 },
+      independentRationale: "delivery not accepted; acceptance record missing",
+      rationale: "assessed zero",
+      dimensionStates: { QUALITY: "ASSESSED" },
+    });
+    expect(decided.decision?.dimensionStates?.QUALITY).toBe("ASSESSED");
+    void claimId;
+  });
+
   it("指标快照域：冻结哈希确定性、复核、决定绑定追溯、错配拒绝", async () => {
     const rubric = await store.createRubric({
       code: `SNAP_RUBRIC_${suffix}`,

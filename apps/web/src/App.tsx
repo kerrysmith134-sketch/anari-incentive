@@ -223,7 +223,7 @@ class ErrorBoundary extends Component<
             onClick={() => window.location.reload()}
             className="empty-state__action"
           >
-            Reload console
+            重新加载控制台
           </Button>
         </div>
       );
@@ -235,7 +235,7 @@ class ErrorBoundary extends Component<
 function PageFallback() {
   return (
     <div className="loading-inline" style={{ minHeight: "50vh", justifyContent: "center" }}>
-      <span className="spinner" /> Loading view…
+      <span className="spinner" /> 正在加载视图…
     </div>
   );
 }

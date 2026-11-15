@@ -4,7 +4,9 @@
  * 行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { BudgetPort } from "../../store-ports.js";
+import type { BudgetPort,
+  TenantPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { createSettlementBatchSchema, settlementCommandSchema } from "@anari/contracts";
 import {
@@ -22,10 +24,11 @@ import {
   tenantOf,
   requireActor,
   requireActorRequired,
+  requireSettlementGo,
 } from "../../http-helpers.js";
 
 export interface SettlementDeps {
-  platformStore: BudgetPort;
+  platformStore: BudgetPort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   notifyBestEffort: (
@@ -90,6 +93,8 @@ export function registerSettlementRoutes(deps: SettlementDeps): FastifyPluginAsy
   } = deps;
   return async (app: FastifyInstance) => {
     app.post("/api/v1/settlement-batches", async (request, reply) => {
+      // D-07：正式结算需租户 GO 审批（P0 默认只跑影子结算）。
+      await requireSettlementGo(request, platformStore);
       requireRoles(request, "finance");
       const body = parse(createSettlementBatchSchema, request.body);
       const store = storeFor(request);
@@ -168,7 +173,10 @@ export function registerSettlementRoutes(deps: SettlementDeps): FastifyPluginAsy
         throw new NotFoundError(`SettlementBatch ${idOf(request)} not found`);
       }
       const body = parse(settlementCommandSchema, request.body);
-      if (body.command === "EXPORT") assertExportAllowed(request);
+      if (body.command === "EXPORT") {
+        await requireSettlementGo(request, platformStore);
+        assertExportAllowed(request);
+      }
       const store = storeFor(request);
       if (body.command === "APPROVE" || body.command === "LOCK") {
         const actionType =

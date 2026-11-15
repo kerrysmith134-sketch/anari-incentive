@@ -18,6 +18,7 @@ import {
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { clickableRowProps } from "../lib/a11y.js";
 import { formatDateTime, shortId, titleCase } from "../lib/format.js";
 import type {
   PlatformMembership,
@@ -455,7 +456,9 @@ export function PlatformAdminPage() {
                         className={
                           tenant.id === selectedTenantId ? "is-selected" : ""
                         }
-                        onClick={() => setSelectedTenantId(tenant.id)}
+                        {...clickableRowProps(() =>
+                          setSelectedTenantId(tenant.id),
+                        )}
                       >
                         <td>
                           <span className="cell-primary">{tenant.name}</span>

@@ -2350,6 +2350,10 @@ export class Store implements IncentiveStore {
       independentRationale: string;
       evidenceOpened?: number;
       reviewStartedAt?: string;
+      dimensionStates?: Record<
+        string,
+        "ASSESSED" | "NOT_APPLICABLE" | "INSUFFICIENT_EVIDENCE"
+      >;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }> {
     const draft = await this.getEvaluationDraft(id);
@@ -2378,6 +2382,19 @@ export class Store implements IncentiveStore {
       if (!(dimension in input.scores)) {
         throw new ConflictError(`EVALUATION_DIMENSION_MISSING: ${dimension}`);
       }
+      // D-03：零分必须是 ASSESSED 且有独立理由（不能当"未评"默认值）。
+      if (input.scores[dimension] === 0) {
+        if (input.dimensionStates?.[dimension] !== "ASSESSED") {
+          throw new ConflictError(
+            `ZERO_SCORE_REQUIRES_ASSESSED_STATE: ${dimension} scored 0 without an ASSESSED dimension state`,
+          );
+        }
+        if ((input.independentRationale ?? "").trim().length < 3) {
+          throw new ConflictError(
+            `ZERO_SCORE_REQUIRES_ASSESSED_STATE: ${dimension} scored 0 without an evidence-backed rationale`,
+          );
+        }
+      }
     }
 
     const prior = [...this.evaluationDecisions.values()]
@@ -2403,6 +2420,7 @@ export class Store implements IncentiveStore {
       scores: input.scores,
       independentScores: input.independentScores,
       independentRationale: input.independentRationale,
+      dimensionStates: input.dimensionStates,
       evidenceOpened: input.evidenceOpened,
       reviewStartedAt: input.reviewStartedAt,
       rationale: input.rationale,

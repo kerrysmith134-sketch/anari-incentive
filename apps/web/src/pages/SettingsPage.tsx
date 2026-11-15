@@ -1546,7 +1546,7 @@ export function SettingsPage() {
                     ),
                   },
                   {
-                    label: "Membership roles",
+                    label: "成员角色",
                     value:
                       identity.data.roles.length > 0
                         ? identity.data.roles.join(", ")

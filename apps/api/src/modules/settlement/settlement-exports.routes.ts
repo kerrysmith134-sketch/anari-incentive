@@ -4,7 +4,9 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { settlementCsv } from "../../store.js";
 import { sha256 } from "@anari/policy-dsl";
-import type { SettlementPort } from "../../store-ports.js";
+import type { SettlementPort,
+  TenantPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import {
@@ -18,10 +20,11 @@ import {
   tenantOf,
   idOf,
   requireActorRequired,
+  requireSettlementGo,
 } from "../../http-helpers.js";
 
 export function registerSettlementExportRoutes(deps: {
-  platformStore: SettlementPort;
+  platformStore: SettlementPort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   assertExportAllowed: (request: FastifyRequest) => void;
   assertExportDlp: (
@@ -48,6 +51,8 @@ export function registerSettlementExportRoutes(deps: {
   return async (app: FastifyInstance) => {
   app.post("/api/v1/settlement-batches/:id/exports", async (request, reply) => {
     requireRoles(request, "finance");
+    // D-07：结算导出属正式结算动作，需租户 GO。
+    await requireSettlementGo(request, platformStore);
     const body = parse(recordSettlementExportSchema, request.body);
     const batch = await storeFor(request).getSettlementBatch(idOf(request));
     if (

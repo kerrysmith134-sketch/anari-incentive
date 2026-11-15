@@ -62,6 +62,38 @@ export class FeatureDisabledError extends Error {
   }
 }
 
+/** D-07：正式结算/支付未获 GO 审批——稳定错误码 SETTLEMENT_GO_REQUIRED（403）。 */
+export class SettlementGoRequiredError extends Error {
+  readonly statusCode = 403;
+  readonly code = "SETTLEMENT_GO_REQUIRED";
+  constructor() {
+    super(
+      "SETTLEMENT_GO_REQUIRED: formal settlement is disabled for this tenant; " +
+        "P0 runs shadow settlement only until a settlement GO approval is recorded",
+    );
+  }
+}
+
+/**
+ * D-07 闸门：租户 settings.settlementGo 必须为 true 才允许创建结算批次/
+ * 导出/支付薪酬。demo/试点租户显式开启；新租户默认 false（只跑影子）。
+ * 无租户记录（纯内存/开发模式）不阻断——生产路径始终有租户记录。
+ */
+export async function requireSettlementGo(
+  request: FastifyRequest,
+  platformStore: TenantModulesSource,
+): Promise<void> {
+  let tenant: { settings?: Record<string, unknown> };
+  try {
+    tenant = await platformStore.getTenant(tenantOf(request));
+  } catch {
+    return;
+  }
+  const flag = (tenant.settings as { settlementGo?: unknown } | undefined)
+    ?.settlementGo;
+  if (flag !== true) throw new SettlementGoRequiredError();
+}
+
 /** 租户 settings.modules（缺省 = P0-only，扩展模块全部关闭）。 */
 /** 守卫只依赖 getTenant——模块路由可传窄化的端口组合（不必是完整 PlatformStore）。 */
 export interface TenantModulesSource {

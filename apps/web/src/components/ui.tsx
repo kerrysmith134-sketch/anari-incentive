@@ -476,7 +476,7 @@ export function EmptyState({
 
 export function LoadingRows({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="skeleton-stack" aria-label="Loading" role="status">
+    <div className="skeleton-stack" aria-label="加载中" role="status">
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="skeleton-row">
           <span className="skeleton skeleton--wide" />
