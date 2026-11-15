@@ -52,6 +52,42 @@ describe("InMemoryLedger", () => {
     expect(ledger.verifyChain("tenant-1")).toBe(true);
   });
 
+  it("rejects reversing the same source entry twice (any idempotency key)", () => {
+    const ledger = new InMemoryLedger();
+    const original = ledger.append(base);
+    ledger.reverse(original.id, {
+      tenantId: base.tenantId,
+      personId: base.personId,
+      cycleId: base.cycleId,
+      calculationRunId: base.calculationRunId,
+      currency: "CNY",
+      idempotencyKey: "reversal-1",
+    });
+    expect(() =>
+      ledger.reverse(original.id, {
+        tenantId: base.tenantId,
+        personId: base.personId,
+        cycleId: base.cycleId,
+        calculationRunId: base.calculationRunId,
+        currency: "CNY",
+        idempotencyKey: "reversal-2",
+      }),
+    ).toThrow(/already been reversed/i);
+  });
+
+  it("balance is exact (bigint, no float drift)", () => {
+    const ledger = new InMemoryLedger();
+    ledger.append({ ...base, amount: "0.10", idempotencyKey: "k-1" });
+    ledger.append({
+      ...base,
+      calculationLineId: "line-2",
+      amount: "0.20",
+      idempotencyKey: "k-2",
+    });
+    // 浮点 0.1+0.2 会是 0.30000000000000004；bigint 必须是 0.30。
+    expect(ledger.balance(base.personId, "CNY")).toBe("0.3");
+  });
+
   it("supports reversal as a new linked entry", () => {
     const ledger = new InMemoryLedger();
     const original = ledger.append(base);
@@ -65,7 +101,7 @@ describe("InMemoryLedger", () => {
     });
     expect(reversal.amount).toBe("-100.00");
     expect(reversal.sourceEntryId).toBe(original.id);
-    expect(ledger.balance("person-1", "CNY")).toBe(0);
+    expect(ledger.balance("person-1", "CNY")).toBe("0");
     expect(ledger.verifyChain("tenant-1")).toBe(true);
   });
 

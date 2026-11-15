@@ -356,6 +356,14 @@ function registerContractSuite(
       approvedBy: ADJUDICATOR,
     });
     expect(replay.id).toBe(reversal.id);
+    // 同一源分录不得再被另一个幂等键反冲一次（否则凭空多出一笔冲销）。
+    await expect(
+      store.reverseLedgerEntry(ownerEntry!.id, {
+        idempotencyKey: `contract-reversal-again-${run.id}`,
+        reason: "duplicate reversal",
+        approvedBy: ADJUDICATOR,
+      }),
+    ).rejects.toThrow(/ALREADY_REVERSED|already been reversed/i);
     expect(await store.verifyLedger()).toBe(true);
 
     const adjusted = await store.adjustLedgerEntry(ownerEntry!.id, {

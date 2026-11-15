@@ -1561,7 +1561,11 @@ export function registerAiGovernanceRoutes(deps: {
           completedAt: new Date().toISOString(),
           adjudicatedBy:
             typeof body.adjudicatedBy === "string"
-              ? body.adjudicatedBy
+              ? requireActorRequired(
+                  request,
+                  body.adjudicatedBy,
+                  "adjudicating a model review",
+                )
               : undefined,
           scores: body.scores ?? {},
         },

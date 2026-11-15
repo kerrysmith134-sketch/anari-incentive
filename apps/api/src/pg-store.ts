@@ -876,7 +876,7 @@ export class PgStore implements IncentiveStore {
 
   async completeAgentTodo(
     id: string,
-    completedByPersonId: string,
+    completedByPersonId?: string,
   ): Promise<AgentTodo> {
     return this.tx(async (client) => {
       const { rows } = await client.query(
@@ -885,7 +885,7 @@ export class PgStore implements IncentiveStore {
                 completed_at = now(), updated_at = now()
           WHERE tenant_id = $1 AND id = $2 AND status = 'OPEN'
           RETURNING *`,
-        [this.tenantId, id, completedByPersonId],
+        [this.tenantId, id, completedByPersonId ?? null],
       );
       if (!rows[0]) {
         const current = await this.getAgentTodo(id);
@@ -4108,6 +4108,7 @@ export class PgStore implements IncentiveStore {
            source_entry_id, idempotency_key, entry_hash, prev_hash,
            created_at, locked_at)
          VALUES ($1,$2,$3,$4,$5,$6,'REVERSAL',$7,$8,'LOCKED',$9,$10,$11,$12,$13,$13)
+         ON CONFLICT DO NOTHING
          RETURNING *`,
         [
           reversalId,
@@ -4125,6 +4126,12 @@ export class PgStore implements IncentiveStore {
           createdAt,
         ],
       );
+      if (!inserted.rows[0]) {
+        // 同一源分录已被反冲（部分唯一索引挡住重复反冲）。
+        throw new ConflictError(
+          `LEDGER_ALREADY_REVERSED: ledger entry ${id} has already been reversed`,
+        );
+      }
       await this.appendAudit(client, {
         action: "LEDGER_REVERSAL",
         objectType: "AMOUNT_LEDGER",
@@ -4174,6 +4181,12 @@ export class PgStore implements IncentiveStore {
         [this.tenantId, input.idempotencyKey],
       );
       if (existing.rows[0]) {
+        // 幂等重放必须指向同一源分录，否则是键复用（不是成功）。
+        if (existing.rows[0].source_entry_id !== id) {
+          throw new ConflictError(
+            "IDEMPOTENCY_KEY_REUSED: the idempotency key belongs to another ledger entry",
+          );
+        }
         const existingRecord = await client.query(
           `SELECT * FROM adjustment_records
             WHERE tenant_id=$1 AND adjustment_ledger_id=$2`,

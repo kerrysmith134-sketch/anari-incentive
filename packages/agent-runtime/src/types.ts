@@ -149,7 +149,8 @@ export interface AgentContext {
   }>;
   completeAgentTodo(
     id: string,
-    completedByPersonId: string,
+    /** 系统完成（workflow 对账）可省略——落库为 NULL。 */
+    completedByPersonId?: string,
   ): Promise<{
     id: string;
     status: string;

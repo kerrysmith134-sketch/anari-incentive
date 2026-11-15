@@ -27,6 +27,7 @@ import {
   requireRoles,
   tenantOf,
   requireActor,  requireTenantModule,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerStrategicPoolRoutes(deps: {
@@ -82,6 +83,12 @@ export function registerStrategicPoolRoutes(deps: {
           await platformStore.createStrategicPoolCase({
             tenantId: tenantOf(request),
             ...body,
+            // 申报人必须是会话身份（防"替他人申报再自批"绕过职责分离）。
+            requestedBy: requireActorRequired(
+              request,
+              body.requestedBy,
+              "requesting a strategic pool case",
+            ),
           }),
           request,
         ),
@@ -127,7 +134,11 @@ export function registerStrategicPoolRoutes(deps: {
           unitStandardCost: body.unitStandardCost,
           totalStandardCost: formatDecimal(total),
           transferPricingRef: body.transferPricingRef,
-          costReviewedBy: body.reviewedBy,
+          costReviewedBy: requireActorRequired(
+            request,
+            body.reviewedBy,
+            "cost-reviewing a strategic pool case",
+          ),
           costReviewedAt: new Date().toISOString(),
           status: "COST_REVIEWED",
         },

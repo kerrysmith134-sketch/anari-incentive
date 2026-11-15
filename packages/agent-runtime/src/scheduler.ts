@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentTask } from "./types.js";
-import type { AgentRuntime } from "./runtime.js";
+import { AgentRuntimeError, type AgentRuntime } from "./runtime.js";
 
 export interface ScheduleRule {
   id: string;
@@ -54,7 +54,34 @@ export class AgentScheduler {
     private readonly runtime: AgentRuntime,
     private readonly tenantId: string,
     private readonly prefix = "scheduler",
+    /**
+     * AUD-013 follow-up：autoRun=false 时 tick/emit/阈值只入队不执行，
+     * 由多租户 Dispatcher 统一 claim 执行——避免与调度器直接 run 的
+     * 双执行窗口（同一 QUEUED 行被两边同时执行）。
+     */
+    private readonly options: { autoRun?: boolean } = {},
   ) {}
+
+  /** 所属租户（Outbox 跨租户分发校验用）。 */
+  get tenant(): string {
+    return this.tenantId;
+  }
+
+  private async dispatch(task: AgentTask): Promise<AgentTask> {
+    if (this.options.autoRun === false) return task;
+    try {
+      return await this.runtime.run(task.id);
+    } catch (error) {
+      // 任务已被其他 worker 领取（RUNNING）——跳过而非中断整批。
+      if (
+        error instanceof AgentRuntimeError &&
+        error.code === "AGENT_TASK_NOT_CLAIMABLE"
+      ) {
+        return task;
+      }
+      throw error;
+    }
+  }
 
   addSchedule(rule: ScheduleRule): void {
     this.schedules.set(rule.id, rule);
@@ -83,7 +110,7 @@ export class AgentScheduler {
         input: rule.input,
         idempotencyKey: `${this.prefix}:schedule:${rule.id}:${bucket}`,
       });
-      tasks.push(await this.runtime.run(task.id));
+      tasks.push(await this.dispatch(task));
     }
     return tasks;
   }
@@ -104,7 +131,7 @@ export class AgentScheduler {
         input: { ...rule.input, ...payload },
         idempotencyKey: `${this.prefix}:event:${eventType}:${eventId}:${rule.id}`,
       });
-      tasks.push(await this.runtime.run(task.id));
+      tasks.push(await this.dispatch(task));
     }
     return tasks;
   }
@@ -126,7 +153,7 @@ export class AgentScheduler {
         input: { ...rule.input, metric: rule.metric, value },
         idempotencyKey: `${this.prefix}:threshold:${rule.id}:${rule.metric}:${value}`,
       });
-      tasks.push(await this.runtime.run(task.id));
+      tasks.push(await this.dispatch(task));
     }
     return tasks;
   }

@@ -77,6 +77,11 @@ export interface RetryFailedOptions {
   maxAttempts?: number;
   /** Do not retry a task updated more recently than this. */
   minAgeMs?: number;
+  /**
+   * false 时只把 FAILED 复位为 RETRY_PENDING（READY），交由 Dispatcher
+   * claim 执行——多租户模式避免与 dispatcher 双执行。
+   */
+  execute?: boolean;
 }
 
 /**
@@ -559,6 +564,10 @@ export class AgentRuntime {
       task.status = "RETRY_PENDING";
       task.updatedAt = now();
       await this.persist(task);
+      if (options.execute === false) {
+        retried.push(task);
+        continue;
+      }
       retried.push(await this.run(task.id));
     }
     return retried;

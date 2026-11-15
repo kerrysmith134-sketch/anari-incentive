@@ -67,7 +67,9 @@ export function calculateTiered(
     lowerBound = upper;
   }
 
-  const capped = min(commission, parseDecimal(policy.poolCap));
+  const capValue = parseDecimal(policy.poolCap);
+  if (capValue < 0n) throw new Error("poolCap cannot be negative");
+  const capped = min(commission, capValue);
   const poolRounded = roundTo(capped, 2, policy.rounding);
   const lines: CalculationLine[] = allocatePool(policy, input, poolRounded, {
     baseAmount: grossProfit,
@@ -118,7 +120,13 @@ export function calculateTeamPool(
   }
   const pool = min(
     mul(grossProfit, parseDecimal(policy.poolRate)),
-    parseDecimal(policy.poolCap),
+    (() => {
+      const capValue = parseDecimal(policy.poolCap);
+      if (parseDecimal(policy.poolRate) < 0n || capValue < 0n) {
+        throw new Error("poolRate and poolCap cannot be negative");
+      }
+      return capValue;
+    })(),
   );
   const poolRounded = roundTo(pool, 2, policy.rounding);
 

@@ -143,6 +143,8 @@ export function registerEvidenceRoutes(deps: {
     });
 
     app.post("/api/v1/evidence/:id/links", async (request, reply) => {
+      // 证据互链影响申诉/认定结论——仅管理/财务角色可建立（与读侧一致）。
+      requireRoles(request, "manager", "finance");
       const body = parse(createEvidenceLinkSchema, request.body);
       return reply
         .status(201)

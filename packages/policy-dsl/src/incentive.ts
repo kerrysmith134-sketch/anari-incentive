@@ -168,16 +168,44 @@ export function calculateInternalSplit(
       errors,
     };
   }
+  // 最大余数法（Hamilton）：以 0.01 为量子分配，保证合计 ≤ remaining 且
+  // 逐项 HALF_UP 四舍五入不再可能把总额向上溢出。
+  const QUANTUM = 10_000n; // 0.01 的微单位
+  const totalUnits = remaining / QUANTUM;
+  const exact = input.participants.map((participant) => {
+    const product = totalUnits * parseDecimal(participant.sharePercent);
+    return {
+      personId: participant.personId,
+      floorUnits: product / HUNDRED,
+      remainder: product % HUNDRED,
+    };
+  });
+  const assignedUnits = exact.reduce((acc, item) => acc + item.floorUnits, 0n);
+  let leftover = totalUnits - assignedUnits;
+  const unitsByPerson = new Map(
+    exact.map((item) => [item.personId, item.floorUnits]),
+  );
+  const remainderOrder = [...exact].sort((a, b) =>
+    a.remainder === b.remainder
+      ? a.personId.localeCompare(b.personId)
+      : a.remainder > b.remainder
+        ? -1
+        : 1,
+  );
+  for (const item of remainderOrder) {
+    if (leftover <= 0n) break;
+    unitsByPerson.set(item.personId, (unitsByPerson.get(item.personId) ?? 0n) + 1n);
+    leftover -= 1n;
+  }
   const allocations = input.participants.map((participant) => ({
     personId: participant.personId,
-    amount: roundTo(
-      div(mul(remaining, parseDecimal(participant.sharePercent)), HUNDRED),
-      2,
-      "HALF_UP",
-    ),
+    amount: (unitsByPerson.get(participant.personId) ?? 0n) * QUANTUM,
   }));
   const allocated = sum(allocations.map((entry) => entry.amount));
-  const unallocated = max(ZERO, remaining - allocated);
+  if (allocated > remaining) {
+    errors.push("内部分配合计超过剩余池（分配器不变量被破坏）");
+  }
+  const unallocated = remaining - allocated;
   return {
     remainingPool: formatDecimal(roundTo(remaining, 2, "HALF_UP")),
     allocated: formatDecimal(roundTo(allocated, 2, "HALF_UP")),

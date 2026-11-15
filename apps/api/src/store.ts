@@ -792,7 +792,7 @@ export class Store implements IncentiveStore {
 
   async completeAgentTodo(
     id: string,
-    completedByPersonId: string,
+    completedByPersonId?: string,
   ): Promise<AgentTodo> {
     const todo = await this.getAgentTodo(id);
     if (todo.status !== "OPEN") {
@@ -2471,7 +2471,7 @@ export class Store implements IncentiveStore {
         // clawback must never ride a standard batch: that would skip the
         // per-person confirmation gate RECOVERY batches enforce.
         (input.kind === "RECOVERY"
-          ? Number(entry.amount) < 0
+          ? parseDecimal(entry.amount) < 0n
           : entry.entryType !== "RECOVERY"),
     );
     if (eligible.length === 0) {

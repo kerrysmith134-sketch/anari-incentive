@@ -88,52 +88,57 @@ const runtime = new AgentRuntime(
     repository: new PgAgentTaskRepository(pool, tenantId),
   },
 );
-const scheduler = new AgentScheduler(runtime, tenantId, "worker");
+/** 所有租户共享的调度规则（多租户模式按租户各建一个 scheduler 实例）。 */
+function configureScheduler(scheduler: AgentScheduler): AgentScheduler {
+  scheduler.addSchedule({
+    id: "evidence-gap",
+    agentType: "EVIDENCE_GAP",
+    intervalMs: scanIntervalMs,
+  });
+  scheduler.addSchedule({
+    id: "contribution-anomaly",
+    agentType: "CONTRIBUTION_ANOMALY",
+    intervalMs: 60 * 60 * 1000,
+  });
+  scheduler.addSchedule({
+    id: "data-quality",
+    agentType: "DATA_QUALITY",
+    intervalMs: 30 * 60 * 1000,
+  });
+  scheduler.addSchedule({
+    id: "appeal-sla",
+    agentType: "APPEAL_SLA",
+    intervalMs: 60 * 60 * 1000,
+    input: { slaDays: 3 },
+  });
+  // AI-04 草稿生成 workflow（PRD §7.4 三个 bounded workflow 之一）：
+  // 周期到期前自动预审，生成证据 bound 的 AGENT 草稿供人工复核。
+  scheduler.addSchedule({
+    id: "evaluation-draft",
+    agentType: "EVALUATION_DRAFT",
+    intervalMs: 6 * 60 * 60 * 1000,
+  });
+  scheduler.addEventRule({
+    id: "claim-submitted",
+    eventType: "ContributionClaimSubmitted",
+    agentType: "CONTRIBUTION_ANOMALY",
+  });
+  scheduler.addEventRule({
+    id: "calculation-succeeded",
+    eventType: "CalculationRunSucceeded",
+    agentType: "SETTLEMENT_READINESS",
+  });
+  scheduler.addEventRule({
+    id: "appeal-opened",
+    eventType: "AppealOpened",
+    agentType: "APPEAL_SLA",
+  });
+  return scheduler;
+}
 
-scheduler.addSchedule({
-  id: "evidence-gap",
-  agentType: "EVIDENCE_GAP",
-  intervalMs: scanIntervalMs,
-});
-scheduler.addSchedule({
-  id: "contribution-anomaly",
-  agentType: "CONTRIBUTION_ANOMALY",
-  intervalMs: 60 * 60 * 1000,
-});
-scheduler.addSchedule({
-  id: "data-quality",
-  agentType: "DATA_QUALITY",
-  intervalMs: 30 * 60 * 1000,
-});
-scheduler.addSchedule({
-  id: "appeal-sla",
-  agentType: "APPEAL_SLA",
-  intervalMs: 60 * 60 * 1000,
-  input: { slaDays: 3 },
-});
-// AI-04 草稿生成 workflow（PRD §7.4 三个 bounded workflow 之一）：
-// 周期到期前自动预审，生成证据 bound 的 AGENT 草稿供人工复核。
-scheduler.addSchedule({
-  id: "evaluation-draft",
-  agentType: "EVALUATION_DRAFT",
-  intervalMs: 6 * 60 * 60 * 1000,
-});
-
-scheduler.addEventRule({
-  id: "claim-submitted",
-  eventType: "ContributionClaimSubmitted",
-  agentType: "CONTRIBUTION_ANOMALY",
-});
-scheduler.addEventRule({
-  id: "calculation-succeeded",
-  eventType: "CalculationRunSucceeded",
-  agentType: "SETTLEMENT_READINESS",
-});
-scheduler.addEventRule({
-  id: "appeal-opened",
-  eventType: "AppealOpened",
-  agentType: "APPEAL_SLA",
-});
+const scheduler = configureScheduler(
+  new AgentScheduler(runtime, tenantId, "worker"),
+);
 
 // NPV2-022：多租户模式——一个 Worker Pool 按 tenant 公平消费任务，
 // 任务执行绑定各自租户上下文（runtime/repository 惰性创建）。
@@ -163,9 +168,31 @@ if (process.env.WORKER_MULTI_TENANT === "1") {
   );
 }
 
+// AUD-013/P0：多租户模式下调度只入队（autoRun=false），由 Dispatcher 统一
+// claim 执行——避免「scheduler 直接 run」与「dispatcher claim」双执行。
+const multiTenantSchedulers = new Map<string, AgentScheduler>();
+function schedulerForTenant(tenant: string): AgentScheduler {
+  if (!dispatcher) return scheduler;
+  const existing = multiTenantSchedulers.get(tenant);
+  if (existing) return existing;
+  const built = configureScheduler(
+    new AgentScheduler(
+      dispatcher.runtimeFor(tenant),
+      tenant,
+      `worker:${tenant.slice(0, 8)}`,
+      { autoRun: false },
+    ),
+  );
+  multiTenantSchedulers.set(tenant, built);
+  return built;
+}
+
 const poller = new OutboxPoller(
   new PgOutboxSource(pool, tenantId),
   scheduler,
+  50,
+  // 多租户：按事件租户分发；单租户：仅消费本租户（claim 已按租户过滤）。
+  dispatcher ? { schedulerFor: schedulerForTenant } : {},
 );
 
 // AUD-024：Worker 心跳——/ready 不只 SELECT 1，还要求主循环活着。
@@ -351,13 +378,38 @@ while (running) {
       const tenants = dispatcher ? await dispatcher.listTenantIds() : [tenantId];
       for (const tenant of tenants) {
         await runBoundedWorkflowsForTenant(tenant);
+        // 长任务阶段推进心跳：单个租户的 workflow 可能远超 poll 周期。
+        heartbeat.lastTickOkAt = Date.now();
       }
     }
-    const scheduled = await scheduler.tick();
-    const events = await poller.pollOnce({ workerId: `outbox-${process.pid}`, leaseMs: 60_000 });
-    const retried = await runtime.retryFailed({
-      maxAttempts: 3,
-      minAgeMs: 60_000,
+    let scheduled: Awaited<ReturnType<AgentScheduler["tick"]>> = [];
+    let retried: Awaited<ReturnType<AgentRuntime["retryFailed"]>> = [];
+    if (dispatcher) {
+      // 多租户：每个租户独立调度/重试，只入队；执行权归 Dispatcher。
+      const tenants = await dispatcher.listTenantIds();
+      for (const tenant of tenants) {
+        scheduled = scheduled.concat(await schedulerForTenant(tenant).tick());
+        retried = retried.concat(
+          await dispatcher.runtimeFor(tenant).retryFailed({
+            maxAttempts: 3,
+            minAgeMs: 60_000,
+            execute: false,
+          }),
+        );
+      }
+    } else {
+      scheduled = await scheduler.tick();
+      retried = await runtime.retryFailed({
+        maxAttempts: 3,
+        minAgeMs: 60_000,
+      });
+    }
+    heartbeat.lastTickOkAt = Date.now();
+    const events = await poller.pollOnce({
+      workerId: `outbox-${process.pid}`,
+      leaseMs: 60_000,
+      // 单租户消费必须限定本租户，禁止跨租户取事件。
+      tenantId: dispatcher ? undefined : tenantId,
     });
     if (Date.now() - lastCycleAdvanceMs >= CYCLE_ADVANCE_INTERVAL_MS) {
       lastCycleAdvanceMs = Date.now();

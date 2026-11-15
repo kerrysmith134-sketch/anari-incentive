@@ -151,7 +151,7 @@ export interface IncentiveStore {
   }): Promise<AgentAiOffBaseline>;
   latestAgentAiOffBaseline(): Promise<AgentAiOffBaseline | undefined>;
   getAgentTodo(id: string): Promise<AgentTodo>;
-  completeAgentTodo(id: string, completedByPersonId: string): Promise<AgentTodo>;
+  completeAgentTodo(id: string, completedByPersonId?: string): Promise<AgentTodo>;
   cancelAgentTodo(id: string, reason?: string): Promise<AgentTodo>;
   createMetricMeasurementSnapshot(
     input: CreateMetricMeasurementSnapshotInput,

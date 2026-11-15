@@ -20,6 +20,7 @@ import {
   parse,
   personFilter,
   requireRoles,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerWorkPackageRoutes(deps: {
@@ -118,10 +119,16 @@ export function registerWorkPackageRoutes(deps: {
     app.post("/api/v1/work-packages/:id/accept", async (request) => {
       requireRoles(request, "manager");
       const body = parse(acceptWorkPackageSchema, request.body);
+      // NPV2-003/AUD-005：验收人必须是会话身份（不可代他人验收）。
+      const reviewer = requireActorRequired(
+        request,
+        body.reviewerPersonId,
+        "accepting a work package",
+      );
       return data(
         await storeFor(request).acceptWorkPackage(
           idOf(request),
-          body.reviewerPersonId,
+          reviewer,
           body.expectedVersion,
         ),
         request,
@@ -131,14 +138,21 @@ export function registerWorkPackageRoutes(deps: {
     app.post("/api/v1/work-packages:accept-batch", async (request, reply) => {
       requireRoles(request, "manager");
       const body = parse(acceptWorkPackagesBatchSchema, request.body);
+      // 每个条目逐一做 actor 收口（批量也不例外）。
+      const items = body.items.map((item) => ({
+        ...item,
+        reviewerPersonId: requireActorRequired(
+          request,
+          item.reviewerPersonId,
+          "accepting work packages",
+        ),
+      }));
       return reply
         .status(200)
         .send(
           data(
             {
-              workPackages: await storeFor(request).acceptWorkPackagesBatch(
-                body.items,
-              ),
+              workPackages: await storeFor(request).acceptWorkPackagesBatch(items),
             },
             request,
           ),
@@ -148,10 +162,15 @@ export function registerWorkPackageRoutes(deps: {
     app.post("/api/v1/work-packages/:id/reject", async (request) => {
       requireRoles(request, "manager");
       const body = parse(rejectWorkPackageSchema, request.body);
+      const reviewer = requireActorRequired(
+        request,
+        body.reviewerPersonId,
+        "rejecting a work package",
+      );
       return data(
         await storeFor(request).rejectWorkPackage(
           idOf(request),
-          body.reviewerPersonId,
+          reviewer,
           body.reason,
           body.expectedVersion,
         ),

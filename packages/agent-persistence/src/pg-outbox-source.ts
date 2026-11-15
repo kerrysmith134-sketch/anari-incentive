@@ -78,6 +78,8 @@ export class PgOutboxSource implements OutboxSource {
     workerId: string;
     leaseMs: number;
     limit: number;
+    /** 单租户 worker 传入本租户：claim 只取本租户事件（防跨租户消费）。 */
+    tenantId?: string;
   }): Promise<OutboxEvent[]> {
     return this.platformTx(async (client) => {
       const { rows } = await client.query(
@@ -85,10 +87,11 @@ export class PgOutboxSource implements OutboxSource {
            FROM outbox_events
           WHERE published_at IS NULL
             AND (claimed_until IS NULL OR claimed_until < now())
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
           ORDER BY occurred_at, id
           LIMIT $1
           FOR UPDATE SKIP LOCKED`,
-        [input.limit],
+        [input.limit, input.tenantId ?? null],
       );
       const claimed: OutboxEvent[] = [];
       for (const row of rows) {

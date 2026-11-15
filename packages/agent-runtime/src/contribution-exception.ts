@@ -83,10 +83,8 @@ export class ContributionExceptionWorkflow {
           if (!/^(contribution-exception:)/.test(todo.idempotencyKey ?? "")) {
             continue;
           }
-          await this.context.completeAgentTodo(
-            todo.id,
-            "SYSTEM_STATE_RECONCILED",
-          );
+          // 系统完成：completed_by 留空（PG uuid 列不能写非 UUID 字符串）。
+          await this.context.completeAgentTodo(todo.id);
           todosReconciled += 1;
           audit.push({
             at,
@@ -110,6 +108,8 @@ export class ContributionExceptionWorkflow {
           body: `Claim ${claim.id} was adjudicated by its own claimant; independent review required.`,
           sourceType: "CONTRIBUTION_CLAIM",
           sourceId: claim.id,
+          // 稳定幂等键——每轮扫描不重复通知。
+          idempotencyKey: `self-adjudication:${claim.id}`,
         });
         conflictsEscalated += 1;
         audit.push({

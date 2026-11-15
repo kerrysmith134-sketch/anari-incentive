@@ -40,7 +40,11 @@ export function registerBudgetRoutes(deps: {
             employeeObserverPersonId: body.employeeObserverPersonId,
             selectionCriteria: body.selectionCriteria,
             decisionNotes: body.decisionNotes,
-            reviewedBy: body.reviewedBy,
+            reviewedBy: requireActorRequired(
+              request,
+              body.reviewedBy,
+              "reviewing discretionary allocation",
+            ),
           }),
           request,
         ),

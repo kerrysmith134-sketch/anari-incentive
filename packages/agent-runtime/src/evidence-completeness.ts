@@ -110,6 +110,8 @@ export class EvidenceCompletenessWorkflow {
         body: `Work package ${gap.subjectId} is missing evidence; please upload.`,
         sourceType: "WORK_PACKAGE",
         sourceId: gap.subjectId,
+        // 同一缺口的催补证只发一次（键含责任人，改派后可再提醒）。
+        idempotencyKey: `evidence-requested:${gap.subjectId}:${todo.assigneePersonId}`,
       });
       todosCreated += 1;
       audit.push({
@@ -139,10 +141,8 @@ export class EvidenceCompletenessWorkflow {
         todo.targetId,
       );
       if (evidence.length === 0) continue;
-      await this.context.completeAgentTodo(
-        todo.id,
-        "SYSTEM_EVIDENCE_VERIFIED",
-      );
+      // 系统完成：completed_by 留空（PG uuid 列不能写非 UUID 字符串）。
+      await this.context.completeAgentTodo(todo.id);
       todosVerifiedClosed += 1;
       audit.push({
         at,
@@ -165,6 +165,8 @@ export class EvidenceCompletenessWorkflow {
         body: `Todo ${todo.id} (${todo.title ?? "evidence gap"}) is past due.`,
         sourceType: "AGENT_TODO",
         sourceId: todo.id,
+        // 同一待办只在首个逾期窗口通知一次（跨扫描/跨重启稳定）。
+        idempotencyKey: `evidence-overdue:${todo.id}`,
       });
       escalations += 1;
       audit.push({

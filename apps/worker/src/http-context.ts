@@ -67,10 +67,13 @@ export class HttpAgentContext implements AgentContext {
   ) {}
 
   private async headers(): Promise<RequestHeaders> {
+    // AUD-013/P0：租户头必须始终携带——否则多租户 worker 会以 token 所属
+    // 租户的身份操作其它租户的数据。
+    const headers: RequestHeaders = { "x-tenant-id": this.tenantId };
     if (this.tokenProvider) {
-      return { authorization: `Bearer ${await this.tokenProvider.getToken()}` };
+      headers.authorization = `Bearer ${await this.tokenProvider.getToken()}`;
     }
-    return { "x-tenant-id": this.tenantId };
+    return headers;
   }
 
   async listWorkPackages(): Promise<WorkPackage[]> {
@@ -302,12 +305,14 @@ export class HttpAgentContext implements AgentContext {
     );
   }
 
-  async completeAgentTodo(id: string, completedByPersonId: string) {
+  async completeAgentTodo(id: string, completedByPersonId?: string) {
+    // 系统完成（workflow reconcile）不写 person id——PG 侧为 uuid 列，
+    // 传 "SYSTEM_*" 字符串会 22P02 报错；省略即 NULL。
     const body = await postData(
       this.baseUrl,
       `/api/v1/agent-todos/${id}/complete`,
       await this.headers(),
-      { completedByPersonId },
+      completedByPersonId ? { completedByPersonId } : {},
     );
     const todo = (body as { data?: Record<string, unknown> }).data ?? {};
     return {
@@ -343,14 +348,20 @@ export class HttpAgentContext implements AgentContext {
       await this.headers(),
     );
     const rows = (body as { data?: Array<Record<string, unknown>> }).data ?? [];
+    // AUD-010/P0：API 返回 camelCase（AgentTodo）——此前按 snake_case 读取，
+    // dueAt/targetId/idempotencyKey 恒为 undefined，导致 workflow 死代码。
     return rows.map((row) => ({
       id: String(row.id ?? ""),
       title: String(row.title ?? ""),
-      assigneePersonId: String(row.assignee_person_id ?? ""),
+      detail: row.detail ? String(row.detail) : undefined,
+      assigneePersonId: String(row.assigneePersonId ?? ""),
       status: String(row.status ?? "OPEN"),
-      dueAt: row.due_at ? String(row.due_at) : undefined,
-      targetId: row.target_id ? String(row.target_id) : undefined,
-      sourceId: String(row.source_id ?? ""),
+      dueAt: row.dueAt ? String(row.dueAt) : undefined,
+      targetType: row.targetType ? String(row.targetType) : undefined,
+      targetId: row.targetId ? String(row.targetId) : undefined,
+      sourceType: row.sourceType ? String(row.sourceType) : undefined,
+      sourceId: String(row.sourceId ?? ""),
+      idempotencyKey: row.idempotencyKey ? String(row.idempotencyKey) : undefined,
     }));
   }
   async createEvaluationDraft(input: {

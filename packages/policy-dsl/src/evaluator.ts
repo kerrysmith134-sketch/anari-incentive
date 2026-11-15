@@ -200,11 +200,15 @@ export function calculateOrderContribution(
     throw new Error("Gross profit cannot be negative");
   }
 
-  const pool = min(
-    mul(grossProfit, parseDecimal(policy.poolRate)),
-    parseDecimal(policy.poolCap),
-  );
-  const poolRounded = roundTo(pool, 2, policy.rounding);
+  // 池参数不得为负（负池会产生负激励分录并绕开 RECOVERY 确认门禁）。
+  const rateValue = parseDecimal(policy.poolRate);
+  const capValue = parseDecimal(policy.poolCap);
+  if (rateValue < 0n || capValue < 0n) {
+    throw new Error("poolRate and poolCap cannot be negative");
+  }
+  const pool = min(mul(grossProfit, rateValue), capValue);
+  // 舍入向上不得越过 cap：以 cap 的向下 2 位为硬上限。
+  const poolRounded = min(roundTo(pool, 2, policy.rounding), roundTo(capValue, 2, "DOWN"));
   const lines = allocatePool(policy, input, poolRounded, {
     baseAmount: grossProfit,
     trace: { pool: formatDecimal(pool) },

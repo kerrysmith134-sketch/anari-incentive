@@ -17,6 +17,7 @@ import {
   requireRoles,
   tenantOf,
   idOf,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerSettlementExportRoutes(deps: {
@@ -59,6 +60,11 @@ export function registerSettlementExportRoutes(deps: {
       );
     }
     const csv = settlementCsv(batch, batch.lines ?? []);
+    const exportedBy = requireActorRequired(
+      request,
+      body.exportedBy,
+      "exporting a settlement batch",
+    );
     return reply.status(201).send(
       data(
         await platformStore.createSettlementExport({
@@ -66,7 +72,7 @@ export function registerSettlementExportRoutes(deps: {
           batchId: batch.id,
           exportRef: body.exportRef ?? `EXPORT-${batch.batchNo}-${Date.now()}`,
           exportHash: sha256(csv),
-          exportedBy: body.exportedBy,
+          exportedBy,
         }),
         request,
       ),

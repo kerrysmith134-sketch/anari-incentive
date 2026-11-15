@@ -2,6 +2,7 @@
  * Agent 域路由（任务/聊天/命令/收件箱）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import { ForbiddenError } from "@anari/auth";
 import type { AgentRuntime, AgentStepRepository } from "@anari/agent-runtime";
 import { llmChatComplete, extractJson, type LlmMessage } from "../../llm.js";
 import { notifyBestEffort } from "../../notify.js";
@@ -25,7 +26,9 @@ import {
   idOf,
   personFilter,
   policyBody,
-  requireString,
+  requireActorRequired,
+  isPrivileged,
+  ownPersonId,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -404,12 +407,14 @@ export function registerAgentTaskRoutes(deps: {
         ? ["admin"]
         : ["manager", "finance"]),
     );
+    // NPV2-003/AUD-005：审批人必须是会话身份（不可代他人批准高风险动作）。
+    const approver = requireActorRequired(
+      request,
+      body.approverPersonId,
+      "approving an agent action",
+    );
     return data(
-      await runtime.approve(
-        idOf(request),
-        body.actionId,
-        body.approverPersonId,
-      ),
+      await runtime.approve(idOf(request), body.actionId, approver),
       request,
     );
   });
@@ -417,11 +422,16 @@ export function registerAgentTaskRoutes(deps: {
   app.post("/api/v1/agent-tasks/:id/reject", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(rejectAgentActionSchema, request.body);
+    const approver = requireActorRequired(
+      request,
+      body.approverPersonId,
+      "rejecting an agent action",
+    );
     return data(
       await runtimeFor(request).reject(
         idOf(request),
         body.actionId,
-        body.approverPersonId,
+        approver,
         body.reason,
       ),
       request,
@@ -441,12 +451,15 @@ export function registerAgentTaskRoutes(deps: {
   });
 
   // NPV2-019/031：步骤与工具调用记录只读暴露（运维面板任务事实溯源）。
+  // 审计轨迹含工具输入输出，仅管理/财务角色可读（person-level IDOR 收口）。
   app.get("/api/v1/agent-tasks/:id/steps", async (request) => {
+    requireRoles(request, "manager", "finance");
     const repository = stepRepositoryFor?.(tenantOf(request));
     return data(repository ? await repository.listSteps(idOf(request)) : [], request);
   });
 
   app.get("/api/v1/agent-tasks/:id/invocations", async (request) => {
+    requireRoles(request, "manager", "finance");
     const repository = stepRepositoryFor?.(tenantOf(request));
     return data(repository ? await repository.listToolInvocations(idOf(request)) : [], request);
   });
@@ -465,17 +478,36 @@ export function registerAgentTaskRoutes(deps: {
   });
 
   app.get("/api/v1/agent-todos/:id", async (request) => {
-    return data(
-      await storeFor(request).getAgentTodo(idOf(request)),
-      request,
-    );
+    const todo = await storeFor(request).getAgentTodo(idOf(request));
+    const person = personFilter(request);
+    // 员工只能读自己的待办；管理/财务可读全部（审计与分派）。
+    if (person && todo.assigneePersonId !== person) {
+      throw new ForbiddenError("agent todo is not visible to this person");
+    }
+    return data(todo, request);
   });
 
   app.post("/api/v1/agent-todos/:id/complete", async (request) => {
     const body = policyBody(request);
-    const completedBy = requireString(body, "completedByPersonId");
+    const store = storeFor(request);
+    const todo = await store.getAgentTodo(idOf(request));
+    const person = ownPersonId(request);
+    const claimed =
+      typeof body.completedByPersonId === "string"
+        ? body.completedByPersonId
+        : undefined;
+    // 员工只能完成自己的待办；系统对账（机器令牌、无 person 声明）
+    // 允许不写 completed_by（PG uuid 列存 NULL）。
+    if (person && todo.assigneePersonId !== person && !isPrivileged(request)) {
+      throw new ForbiddenError(
+        "only the assignee (or a manager) can complete this todo",
+      );
+    }
+    const completedBy = claimed
+      ? requireActorRequired(request, claimed, "completing a todo")
+      : person;
     return data(
-      await storeFor(request).completeAgentTodo(idOf(request), completedBy),
+      await store.completeAgentTodo(idOf(request), completedBy),
       request,
     );
   });

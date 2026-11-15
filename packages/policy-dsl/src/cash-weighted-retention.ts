@@ -78,7 +78,13 @@ export function calculateCashWeightedRetention(
 
   const basePool = min(
     mul(grossProfit, parseDecimal(policy.poolRate)),
-    parseDecimal(policy.poolCap),
+    (() => {
+      const capValue = parseDecimal(policy.poolCap);
+      if (parseDecimal(policy.poolRate) < 0n || capValue < 0n) {
+        throw new Error("poolRate and poolCap cannot be negative");
+      }
+      return capValue;
+    })(),
   );
   const cashWeight = parseDecimal(policy.cashCollectionWeight ?? "0");
   const cashAdjustedPool = mul(

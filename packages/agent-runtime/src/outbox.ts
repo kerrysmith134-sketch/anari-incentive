@@ -13,6 +13,11 @@ export interface OutboxClaimContext {
   workerId: string;
   /** 租约时长毫秒；崩溃后租约到期，事件可被重新领取（不丢失）。 */
   leaseMs: number;
+  /**
+   * 单租户 worker 传入本租户——claim 只取该租户事件（防跨租户消费）；
+   * 多租户 worker 不传（全局队列），但必须提供 schedulerFor 按事件租户分发。
+   */
+  tenantId?: string;
 }
 
 export interface OutboxSource {
@@ -40,7 +45,27 @@ export class OutboxPoller {
     private readonly source: OutboxSource,
     private readonly scheduler: AgentScheduler,
     private readonly batchSize = 50,
+    /**
+     * AUD-013/P0：多租户消费时按事件租户解析 scheduler。缺省时只允许
+     * 消费与 scheduler 同租户的事件（否则抛错，绝不跨租户落任务）。
+     */
+    private readonly options: {
+      schedulerFor?: (tenantId: string) => AgentScheduler;
+    } = {},
   ) {}
+
+  private schedulerFor(event: TenantScopedEvent): AgentScheduler {
+    const resolved = this.options.schedulerFor?.(event.tenantId);
+    if (resolved) return resolved;
+    if (event.tenantId !== this.scheduler.tenant) {
+      throw new Error(
+        `OUTBOX_CROSS_TENANT_DISPATCH: event ${event.id} belongs to tenant ` +
+          `${event.tenantId} but the poller is bound to ${this.scheduler.tenant}; ` +
+          "provide schedulerFor() for multi-tenant consumption",
+      );
+    }
+    return this.scheduler;
+  }
 
   /**
    * NPV2-023：一轮消费。支持原子 claim 的源走租约路径（先恢复过期租约）；
@@ -60,7 +85,7 @@ export class OutboxPoller {
         limit: this.batchSize,
       });
       for (const event of events) {
-        const produced = await this.scheduler.emit(
+        const produced = await this.schedulerFor(event).emit(
           event.eventType,
           event.payload,
           event.id,
@@ -72,7 +97,7 @@ export class OutboxPoller {
     }
     const events = await this.source.claimBatch(this.batchSize);
     for (const event of events) {
-      const produced = await this.scheduler.emit(
+      const produced = await this.schedulerFor(event).emit(
         event.eventType,
         event.payload,
         event.id,
@@ -82,4 +107,9 @@ export class OutboxPoller {
     }
     return tasks;
   }
+}
+
+interface TenantScopedEvent {
+  id: string;
+  tenantId: string;
 }

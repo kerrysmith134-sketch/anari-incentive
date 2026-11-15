@@ -4,7 +4,7 @@ import type {
   LedgerEntryType,
   LedgerStatus,
 } from "@anari/domain";
-import { sha256 } from "@anari/policy-dsl";
+import { formatDecimal, parseDecimal, sha256 } from "@anari/policy-dsl";
 
 export class LedgerError extends Error {
   constructor(
@@ -69,6 +69,8 @@ export class InMemoryLedger {
   private readonly entries: AmountLedgerEntry[] = [];
   private readonly byIdempotencyKey = new Map<string, AmountLedgerEntry>();
   private readonly byCalculationLine = new Map<string, AmountLedgerEntry>();
+  /** 反冲唯一性：同一源分录只能被反冲一次（与 PG 部分唯一索引同语义）。 */
+  private readonly reversedSources = new Set<string>();
 
   append(input: AppendLedgerInput): AmountLedgerEntry {
     const idempotencyKey = `${input.tenantId}:${input.idempotencyKey}`;
@@ -88,6 +90,15 @@ export class InMemoryLedger {
         "SOURCE_ENTRY_REQUIRED",
         `${input.entryType} entries must reference the source entry`,
       );
+    }
+    if (input.entryType === "REVERSAL") {
+      const reversalKey = `${input.tenantId}:${input.sourceEntryId}`;
+      if (this.reversedSources.has(reversalKey)) {
+        throw new LedgerError(
+          "LEDGER_ALREADY_REVERSED",
+          `ledger entry ${input.sourceEntryId} has already been reversed`,
+        );
+      }
     }
 
     const lineKey = input.calculationLineId
@@ -122,6 +133,9 @@ export class InMemoryLedger {
     this.entries.push(entry);
     this.byIdempotencyKey.set(idempotencyKey, entry);
     if (lineKey) this.byCalculationLine.set(lineKey, entry);
+    if (entry.entryType === "REVERSAL" && entry.sourceEntryId) {
+      this.reversedSources.add(`${entry.tenantId}:${entry.sourceEntryId}`);
+    }
     return entry;
   }
 
@@ -214,12 +228,14 @@ export class InMemoryLedger {
     }
   }
 
-  balance(personId: string, currency: string): number {
-    return this.entries
+  /** 余额：bigint 微单位求和（与账本精度一致，不用浮点）。 */
+  balance(personId: string, currency: string): string {
+    const total = this.entries
       .filter(
         (entry) => entry.personId === personId && entry.currency === currency,
       )
-      .reduce((acc, entry) => acc + Number(entry.amount), 0);
+      .reduce((acc, entry) => acc + parseDecimal(entry.amount), 0n);
+    return formatDecimal(total);
   }
 
   private lastForTenant(tenantId: string): AmountLedgerEntry | undefined {

@@ -13,12 +13,14 @@ import { TENANT_MODULE_KEYS, updateTenantModulesSchema } from "@anari/contracts"
 import {
   data,
   idOf,
+  isPlatformAdmin,
   parse,
   requireRoles,
   requireTenantMember,
   tenantModulesOf,
   tenantOf,
 } from "../../http-helpers.js";
+import { ForbiddenError } from "@anari/auth";
 
 export function registerTenantModuleRoutes(deps: {
   platformStore: PlatformStore;
@@ -42,6 +44,12 @@ export function registerTenantModuleRoutes(deps: {
 
     app.put("/api/v1/platform/tenants/:id/modules", async (request, reply) => {
       requireRoles(request, "admin");
+      // AUD-017 安全收口：管理员只能改自己租户（平台管理员可跨租户）。
+      if (!isPlatformAdmin(request) && idOf(request) !== tenantOf(request)) {
+        throw new ForbiddenError(
+          "cannot change module flags for another tenant",
+        );
+      }
       const body = parse(updateTenantModulesSchema, request.body);
       const tenantId = idOf(request);
       const before = await platformStore.getTenant(tenantId);

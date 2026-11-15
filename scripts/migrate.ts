@@ -36,8 +36,10 @@ try {
   const allFiles = readdirSync(migrationsDir)
     .filter((file) => file.endsWith(".sql"))
     .sort();
+  // 用数字前缀比较（"089_x" 字典序大于 "089"，直接 <= 会漏掉边界迁移）。
+  const versionPrefix = (file: string) => file.split("_")[0] ?? "";
   const files = until
-    ? allFiles.filter((file) => file.replace(/\.sql$/, "") <= until)
+    ? allFiles.filter((file) => versionPrefix(file) <= until)
     : allFiles;
   if (until) {
     console.log(`--until ${until}: applying ${files.length}/${allFiles.length} migrations`);

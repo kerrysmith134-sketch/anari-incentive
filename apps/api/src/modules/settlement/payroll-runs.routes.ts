@@ -99,6 +99,11 @@ export function registerPayrollRunRoutes(deps: {
   app.post("/api/v1/payroll-runs", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createPayrollRunSchema, request.body);
+    const preparedBy = requireActorRequired(
+      request,
+      body.preparedBy,
+      "preparing a payroll run",
+    );
     return reply.status(201).send(
       data(
         await platformStore.createPayrollRun({
@@ -107,7 +112,7 @@ export function registerPayrollRunRoutes(deps: {
           periodStart: body.periodStart,
           periodEnd: body.periodEnd,
           currency: body.currency,
-          preparedBy: body.preparedBy,
+          preparedBy,
         }),
         request,
       ),
@@ -581,11 +586,16 @@ export function registerPayrollRunRoutes(deps: {
   app.post("/api/v1/payroll-runs/:id/reverse", async (request) => {
     requireRoles(request, "finance", "admin");
     const body = parse(reversePayrollRunSchema, request.body);
+    const reversedBy = requireActorRequired(
+      request,
+      body.reversedBy,
+      "reversing a payroll run",
+    );
     const run = await platformStore.reversePayrollRun({
       tenantId: tenantOf(request),
       runId: idOf(request),
       reason: body.reason,
-      reversedBy: body.reversedBy,
+      reversedBy,
     });
     countEvent("payroll_run_reversed");
     return data(run, request);

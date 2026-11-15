@@ -78,7 +78,11 @@ export function registerAuditPrivacyRoutes(deps: {
       scope: body.scope,
       granteePersonId: body.granteePersonId,
       reason: body.reason,
-      grantedBy: body.grantedBy,
+      grantedBy: requireActorRequired(
+        request,
+        body.grantedBy,
+        "granting break-glass access",
+      ),
       expiresAt: body.expiresAt,
     });
     countEvent("break_glass_grant_created");
