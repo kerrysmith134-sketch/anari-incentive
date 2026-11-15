@@ -1,0 +1,3 @@
+order_id,title,objective,owner_employee_code,participants,gross_profit,currency,period_start,period_end
+SO-2026-001,储能柜海外订单 A,华东销售+产品中心联合交付,E001,E001:OWNER|E002:CONTRIBUTOR|E003:CONTRIBUTOR,128000.50,CNY,2026-10-01,2026-10-31
+SO-2026-002,工商业储能项目 B,跨部门交付与验收,E002,E002:OWNER|E003:CONTRIBUTOR,76000.00,CNY,2026-10-03,2026-10-28
