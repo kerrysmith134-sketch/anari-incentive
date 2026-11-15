@@ -52,7 +52,11 @@ describe("AUD-023: 可观测性持久化事实 → 自动指标", () => {
     const off = availability.find((entry) => entry.metric === "aiOffFloor")!;
     expect(fp.available).toBe(false);
     expect(off.available).toBe(false);
-    expect(report.data.costNote).toContain("单价目录");
+    
+    // 报告 note 同时披露 unavailable 语义与成本口径（单价目录未配置）。
+    const note = (report.data as { note?: string }).note ?? "";
+    expect(note).toContain("unavailable");
+    expect(note).toContain("单价目录");
   });
 
   it("标注落库（幂等）后 falsePositiveRate 自动可用", async () => {
