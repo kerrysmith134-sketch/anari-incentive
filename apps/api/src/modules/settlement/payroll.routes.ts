@@ -4,7 +4,11 @@
  * 字段脱敏与门禁依赖由 app 注入；行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { DirectoryPort, SettlementPort } from "../../store-ports.js";
+import type {
+  DirectoryPort,
+  SettlementPort,
+  TenantPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import type { PayrollRun, EmploymentContract } from "@anari/domain";
 import {
@@ -48,11 +52,11 @@ import {
   requireRoles,
   tenantOf,
   requireActor,
-  requireActorRequired,
+  requireActorRequired,  requireTenantModule,
 } from "../../http-helpers.js";
 
 export interface PayrollDeps {
-  platformStore: DirectoryPort & SettlementPort;
+  platformStore: DirectoryPort & SettlementPort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   ensureApproval: (
@@ -134,6 +138,10 @@ export function registerPayrollRoutes(deps: PayrollDeps): FastifyPluginAsync {
   };
 
   return async (app: FastifyInstance) => {
+    // AUD-017/D-04：薪酬（含个税）为扩展域——租户未启用即 403 FEATURE_DISABLED。
+    app.addHook("preHandler", async (request) => {
+      await requireTenantModule(request, platformStore, "PAYROLL");
+    });
     app.post("/api/v1/compensation-templates", async (request, reply) => {
       requireRoles(request, "admin");
       const body = parse(createCompensationTemplateSchema, request.body);

@@ -6,6 +6,11 @@ export interface NavItem {
   icon: IconName;
   /** 空数组/缺省 = 所有人可见；否则仅列出的角色可见。 */
   allowed?: string[];
+  /**
+   * AUD-017：扩展域模块 key——租户未启用（settings.modules）时导航隐藏，
+   * 直达 URL 由后端 403 FEATURE_DISABLED 与页面未启用提示兜底。
+   */
+  module?: string;
 }
 
 export interface NavGroup {
@@ -75,9 +80,9 @@ export const NAV: NavGroup[] = [
         icon: "wallet",
         allowed: ["manager", "finance", "admin"],
       },
-      { to: "/equity", label: "期权股权", icon: "trend-up" },
+      { to: "/equity", label: "期权股权", icon: "trend-up", module: "EQUITY" },
       { to: "/bounty", label: "悬赏任务", icon: "check-circle" },
-      { to: "/payroll", label: "薪酬发放", icon: "payroll", allowed: ["finance", "admin"] },
+      { to: "/payroll", label: "薪酬发放", icon: "payroll", allowed: ["finance", "admin"], module: "PAYROLL" },
       { to: "/settlements", label: "结算", icon: "wallet", allowed: ["finance", "admin"] },
     ],
   },

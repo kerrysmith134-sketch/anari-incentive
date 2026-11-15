@@ -28,7 +28,7 @@ import {
   isPlatformAdmin,
   policyBody,
   requireActor,
-  requireActorRequired,
+  requireActorRequired,  requireTenantModule,
 } from "../../http-helpers.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -85,7 +85,11 @@ export function registerPayrollRunRoutes(deps: {
   assertPayrollExportable: (run: PayrollRun) => void;
 }): FastifyPluginAsync {
   const { platformStore, storeFor, countEvent, ensureApproval, consumeApprovalForAction, assertExportAllowed, assertExportDlp, auditExport, exportHeaders, payrollRunForViewer, assertPayrollExportable } = deps;
-  return async (app: FastifyInstance) => {
+    return async (app: FastifyInstance) => {
+    // AUD-017/D-04：薪酬发放批次为扩展域——未启用即 403 FEATURE_DISABLED。
+    app.addHook("preHandler", async (request) => {
+      await requireTenantModule(request, platformStore, "PAYROLL");
+    });
   app.post("/api/v1/tax/cn-iit/calculate", async (request) => {
     requireRoles(request, "manager", "finance");
     const body = parse(calculateCnIitSchema, request.body);

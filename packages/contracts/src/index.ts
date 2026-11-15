@@ -1886,6 +1886,41 @@ export type AcknowledgeSettlementExportBody = z.infer<
   typeof acknowledgeSettlementExportSchema
 >;
 
+/**
+ * AUD-017 / D-04：租户模块 capability 开关。
+ * P0 核心域永远启用；扩展域（薪酬含个税/股权/计费/战略池）默认关闭，
+ * 由租户 settings.modules 显式开启，变更留审计。
+ */
+export const TENANT_MODULE_KEYS = [
+  "PAYROLL",
+  "EQUITY",
+  "BILLING",
+  "STRATEGIC_POOL",
+] as const;
+export type TenantModuleKey = (typeof TENANT_MODULE_KEYS)[number];
+export const createAgentFeedbackLabelSchema = z.object({
+  taskId: uuidSchema.optional(),
+  findingRef: z.string().min(1).max(256).optional(),
+  label: z.enum(["CONFIRMED_POSITIVE", "FALSE_POSITIVE", "ESCALATED"]),
+  model: z.string().min(1).max(128).optional(),
+  promptVersion: z.string().min(1).max(64).optional(),
+  comment: z.string().min(1).max(2_000).optional(),
+});
+export type CreateAgentFeedbackLabelBody = z.infer<typeof createAgentFeedbackLabelSchema>;
+
+export const createAgentAiOffBaselineSchema = z.object({
+  windowStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  windowEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  completionRate: z.string().regex(/^\d+(\.\d+)?$/),
+  sampleSize: z.number().int().positive().max(1_000_000),
+});
+export type CreateAgentAiOffBaselineBody = z.infer<typeof createAgentAiOffBaselineSchema>;
+
+export const updateTenantModulesSchema = z.object({
+  modules: z.array(z.enum(TENANT_MODULE_KEYS)).max(TENANT_MODULE_KEYS.length),
+});
+export type UpdateTenantModulesBody = z.infer<typeof updateTenantModulesSchema>;
+
 export const createNotificationSchema = z.object({
   recipientPersonId: uuidSchema.optional(),
   audience: z.enum(["PERSON", "MANAGER", "FINANCE", "ADMIN"]),

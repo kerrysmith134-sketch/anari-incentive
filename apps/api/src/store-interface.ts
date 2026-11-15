@@ -48,6 +48,10 @@ import type {
   AgentTodo,
   AgentTodoFilter,
   UpsertAgentTodoInput,
+  AgentFeedbackLabel,
+  AgentFeedbackLabelKind,
+  AgentModelUsage,
+  AgentAiOffBaseline,
 } from "@anari/domain";
 import type {
   CreateAttributionDecisionInput,
@@ -119,6 +123,33 @@ export interface IncentiveStore {
   submitClaim(id: string): Promise<ContributionClaim>;
   upsertAgentTodo(input: UpsertAgentTodoInput): Promise<AgentTodo>;
   listAgentTodos(filter?: AgentTodoFilter): Promise<AgentTodo[]>;
+  /** AUD-023：人工标注（误报/确认/升级）持久化；同 (task, labeledBy, label) 幂等。 */
+  recordAgentFeedbackLabel(input: {
+    taskId?: string;
+    findingRef?: string;
+    label: AgentFeedbackLabelKind;
+    labeledBy: string;
+    model?: string;
+    promptVersion?: string;
+    comment?: string;
+  }): Promise<AgentFeedbackLabel>;
+  listAgentFeedbackLabels(): Promise<AgentFeedbackLabel[]>;
+  upsertAgentModelUsage(input: {
+    provider: string;
+    model: string;
+    requests: number;
+    promptTokens: number;
+    completionTokens: number;
+  }): Promise<AgentModelUsage>;
+  listAgentModelUsage(): Promise<AgentModelUsage[]>;
+  recordAgentAiOffBaseline(input: {
+    windowStart: string;
+    windowEnd: string;
+    completionRate: string;
+    sampleSize: number;
+    recordedBy: string;
+  }): Promise<AgentAiOffBaseline>;
+  latestAgentAiOffBaseline(): Promise<AgentAiOffBaseline | undefined>;
   getAgentTodo(id: string): Promise<AgentTodo>;
   completeAgentTodo(id: string, completedByPersonId: string): Promise<AgentTodo>;
   cancelAgentTodo(id: string, reason?: string): Promise<AgentTodo>;

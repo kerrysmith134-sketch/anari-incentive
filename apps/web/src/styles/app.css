@@ -839,9 +839,10 @@
 }
 
 .btn--primary {
-  background: var(--accent);
+  /* AUD-025：白字底色用深一档的 accent-strong（≥4.5:1），品牌亮蓝留给链接/强调。 */
+  background: var(--accent-strong);
   color: var(--accent-ink);
-  border-color: var(--accent);
+  border-color: var(--accent-strong);
 }
 
 .btn--primary:hover:not(:disabled) {

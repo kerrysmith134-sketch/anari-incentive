@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T14:37:38.829Z",
+  "generatedAt": "2026-11-15T16:34:07.669Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -455,6 +455,11 @@
       "file": "091_notification_idempotency.sql",
       "bytes": 618,
       "sha256": "cc636c37a356cf0b3ec2de7cb739d1b3cc496e56a91a0999fa2bb5c357f4aa9b"
+    },
+    {
+      "file": "092_agent_metric_observations.sql",
+      "bytes": 2596,
+      "sha256": "51da56a7cfa5970b4320bb142a369117451a72eef5173619d9008258412dcb95"
     }
   ]
 }

@@ -4,6 +4,7 @@
  */
 import type { ZodType } from "zod";
 import type { FastifyRequest } from "fastify";
+import type { PlatformStore } from "./platform-store.js";
 import { ForbiddenError } from "@anari/auth";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -48,6 +49,50 @@ export function parse<T>(schema: ZodType<T>, value: unknown): T {
 
 export function tenantOf(request: FastifyRequest): string {
   return request.authContext?.tenantId ?? "tenant-demo";
+}
+
+/** AUD-017：扩展模块未启用——稳定错误码 FEATURE_DISABLED（403）。 */
+export class FeatureDisabledError extends Error {
+  readonly statusCode = 403;
+  readonly code = "FEATURE_DISABLED";
+  constructor(readonly module: string) {
+    super(
+      `FEATURE_DISABLED: module ${module} is not enabled for this tenant (D-04: P0-only by default)`,
+    );
+  }
+}
+
+/** 租户 settings.modules（缺省 = P0-only，扩展模块全部关闭）。 */
+/** 守卫只依赖 getTenant——模块路由可传窄化的端口组合（不必是完整 PlatformStore）。 */
+export interface TenantModulesSource {
+  getTenant(tenantId: string): Promise<{ settings?: Record<string, unknown> }>;
+}
+
+export async function tenantModulesOf(
+  request: FastifyRequest,
+  platformStore: TenantModulesSource,
+): Promise<string[]> {
+  const tenant = await platformStore.getTenant(tenantOf(request));
+  const modules = (tenant.settings as { modules?: unknown } | undefined)?.modules;
+  return Array.isArray(modules)
+    ? modules.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+/**
+ * AUD-017 FeatureGuard：断言租户已启用给定扩展模块，否则 403 FEATURE_DISABLED。
+ * 扩展域路由插件以 preHandler 挂全插件级守卫；P0 核心域不经过本函数。
+ */
+export async function requireTenantModule(
+  request: FastifyRequest,
+  platformStore: TenantModulesSource,
+  ...needed: readonly string[]
+): Promise<void> {
+  const enabled = await tenantModulesOf(request, platformStore);
+  const missing = needed.filter((module) => !enabled.includes(module));
+  if (missing.length > 0) {
+    throw new FeatureDisabledError(missing.join("+"));
+  }
 }
 
 export function requireRoles(

@@ -1176,6 +1176,14 @@ export function registerAiGovernanceRoutes(deps: {
     });
     // AUD-019：按租户记录模型调用与 token 用量（成本可审计）。
     recordModelUsage(tenantOf(request), summary.provider, summary.model, summary.usage);
+    // AUD-023：用量持久化（事实落库，指标自动计算）。
+    await storeFor(request).upsertAgentModelUsage({
+      provider: summary.provider,
+      model: summary.model,
+      requests: 1,
+      promptTokens: summary.usage.promptTokens,
+      completionTokens: summary.usage.completionTokens,
+    });
     countEvent("model_summary_generated");
     return data({ suggestionLogId: log.id, summary }, request);
   });

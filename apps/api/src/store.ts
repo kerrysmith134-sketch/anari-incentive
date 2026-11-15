@@ -56,6 +56,10 @@ import {
   type AgentTodo,
   type AgentTodoFilter,
   type UpsertAgentTodoInput,
+  type AgentFeedbackLabel,
+  type AgentFeedbackLabelKind,
+  type AgentModelUsage,
+  type AgentAiOffBaseline,
   type ContributionEvent,
   type ContributionEventFilter,
   type ContributionEventIngestResult,
@@ -215,6 +219,9 @@ export class Store implements IncentiveStore {
   >();
   private readonly metricSnapshots = new Map<string, MetricMeasurementSnapshot>();
   private readonly agentTodos = new Map<string, AgentTodo>();
+  private readonly agentFeedbackLabels = new Map<string, AgentFeedbackLabel>();
+  private readonly agentModelUsage = new Map<string, AgentModelUsage>();
+  private agentAiOffBaselines: AgentAiOffBaseline[] = [];
 
   constructor(private readonly tenantId: string = DEFAULT_TENANT_ID) {
     const timestamp = now();
@@ -673,6 +680,108 @@ export class Store implements IncentiveStore {
       todos = todos.filter((todo) => todo.sourceType === filter.sourceType);
     }
     return todos.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  // ------------------------------------------------------------------
+  // AUD-023：Agent 可观测性持久化事实（标注/模型用量/AI-off 基线）。
+  // ------------------------------------------------------------------
+  async recordAgentFeedbackLabel(input: {
+    taskId?: string;
+    findingRef?: string;
+    label: AgentFeedbackLabelKind;
+    labeledBy: string;
+    model?: string;
+    promptVersion?: string;
+    comment?: string;
+  }): Promise<AgentFeedbackLabel> {
+    // 同 (task, labeledBy, label) 幂等——重复标注返回既有记录。
+    const existing = [...this.agentFeedbackLabels.values()].find(
+      (entry) =>
+        (entry.taskId ?? undefined) === (input.taskId ?? undefined) &&
+        entry.labeledBy === input.labeledBy &&
+        entry.label === input.label,
+    );
+    if (existing) return existing;
+    const label: AgentFeedbackLabel = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      taskId: input.taskId,
+      findingRef: input.findingRef,
+      label: input.label,
+      labeledBy: input.labeledBy,
+      model: input.model,
+      promptVersion: input.promptVersion,
+      comment: input.comment,
+      createdAt: now(),
+    };
+    this.agentFeedbackLabels.set(label.id, label);
+    return label;
+  }
+
+  async listAgentFeedbackLabels(): Promise<AgentFeedbackLabel[]> {
+    return [...this.agentFeedbackLabels.values()].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+  }
+
+  async upsertAgentModelUsage(input: {
+    provider: string;
+    model: string;
+    requests: number;
+    promptTokens: number;
+    completionTokens: number;
+  }): Promise<AgentModelUsage> {
+    const key = `${input.provider}|${input.model}`;
+    const existing = this.agentModelUsage.get(key);
+    if (existing) {
+      existing.requests += input.requests;
+      existing.promptTokens += input.promptTokens;
+      existing.completionTokens += input.completionTokens;
+      existing.updatedAt = now();
+      return existing;
+    }
+    const usage: AgentModelUsage = {
+      tenantId: this.tenantId,
+      provider: input.provider,
+      model: input.model,
+      requests: input.requests,
+      promptTokens: input.promptTokens,
+      completionTokens: input.completionTokens,
+      updatedAt: now(),
+    };
+    this.agentModelUsage.set(key, usage);
+    return usage;
+  }
+
+  async listAgentModelUsage(): Promise<AgentModelUsage[]> {
+    return [...this.agentModelUsage.values()];
+  }
+
+  async recordAgentAiOffBaseline(input: {
+    windowStart: string;
+    windowEnd: string;
+    completionRate: string;
+    sampleSize: number;
+    recordedBy: string;
+  }): Promise<AgentAiOffBaseline> {
+    const baseline: AgentAiOffBaseline = {
+      id: randomUUID(),
+      tenantId: this.tenantId,
+      windowStart: input.windowStart,
+      windowEnd: input.windowEnd,
+      completionRate: input.completionRate,
+      sampleSize: input.sampleSize,
+      recordedBy: input.recordedBy,
+      createdAt: now(),
+    };
+    this.agentAiOffBaselines.push(baseline);
+    return baseline;
+  }
+
+  async latestAgentAiOffBaseline(): Promise<AgentAiOffBaseline | undefined> {
+    return [...this.agentAiOffBaselines]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .at(0);
   }
 
   async getAgentTodo(id: string): Promise<AgentTodo> {

@@ -18,6 +18,8 @@ done
 docker exec "$CONTAINER" psql -U anari -d anari_incentive -c 'select 1' >/dev/null
 MIGRATION_URL="postgres://anari:anari@localhost:${PORT}/anari_incentive"
 DATABASE_URL="$MIGRATION_URL" npm run db:migrate
+# AUD-018：活动库 RLS 质量检查（FORCE RLS / 宽策略 / BYPASSRLS 角色属性）。
+DATABASE_URL="$MIGRATION_URL" npx tsx scripts/migration-manifest.ts --check
 DATABASE_URL="$MIGRATION_URL" npm run db:seed
 DATABASE_URL="postgres://anari_app:anari_app@localhost:${PORT}/anari_incentive" \
   npx vitest run apps/api/src/__tests__/pg-store.test.ts \

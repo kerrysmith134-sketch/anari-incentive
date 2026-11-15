@@ -46,6 +46,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
   const roles = identity.data?.roles ?? [];
   const authenticated = Boolean(session.token || session.userId);
+  // AUD-017：租户扩展模块 capability（缺省 P0-only；加载失败按全部未启处理）。
+  const modulesQuery = useApiQuery<{ modules: string[] }>(
+    authenticated ? "/api/v1/tenant-modules" : null,
+    "tenant-modules",
+  );
+  const enabledModules = modulesQuery.data?.modules ?? [];
 
   const visibleGroups = useMemo(
     () =>
@@ -53,14 +59,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         ...group,
         items: group.items.filter(
           (item) =>
-            !item.allowed ||
-            // Fail closed: until the identity call succeeds we must not show
-            // restricted navigation (a failed load used to reveal every item).
-            (roles.length > 0 &&
-              item.allowed.some((role) => roles.includes(role))),
+            // AUD-017：模块未启用的条目一律隐藏（capability 同步 nav/page/API）。
+            (!item.module || enabledModules.includes(item.module)) &&
+            (!item.allowed ||
+              // Fail closed: until the identity call succeeds we must not show
+              // restricted navigation (a failed load used to reveal every item).
+              (roles.length > 0 &&
+                item.allowed.some((role) => roles.includes(role)))),
         ),
       })).filter((group) => group.items.length > 0),
-    [roles.join(",")], // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roles.join(","), enabledModules.join(",")],
   );
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(

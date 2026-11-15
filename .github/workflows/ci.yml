@@ -16,8 +16,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
+      # AUD-018：迁移不可变 + 静态 RLS 策略审计（历史迁移被改写/宽策略即 fail）。
+      - run: npx tsx scripts/migration-manifest.ts --check
       - run: docker compose config >/dev/null
       - run: npm run test:pg
+
 
   e2e:
     runs-on: ubuntu-latest

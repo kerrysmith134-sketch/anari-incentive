@@ -3,7 +3,11 @@
  * 战略池生命周期（创建/列表/成本评审/财务批准/激活/结算）。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { BudgetPort, IncentivePort } from "../../store-ports.js";
+import type {
+  BudgetPort,
+  IncentivePort,
+  TenantPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import type { StrategicPoolCase } from "@anari/domain";
 import {
@@ -22,11 +26,11 @@ import {
   parse,
   requireRoles,
   tenantOf,
-  requireActor,
+  requireActor,  requireTenantModule,
 } from "../../http-helpers.js";
 
 export function registerStrategicPoolRoutes(deps: {
-  platformStore: BudgetPort & IncentivePort;
+  platformStore: BudgetPort & IncentivePort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {
@@ -42,7 +46,11 @@ export function registerStrategicPoolRoutes(deps: {
     return { record };
   };
 
-  return async (app: FastifyInstance) => {
+    return async (app: FastifyInstance) => {
+    // AUD-017/D-04：战略池为扩展域——未启用即 403 FEATURE_DISABLED。
+    app.addHook("preHandler", async (request) => {
+      await requireTenantModule(request, platformStore, "STRATEGIC_POOL");
+    });
     app.post("/api/v1/strategic-pool-cases", async (request, reply) => {
       requireRoles(request, "manager", "finance");
       const body = parse(createStrategicPoolCaseSchema, request.body);

@@ -369,6 +369,8 @@ import { registerContributionRoutes } from "./modules/contribution/contribution.
 import { registerPolicyEngineRoutes } from "./modules/policy/policy.routes.js";
 import { registerClawbackRoutes } from "./modules/clawback/clawback.routes.js";
 import { registerStrategicPoolRoutes } from "./modules/strategicpool/strategic-pool.routes.js";
+import { registerTenantModuleRoutes } from "./modules/platform/tenant-modules.routes.js";
+import { registerAgentMetricsRoutes } from "./modules/agent/agent-metrics.routes.js";
 import { registerEvaluationRoutes } from "./modules/evaluation/evaluation.routes.js";
 import { registerNotificationRoutes } from "./modules/notifications/notifications.routes.js";
 import { registerAiGovernanceRoutes } from "./modules/aigovernance/ai-governance.routes.js";
@@ -1144,6 +1146,9 @@ export function buildApp(
       id: "tenant-demo",
       name: "Demo tenant",
       slug: "demo-tenant",
+      // AUD-017/D-04：演示租户显式开启扩展域（与 db/seed/001_demo.sql 一致）；
+      // 新租户默认 P0-only，由平台管理员按租户开启。
+      modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"],
       persons: [
         {
           id: "00000000-0000-4000-8000-000000000001",
@@ -1873,6 +1878,8 @@ export function buildApp(
   app.register(registerEvaluationRoutes({ platformStore, storeFor, countEvent }));
   app.register(registerNotificationRoutes({ storeFor }));
   app.register(registerStrategicPoolRoutes({ platformStore, storeFor, countEvent }));
+  app.register(registerTenantModuleRoutes({ platformStore, storeFor }));
+  app.register(registerAgentMetricsRoutes({ storeFor }));
   app.register(
     registerAiGovernanceRoutes({
       platformStore,
@@ -2223,7 +2230,10 @@ export function buildApp(
     return Readable.from(raw);
   });
 
-  app.addHook("preHandler", async (request, reply) => {
+  // AUD-017：认证从 preHandler 上移到 onRequest——子插件（扩展域路由）的
+  // FeatureGuard preHandler 也需要 authContext；Fastify 对子插件钩子先于
+  // 根作用域执行，onRequest 阶段完成认证才能保证守卫拿到正确租户。
+  app.addHook("onRequest", async (request, reply) => {
     if (!request.url.startsWith("/api/v1")) return;
     // Unauthenticated marketing/onboarding surface; routes apply their own guards.
     if (request.url.startsWith("/api/v1/public/")) return;

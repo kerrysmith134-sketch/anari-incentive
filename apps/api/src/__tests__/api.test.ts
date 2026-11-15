@@ -813,6 +813,11 @@ describe("employee notices and acknowledgements", () => {
       name: "Notice tenant",
       slug: `notice-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const first = await platformStore.createPerson({
       tenantId: tenant.id,
       employeeCode: "N-001",
@@ -1017,6 +1022,11 @@ describe("employee representation and policy consultations", () => {
       name: "Consultation tenant",
       slug: `consult-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const hrPerson = await platformStore.createPerson({
       tenantId: tenant.id,
       employeeCode: "HR-001",
@@ -1163,6 +1173,11 @@ describe("DPIA records", () => {
       name: "DPIA tenant",
       slug: `dpia-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const approver = await platformStore.createPerson({
       tenantId: tenant.id,
       employeeCode: "DPO-001",
@@ -1285,6 +1300,11 @@ describe("DSAR requests", () => {
     const tenant = await platformStore.createTenant({
       name: "DSAR tenant",
       slug: `dsar-${Date.now()}`,
+    });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
     });
     const first = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -1525,6 +1545,11 @@ describe("retention policies", () => {
       name: "Retention tenant",
       slug: `retention-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const adminAuth: Authenticator = {
       async authenticate() {
         return {
@@ -1620,6 +1645,11 @@ describe("approval requests", () => {
     const tenant = await platformStore.createTenant({
       name: "Approval tenant",
       slug: `approval-${Date.now()}`,
+    });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
     });
     const requester = await platformStore.createPerson({
       tenantId: tenant.id,
@@ -6994,6 +7024,11 @@ evidenceOpened: 1,
       name: "Contract tenant",
       slug: `contract-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const person = await platformStore.createPerson({
       tenantId: tenant.id,
       employeeCode: "C-001",
@@ -7357,6 +7392,11 @@ evidenceOpened: 1,
       name: "Predicate tenant",
       slug: `predicate-${Date.now()}`,
     });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
+    });
     const managerA = await platformStore.createPerson({
       tenantId: tenant.id,
       employeeCode: "M-A",
@@ -7608,6 +7648,11 @@ evidenceOpened: 1,
     const tenant = await platformStore.createTenant({
       name: "Evidence tenant",
       slug: `evidence-${Date.now()}`,
+    });
+    // AUD-017：合同/薪酬域属扩展模块，测试租户显式开启。
+    await platformStore.updateTenantSettings({
+      tenantId: tenant.id,
+      settings: { modules: ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"] },
     });
     const person = await platformStore.createPerson({
       tenantId: tenant.id,

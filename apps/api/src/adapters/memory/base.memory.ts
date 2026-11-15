@@ -264,6 +264,8 @@ export class MemoryPlatformStoreBase {
         id: string;
         name: string;
         slug: string;
+        /** AUD-017：扩展模块 capability（缺省 = P0-only）。 */
+        modules?: string[];
         persons?: Array<{
           id: string;
           employeeCode: string;
@@ -282,7 +284,12 @@ export class MemoryPlatformStoreBase {
       status: "ACTIVE",
       defaultTimezone: "UTC",
       defaultCurrency: "CNY",
-      settings: {},
+      // AUD-017：demo/pilot 租户缺省开启扩展域（与 db/seed/001_demo.sql 一致）；
+      // 显式传 modules: [] 即 P0-only（新租户生产默认）。
+      settings: {
+        modules:
+          demo.modules ?? ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"],
+      },
       createdAt,
     });
     for (const person of demo.persons ?? []) {

@@ -39,9 +39,9 @@
   --surface-sunken: #eeedeb;
   --surface-hover: #f6f5f3;
   --ink: #342e2c;
-  --ink-2: #6b6560;
-  --ink-3: #9a938d;
-  --ink-4: #b8b2ac;
+  --ink-2: #56504b;
+  --ink-3: #6e6862;
+  --ink-4: #747069;
   --line: #e6e3df;
   --line-strong: #d5d1cc;
   --line-soft: #eeedeb;
@@ -52,6 +52,7 @@
   --accent-hover: var(--brand-press);
   --accent-soft: var(--brand-soft);
   --accent-soft-strong: var(--brand-soft-strong);
+  --accent-strong: #1265cf;
   --accent-ink: var(--brand-ink);
   --accent-bright: var(--brand-bright);
 
@@ -117,9 +118,9 @@
   --surface-sunken: #1d2127;
   --surface-hover: #1a1e24;
   --ink: #f2f1ef;
-  --ink-2: #a8a29b;
-  --ink-3: #736d67;
-  --ink-4: #5c5751;
+  --ink-2: #c3bdb6;
+  --ink-3: #948d85;
+  --ink-4: #8f8981;
   --line: #272c33;
   --line-strong: #383e47;
   --line-soft: #22262d;
@@ -130,6 +131,7 @@
   --accent-soft: var(--brand-soft);
   --accent-soft-strong: var(--brand-soft-strong);
   --accent-ink: var(--brand-ink);
+  --accent-strong: #2f7fe8;
   --accent-bright: var(--brand-bright);
 
   --good: #4ade80;

@@ -21,7 +21,7 @@ import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, downloadFile } from "../lib/api.js";
-import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
 import {
   displayName,
   formatDate,
@@ -87,6 +87,9 @@ const ACTION_COPY: Record<
 
 export function PayrollPage() {
   useDocumentTitle("薪酬");
+  // AUD-017：薪酬（含个税）为扩展域——capability 在 hooks 全部执行后判定
+  // （early-return 不能放在其它 hooks 之前，否则数据到达时 hooks 顺序变化）。
+  const { modules: enabledModules } = useTenantModules();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") ?? "runs";
   const setTab = (next: string) => {
@@ -102,6 +105,22 @@ export function PayrollPage() {
 
   const runList = runs.data ?? [];
   const contractList = contracts.data ?? [];
+
+  if (!enabledModules.has("PAYROLL")) {
+    return (
+      <>
+        <PageHeader
+          eyebrow="激励"
+          title="薪酬发放"
+          description="本租户未启用薪酬模块（D-04：P0 默认不含扩展域）。"
+        />
+        <InfoNotice tone="warning">
+          功能未启用（FEATURE_DISABLED）：请联系平台管理员开启 PAYROLL 模块；
+          接口层同步返回 403 FEATURE_DISABLED。
+        </InfoNotice>
+      </>
+    );
+  }
 
   return (
     <>

@@ -12,7 +12,8 @@ const spec = parse(
   paths: Record<string, Record<string, unknown>>;
 };
 
-const methodPattern = /app\.(get|post|patch|put|delete)\("([^"]+)"/g;
+// AUD-017：扩展域路由可能挂在子插件实例上（如 equity.<method>），一并纳入扫描。
+const methodPattern = /(?:app|equity)\.(get|post|patch|put|delete)\("([^"]+)"/g;
 
 function documentedRoutes() {
   // NPV2-011：路由拆分到 modules/<domain>/*.routes.ts 后，扫描范围包含全部

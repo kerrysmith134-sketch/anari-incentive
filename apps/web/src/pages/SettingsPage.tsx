@@ -1478,7 +1478,7 @@ export function SettingsPage() {
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
                 placeholder="eyJhbGciOi…"
-                autoComplete="关"
+                autoComplete="off"
                 spellCheck={false}
               />
             </FormField>

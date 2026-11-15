@@ -7,6 +7,11 @@ INSERT INTO tenants (id, name, slug, default_currency)
 VALUES ('00000000-0000-4000-8000-000000000001', 'Anari Energy Demo', 'anari-energy-demo', 'CNY')
 ON CONFLICT (id) DO NOTHING;
 
+-- AUD-017/D-04：演示/试点租户显式开启扩展域（操作者动作；新租户默认 P0-only）。
+UPDATE tenants
+   SET settings = COALESCE(settings, '{}'::jsonb) || '{"modules": ["PAYROLL", "EQUITY", "STRATEGIC_POOL", "BILLING"]}'::jsonb
+ WHERE id = '00000000-0000-4000-8000-000000000001';
+
 INSERT INTO people (id, tenant_id, employee_code, display_name)
 VALUES
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'E001', 'Sales Lead'),

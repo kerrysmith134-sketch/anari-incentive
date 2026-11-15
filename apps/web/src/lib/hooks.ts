@@ -68,3 +68,17 @@ export function useDocumentTitle(title: string): void {
     document.title = title ? `${title} · N-Perform` : "N-Perform Console";
   }, [title]);
 }
+
+
+/**
+ * AUD-017：当前租户扩展模块 capability。
+ * 加载失败按未启用处理（fail-closed，与后端 FEATURE_DISABLED 一致）。
+ */
+export function useTenantModules(): { modules: Set<string>; loading: boolean } {
+  const query = useApiQuery<{ modules: string[] }>(
+    "/api/v1/tenant-modules",
+    "tenant-modules",
+  );
+  const modules = new Set(query.data?.modules ?? []);
+  return { modules, loading: query.loading };
+}

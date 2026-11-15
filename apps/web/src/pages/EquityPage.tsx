@@ -19,7 +19,7 @@ import { useToast } from "../contexts/ToastContext.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { api, ApiError } from "../lib/api.js";
 import { zhStatus } from "../lib/zh.js";
-import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { useApiQuery, useDocumentTitle, useTenantModules } from "../lib/hooks.js";
 
 interface EquityGrantView {
   id: string;
@@ -84,6 +84,8 @@ interface GrantCasePayload {
 /** 期权股权：授予 → 悬崖归属 → 行权申请 → 审批 → 交割。 */
 export function EquityPage() {
   useDocumentTitle("期权股权");
+  // AUD-017：股权为扩展域——capability 在 hooks 全部执行后判定。
+  const { modules: enabledModules } = useTenantModules();
   const toast = useToast();
   const { session } = useAuth();
   const identity = useApiQuery<{ roles: string[] }>("/api/v1/platform/identity");
@@ -351,6 +353,22 @@ export function EquityPage() {
     } catch (caught) {
       setAdvanceError(caught instanceof ApiError ? caught.message : "推进失败");
     }
+  }
+
+  if (!enabledModules.has("EQUITY")) {
+    return (
+      <div className="page">
+        <PageHeader
+          eyebrow="激励"
+          title="期权股权"
+          description="本租户未启用股权模块（D-04：P0 默认不含扩展域）。"
+        />
+        <InfoNotice tone="warning">
+          功能未启用（FEATURE_DISABLED）：请联系平台管理员开启 EQUITY 模块；
+          接口层同步返回 403 FEATURE_DISABLED。
+        </InfoNotice>
+      </div>
+    );
   }
 
   return (

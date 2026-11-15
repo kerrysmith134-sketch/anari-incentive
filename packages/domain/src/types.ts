@@ -2195,6 +2195,49 @@ export type NotificationAudience =
   | "FINANCE"
   | "ADMIN";
 
+/** AUD-023：人工对 Agent 结果的标注（误报/确认/升级），指标从这些事实计算。 */
+export type AgentFeedbackLabelKind =
+  | "CONFIRMED_POSITIVE"
+  | "FALSE_POSITIVE"
+  | "ESCALATED";
+
+export interface AgentFeedbackLabel {
+  id: UUID;
+  tenantId: UUID;
+  taskId?: UUID;
+  findingRef?: string;
+  label: AgentFeedbackLabelKind;
+  labeledBy: UUID;
+  model?: string;
+  promptVersion?: string;
+  comment?: string;
+  createdAt: string;
+}
+
+/** AUD-023：按 租户|provider|model 累计的模型调用持久化事实。 */
+export interface AgentModelUsage {
+  tenantId: UUID;
+  provider: string;
+  model: string;
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  updatedAt: string;
+}
+
+/** AUD-023：AI-off 对照组基线（持久化，不冒充实时的静态输入）。 */
+export interface AgentAiOffBaseline {
+  id: UUID;
+  tenantId: UUID;
+  windowStart: string;
+  windowEnd: string;
+  /** 0-1（DecimalString）。 */
+  completionRate: string;
+  sampleSize: number;
+  recordedBy: UUID;
+  createdAt: string;
+}
+
 export interface InAppNotification {
   id: UUID;
   tenantId: UUID;

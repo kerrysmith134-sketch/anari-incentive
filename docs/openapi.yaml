@@ -8047,6 +8047,147 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/tenant-modules:
+    get:
+      tags: [Platform]
+      summary: List tenant module capabilities (AUD-017 / D-04)
+      description: |
+        P0 core domains are always enabled; extended modules
+        (PAYROLL/EQUITY/BILLING/STRATEGIC_POOL) are tenant-level flags
+        managed by the platform admin. Frontend navigation syncs from here.
+      responses:
+        "200":
+          description: Enabled and available module keys
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/platform/tenants/{id}/modules:
+    put:
+      tags: [Platform]
+      summary: Enable or disable extended modules for a tenant (AUD-017)
+      description: |
+        Admin-only. Writes an audit event with before/after module sets.
+        Disabled modules return stable 403 FEATURE_DISABLED on their APIs
+        and are hidden from the console navigation.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modules]
+              properties:
+                modules:
+                  type: array
+                  items:
+                    type: string
+                    enum: [PAYROLL, EQUITY, BILLING, STRATEGIC_POOL]
+      responses:
+        "200":
+          description: Updated module list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/agent-feedback-labels:
+    post:
+      tags: [AgentOps]
+      summary: Record a human feedback label on an agent result (AUD-023)
+      description: |
+        Labels (CONFIRMED_POSITIVE / FALSE_POSITIVE / ESCALATED) are persisted
+        facts feeding the falsePositiveRate metric. Idempotent per
+        (task, labeler, label). Actor is taken from the authenticated session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                taskId:
+                  $ref: "#/components/schemas/Uuid"
+                findingRef:
+                  type: string
+                label:
+                  type: string
+                  enum: [CONFIRMED_POSITIVE, FALSE_POSITIVE, ESCALATED]
+                model:
+                  type: string
+                promptVersion:
+                  type: string
+                comment:
+                  type: string
+      responses:
+        "201":
+          description: Stored label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/agent-ai-off-baselines:
+    post:
+      tags: [AgentOps]
+      summary: Record an AI-off control baseline (AUD-023)
+      description: |
+        Persists the AI-off comparison completion rate so the aiOffFloor
+        metric is computed from stored facts instead of ad-hoc inputs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [windowStart, windowEnd, completionRate, sampleSize]
+              properties:
+                windowStart:
+                  type: string
+                  format: date
+                windowEnd:
+                  type: string
+                  format: date
+                completionRate:
+                  type: string
+                sampleSize:
+                  type: integer
+      responses:
+        "201":
+          description: Stored baseline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/reports/finance-reconciliation:
     get:
       tags: [Reporting]
