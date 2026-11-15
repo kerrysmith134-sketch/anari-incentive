@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T12:55:06.844Z",
+  "generatedAt": "2026-11-15T14:37:38.829Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -445,6 +445,16 @@
       "file": "089_metric_snapshot_immutability.sql",
       "bytes": 6318,
       "sha256": "226a5de94722600eae742caa20e913f26815954f30d4f8b2cbc42541edf41b91"
+    },
+    {
+      "file": "090_contribution_event_integrity.sql",
+      "bytes": 2131,
+      "sha256": "9cf5903c86e6853ec04876d455280dfae1935478515cdda812fc51983dcebc31"
+    },
+    {
+      "file": "091_notification_idempotency.sql",
+      "bytes": 618,
+      "sha256": "cc636c37a356cf0b3ec2de7cb739d1b3cc496e56a91a0999fa2bb5c357f4aa9b"
     }
   ]
 }

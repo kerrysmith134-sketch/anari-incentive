@@ -44,6 +44,8 @@ const DONE_STATES = new Set(["ACCEPTED", "REJECTED", "WITHDRAWN"]);
 export class ContributionExceptionWorkflow {
   private readonly slaDays: number;
   private readonly nowFn: () => number;
+  /** 本实例已升级的 claim（跨轮去重；跨实例由通知幂等键兜底）。 */
+  private readonly escalatedAdjudications = new Set<string>();
 
   constructor(
     private readonly context: AgentContext,
@@ -162,30 +164,25 @@ export class ContributionExceptionWorkflow {
                 adjudicationKey,
           );
           if (!alreadyOpen) {
-            const todo = await this.context.upsertAgentTodo({
-              title: `独立裁决超期申报 ${claim.id}`,
-              detail: `Submitted ${claim.submittedAt}; no independent decision within ${this.slaDays} days.`,
-              assigneePersonId: ADJUDICATOR_PLACEHOLDER,
-              targetType: "CONTRIBUTION_CLAIM",
-              targetId: claim.id,
-              sourceType: "AGENT_FINDING",
-              sourceId: "ADJUDICATION_SLA",
-              idempotencyKey: adjudicationKey,
+            if (this.escalatedAdjudications.has(claim.id)) continue;
+            // AUD-011：不做非法 UUID 写入——逾期裁决走经理升级通知
+            // （无持久化待办；裁决由人工在认定模块完成，红线不自动裁决）。
+            await this.context.createNotification({
+              audience: "MANAGER",
+              title: "Contribution adjudication overdue",
+              body: `Claim ${claim.id} has no independent decision within ${this.slaDays} days. Assign an adjudicator in the contribution module.`,
+              sourceType: "CONTRIBUTION_CLAIM",
+              sourceId: claim.id,
+              // AUD-011：稳定幂等键——同一逾期事项只通知一次。
+              idempotencyKey: `adjudication-overdue:${claim.id}`,
             });
+            this.escalatedAdjudications.add(claim.id);
             adjudicationTodosCreated += 1;
             audit.push({
               at,
               action: "ADJUDICATION_TODO_CREATED",
               claimId: claim.id,
-              todoId: todo.id,
-              detail: `adjudication overdue (sla ${this.slaDays}d); todo created (no auto-adjudication)`,
-            });
-            await this.context.createNotification({
-              audience: "MANAGER",
-              title: "Contribution adjudication overdue",
-              body: `Claim ${claim.id} has no independent decision within ${this.slaDays} days.`,
-              sourceType: "CONTRIBUTION_CLAIM",
-              sourceId: claim.id,
+              detail: `adjudication overdue (sla ${this.slaDays}d); manager escalation sent (no auto-adjudication)`,
             });
           }
         }
@@ -211,5 +208,3 @@ export class ContributionExceptionWorkflow {
   }
 }
 
-/** 裁决待办的占位责任人：由业务改派（工作流不做自动裁决）。 */
-export const ADJUDICATOR_PLACEHOLDER = "UNASSIGNED_ADJUDICATOR";

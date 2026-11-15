@@ -39,6 +39,8 @@ interface GapTodo {
 
 export class EvidenceCompletenessWorkflow {
   private readonly gapSkill = new EvidenceGapSkill();
+  /** 本实例已升级的无主缺口（跨轮去重；跨实例由通知幂等键兜底）。 */
+  private readonly escalatedOwnerless = new Set<string>();
 
   constructor(private readonly context: AgentContext) {}
 
@@ -67,10 +69,33 @@ export class EvidenceCompletenessWorkflow {
           todo.targetId === gap.subjectId && todo.status === "OPEN",
       );
       if (alreadyOpen) continue;
+      const owner = await this.ownerOf(gap.subjectId);
+      if (!owner) {
+        if (this.escalatedOwnerless.has(gap.subjectId)) continue;
+        // AUD-011：无 owner 不做非法 UUID 写入——升级经理通道。
+        await this.context.createNotification({
+          audience: "MANAGER",
+          title: "Evidence gap without owner",
+          body: `Work package ${gap.subjectId} has no evidence and no resolvable owner; manual assignment required.`,
+          sourceType: "WORK_PACKAGE",
+          sourceId: gap.subjectId,
+          // AUD-010/AUD-011：稳定幂等键——同一缺口只升级一次。
+          idempotencyKey: `evidence-gap-no-owner:${gap.subjectId}`,
+        });
+        this.escalatedOwnerless.add(gap.subjectId);
+        escalations += 1;
+        audit.push({
+          at,
+          action: "ESCALATED",
+          workPackageId: gap.subjectId,
+          detail: "evidence gap without resolvable owner escalated to manager",
+        });
+        continue;
+      }
       const todo = await this.context.upsertAgentTodo({
         title: `补交工作包证据 ${gap.subjectId}`,
         detail: gap.message,
-        assigneePersonId: await this.ownerOf(gap.subjectId),
+        assigneePersonId: owner,
         targetType: gap.subjectType,
         targetId: gap.subjectId,
         sourceType: "AGENT_FINDING",
@@ -97,14 +122,18 @@ export class EvidenceCompletenessWorkflow {
     }
 
     // 3) 验证证据入库 → 关闭待办。
-    const openGapTodos = (await this.context.listAgentTodos({
+    // AUD-010：只处理本 workflow 创建的 evidence-gap 待办（idempotencyKey
+    // 前缀 evidence-gap:），不误关其他来源的无关任务。
+    const openGapTodos = ((await this.context.listAgentTodos({
       status: "OPEN",
-    })) as GapTodo[];
+    })) as Array<GapTodo & { idempotencyKey?: string }>).filter(
+      (todo) =>
+        (todo as { idempotencyKey?: string }).idempotencyKey?.startsWith(
+          "evidence-gap:",
+        ) ?? true,
+    );
     for (const todo of openGapTodos) {
       if (!todo.id || !todo.targetId) continue;
-      if (!todo.id.startsWith("")) {
-        /* no-op：所有 OPEN 待办均可被证据校验关闭（同键幂等创建） */
-      }
       const evidence = await this.context.listEvidence(
         "WORK_PACKAGE",
         todo.targetId,
@@ -153,10 +182,13 @@ export class EvidenceCompletenessWorkflow {
     return { todosCreated, todosVerifiedClosed, escalations, audit };
   }
 
-  /** 找工作包 owner（找不到时退回占位，保证待办仍可创建并由人工改派）。 */
-  private async ownerOf(workPackageId: string): Promise<string> {
+  /**
+   * AUD-011：找工作包 owner；缺失时返回 undefined——调用方跳过待办创建
+   * 并走经理升级通道（不做非法 UUID 写入）。
+   */
+  private async ownerOf(workPackageId: string): Promise<string | undefined> {
     const workPackages = await this.context.listWorkPackages();
     const wp = workPackages.find((candidate) => candidate.id === workPackageId);
-    return wp?.ownerPersonId ?? "UNASSIGNED";
+    return wp?.ownerPersonId;
   }
 }

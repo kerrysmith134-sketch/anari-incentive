@@ -4,6 +4,9 @@ import {
   AgentRuntime,
   AgentScheduler,
   OutboxPoller,
+  ContributionExceptionWorkflow,
+  CycleReadinessWorkflow,
+  EvidenceCompletenessWorkflow,
   createDefaultSkills,
   createDefaultTools,
 } from "@anari/agent-runtime";
@@ -134,8 +137,10 @@ scheduler.addEventRule({
 
 // NPV2-022：多租户模式——一个 Worker Pool 按 tenant 公平消费任务，
 // 任务执行绑定各自租户上下文（runtime/repository 惰性创建）。
+// AUD-013/AUD-024：保存 dispatcher 引用，SIGTERM 时 drain（不留在块作用域）。
+let dispatcher: MultiTenantAgentDispatcher | undefined;
 if (process.env.WORKER_MULTI_TENANT === "1") {
-  const dispatcher = new MultiTenantAgentDispatcher({
+  dispatcher = new MultiTenantAgentDispatcher({
     pool,
     workerId: `worker-${process.pid}`,
     leaseMs: Number(process.env.LEASE_MS ?? 300_000),
@@ -163,20 +168,56 @@ const poller = new OutboxPoller(
   scheduler,
 );
 
+// AUD-024：Worker 心跳——/ready 不只 SELECT 1，还要求主循环活着。
+// 暂停/卡死的 loop（超过 3 个 poll 周期无成功 tick）→ 503；SIGTERM 后 → 503。
+const workerStartedAt = Date.now();
+const heartbeat = {
+  lastTickStartedAt: 0,
+  lastTickOkAt: 0,
+  draining: false,
+  /** AUD-009：三个 bounded workflow 最近一轮执行情况（按租户聚合）。 */
+  boundedWorkflows: {} as Record<
+    string,
+    { status: string; ranAt: string; durationMs: number; detail?: string }
+  >,
+};
+
 const healthPort = Number(process.env.WORKER_PORT ?? 3100);
 const health = createServer(async (request, response) => {
   response.setHeader("content-type", "application/json");
   if (request.url === "/health") {
-    response.end(JSON.stringify({ status: "ok" }));
+    response.end(
+      JSON.stringify({
+        status: "ok",
+        uptimeMs: Date.now() - workerStartedAt,
+        lastTickOkAt: heartbeat.lastTickOkAt || null,
+        boundedWorkflows: heartbeat.boundedWorkflows,
+      }),
+    );
     return;
   }
   if (request.url === "/ready") {
+    // 启动宽限：lastTickStartedAt 仍为 0（首 tick 未发生）时不判停滞。
+    const stale =
+      heartbeat.lastTickStartedAt > 0 &&
+      Date.now() - heartbeat.lastTickOkAt > 3 * pollIntervalMs;
     try {
       await pool.query("SELECT 1");
-      response.end(JSON.stringify({ status: "ready" }));
+      if (heartbeat.draining || stale) {
+        response.statusCode = 503;
+        response.end(
+          JSON.stringify({
+            status: "not_ready",
+            reason: heartbeat.draining ? "draining" : "worker_loop_stalled",
+            lastTickOkAt: heartbeat.lastTickOkAt || null,
+          }),
+        );
+        return;
+      }
+      response.end(JSON.stringify({ status: "ready", lastTickOkAt: heartbeat.lastTickOkAt || null }));
     } catch {
       response.statusCode = 503;
-      response.end(JSON.stringify({ status: "not_ready" }));
+      response.end(JSON.stringify({ status: "not_ready", reason: "database_unreachable" }));
     }
     return;
   }
@@ -232,6 +273,54 @@ async function advanceDueCycles(): Promise<number> {
 let lastCycleAdvanceMs = 0;
 const CYCLE_ADVANCE_INTERVAL_MS = 30 * 60 * 1000;
 
+// AUD-009：三个 bounded workflow（NPV2-024..026）接入生产 Worker——
+// 默认单租户跑默认租户；多租户模式遍历全部租户（复用 dispatcher 的租户枚举）。
+const BOUNDED_WORKFLOW_INTERVAL_MS = Number(
+  process.env.BOUNDED_WORKFLOW_INTERVAL_MS ?? 60 * 60 * 1000,
+);
+let lastBoundedWorkflowsMs = 0;
+
+async function runBoundedWorkflowsForTenant(tenant: string): Promise<void> {
+  const agentContext =
+    tenant === tenantId ? context : new HttpAgentContext(apiBaseUrl, tenant, tokenProvider);
+  const startedAt = Date.now();
+  const outcomes: string[] = [];
+  // 1) 证据补齐（缺口待办 + 催补证 + 逾期提醒）。
+  try {
+    const result = await new EvidenceCompletenessWorkflow(agentContext).runOnce();
+    outcomes.push(`evidence:${result.todosCreated}+${result.escalations}`);
+  } catch (error) {
+    outcomes.push(`evidence:FAILED`);
+    console.error(`[bounded] evidence-completeness failed (${tenant})`, error);
+  }
+  // 2) 贡献异常（逾期裁决经理升级 + 冲突升级 + 待办对账）。
+  try {
+    const result = await new ContributionExceptionWorkflow(agentContext).runOnce();
+    outcomes.push(`exception:${result.adjudicationTodosCreated}+${result.conflictsEscalated}`);
+  } catch (error) {
+    outcomes.push(`exception:FAILED`);
+    console.error(`[bounded] contribution-exception failed (${tenant})`, error);
+  }
+  // 3) 周期准备度（只读报告；对最旧未结算周期出报告）。
+  try {
+    const cycles = await agentContext.listEvaluationCycles();
+    const target = cycles.find((cycle) => cycle.status !== "SETTLED") ?? cycles[cycles.length - 1];
+    if (target) {
+      const report = await new CycleReadinessWorkflow(agentContext).run({ cycleId: target.id });
+      outcomes.push(`readiness:${report.ready ? "READY" : "NOT_READY"}`);
+    }
+  } catch (error) {
+    outcomes.push(`readiness:FAILED`);
+    console.error(`[bounded] cycle-readiness failed (${tenant})`, error);
+  }
+  heartbeat.boundedWorkflows[tenant] = {
+    status: outcomes.some((entry) => entry.endsWith("FAILED")) ? "PARTIAL" : "OK",
+    ranAt: new Date().toISOString(),
+    durationMs: Date.now() - startedAt,
+    detail: outcomes.join(","),
+  };
+}
+
 let lastFeishuSyncMs = 0;
 async function runFeishuDirectorySync(): Promise<void> {
   const headers: Record<string, string> = {
@@ -255,7 +344,15 @@ async function runFeishuDirectorySync(): Promise<void> {
 }
 
 while (running) {
+  heartbeat.lastTickStartedAt = Date.now();
   try {
+    if (Date.now() - lastBoundedWorkflowsMs >= BOUNDED_WORKFLOW_INTERVAL_MS) {
+      lastBoundedWorkflowsMs = Date.now();
+      const tenants = dispatcher ? await dispatcher.listTenantIds() : [tenantId];
+      for (const tenant of tenants) {
+        await runBoundedWorkflowsForTenant(tenant);
+      }
+    }
     const scheduled = await scheduler.tick();
     const events = await poller.pollOnce({ workerId: `outbox-${process.pid}`, leaseMs: 60_000 });
     const retried = await runtime.retryFailed({
@@ -283,12 +380,17 @@ while (running) {
         `agent worker: scheduled=${scheduled.length} events=${events.length} retried=${retried.length}`,
       );
     }
+    heartbeat.lastTickOkAt = Date.now();
   } catch (error) {
     console.error("agent worker iteration failed", error);
   }
   await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 }
 
+// AUD-013/AUD-024 graceful drain：先停 dispatcher（等在途轮次），
+// 再关健康端口与连接池——不在已关闭 pool 上继续操作。
+heartbeat.draining = true;
+if (dispatcher) await dispatcher.stop();
 health.close();
 await pool.end();
 console.log("agent worker stopped");

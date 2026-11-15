@@ -482,6 +482,16 @@ function registerContractSuite(
   it("贡献认定草案域：断言必带证据；ACTIVITY 事件拒绝；人工决策门禁", async () => {
     const workPackageId = await acceptedWorkPackage(`assess ${suffix}`);
     const { claimId } = await confirmedClaim(workPackageId, OWNER);
+    // AUD-008：草案断言的 evidenceRefs 必须可解析——先登记 claim 域证据节点。
+    const claimEvidence = await store.createEvidence({
+      sourceSystem: "CONTRACT_SUITE",
+      subjectType: "CONTRIBUTION_CLAIM",
+      subjectId: claimId,
+      evidenceType: "NOTE",
+      normalizedPayload: { note: `assess evidence ${suffix}` },
+      qualityStatus: "VALID",
+    });
+    const evRef = claimEvidence.id;
     // 先落两笔真实事件（CONTRIBUTION + ACTIVITY）作草案依据素材
     const events = await store.ingestContributionEvents([
       {
@@ -493,7 +503,7 @@ function registerContractSuite(
         occurredAt: "2026-10-12T10:00:00.000Z",
         kind: "CONTRIBUTION",
         outcome: { summary: "delivered scope" },
-        evidenceRefs: [`ev-${suffix}`],
+        evidenceRefs: [evRef],
         externalId: `a-1-${suffix}`,
       },
       {
@@ -505,7 +515,7 @@ function registerContractSuite(
         occurredAt: "2026-10-12T11:00:00.000Z",
         kind: "ACTIVITY",
         outcome: { summary: "10 commits", metrics: { commits: 10 } },
-        evidenceRefs: [`ev-${suffix}`],
+        evidenceRefs: [evRef],
         externalId: `a-2-${suffix}`,
       },
     ]);
@@ -536,7 +546,7 @@ function registerContractSuite(
         supporting: [
           {
             statement: "high throughput",
-            evidenceRefs: [`ev-${suffix}`],
+            evidenceRefs: [evRef],
             basis: "EVENT",
             relatedEventId: activityEventId,
           },
@@ -556,7 +566,7 @@ function registerContractSuite(
       supporting: [
         {
           statement: "scope delivered as agreed",
-          evidenceRefs: [`ev-${suffix}`],
+          evidenceRefs: [evRef],
           basis: "EVENT",
           relatedEventId: contributionEventId,
         },
@@ -564,7 +574,7 @@ function registerContractSuite(
       counter: [
         {
           statement: "one item returned for rework",
-          evidenceRefs: [`ev-${suffix}`],
+          evidenceRefs: [evRef],
           basis: "REVIEWER",
         },
       ],
@@ -572,7 +582,7 @@ function registerContractSuite(
       alternativeExplanations: [
         {
           statement: "rework was caused by upstream spec change",
-          evidenceRefs: [`ev-${suffix}`],
+          evidenceRefs: [evRef],
           basis: "REVIEWER",
         },
       ],
@@ -606,13 +616,21 @@ function registerContractSuite(
     // 决定与申报不匹配 → 拒绝
     const otherWp = await acceptedWorkPackage(`assess-2 ${suffix}`);
     const otherClaim = await confirmedClaim(otherWp, OWNER);
+    const otherEvidence = await store.createEvidence({
+      sourceSystem: "CONTRACT_SUITE",
+      subjectType: "CONTRIBUTION_CLAIM",
+      subjectId: otherClaim.claimId,
+      evidenceType: "NOTE",
+      normalizedPayload: { note: `assess evidence 2 ${suffix}` },
+      qualityStatus: "VALID",
+    });
     const strayDraft = await store.createContributionAssessmentDraft({
       claimId: otherClaim.claimId,
       generatedByType: "USER",
       supporting: [
         {
           statement: "delivered",
-          evidenceRefs: [`ev-${suffix}`],
+          evidenceRefs: [otherEvidence.id],
           basis: "CLAIM",
         },
       ],
@@ -637,7 +655,7 @@ function registerContractSuite(
       supporting: [
         {
           statement: "delivered",
-          evidenceRefs: [`ev-${suffix}`],
+          evidenceRefs: [evRef],
           basis: "CLAIM",
         },
       ],
@@ -654,6 +672,50 @@ function registerContractSuite(
         linkedBy: ADJUDICATOR,
       }),
     ).rejects.toThrow("not found");
+
+    // AUD-008：不可解析的证据引用 → NotFound（拒绝幽灵证据）
+    await expect(
+      store.createContributionAssessmentDraft({
+        claimId,
+        generatedByType: "USER",
+        supporting: [
+          { statement: "ghost evidence", evidenceRefs: [randomUUID()], basis: "CLAIM" },
+        ],
+        counter: [],
+        missingInformation: [],
+        alternativeExplanations: [],
+        uncertainty: { band: "LOW", reasons: [] },
+        basedOnEventIds: [],
+      }),
+    ).rejects.toThrow("not found");
+
+    // AUD-008：跨主体证据（工作包域证据 ≠ claim/申报人）→ 409 拒绝
+    const foreignEvidence = await store.createEvidence({
+      sourceSystem: "CONTRACT_SUITE",
+      subjectType: "WORK_PACKAGE",
+      subjectId: workPackageId,
+      evidenceType: "NOTE",
+      normalizedPayload: { note: `foreign evidence ${suffix}` },
+      qualityStatus: "VALID",
+    });
+    await expect(
+      store.createContributionAssessmentDraft({
+        claimId,
+        generatedByType: "USER",
+        supporting: [
+          {
+            statement: "evidence about the wrong subject",
+            evidenceRefs: [foreignEvidence.id],
+            basis: "CLAIM",
+          },
+        ],
+        counter: [],
+        missingInformation: [],
+        alternativeExplanations: [],
+        uncertainty: { band: "LOW", reasons: [] },
+        basedOnEventIds: [],
+      }),
+    ).rejects.toThrow("ASSESSMENT_EVIDENCE_CROSS_SUBJECT");
   });
 
   it("指标快照域：冻结哈希确定性、复核、决定绑定追溯、错配拒绝", async () => {

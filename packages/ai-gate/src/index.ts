@@ -86,3 +86,4 @@ export * from "./scoring.js";
 export * from "./risk.js";
 export * from "./model-provider.js";
 export * from "./coverage.js";
+export * from "./usage.js";

@@ -103,7 +103,14 @@ export class CycleReadinessWorkflow {
 
     // 3) 法律门禁：FORMAL run 必须有已记录的法务门禁。
     if (policyVersionId && formalRun?.mode === "FORMAL") {
-      const gate = await this.context.getLegalGate(policyVersionId);
+      let gate: Awaited<
+        ReturnType<AgentContext["getLegalGate"]>
+      > = undefined;
+      try {
+        gate = await this.context.getLegalGate(policyVersionId);
+      } catch {
+        gate = undefined;
+      }
       checks.push({
         gate: "LEGAL",
         status: gate ? "PASS" : "BLOCKED",
@@ -113,6 +120,15 @@ export class CycleReadinessWorkflow {
         sources: gate
           ? [{ type: "LEGAL_GATE", id: gate.policyVersionId }]
           : [{ type: "POLICY_VERSION", id: policyVersionId }],
+      });
+    } else {
+      // AUD-012：无法度量也要出检查项（必需门禁缺失不可静默）。
+      checks.push({
+        gate: "LEGAL",
+        status: "NOT_MEASURABLE",
+        detail:
+          "no FORMAL run / policy version to measure the legal gate against",
+        sources: [],
       });
     }
 
@@ -162,17 +178,26 @@ export class CycleReadinessWorkflow {
       })),
     });
 
-    // 6) 计算门禁：周期内存在 APPROVED/LOCKED 的正式运行。
-    const settledRuns = runs.filter(
+    // 6) 计算门禁：周期内存在 APPROVED/LOCKED 的 **FORMAL** 运行
+    // （AUD-012：影子/草稿运行不得充当正式计算门禁）。
+    const formalRuns = runs.filter((run) => run.mode === "FORMAL");
+    const settledRuns = formalRuns.filter(
       (run) => run.status === "APPROVED" || run.status === "LOCKED",
     );
     checks.push({
       gate: "CALCULATION",
-      status: runs.length === 0 ? "NOT_MEASURABLE" : settledRuns.length > 0 ? "PASS" : "BLOCKED",
+      status:
+        formalRuns.length === 0
+          ? "NOT_MEASURABLE"
+          : settledRuns.length > 0
+            ? "PASS"
+            : "BLOCKED",
       detail:
-        runs.length === 0
-          ? "no calculation runs in this cycle"
-          : `${settledRuns.length}/${runs.length} run(s) approved or locked`,
+        formalRuns.length === 0
+          ? runs.length === 0
+            ? "no calculation runs in this cycle"
+            : "no FORMAL calculation run in this cycle (shadow runs do not satisfy the gate)"
+          : `${settledRuns.length}/${formalRuns.length} FORMAL run(s) approved or locked`,
       sources: runs.map((run) => ({ type: "CALCULATION_RUN", id: run.id })),
     });
 
@@ -197,9 +222,21 @@ export class CycleReadinessWorkflow {
       })),
     });
 
-    const ready = checks.every(
-      (check) => check.status !== "BLOCKED",
-    );
+    // AUD-012：必需门禁（政策/法务/计算/审批）NOT_MEASURABLE 视同未就绪——
+    // 只有无阻断且全部必需门禁 PASS 才可判 ready。DATA/APPEAL 保持披露不阻断。
+    const requiredGates: ReadonlyArray<ReadinessCheck["gate"]> = [
+      "POLICY",
+      "LEGAL",
+      "CALCULATION",
+      "APPROVAL",
+    ];
+    const requiredSatisfied = requiredGates.every((gate) => {
+      const check = checks.find((entry) => entry.gate === gate);
+      return check?.status === "PASS";
+    });
+    const ready =
+      checks.every((check) => check.status !== "BLOCKED") &&
+      requiredSatisfied;
     return {
       cycleId: input.cycleId,
       ready,

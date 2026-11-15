@@ -198,6 +198,7 @@ export class HttpAgentContext implements AgentContext {
     body: string;
     sourceType?: string;
     sourceId?: string;
+    idempotencyKey?: string;
   }): Promise<InAppNotification> {
     return postData(
       this.baseUrl,

@@ -827,6 +827,7 @@ export class Store implements IncentiveStore {
   /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */
   private assertAssessmentDraftUsable(
     input: CreateContributionAssessmentDraftInput,
+    claim: ContributionClaim,
   ): void {
     const assertions = [
       ...input.supporting,
@@ -837,6 +838,23 @@ export class Store implements IncentiveStore {
       throw new ConflictError(
         "ASSESSMENT_ASSERTION_REQUIRES_EVIDENCE: every assertion must cite evidence",
       );
+    }
+    // AUD-008：证据引用必须真实可解析且与 claim 主体相关——
+    // 不存在 → NotFound；跨主体（非 claim 本身、非申报人）→ 拒绝。
+    const refs = new Set(assertions.flatMap((a) => a.evidenceRefs));
+    for (const ref of refs) {
+      const node = this.evidence.get(ref);
+      if (!node) {
+        throw new NotFoundError(`EvidenceNode ${ref} not found`);
+      }
+      const claimScoped = node.subjectId === claim.id;
+      const subjectScoped =
+        node.subjectType === "PERSON" && node.subjectId === claim.claimantPersonId;
+      if (!claimScoped && !subjectScoped) {
+        throw new ConflictError(
+          `ASSESSMENT_EVIDENCE_CROSS_SUBJECT: ${ref} does not belong to claim ${claim.id} or its subject`,
+        );
+      }
     }
     for (const eventId of input.basedOnEventIds) {
       const event = this.contributionEvents.get(eventId);
@@ -854,11 +872,11 @@ export class Store implements IncentiveStore {
   async createContributionAssessmentDraft(
     input: CreateContributionAssessmentDraftInput,
   ): Promise<ContributionAssessmentDraft> {
-    this.assertAssessmentDraftUsable(input);
     const claim = this.claims.get(input.claimId);
     if (!claim) {
       throw new NotFoundError(`ContributionClaim ${input.claimId} not found`);
     }
+    this.assertAssessmentDraftUsable(input, claim);
     const timestamp = now();
     const draft: ContributionAssessmentDraft = {
       id: randomUUID(),
@@ -1862,7 +1880,15 @@ export class Store implements IncentiveStore {
     body: string;
     sourceType?: string;
     sourceId?: string;
+    idempotencyKey?: string;
   }): Promise<InAppNotification> {
+    // AUD-011：同租户同幂等键只产生一条通知（重复扫描去重）。
+    if (input.idempotencyKey) {
+      const existing = [...this.notifications.values()].find(
+        (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      );
+      if (existing) return existing;
+    }
     const notification: InAppNotification = {
       id: randomUUID(),
       tenantId: this.tenantId,
@@ -1872,6 +1898,7 @@ export class Store implements IncentiveStore {
       body: input.body,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      idempotencyKey: input.idempotencyKey,
       status: "UNREAD",
       createdAt: now(),
     };

@@ -281,9 +281,23 @@ export function registerContributionRoutes(deps: {
   app.post("/api/v1/contribution-assessment-drafts", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createContributionAssessmentDraftSchema, request.body);
+    // AUD-008：来源由执行上下文注入——person 会话只能提交 USER 草稿；
+    // AGENT 草稿只能由服务主体（无 person 声明的机器调用）产生，
+    // 且 provider/model 元数据不得由客户端自报为 AGENT 来源。
+    const actorPersonId = ownPersonId(request);
+    if (actorPersonId && body.generatedByType === "AGENT") {
+      throw new ForbiddenError(
+        "ASSESSMENT_AGENT_SOURCE_FORBIDDEN: AGENT-generated drafts are created by the service principal, not person sessions",
+      );
+    }
+    const generatedByType = actorPersonId ? "USER" : body.generatedByType;
     // zod .default() 产生可选链；入 store 前归一为必填数组
     const input = {
       ...body,
+      generatedByType,
+      generatedById: actorPersonId ?? body.generatedById,
+      modelProvider: actorPersonId ? undefined : body.modelProvider,
+      modelName: actorPersonId ? undefined : body.modelName,
       supporting: body.supporting ?? [],
       counter: body.counter ?? [],
       missingInformation: body.missingInformation ?? [],

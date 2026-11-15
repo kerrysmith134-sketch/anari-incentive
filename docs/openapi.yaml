@@ -8047,6 +8047,64 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/reports/finance-reconciliation:
+    get:
+      tags: [Reporting]
+      summary: Reconcile declared financial facts against formal calculation runs
+      description: |
+        AUD-014: reconciliation runs on the server with integer micro-amount
+        (1e6) arithmetic. Benchmark run per cycle = the newest FORMAL run in
+        APPROVED/LOCKED status (non-reversed); shadow runs never reconcile.
+        Financial facts attach by explicit payload.cycleId, falling back to
+        period overlap; INVALID/MISSING quality facts are excluded. Per-fact
+        entries are disclosed so variances are explainable line by line.
+      parameters:
+        - name: cycleId
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Reconciliation report (per-cycle MATCH/VARIANCE rows)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/reports/evaluation-coverage:
+    get:
+      tags: [Reporting]
+      summary: Evaluation coverage with the active-employee roster as denominator
+      description: |
+        AUD-015: coverage denominator = persons with employmentStatus other
+        than INACTIVE (roster-based). Employees without a draft count as
+        NO_DRAFT pending work, not exemptions; exclusions are listed with
+        reasons. Decisions match by person+cycle only.
+      parameters:
+        - name: cycleId
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Coverage report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/ingestion/events:batch:
     post:
       tags: [Ingestion]

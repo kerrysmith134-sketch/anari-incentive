@@ -2204,6 +2204,8 @@ export interface InAppNotification {
   body: string;
   sourceType?: string;
   sourceId?: UUID;
+  /** AUD-011：稳定幂等键——同租户同键只产生一条通知。 */
+  idempotencyKey?: string;
   status: "UNREAD" | "READ";
   createdAt: string;
   readAt?: string;

@@ -1893,6 +1893,8 @@ export const createNotificationSchema = z.object({
   body: z.string().min(1),
   sourceType: z.string().optional(),
   sourceId: uuidSchema.optional(),
+  /** AUD-011：稳定幂等键——同租户同键只产生一条通知。 */
+  idempotencyKey: z.string().min(1).max(256).optional(),
 });
 export type CreateNotificationBody = z.infer<
   typeof createNotificationSchema

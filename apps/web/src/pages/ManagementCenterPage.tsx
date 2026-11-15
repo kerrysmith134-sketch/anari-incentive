@@ -61,6 +61,26 @@ interface AppealView {
   statement: string;
 }
 
+/** AUD-015：覆盖率以全员 roster 为分母（后端计算，前端只渲染）。 */
+interface CoverageReport {
+  cycleId: string;
+  denominator: number;
+  eligibleCount: number;
+  withDraft: number;
+  decided: number;
+  pending: number;
+  excluded: Array<{ personId: string; displayName: string; reason: string }>;
+  perPerson: Array<{
+    personId: string;
+    displayName: string;
+    draftId: string | null;
+    draftStatus: string | null;
+    decided: boolean;
+    state: "DECIDED" | "DRAFT_PENDING" | "NO_DRAFT";
+  }>;
+  note: string;
+}
+
 export function ManagementCenterPage() {
   useDocumentTitle("管理中心");
   const [cycleId, setCycleId] = useState("");
@@ -96,6 +116,13 @@ export function ManagementCenterPage() {
     "/api/v1/appeals",
     "appeals",
   );
+  // AUD-015：覆盖率分母 = 在职 roster（后端按周期计算）。
+  const coverageQuery = useApiQuery<CoverageReport>(
+    activeCycle
+      ? `/api/v1/reports/evaluation-coverage?cycleId=${encodeURIComponent(activeCycle)}`
+      : null,
+    activeCycle ? `coverage-${activeCycle}` : "coverage",
+  );
 
   const exceptionClaims = useMemo(
     () =>
@@ -128,21 +155,7 @@ export function ManagementCenterPage() {
     decidedByPerson.has(draft.personId),
   );
 
-  const coverage = useMemo(() => {
-    const people = new Set(
-      (draftsQuery.data ?? []).map((draft) => draft.personId),
-    );
-    const decided = [...people].filter((person) =>
-      (decisionsQuery.data ?? []).some(
-        (decision) => decision.personId === person,
-      ),
-    );
-    return {
-      total: people.size,
-      decided: decided.length,
-      pending: people.size - decided.length,
-    };
-  }, [draftsQuery.data, decisionsQuery.data]);
+  const coverage = coverageQuery.data;
 
   const loading =
     cyclesQuery.loading ||
@@ -150,14 +163,16 @@ export function ManagementCenterPage() {
     draftsQuery.loading ||
     decisionsQuery.loading ||
     claimsQuery.loading ||
-    appealsQuery.loading;
+    appealsQuery.loading ||
+    coverageQuery.loading;
   const error =
     cyclesQuery.error ||
     readinessQuery.error ||
     draftsQuery.error ||
     decisionsQuery.error ||
     claimsQuery.error ||
-    appealsQuery.error;
+    appealsQuery.error ||
+    coverageQuery.error;
 
   return (
     <>
@@ -223,20 +238,33 @@ export function ManagementCenterPage() {
             )}
           </Panel>
 
-          <Panel title={`独立评价进度（已决 ${coverage.decided} / ${coverage.total} 人）`}>
-            {coverage.total === 0 ? (
+          <Panel title={`独立评价进度（已决 ${coverage?.decided ?? 0} / ${coverage?.denominator ?? 0} 在职人员）`}>
+            {!coverage || coverage.denominator === 0 ? (
               <EmptyState
                 title="暂无评价草案"
-                description="周期内生成或提交评价草案后，进度会出现在这里。"
+                description="同步组织架构后，覆盖率会以在职 roster 为分母出现在这里。"
               />
             ) : (
               <>
                 <InfoNotice tone={coverage.pending > 0 ? "warning" : "success"}>
+                  分母 = 在职 roster {coverage.denominator} 人（不含离职
+                  {coverage.excluded.length > 0 ? ` ${coverage.excluded.length} 人` : ""}）。
                   {coverage.pending > 0
                     ? `${coverage.pending} 人待完成独立判断——完成前其关联 AI 草稿保持隐藏。`
-                    : "全部独立判断已完成。"}
+                    : "全部在职人员的独立判断已完成。"}
                 </InfoNotice>
                 <ul className="stack-list">
+                  {coverage.perPerson
+                    .filter((entry) => entry.state === "NO_DRAFT")
+                    .map((entry) => (
+                      <li key={entry.personId}>
+                        <Badge status="NEEDS_EVIDENCE">无草案</Badge>{" "}
+                        {entry.displayName}{" "}
+                        <span className="muted">
+                          未生成评价草案——需要先补齐草案，不能从分母豁免。
+                        </span>
+                      </li>
+                    ))}
                   {hiddenDrafts.map((draft) => (
                     <li key={draft.id}>
                       <Badge status="NEEDS_EVIDENCE">AI 草稿已隐藏</Badge>{" "}
@@ -254,6 +282,11 @@ export function ManagementCenterPage() {
                     </li>
                   ))}
                 </ul>
+                {coverage.excluded.length > 0 ? (
+                  <InfoNotice>
+                    排除项：{coverage.excluded.map((entry) => `${entry.displayName}（${entry.reason}）`).join("、")}
+                  </InfoNotice>
+                ) : null}
               </>
             )}
           </Panel>

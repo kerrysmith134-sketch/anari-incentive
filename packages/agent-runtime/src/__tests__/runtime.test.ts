@@ -293,7 +293,15 @@ class FakeContext implements AgentContext {
     body: string;
     sourceType?: string;
     sourceId?: string;
+    idempotencyKey?: string;
   }): Promise<InAppNotification> {
+    // AUD-011：幂等键去重——与生产 Memory/PG store 行为一致。
+    if (input.idempotencyKey) {
+      const existing = this.notifications.find(
+        (candidate) => candidate.idempotencyKey === input.idempotencyKey,
+      );
+      if (existing) return existing;
+    }
     const notification: InAppNotification = {
       id: `notification-${this.notifications.length + 1}`,
       tenantId: "tenant-1",
@@ -303,6 +311,7 @@ class FakeContext implements AgentContext {
       body: input.body,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      idempotencyKey: input.idempotencyKey,
       status: "UNREAD",
       createdAt: new Date().toISOString(),
     };
@@ -483,19 +492,29 @@ describe("contribution exception workflow (NPV2-025)", () => {
     return { context, workflow };
   }
 
-  it("creates an adjudication todo for overdue un-adjudicated claims (no auto-adjudication)", async () => {
+  it("AUD-011: 逾期裁决走经理升级通知（不写非法占位 UUID 待办），幂等不重复", async () => {
     const overdue = claim({ id: "c-overdue" });
     const { context, workflow } = setup([overdue]);
     const result = await workflow.runOnce();
     expect(result.adjudicationTodosCreated).toBe(1);
     expect(result.audit.some((entry) => entry.action === "ADJUDICATION_TODO_CREATED")).toBe(true);
-    expect(context.notifications.some((n) => n.title === "Contribution adjudication overdue")).toBe(true);
+    const escalation = context.notifications.find(
+      (n) => n.title === "Contribution adjudication overdue",
+    )!;
+    expect(escalation.audience).toBe("MANAGER");
+    expect(escalation.sourceId).toBe("c-overdue");
+    expect(escalation.idempotencyKey).toBe("adjudication-overdue:c-overdue");
+    // 不再创建待办（占位 UUID 在 PG 因 NOT NULL UUID 必然失败）。
     const todos = await context.listAgentTodos();
-    const todo = todos.find((t) => t.targetId === "c-overdue")!;
-    expect(todo.status).toBe("OPEN");
-    // 幂等：再跑一轮不重复
+    expect(todos.find((t) => t.targetId === "c-overdue")).toBeUndefined();
+    // 幂等：再跑一轮不重复通知、不重复计数
     const again = await workflow.runOnce();
     expect(again.adjudicationTodosCreated).toBe(0);
+    expect(
+      context.notifications.filter(
+        (n) => n.title === "Contribution adjudication overdue",
+      ),
+    ).toHaveLength(1);
   });
 
   it("assigns an evidence todo to the claimant for NEEDS_EVIDENCE claims", async () => {
@@ -647,6 +666,35 @@ describe("cycle readiness workflow (NPV2-026)", () => {
     expect(report.ready).toBe(false);
     expect(report.checks.find((check) => check.gate === "DATA")!.status).toBe("BLOCKED");
     expect(report.checks.find((check) => check.gate === "LEGAL")!.status).toBe("BLOCKED");
+  });
+
+  it("AUD-012: 空周期（NOT_MEASURABLE 必需门禁）不得判 ready", async () => {
+    const context = new FakeContext();
+    const workflow = new CycleReadinessWorkflow(context);
+    const report = await workflow.run({ cycleId: "cycle-empty" });
+    expect(report.ready).toBe(false);
+    const byGate = (gate: string) =>
+      report.checks.find((check) => check.gate === gate)!;
+    // 必需门禁全部不可度量时也必须逐项披露（LEGAL 不再静默缺项）。
+    expect(byGate("POLICY").status).toBe("NOT_MEASURABLE");
+    expect(byGate("LEGAL").status).toBe("NOT_MEASURABLE");
+    expect(byGate("CALCULATION").status).toBe("NOT_MEASURABLE");
+    expect(byGate("APPROVAL").status).toBe("NOT_MEASURABLE");
+    // 有运行但未锁定 → CALCULATION BLOCKED，同样不可就绪。
+    const pending = makeReadyContext();
+    (pending.context as { runs: unknown[] }).runs = [
+      {
+        ...((pending.context as { runs: unknown[] }).runs[0] as object),
+        status: "PENDING_APPROVAL",
+      },
+    ];
+    const report2 = await new CycleReadinessWorkflow(pending.context).run({
+      cycleId: "cycle-r",
+    });
+    expect(report2.ready).toBe(false);
+    expect(report2.checks.find((check) => check.gate === "CALCULATION")!.status).toBe(
+      "BLOCKED",
+    );
   });
 });
 

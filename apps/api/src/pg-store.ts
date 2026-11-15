@@ -911,6 +911,7 @@ export class PgStore implements IncentiveStore {
   /** NPV2-016 校验：断言必须有证据引用；依据事件不得含 ACTIVITY 事件。 */
   private async assertAssessmentDraftUsable(
     input: CreateContributionAssessmentDraftInput,
+    claim: { id: string; claimantPersonId: string },
   ): Promise<void> {
     const assertions = [
       ...input.supporting,
@@ -923,6 +924,24 @@ export class PgStore implements IncentiveStore {
       );
     }
     await this.tx(async (client) => {
+      // AUD-008：证据引用必须真实可解析且与 claim 主体相关（同租户由
+      // tenant_id 过滤保证；跨主体在 SQL 侧判 subject_id）。
+      const refs = [...new Set(assertions.flatMap((a) => a.evidenceRefs))];
+      for (const ref of refs) {
+        const { rows } = await client.query(
+          "SELECT subject_id FROM evidence_nodes WHERE tenant_id = $1 AND id = $2",
+          [this.tenantId, ref],
+        );
+        if (!rows[0]) {
+          throw new NotFoundError(`EvidenceNode ${ref} not found`);
+        }
+        const subjectId = rows[0].subject_id as string;
+        if (subjectId !== claim.id && subjectId !== claim.claimantPersonId) {
+          throw new ConflictError(
+            `ASSESSMENT_EVIDENCE_CROSS_SUBJECT: ${ref} does not belong to claim ${claim.id} or its subject`,
+          );
+        }
+      }
       for (const eventId of input.basedOnEventIds) {
         const { rows } = await client.query(
           "SELECT kind FROM contribution_events WHERE tenant_id = $1 AND id = $2",
@@ -943,8 +962,8 @@ export class PgStore implements IncentiveStore {
   async createContributionAssessmentDraft(
     input: CreateContributionAssessmentDraftInput,
   ): Promise<ContributionAssessmentDraft> {
-    await this.assertAssessmentDraftUsable(input);
     const claim = await this.getClaim(input.claimId);
+    await this.assertAssessmentDraftUsable(input, claim);
     return this.tx(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO contribution_assessment_drafts
@@ -1143,18 +1162,49 @@ export class PgStore implements IncentiveStore {
   ): Promise<ContributionEventIngestResult> {
     const inserted: ContributionEvent[] = [];
     const duplicates: ContributionEvent[] = [];
+    // NPV2 AUD-020：并发幂等——ON CONFLICT 命中部分唯一索引时回查既有
+    // 事件归入 duplicates，消除 SELECT-then-INSERT 竞态。
     await this.tx(async (client) => {
       for (const input of inputs) {
         if (input.externalId) {
-          const { rows: existing } = await client.query(
+          const { rows: insertedRows } = await client.query(
+            `INSERT INTO contribution_events
+              (tenant_id, actor_person_id, subject_person_id, action, target_type,
+               target_id, occurred_at, source, external_id, kind, outcome,
+               evidence_refs, correction_of)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             ON CONFLICT (tenant_id, source, external_id) WHERE external_id IS NOT NULL
+             DO NOTHING
+             RETURNING *`,
+            [
+              this.tenantId,
+              input.actorPersonId ?? null,
+              input.subjectPersonId,
+              input.action,
+              input.targetType,
+              input.targetId,
+              input.occurredAt,
+              input.source,
+              input.externalId ?? null,
+              input.kind,
+              JSON.stringify(input.outcome),
+              JSON.stringify(input.evidenceRefs),
+              input.correctionOfEventId ?? null,
+            ],
+          );
+          if (insertedRows[0]) {
+            inserted.push(this.mapContributionEvent(insertedRows[0]));
+            continue;
+          }
+          const { rows: existingRows } = await client.query(
             `SELECT * FROM contribution_events
               WHERE tenant_id = $1 AND source = $2 AND external_id = $3`,
             [this.tenantId, input.source, input.externalId],
           );
-          if (existing[0]) {
-            duplicates.push(this.mapContributionEvent(existing[0]));
-            continue;
+          if (existingRows[0]) {
+            duplicates.push(this.mapContributionEvent(existingRows[0]));
           }
+          continue;
         }
         const id = randomUUID();
         const { rows } = await client.query(
@@ -2431,13 +2481,25 @@ export class PgStore implements IncentiveStore {
     body: string;
     sourceType?: string;
     sourceId?: string;
+    idempotencyKey?: string;
   }): Promise<InAppNotification> {
     return this.tx(async (client) => {
+      if (input.idempotencyKey) {
+        const existing = await client.query(
+          `SELECT * FROM notifications
+            WHERE tenant_id = $1 AND idempotency_key = $2
+            LIMIT 1`,
+          [this.tenantId, input.idempotencyKey],
+        );
+        if (existing.rows[0]) return this.mapNotification(existing.rows[0]);
+      }
       const { rows } = await client.query(
         `INSERT INTO notifications
           (id, tenant_id, recipient_person_id, audience, title, body,
-           source_type, source_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           source_type, source_id, idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+         DO NOTHING
          RETURNING *`,
         [
           randomUUID(),
@@ -2448,9 +2510,18 @@ export class PgStore implements IncentiveStore {
           input.body,
           input.sourceType ?? null,
           input.sourceId ?? null,
+          input.idempotencyKey ?? null,
         ],
       );
-      return this.mapNotification(rows[0]);
+      if (rows[0]) return this.mapNotification(rows[0]);
+      // 并发窗口：唯一索引挡下重复插入——回查既有通知。
+      const raced = await client.query(
+        `SELECT * FROM notifications
+          WHERE tenant_id = $1 AND idempotency_key = $2
+          LIMIT 1`,
+        [this.tenantId, input.idempotencyKey],
+      );
+      return this.mapNotification(raced.rows[0]);
     });
   }
 
@@ -2508,6 +2579,7 @@ export class PgStore implements IncentiveStore {
       body: row.body,
       sourceType: row.source_type ?? undefined,
       sourceId: row.source_id ?? undefined,
+      idempotencyKey: row.idempotency_key ?? undefined,
       status: row.status,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       readAt: iso(row.read_at),

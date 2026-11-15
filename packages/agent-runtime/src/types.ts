@@ -122,6 +122,8 @@ export interface AgentContext {
     body: string;
     sourceType?: string;
     sourceId?: string;
+    /** AUD-011：稳定幂等键——重复扫描不重复通知。 */
+    idempotencyKey?: string;
   }): Promise<InAppNotification>;
   /** NPV2-020：持久化待办（幂等：同 (tenant, idempotencyKey) 不重复创建）。 */
   upsertAgentTodo(input: {

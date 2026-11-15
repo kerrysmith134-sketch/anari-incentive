@@ -30,6 +30,7 @@ import {
   ModelProviderError,
   evaluateGate,
   assessEvidenceCoverage,
+  recordModelUsage,
 } from "@anari/ai-gate";
 import { sha256 } from "@anari/policy-dsl";
 import {
@@ -1173,6 +1174,8 @@ export function registerAiGovernanceRoutes(deps: {
       outputJson: summary as unknown as Record<string, unknown>,
       validationStatus: "VALIDATED",
     });
+    // AUD-019：按租户记录模型调用与 token 用量（成本可审计）。
+    recordModelUsage(tenantOf(request), summary.provider, summary.model, summary.usage);
     countEvent("model_summary_generated");
     return data({ suggestionLogId: log.id, summary }, request);
   });

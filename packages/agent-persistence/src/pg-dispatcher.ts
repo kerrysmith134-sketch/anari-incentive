@@ -38,6 +38,8 @@ export class MultiTenantAgentDispatcher {
   private cursor = 0;
   private running = false;
   private timer?: ReturnType<typeof setInterval>;
+  /** AUD-013：在途轮次；start 的 tick 用它做 single-flight，stop 用它 drain。 */
+  private inFlight?: Promise<unknown>;
 
   constructor(options: MultiTenantDispatcherOptions) {
     this.pool = options.pool;
@@ -115,19 +117,33 @@ export class MultiTenantAgentDispatcher {
     if (this.running) return;
     this.running = true;
     const tick = async () => {
+      // AUD-013：single-flight——上一轮未结束时跳过本轮，防止轮次堆积
+      // （慢租户不会让并发轮次在同一租户上重复 claim）。
+      if (this.inFlight) return;
+      const round = this.dispatchOnce();
+      this.inFlight = round;
       try {
-        await this.dispatchOnce();
+        await round;
       } catch (error) {
         console.error("[multi-tenant-dispatcher] round failed", error);
+      } finally {
+        this.inFlight = undefined;
       }
     };
     void tick();
     this.timer = setInterval(tick, intervalMs);
   }
 
-  stop(): void {
+  /**
+   * 停止轮询并等待在途轮次完成（AUD-013/AUD-024 graceful drain）：
+   * 调用方（Worker SIGTERM）先 stop 再关连接池，避免在已关闭 pool 上继续操作。
+   */
+  async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     this.running = false;
+    const draining = this.inFlight;
+    if (draining) await draining.catch(() => undefined);
+    this.inFlight = undefined;
   }
 }

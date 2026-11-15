@@ -27,18 +27,52 @@ interface RunView {
   cycleId: string;
   mode: string;
   status: string;
-  grossProfit?: string;
   blockers: string[];
   warnings: string[];
 }
 
 interface FinancialFactView {
   id: string;
+  factType: string;
+  sourceSystem: string;
+  sourceRecordId: string;
+  amount: string;
+  currency: string;
+  qualityStatus: string;
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+/** AUD-014：对账在后端以微单位整数完成——前端只渲染报告。 */
+interface ReconciliationRow {
   cycleId: string;
-  netProfit?: string;
-  grossProfit?: string;
-  source: string;
-  recordedAt?: string;
+  cycleName: string;
+  status: "MATCH" | "VARIANCE";
+  declared: {
+    facts: Array<{
+      factId: string;
+      sourceSystem: string;
+      factType: string;
+      amount: string;
+      qualityStatus: string;
+      error?: string | null;
+    }>;
+    totalMicros: string;
+    total: string | null;
+  };
+  calculated: {
+    runId: string | null;
+    runStatus: string | null;
+    grossProfit: string | null;
+    totalMicros: string;
+    error?: string | null;
+  };
+  deltaMicros: string;
+}
+
+interface ReconciliationReport {
+  cycles: ReconciliationRow[];
+  note: string;
 }
 
 interface BudgetPoolView {
@@ -65,17 +99,24 @@ export function FinanceCenterPage() {
     "/api/v1/budget-pools",
     "finance-pools",
   );
+  // AUD-014：对账下沉后端（微单位整数 + FORMAL/LOCKED 运行筛选）。
+  const reconciliationQuery = useApiQuery<ReconciliationReport>(
+    "/api/v1/reports/finance-reconciliation",
+    "finance-reconciliation",
+  );
 
   const loading =
     policyQuery.loading ||
     runsQuery.loading ||
     factsQuery.loading ||
-    poolsQuery.loading;
+    poolsQuery.loading ||
+    reconciliationQuery.loading;
   const error =
     policyQuery.error ||
     runsQuery.error ||
     factsQuery.error ||
-    poolsQuery.error;
+    poolsQuery.error ||
+    reconciliationQuery.error;
 
   const runs = runsQuery.data ?? [];
   const formalRuns = runs.filter((run) => run.mode === "FORMAL");
@@ -83,28 +124,7 @@ export function FinanceCenterPage() {
   const warnedRuns = runs.filter((run) => run.warnings.length > 0);
   const facts = factsQuery.data ?? [];
   const pools = poolsQuery.data ?? [];
-
-  // 金额差异/对账提示：同一周期内财务事实毛利与计算运行毛利不一致的周期。
-  const factByCycle = new Map<string, string>();
-  for (const fact of facts) {
-    if (fact.grossProfit && fact.cycleId) {
-      factByCycle.set(fact.cycleId, fact.grossProfit);
-    }
-  }
-  const reconciliations = [...factByCycle.entries()].map(([cycleId, factGross]) => {
-    const runGross = runs
-      .filter((run) => run.cycleId === cycleId && run.grossProfit)
-      .reduce((sum, run) => sum + Number(run.grossProfit ?? 0), 0);
-    const declared = Number(factGross);
-    const delta = declared - runGross;
-    return {
-      cycleId,
-      declared,
-      runGross,
-      delta,
-      status: delta === 0 ? "MATCH" : "VARIANCE",
-    };
-  });
+  const reconciliations = reconciliationQuery.data?.cycles ?? [];
   const variances = reconciliations.filter((row) => row.status === "VARIANCE");
 
   return (
@@ -124,11 +144,11 @@ export function FinanceCenterPage() {
         <LoadingRows rows={6} />
       ) : (
         <>
-          <Panel title="引用对账（财务事实 vs 计算运行）">
+          <Panel title={`引用对账（财务事实 vs 计算运行，${variances.length} 个差异）`}>
             {reconciliations.length === 0 ? (
               <EmptyState
                 title="暂无可对账周期"
-                description="录入财务事实并有计算运行后，按周期对比毛利。"
+                description="录入财务事实并有正式计算运行后，按周期对比毛利。"
               />
             ) : (
               <ul className="stack-list">
@@ -139,17 +159,33 @@ export function FinanceCenterPage() {
                     >
                       {row.status === "MATCH" ? "一致" : "差异"}
                     </Badge>{" "}
-                    周期 {row.cycleId.slice(0, 8)}：财务 {row.declared} vs 运行{" "}
-                    {row.runGross}
-                    {row.delta !== 0 ? (
-                      <span className="muted">（差异 {row.delta}）</span>
+                    {row.cycleName}（{row.cycleId.slice(0, 8)}）{" "}
+                    <span className="muted">
+                      声明 {row.declared.total ?? "解析错误"} vs 运行{" "}
+                      {row.calculated.grossProfit ?? "无正式运行"}
+                      {row.deltaMicros !== "0" ? ` · 差异（微单位）${row.deltaMicros}` : ""}
+                    </span>
+                    {row.declared.facts.length > 0 ? (
+                      <ul className="stack-list muted">
+                        {row.declared.facts.map((fact) => (
+                          <li key={fact.factId}>
+                            逐笔 {fact.factType}（{fact.sourceSystem}）{fact.amount}{" "}
+                            {fact.qualityStatus !== "VALID" ? `[${fact.qualityStatus}]` : ""}
+                            {fact.error ? ` ⚠ ${fact.error}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {row.calculated.error ? (
+                      <div className="muted">⚠ 运行侧：{row.calculated.error}</div>
                     ) : null}
                   </li>
                 ))}
               </ul>
             )}
             <InfoNotice>
-              差异 = 财务申报毛利 − 计算运行毛利合计；非零差异需先核对来源事实再进入结算。
+              对账在后端完成：金额按 1e6 微单位整数运算；运行侧只取每周期最新
+              FORMAL（APPROVED/LOCKED，非 REVERSED）运行；REJECTED 事实不参与。
             </InfoNotice>
           </Panel>
 
@@ -229,9 +265,18 @@ export function FinanceCenterPage() {
               <ul className="stack-list">
                 {facts.slice(0, 20).map((fact) => (
                   <li key={fact.id}>
-                    周期 {fact.cycleId.slice(0, 8)} 来源 {fact.source}{" "}
-                    {fact.grossProfit ? `毛利 ${fact.grossProfit}` : ""}
-                    {fact.netProfit ? ` 净利 ${fact.netProfit}` : ""}
+                    {fact.factType}（{fact.sourceSystem}#{fact.sourceRecordId}）{" "}
+                    {formatMoney(fact.amount)}{" "}
+                    {fact.qualityStatus !== "VALID" ? (
+                      <span className="muted">[{fact.qualityStatus}]</span>
+                    ) : null}
+                    {fact.periodStart || fact.periodEnd ? (
+                      <span className="muted">
+                        {" "}
+                        · {(fact.periodStart ?? "?").slice(0, 10)}~
+                        {(fact.periodEnd ?? "?").slice(0, 10)}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
