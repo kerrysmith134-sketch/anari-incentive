@@ -20,6 +20,8 @@ jobs:
       - run: npx tsx scripts/migration-manifest.ts --check
       - run: docker compose config >/dev/null
       - run: npm run test:pg
+      # NPV2-010 / AUD-018：升级路径（上一版基线 → 增量迁移）实测。
+      - run: npm run test:pg-upgrade
 
 
   e2e:

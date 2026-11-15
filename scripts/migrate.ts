@@ -28,9 +28,20 @@ try {
   }>("SELECT version, checksum FROM schema_migrations");
   const applied = new Map(rows.map((row) => [row.version, row.checksum]));
 
-  const files = readdirSync(migrationsDir)
+  // NPV2-010：--until <version> 支持两阶段应用（升级路径实测：
+  // 先应用上一版基线，再全量应用——与生产滚动升级一致）。
+  const untilIndex = process.argv.indexOf("--until");
+  const until =
+    untilIndex >= 0 ? (process.argv[untilIndex + 1] ?? "") : undefined;
+  const allFiles = readdirSync(migrationsDir)
     .filter((file) => file.endsWith(".sql"))
     .sort();
+  const files = until
+    ? allFiles.filter((file) => file.replace(/\.sql$/, "") <= until)
+    : allFiles;
+  if (until) {
+    console.log(`--until ${until}: applying ${files.length}/${allFiles.length} migrations`);
+  }
 
   for (const file of files) {
     const version = file.replace(/\.sql$/, "");
