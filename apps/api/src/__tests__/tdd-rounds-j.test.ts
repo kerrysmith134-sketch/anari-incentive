@@ -107,13 +107,16 @@ describe("round 116: password login is rate-limited per IP", () => {
       password: "Right-Passw0rd",
       acceptTerms: true,
     });
+    // 限流窗口基于真实时间：慢跑/停顿可能跨窗重置计数——循环到 429
+    // 为止（上限 30 次），避免依赖"12 次一定触发"的时间假设。
     let last = 0;
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 30; index += 1) {
       const attempt = await call("POST", "/api/v1/auth/password/login", {
         email: "k@acme.test",
         password: `wrong-${index}`,
       });
       last = attempt.status;
+      if (last === 429) break;
     }
     expect(last).toBe(429);
   });

@@ -2,7 +2,7 @@
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）+ README 承诺的全部暂缓项
 **代码基线**：`main` 分支 280e9b6（2026-11-05 定版）
-**验证**：`npm run typecheck` 0 错误、`npm test` 964 单元/API、`npm run test:pg` 105 PostgreSQL（fresh）+ `npm run test:pg-upgrade` 105（升级路径）、`npm run test:e2e` 124 E2E、`npm run web:build` 全部通过；PRD 逐项代码证据核对 64/64 通过（见下）。
+**验证**：`npm run typecheck` 0 错误、`npm test` 972 单元/API、`npm run test:pg` 107 PostgreSQL（fresh）+ `npm run test:pg-upgrade` 107（升级路径）、`npm run test:e2e` 124 E2E、`npm run web:build` 全部通过；PRD 逐项代码证据核对 64/64 通过（见下）。
 
 # 2026-11-05 最终核对（定版结论）
 
