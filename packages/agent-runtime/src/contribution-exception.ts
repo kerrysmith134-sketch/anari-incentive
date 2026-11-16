@@ -37,6 +37,8 @@ export interface ContributionExceptionWorkflowOptions {
   slaDays?: number;
   /** now 的可注入覆盖（测试用）。 */
   now?: () => number;
+  /** NP-012：补证待办截止期（天，默认 7）。 */
+  evidenceDueDays?: number;
 }
 
 const DONE_STATES = new Set(["ACCEPTED", "REJECTED", "WITHDRAWN"]);
@@ -47,12 +49,16 @@ export class ContributionExceptionWorkflow {
   /** 本实例已升级的 claim（跨轮去重；跨实例由通知幂等键兜底）。 */
   private readonly escalatedAdjudications = new Set<string>();
 
+  /** NP-012：补证待办截止期（天）。 */
+  private readonly evidenceDueDays: number;
+
   constructor(
     private readonly context: AgentContext,
     options: ContributionExceptionWorkflowOptions = {},
   ) {
     this.slaDays = options.slaDays ?? 3;
     this.nowFn = options.now ?? Date.now;
+    this.evidenceDueDays = options.evidenceDueDays ?? 7;
   }
 
   async runOnce(): Promise<ContributionExceptionRunResult> {
@@ -133,6 +139,9 @@ export class ContributionExceptionWorkflow {
             title: `补交申报证据 ${claim.id}`,
             detail: "Claim was moved to NEEDS_EVIDENCE; supply the requested evidence.",
             assigneePersonId: claim.claimantPersonId,
+            dueAt: new Date(
+              this.nowFn() + this.evidenceDueDays * 24 * 60 * 60 * 1000,
+            ).toISOString(),
             targetType: "CONTRIBUTION_CLAIM",
             targetId: claim.id,
             sourceType: "AGENT_FINDING",

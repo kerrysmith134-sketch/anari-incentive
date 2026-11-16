@@ -602,6 +602,15 @@ describe("cycle readiness workflow (NPV2-026)", () => {
       engineVersion: "v1",
     };
     (context as { runs: unknown[] }).runs = [run];
+    // NP-007：评价门禁必需——就绪周期需要一份已决定的草案。
+    (context as { evaluationDrafts: unknown[] }).evaluationDrafts = [
+      {
+        id: "draft-ready",
+        cycleId: "cycle-r",
+        personId: "person-1",
+        status: "APPROVED",
+      },
+    ];
     (context as {
       gates: Map<string, unknown>;
     }).gates.set("pv-1", {
@@ -666,6 +675,17 @@ describe("cycle readiness workflow (NPV2-026)", () => {
     expect(report.ready).toBe(false);
     expect(report.checks.find((check) => check.gate === "DATA")!.status).toBe("BLOCKED");
     expect(report.checks.find((check) => check.gate === "LEGAL")!.status).toBe("BLOCKED");
+  });
+
+  it("NP-007: 有正式计算但无评价草案 → not ready（EVALUATION 为必需门禁）", async () => {
+    const { context } = makeReadyContext();
+    (context as { evaluationDrafts: unknown[] }).evaluationDrafts = [];
+    const report = await new CycleReadinessWorkflow(context).run({
+      cycleId: "cycle-r",
+    });
+    expect(report.ready).toBe(false);
+    const evaluation = report.checks.find((check) => check.gate === "EVALUATION")!;
+    expect(evaluation.status).toBe("NOT_MEASURABLE");
   });
 
   it("AUD-012: 空周期（NOT_MEASURABLE 必需门禁）不得判 ready", async () => {
@@ -1232,6 +1252,8 @@ describe("agent runtime role isolation", () => {
     const readerRun = await agent.run(readerTask.id);
     expect(readerRun.results[0]?.status).toBe("REJECTED");
     expect(readerRun.results[0]?.error).toBe("READER_ROLE_CANNOT_WRITE");
+    // NP-013：被拒绝的动作不能让任务显示成功。
+    expect(readerRun.status).toBe("FAILED");
     const actorTask = await agent.enqueue({
       tenantId: "tenant-1",
       agentType: "TEST_WRITE",

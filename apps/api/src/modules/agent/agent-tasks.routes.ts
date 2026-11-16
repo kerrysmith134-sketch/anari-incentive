@@ -6,7 +6,9 @@ import { ForbiddenError } from "@anari/auth";
 import type { AgentRuntime, AgentStepRepository } from "@anari/agent-runtime";
 import { llmChatComplete, extractJson, type LlmMessage } from "../../llm.js";
 import { notifyBestEffort } from "../../notify.js";
-import type { ApprovalPort, ModelgovPort } from "../../store-ports.js";
+import type { ApprovalPort, ModelgovPort,
+  TenantPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   agentChatSchema,
@@ -28,8 +30,8 @@ import {
   policyBody,
   requireActorRequired,
   isPrivileged,
-  ownPersonId,
-} from "../../http-helpers.js";
+  ownPersonId,} from "../../http-helpers.js";
+import { assertModelProviderPolicy } from "../../model-policy.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
 class BadRequestError extends Error {
@@ -102,7 +104,7 @@ const AGENT_COMMANDS: Record<
   };
 
 export function registerAgentTaskRoutes(deps: {
-  platformStore: ApprovalPort & ModelgovPort;
+  platformStore: ApprovalPort & ModelgovPort & TenantPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
   runtimeFor: (request: FastifyRequest) => AgentRuntime;
@@ -234,6 +236,14 @@ export function registerAgentTaskRoutes(deps: {
       });
     }
     const body = parse(agentChatSchema, request.body);
+    // NP-005/D-02：出站 LLM 调用必须先过模型供应商数据策略门禁
+    //（零留存/DPA/地区/出口白名单），不能只有模型摘要接口受管。
+    await assertModelProviderPolicy(
+      platformStore,
+      request,
+      agentChat.provider,
+      agentChat.baseUrl,
+    );
     const messages: LlmMessage[] = [
       { role: "system", content: AGENT_CHAT_SYSTEM_PROMPT },
       ...body.messages.map((message) => ({

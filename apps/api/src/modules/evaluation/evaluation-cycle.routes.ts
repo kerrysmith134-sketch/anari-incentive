@@ -27,7 +27,31 @@ import {
   personFilter,
   isPrivileged,
   ownPersonId,
+  requireActorRequired,
 } from "../../http-helpers.js";
+
+/**
+ * NP-004：盲审掩码——AI/SYSTEM 生成且仍在 SUBMITTED（待独立判断）的草案，
+ * 服务端剥离内容（仅返回元数据）。人工（USER）草案不受影响；决定后
+ * 状态离开 SUBMITTED 即恢复内容。
+ */
+function maskDraftForBlindReview<T extends {
+  generatedByType: string;
+  status: string;
+}>(draft: T): T & { contentHidden?: boolean } {
+  if (draft.generatedByType === "USER") return draft;
+  if (draft.status !== "SUBMITTED") return draft;
+  const masked = {
+    ...draft,
+    draftPayload: {},
+    strengths: [],
+    counterEvidence: [],
+    missingInformation: [],
+    uncertainty: {},
+    contentHidden: true,
+  } as T & { contentHidden?: boolean };
+  return masked;
+}
 
 export function registerEvaluationCycleRoutes(deps: {
   platformStore: AssessmentPort;
@@ -116,13 +140,11 @@ export function registerEvaluationCycleRoutes(deps: {
   app.get("/api/v1/evaluation-drafts", async (request) => {
     const query = request.query as { cycleId?: string; personId?: string };
     const person = personFilter(request);
-    return data(
-      await storeFor(request).listEvaluationDrafts({
-        cycleId: query.cycleId,
-        personId: person ?? query.personId,
-      }),
-      request,
-    );
+    const drafts = await storeFor(request).listEvaluationDrafts({
+      cycleId: query.cycleId,
+      personId: person ?? query.personId,
+    });
+    return data(drafts.map(maskDraftForBlindReview), request);
   });
 
   app.get("/api/v1/evaluation-drafts/:id", async (request) => {
@@ -131,7 +153,7 @@ export function registerEvaluationCycleRoutes(deps: {
     if (person && draft.personId !== person) {
       throw new ForbiddenError("evaluation draft is not visible to this person");
     }
-    return data(draft, request);
+    return data(maskDraftForBlindReview(draft), request);
   });
 
   app.post("/api/v1/evaluation-drafts/:id/submit", async (request) => {
@@ -152,8 +174,15 @@ export function registerEvaluationCycleRoutes(deps: {
     requireRoles(request, "manager");
     const body = parse(decideEvaluationDraftSchema, request.body);
     const store = storeFor(request);
+    // NP-003/AUD-005：复核人必须是会话身份（不可代他人签署评价决定）。
+    const reviewerPersonId = requireActorRequired(
+      request,
+      body.reviewerPersonId,
+      "deciding an evaluation draft",
+    );
     const result = await store.decideEvaluationDraft(idOf(request), {
       ...body,
+      reviewerPersonId,
       scores: body.scores ?? {},
     });
     await notifyBestEffort(store, {

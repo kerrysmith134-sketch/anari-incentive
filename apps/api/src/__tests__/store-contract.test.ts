@@ -758,19 +758,7 @@ function registerContractSuite(
       }),
     ).rejects.toThrow(/ZERO_SCORE_REQUIRES_ASSESSED_STATE/);
 
-    // NOT_APPLICABLE 不能配 0 分（0 分本身是 ASSESSED 结论）
-    await expect(
-      store.decideEvaluationDraft(draft.id, {
-        reviewerPersonId: ADJUDICATOR,
-        rubricVersionId: rubric.id,
-        decision: "APPROVE",
-        scores: { QUALITY: 0 },
-        independentScores: { QUALITY: 0 },
-        independentRationale: "not applicable",
-        rationale: "zero",
-        dimensionStates: { QUALITY: "NOT_APPLICABLE" },
-      }),
-    ).rejects.toThrow(/ZERO_SCORE_REQUIRES_ASSESSED_STATE/);
+    // NP-006：NOT_APPLICABLE 配 0 分等价于"无数字分"（由下方 NA 用例验证）。
 
     // ASSESSED + 理由 → 通过并持久化状态
     const decided = await store.decideEvaluationDraft(draft.id, {
@@ -785,6 +773,49 @@ function registerContractSuite(
     });
     expect(decided.decision?.dimensionStates?.QUALITY).toBe("ASSESSED");
     void claimId;
+
+    // NP-006：NOT_APPLICABLE / INSUFFICIENT_EVIDENCE 允许不填数字分（且不得有正分）。
+    const naDraft = await store.createEvaluationDraft({
+      cycleId: ctx.cycleId,
+      personId: MEMBER,
+      generatedByType: "SYSTEM",
+      evidenceSnapshotHash: `na-${suffix}`,
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(naDraft.id);
+    const naDecision = await store.decideEvaluationDraft(naDraft.id, {
+      reviewerPersonId: ADJUDICATOR,
+      rubricVersionId: rubric.id,
+      decision: "APPROVE",
+      scores: {},
+      independentScores: {},
+      independentRationale: "dimension not applicable this cycle",
+      rationale: "na",
+      dimensionStates: { QUALITY: "NOT_APPLICABLE" },
+    });
+    expect(naDecision.decision?.dimensionStates?.QUALITY).toBe("NOT_APPLICABLE");
+    expect(naDecision.decision?.scores.QUALITY).toBeUndefined();
+
+    const naWithScore = await store.createEvaluationDraft({
+      cycleId: ctx.cycleId,
+      personId: OWNER,
+      generatedByType: "SYSTEM",
+      evidenceSnapshotHash: `na2-${suffix}`,
+      draftPayload: {},
+    });
+    await store.submitEvaluationDraft(naWithScore.id);
+    await expect(
+      store.decideEvaluationDraft(naWithScore.id, {
+        reviewerPersonId: ADJUDICATOR,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 3 },
+        independentScores: { QUALITY: 3 },
+        independentRationale: "contradictory",
+        rationale: "na with score",
+        dimensionStates: { QUALITY: "NOT_APPLICABLE" },
+      }),
+    ).rejects.toThrow(/DIMENSION_STATE_SCORE_CONFLICT/);
   });
 
   it("指标快照域：冻结哈希确定性、复核、决定绑定追溯、错配拒绝", async () => {

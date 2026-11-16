@@ -71,6 +71,8 @@ async function runImport(): Promise<void> {
     participants: columnIndex(header, "participants"),
     grossProfit: columnIndex(header, "gross_profit"),
     currency: columnIndex(header, "currency"),
+    periodStart: columnIndex(header, "period_start"),
+    periodEnd: columnIndex(header, "period_end"),
   };
 
   const persons = await platformStore.listPersons(tenantId);
@@ -132,6 +134,21 @@ async function runImport(): Promise<void> {
       members: participants,
       acceptanceCriteria: ["客户验收单", "交付事实可核对"],
     });
+    // NP-019：毛利/币种必须落成 FinancialFact（否则对账侧永远"无事实"）。
+    if (grossProfit) {
+      await platformStore.createFinancialFact({
+        tenantId,
+        sourceSystem: "PILOT_IMPORT",
+        sourceRecordId: orderId,
+        factType: "GROSS_PROFIT",
+        periodStart: (row[idx.periodStart] ?? "").trim() || undefined,
+        periodEnd: (row[idx.periodEnd] ?? "").trim() || undefined,
+        amount: grossProfit,
+        currency,
+        qualityStatus: "VALID",
+        payload: { orderId, importedBy: "pilot-shadow-cycle" },
+      });
+    }
     created += 1;
   }
   console.log(
@@ -168,6 +185,7 @@ async function runReport(): Promise<void> {
     facts: (await platformStore.listFinancialFacts(tenantId)).map((fact) => ({
       id: fact.id,
       amount: fact.amount,
+      currency: fact.currency,
       qualityStatus: fact.qualityStatus,
       payload: fact.payload,
       periodStart: fact.periodStart,
@@ -179,6 +197,7 @@ async function runReport(): Promise<void> {
           mode: benchmarkRun.mode,
           status: benchmarkRun.status,
           orderGrossProfit: benchmarkRun.inputSnapshot?.order?.grossProfit,
+          currency: benchmarkRun.inputSnapshot?.order?.currency,
         }
       : undefined,
     claims: (await store.listClaims()).map((claim) => ({
@@ -202,6 +221,7 @@ async function runReport(): Promise<void> {
       subjectType: node.subjectType,
       subjectId: node.subjectId,
       createdAt: node.createdAt,
+      payload: node.normalizedPayload,
     })),
     drafts: (await store.listEvaluationDrafts({ cycleId })).map((draft) => ({
       id: draft.id,
@@ -215,6 +235,7 @@ async function runReport(): Promise<void> {
         personId: decision.personId,
         cycleId: decision.cycleId,
         createdAt: decision.createdAt,
+        reviewStartedAt: decision.reviewStartedAt,
       }),
     ),
   };

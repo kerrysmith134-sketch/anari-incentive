@@ -2161,6 +2161,8 @@ export interface EvaluationDraft {
   counterEvidence: string[];
   missingInformation: string[];
   uncertainty: Record<string, unknown>;
+  /** NP-004：盲审掩码——内容被服务端剥离（AI 草案在独立判断完成前）。 */
+  contentHidden?: boolean;
   status: EvaluationDraftStatus;
   version: number;
   createdAt: string;

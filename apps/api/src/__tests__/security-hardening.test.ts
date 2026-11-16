@@ -324,7 +324,9 @@ describe("approval identity comes from the session", () => {
         payloadHash: created.body.data.payloadHash,
       },
     );
+    // 审批代办仍走 actor 收口（与数值评分退役无关）。
     expect(decided.status).toBe(403);
+    expect(decided.body.error.message).toContain("own identity");
   });
 });
 
@@ -471,7 +473,7 @@ describe("decision APIs bind the session actor (NPV2-003 sweep)", () => {
     expect(accepted.body.error.message).toContain("authenticated identity");
   });
 
-  it("rejects AI proposal decisions for another person", async () => {
+  it("NP-021: AI numeric proposal decisions are retired (409 before identity checks)", async () => {
     const financeSession = buildApp(
       new Store(),
       undefined,
@@ -490,7 +492,8 @@ describe("decision APIs bind the session actor (NPV2-003 sweep)", () => {
         evidenceOpened: 1,
       },
     );
-    expect(decided.status).toBe(403);
+    expect(decided.status).toBe(409);
+    expect(decided.body.error.message).toContain("AI_NUMERIC_SCORING_RETIRED");
   });
 });
 

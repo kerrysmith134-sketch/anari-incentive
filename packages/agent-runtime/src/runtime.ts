@@ -397,11 +397,16 @@ export class AgentRuntime {
         task.results.push(await this.execute(task, action));
       }
 
+      // NP-013：被拒绝（REJECTED）的工具动作不能算成功——任务应失败，
+      // 让重试/运维队列看到真实结果。
       task.status = task.results.some(
         (result) => result.status === "PENDING_APPROVAL",
       )
         ? "WAITING_APPROVAL"
-        : task.results.some((result) => result.status === "FAILED")
+        : task.results.some(
+              (result) =>
+                result.status === "FAILED" || result.status === "REJECTED",
+            )
           ? "FAILED"
           : "SUCCEEDED";
       task.output = {

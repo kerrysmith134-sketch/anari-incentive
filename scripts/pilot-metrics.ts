@@ -14,6 +14,8 @@
 export interface PilotFactInput {
   id?: string;
   amount: string;
+  /** NP-008：币种必须与运行一致；缺省 CNY。 */
+  currency?: string;
   qualityStatus: string;
   payload: Record<string, unknown>;
   periodStart?: string;
@@ -25,6 +27,8 @@ export interface PilotRunInput {
   mode: string;
   status: string;
   orderGrossProfit?: string;
+  /** NP-008：运行订单币种（缺省 CNY）。 */
+  currency?: string;
 }
 
 export interface PilotClaimInput {
@@ -47,6 +51,8 @@ export interface PilotEvidenceInput {
   subjectType: string;
   subjectId: string;
   createdAt: string;
+  /** NP-016：证据载荷中的 claimId（claim 级归属）；无则只按 claim.evidenceRefs 判定。 */
+  payload?: Record<string, unknown>;
 }
 
 export interface PilotDraftInput {
@@ -61,6 +67,8 @@ export interface PilotDecisionInput {
   personId: string;
   cycleId: string;
   createdAt: string;
+  /** NP-018：复核开始时间（决定 - reviewStartedAt = 真实复核时长）。 */
+  reviewStartedAt?: string;
 }
 
 export interface PilotMetricInputs {
@@ -171,6 +179,22 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   });
   let declaredMicros = 0n;
   let factError: string | undefined;
+  // NP-008：没有任何财务事实不得 PASS（无从对账）；混币种不得相加。
+  if (cycleFacts.length === 0) {
+    factError = "no financial facts matched this cycle";
+  }
+  const factCurrencies = new Set(
+    cycleFacts.map((fact) => (fact.currency ?? "CNY").toUpperCase()),
+  );
+  const runCurrency = (input.benchmarkRun?.currency ?? "CNY").toUpperCase();
+  if (factCurrencies.size > 1) {
+    factError = `mixed financial-fact currencies: ${[...factCurrencies].join("/")}`;
+  } else if (
+    cycleFacts.length > 0 &&
+    !factCurrencies.has(runCurrency)
+  ) {
+    factError = `financial facts currency ${[...factCurrencies].join("/")} does not match run currency ${runCurrency}`;
+  }
   for (const fact of cycleFacts) {
     try {
       declaredMicros += amountToMicros(fact.amount);
@@ -205,10 +229,14 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
 
   // 2) 证据覆盖（按角色分层）。
   const wpById = new Map(input.workPackages.map((wp) => [wp.id, wp]));
-  const evidenceByWp = new Map<string, number>();
+  // NP-016：证据必须归属到具体 claim——claim.evidenceRefs，或证据载荷里
+  // 显式 claimId。工作包里任意一条证据不再覆盖全体成员的申报。
+  const evidenceClaimIds = new Map<string, string>();
   for (const node of input.evidence) {
-    if (node.subjectType !== "WORK_PACKAGE") continue;
-    evidenceByWp.set(node.subjectId, (evidenceByWp.get(node.subjectId) ?? 0) + 1);
+    const claimId = node.payload?.claimId;
+    if (typeof claimId === "string" && claimId.length > 0) {
+      evidenceClaimIds.set(node.id, claimId);
+    }
   }
   const roleByPerson = (personId: string, wpId: string): string => {
     const wp = wpById.get(wpId);
@@ -219,7 +247,8 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   let coveredTotal = 0;
   for (const claim of inCycle) {
     const covered =
-      claim.evidenceRefs.length > 0 || (evidenceByWp.get(claim.workPackageId) ?? 0) > 0;
+      claim.evidenceRefs.length > 0 ||
+      [...evidenceClaimIds.values()].some((claimId) => claimId === claim.id);
     const role = roleByPerson(claim.claimantPersonId, claim.workPackageId);
     coveredByRole[role] = coveredByRole[role] ?? { covered: 0, total: 0 };
     coveredByRole[role].total += 1;
@@ -254,16 +283,15 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
 
   // 3) 补证时长：申报提交 → 该 WP 首份证据登记。
   const supplementSamples: number[] = [];
+  const evidenceById = new Map(input.evidence.map((node) => [node.id, node]));
   for (const claim of inCycle) {
     if (!claim.submittedAt) continue;
     const submittedMs = Date.parse(claim.submittedAt);
-    const candidates = input.evidence
-      .filter(
-        (node) =>
-          node.subjectType === "WORK_PACKAGE" &&
-          node.subjectId === claim.workPackageId &&
-          Date.parse(node.createdAt) >= submittedMs,
-      )
+    // NP-017：只统计 claim 实际引用的证据（其它工作包证据不算补证）。
+    const candidates = claim.evidenceRefs
+      .map((ref) => evidenceById.get(ref))
+      .filter((node): node is PilotEvidenceInput => node !== undefined)
+      .filter((node) => Date.parse(node.createdAt) >= submittedMs)
       .map((node) => Date.parse(node.createdAt) - submittedMs);
     if (candidates.length > 0) {
       supplementSamples.push(Math.round(Math.min(...candidates) / 60_000));
@@ -283,6 +311,16 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   );
   const reviewSamples: number[] = [];
   for (const decision of cycleDecisions) {
+    if (decision.reviewStartedAt) {
+      // NP-018：优先使用服务端记录的复核开始时间（真实复核时长）。
+      const minutes = Math.round(
+        (Date.parse(decision.createdAt) - Date.parse(decision.reviewStartedAt)) /
+          60_000,
+      );
+      if (Number.isFinite(minutes) && minutes >= 0) reviewSamples.push(minutes);
+      continue;
+    }
+    // 兼容：无 reviewStartedAt 时用最近一份早于决定的草案（含等待，口径保守）。
     const draftCandidates = input.drafts
       .filter(
         (draft) =>
@@ -307,7 +345,8 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
         : "FAIL";
 
   // 5) 争议率。
-  const disputed = inCycle.filter((claim) => claim.status === "DISPUTED").length;
+  // NP-018：ClaimStatus 无 DISPUTED——争议以 APPEALED 计。
+  const disputed = inCycle.filter((claim) => claim.status === "APPEALED").length;
   const disputeRate = rate(disputed, inCycle.length);
   const disputeVerdict: PilotVerdict =
     disputeRate === null

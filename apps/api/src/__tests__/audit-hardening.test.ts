@@ -224,6 +224,171 @@ describe("审计加固：证据互链与验收人收口", () => {
   });
 });
 
+describe("NP-002/003/004/005：裁决身份、盲审掩码、chat 出境门禁", () => {
+  it("NP-002：归属裁决人必须是会话身份", async () => {
+    const { app, appStore } = setup(["manager"], OWNER);
+    const wp = await appStore.createWorkPackage({
+      title: "np002-wp",
+      objective: "np002 objective",
+      ownerPersonId: OWNER,
+      members: [
+        { personId: OWNER, responsibilityCode: "OWNER", expectedOutput: "d" },
+        { personId: MEMBER, responsibilityCode: "CONTRIBUTOR", expectedOutput: "r" },
+      ],
+      acceptanceCriteria: ["done"],
+    });
+    await appStore.commitWorkPackage(wp.id, 1);
+    await appStore.startWorkPackage(wp.id);
+    await appStore.submitWorkPackage(wp.id);
+    await appStore.acceptWorkPackage(wp.id, MEMBER);
+    const claim = await appStore.createClaim({
+      workPackageId: wp.id,
+      claimantPersonId: MEMBER,
+      claimType: "DELIVERABLE_CONTRIBUTION",
+      claimedContribution: { dimensions: ["QUALITY"], summary: "x" },
+      evidenceRefs: [],
+      rationale: "np002",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/attribution-decisions",
+      payload: {
+        claimId: claim.id,
+        adjudicatorPersonId: MEMBER,
+        status: "CONFIRMED",
+        acceptedFacts: [],
+        rejectedFacts: [],
+        contributionDimensions: { QUALITY: 1 },
+        rationale: "forged adjudicator",
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("NP-003：评价复核人必须是会话身份", async () => {
+    const { app, appStore } = setup(["manager"], OWNER);
+    const rubric = await appStore.createRubric({
+      code: "NP003_RUBRIC",
+      name: "np003",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const draft = await appStore.createEvaluationDraft({
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      personId: MEMBER,
+      generatedByType: "USER",
+      evidenceSnapshotHash: "np003",
+      draftPayload: {},
+    });
+    await appStore.submitEvaluationDraft(draft.id);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/evaluation-drafts/${draft.id}/decision`,
+      payload: {
+        reviewerPersonId: MEMBER,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 4 },
+        independentScores: { QUALITY: 4 },
+        independentRationale: "independent",
+        rationale: "forged reviewer",
+      },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("NP-004：AI 草案在 SUBMITTED 阶段由服务端掩码，决定后揭示", async () => {
+    const { app, appStore } = setup(["manager"], OWNER);
+    const rubric = await appStore.createRubric({
+      code: "NP004_RUBRIC",
+      name: "np004",
+      dimensions: ["QUALITY"],
+      scoringAnchors: {},
+      effectiveFrom: "2026-10-01",
+    });
+    const draft = await appStore.createEvaluationDraft({
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      personId: MEMBER,
+      generatedByType: "AGENT",
+      evidenceSnapshotHash: "np004",
+      strengthPayload: undefined,
+      draftPayload: { secret: "ai-draft-content" },
+      strengths: ["strong evidence"],
+      counterEvidence: ["weak counter"],
+      missingInformation: ["acceptance record"],
+    } as never);
+    await appStore.submitEvaluationDraft(draft.id);
+
+    const masked = await app.inject({
+      method: "GET",
+      url: `/api/v1/evaluation-drafts/${draft.id}`,
+    });
+    const maskedBody = (masked.json() as { data: Record<string, unknown> }).data;
+    expect(maskedBody.contentHidden).toBe(true);
+    expect(maskedBody.draftPayload).toEqual({});
+    expect(maskedBody.strengths).toEqual([]);
+
+    // 复核（本人会话）批准后内容揭示
+    const decided = await app.inject({
+      method: "POST",
+      url: `/api/v1/evaluation-drafts/${draft.id}/decision`,
+      payload: {
+        reviewerPersonId: OWNER,
+        rubricVersionId: rubric.id,
+        decision: "APPROVE",
+        scores: { QUALITY: 4 },
+        independentScores: { QUALITY: 4 },
+        independentRationale: "independent",
+        rationale: "np004",
+      },
+    });
+    expect(decided.statusCode).toBe(200);
+    const revealed = await app.inject({
+      method: "GET",
+      url: `/api/v1/evaluation-drafts/${draft.id}`,
+    });
+    const revealedBody = (revealed.json() as { data: Record<string, unknown> }).data;
+    expect(revealedBody.contentHidden).toBeUndefined();
+    expect(revealedBody.draftPayload).toEqual({ secret: "ai-draft-content" });
+  });
+
+  it("NP-005：/agent-chat 必须过模型供应商数据策略门禁", async () => {
+    const platformStore = new MemoryPlatformStore({
+      demoTenant: { id: TENANT, name: "Tenant", slug: "t1" },
+    });
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const app = buildApp(
+        () => new Store(TENANT),
+        undefined,
+        authFor(["manager"], OWNER),
+        platformStore,
+        {
+          agentChat: {
+            provider: "deepseek",
+            baseUrl: "https://api.deepseek.com/v1",
+            apiKey: "k",
+            model: "deepseek-chat",
+          },
+        },
+      );
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/agent-chat",
+        payload: { messages: [{ role: "user", content: "推进周期" }] },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.message).toContain(
+        "MODEL_PROVIDER_POLICY_REQUIRED",
+      );
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+});
+
 describe("审计加固：服务主体 vs 无 person 用户令牌（AUD-005）", () => {
   /** 租户已启用 PAYROLL + 结算 GO，才能观察到 actor 校验本身。 */
   function payrollReady(servicePrincipal: boolean | undefined) {

@@ -37,6 +37,8 @@ interface DraftView {
   cycleId: string;
   personId: string;
   status: string;
+  /** NP-004：服务端盲审掩码标记——内容未揭示。 */
+  contentHidden?: boolean;
   strengths?: string[];
   counterEvidence?: string[];
   missingInformation?: string[];
@@ -141,21 +143,12 @@ export function ManagementCenterPage() {
 
   // NPV2-029：AI 草稿隐藏——独立判断完成的评审人才能看到关联草稿内容。
   const submittedDrafts = (draftsQuery.data ?? []).filter(
-    (draft) => draft.status === "SUBMITTED",
+    (draft) => draft.status === "SUBMITTED" || draft.contentHidden,
   );
-  const decidedByPerson = new Set(
-    (decisionsQuery.data ?? [])
-      .filter(
-        (decision) =>
-          Object.keys(decision.independentScores ?? {}).length > 0,
-      )
-      .map((decision) => decision.personId),
-  );
-  const hiddenDrafts = submittedDrafts.filter(
-    (draft) => !decidedByPerson.has(draft.personId),
-  );
-  const visibleDrafts = submittedDrafts.filter((draft) =>
-    decidedByPerson.has(draft.personId),
+  // NP-004：是否揭示以服务端 contentHidden 为准（前端不再自行推断）。
+  const hiddenDrafts = submittedDrafts.filter((draft) => draft.contentHidden);
+  const visibleDrafts = submittedDrafts.filter(
+    (draft) => !draft.contentHidden,
   );
 
   const coverage = coverageQuery.data;

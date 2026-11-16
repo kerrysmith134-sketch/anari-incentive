@@ -268,10 +268,14 @@ console.log(
 );
 
 /** 周期推进：COLLECTING 且 endsAt 已过 → 自动进入 AI_PRE_REVIEW。 */
-async function advanceDueCycles(): Promise<number> {
-  const headers: Record<string, string> = tokenProvider
-    ? { authorization: `Bearer ${await tokenProvider.getToken()}` }
-    : { "x-tenant-id": tenantId, "x-user-id": "worker" };
+async function advanceDueCycles(tenant: string): Promise<number> {
+  // NP-015：租户头始终携带——多租户模式下逐个租户推进。
+  const headers: Record<string, string> = { "x-tenant-id": tenant };
+  if (tokenProvider) {
+    headers.authorization = `Bearer ${await tokenProvider.getToken()}`;
+  } else {
+    headers["x-user-id"] = "worker";
+  }
   const listResponse = await fetch(`${apiBaseUrl}/api/v1/evaluation-cycles`, {
     headers,
   });
@@ -349,10 +353,10 @@ async function runBoundedWorkflowsForTenant(tenant: string): Promise<void> {
 }
 
 let lastFeishuSyncMs = 0;
-async function runFeishuDirectorySync(): Promise<void> {
+async function runFeishuDirectorySync(tenant: string): Promise<void> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    "x-tenant-id": tenantId,
+    "x-tenant-id": tenant,
   };
   const token = await tokenProvider?.getToken();
   if (token) headers.authorization = `Bearer ${token}`;
@@ -413,7 +417,11 @@ while (running) {
     });
     if (Date.now() - lastCycleAdvanceMs >= CYCLE_ADVANCE_INTERVAL_MS) {
       lastCycleAdvanceMs = Date.now();
-      const advanced = await advanceDueCycles();
+      const tenants = dispatcher ? await dispatcher.listTenantIds() : [tenantId];
+      let advanced = 0;
+      for (const tenant of tenants) {
+        advanced += await advanceDueCycles(tenant);
+      }
       if (advanced > 0) console.log(`agent worker: cycles advanced=${advanced}`);
     }
     if (
@@ -421,10 +429,13 @@ while (running) {
       Date.now() - lastFeishuSyncMs >= feishuSyncIntervalMs
     ) {
       lastFeishuSyncMs = Date.now();
-      try {
-        await runFeishuDirectorySync();
-      } catch (syncError) {
-        console.error("agent worker: feishu sync failed", syncError);
+      const tenants = dispatcher ? await dispatcher.listTenantIds() : [tenantId];
+      for (const tenant of tenants) {
+        try {
+          await runFeishuDirectorySync(tenant);
+        } catch (syncError) {
+          console.error(`agent worker: feishu sync failed (${tenant})`, syncError);
+        }
       }
     }
     if (scheduled.length + events.length + retried.length > 0) {

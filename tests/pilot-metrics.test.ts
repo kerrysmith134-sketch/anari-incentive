@@ -27,6 +27,7 @@ function baseInputs(overrides: Partial<PilotMetricInputs> = {}): PilotMetricInpu
     facts: [
       {
         amount: "100000.00",
+        currency: "CNY",
         qualityStatus: "VALID",
         payload: { cycleId: CYCLE.id },
       },
@@ -36,6 +37,7 @@ function baseInputs(overrides: Partial<PilotMetricInputs> = {}): PilotMetricInpu
       mode: "FORMAL",
       status: "LOCKED",
       orderGrossProfit: "100000",
+      currency: "CNY",
     },
     claims: [
       {
@@ -172,7 +174,8 @@ describe("AUD-022 pilot metrics", () => {
         evidence: [],
       }),
     );
-    expect(report.evidenceCoverage.overall.rate).toBe(1);
+    // NP-016：WP 级证据不再覆盖所有 claim——4 单只有 1 单带 refs。
+    expect(report.evidenceCoverage.overall.rate).toBe(0.25);
     expect(report2.evidenceCoverage.byRole.CONTRIBUTOR?.verdict).toBe("FAIL");
     expect(report2.evidenceCoverage.overall.verdict).toBe("FAIL");
     // 4 单里仅 1 单带 evidenceRefs（其余依赖 WP 证据，但该 WP 无证据）→ 25%
@@ -184,7 +187,7 @@ describe("AUD-022 pilot metrics", () => {
     const disputed = {
       ...base.claims[0]!,
       id: "c-dispute",
-      status: "DISPUTED",
+      status: "APPEALED",
     };
     const report = computePilotMetrics(
       baseInputs({ claims: [...base.claims, disputed] }),
@@ -236,6 +239,50 @@ describe("AUD-022 pilot metrics", () => {
     expect(noSamples.review.verdict).toBe("N/A");
     // 证据覆盖为 0 且样本 2（总体 <70%）→ FAIL，整体不通过
     expect(noSamples.evidenceCoverage.overall.verdict).toBe("FAIL");
+  });
+
+  it("NP-008：无财务事实不得 PASS；混币种不得相加", () => {
+    const noFacts = computePilotMetrics(baseInputs({ facts: [] }));
+    expect(noFacts.financial.verdict).toBe("FAIL");
+    expect(noFacts.financial.detail).toContain("no financial facts");
+    expect(noFacts.pass).toBe(false);
+
+    const mixed = computePilotMetrics(
+      baseInputs({
+        facts: [
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", payload: { cycleId: CYCLE.id } },
+          { amount: "10", currency: "USD", qualityStatus: "VALID", payload: { cycleId: CYCLE.id } },
+        ],
+      }),
+    );
+    expect(mixed.financial.verdict).toBe("FAIL");
+    expect(mixed.financial.detail).toContain("mixed");
+  });
+
+  it("NP-018：复核时长优先使用 reviewStartedAt", () => {
+    const report = computePilotMetrics(
+      baseInputs({
+        decisions: [
+          {
+            id: "dec1",
+            personId: OWNER,
+            cycleId: CYCLE.id,
+            createdAt: "2026-10-10T09:30:00.000Z",
+            reviewStartedAt: "2026-10-10T09:10:00.000Z",
+          },
+          {
+            id: "dec2",
+            personId: MEMBER,
+            cycleId: CYCLE.id,
+            createdAt: "2026-10-10T10:00:00.000Z",
+            reviewStartedAt: "2026-10-10T09:30:00.000Z",
+          },
+        ],
+      }),
+    );
+    // 20min 与 30min → 中位 25（使用 reviewStartedAt 而非草案创建时间）
+    expect(report.review.medianMinutes).toBe(25);
+    expect(report.review.verdict).toBe("PASS");
   });
 
   it("金额严格解析：>6 位小数/非数字直接报错（不静默丢精度）", () => {

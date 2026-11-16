@@ -39,10 +39,17 @@ interface GapTodo {
 
 export class EvidenceCompletenessWorkflow {
   private readonly gapSkill = new EvidenceGapSkill();
+  /** NP-011：证据待办截止期（天）——逾期扫描只对有 dueAt 的待办生效。 */
+  private readonly evidenceDueDays: number;
+
+  constructor(
+    private readonly context: AgentContext,
+    options: { evidenceDueDays?: number } = {},
+  ) {
+    this.evidenceDueDays = options.evidenceDueDays ?? 7;
+  }
   /** 本实例已升级的无主缺口（跨轮去重；跨实例由通知幂等键兜底）。 */
   private readonly escalatedOwnerless = new Set<string>();
-
-  constructor(private readonly context: AgentContext) {}
 
   async runOnce(): Promise<EvidenceCompletenessRunResult> {
     const audit: EvidenceCompletenessAuditEntry[] = [];
@@ -96,6 +103,9 @@ export class EvidenceCompletenessWorkflow {
         title: `补交工作包证据 ${gap.subjectId}`,
         detail: gap.message,
         assigneePersonId: owner,
+        dueAt: new Date(
+          Date.now() + this.evidenceDueDays * 24 * 60 * 60 * 1000,
+        ).toISOString(),
         targetType: gap.subjectType,
         targetId: gap.subjectId,
         sourceType: "AGENT_FINDING",
@@ -130,9 +140,10 @@ export class EvidenceCompletenessWorkflow {
       status: "OPEN",
     })) as Array<GapTodo & { idempotencyKey?: string }>).filter(
       (todo) =>
+        // NP-009：未知 key（undefined/其他来源）不得视为本 workflow 的待办。
         (todo as { idempotencyKey?: string }).idempotencyKey?.startsWith(
           "evidence-gap:",
-        ) ?? true,
+        ) === true,
     );
     for (const todo of openGapTodos) {
       if (!todo.id || !todo.targetId) continue;

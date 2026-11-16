@@ -49,6 +49,7 @@ import {
   requireActor,
   requireActorRequired,
 } from "../../http-helpers.js";
+import { assertModelProviderPolicy } from "../../model-policy.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
 class BadRequestError extends Error {
@@ -92,75 +93,6 @@ async function assertRegisteredGoldSet(
   );
   if (!dataset) {
     throw new ConflictError(`GOLD_SET_NOT_REGISTERED: ${datasetRef}`);
-  }
-}
-
-
-/** 租户开启 requireModelProviderPolicy 时，模型必须有生效的供应商策略。 */
-async function assertModelProviderPolicy(
-  platformStore: PlatformStore,
-  request: FastifyRequest,
-  provider: string,
-  targetUrl?: string,
-): Promise<void> {
-  const tenant = await platformStore.getTenant(tenantOf(request));
-  // External model egress is governed by default in production; a tenant
-  // setting may opt into the same stricter gate in non-production.
-  const required =
-    process.env.NODE_ENV === "production" ||
-    Boolean(
-      (tenant.settings as { requireModelProviderPolicy?: unknown })
-        .requireModelProviderPolicy,
-    );
-  if (!required) return;
-  const policy = await platformStore.getActiveModelProviderPolicy(
-    tenantOf(request),
-    provider,
-  );
-  if (!policy) {
-    throw new ConflictError(
-      `MODEL_PROVIDER_POLICY_REQUIRED: no active policy for ${provider}`,
-    );
-  }
-  if (!policy.zeroRetentionConfirmed || !policy.dpaRef) {
-    throw new ConflictError(
-      `MODEL_PROVIDER_POLICY_INCOMPLETE: zero retention and DPA are required for ${provider}`,
-    );
-  }
-  if (policy.egressAllowlist.length === 0) {
-    throw new ConflictError(
-      `MODEL_PROVIDER_EGRESS_ALLOWLIST_REQUIRED: ${provider}`,
-    );
-  }
-  if (targetUrl) {
-    let targetHost: string;
-    try {
-      const parsedTarget = new URL(targetUrl);
-      if (process.env.NODE_ENV === "production" && parsedTarget.protocol !== "https:") {
-        throw new Error("HTTPS required in production");
-      }
-      if (parsedTarget.username || parsedTarget.password) {
-        throw new Error("credentials in provider URL are forbidden");
-      }
-      targetHost = parsedTarget.hostname.toLowerCase();
-    } catch {
-      throw new ConflictError("MODEL_PROVIDER_URL_INVALID: HTTPS without embedded credentials is required in production");
-    }
-    const allowed = policy.egressAllowlist.some((entry) => {
-      const raw = entry.trim().toLowerCase();
-      const host = raw.includes("://")
-        ? (() => { try { return new URL(raw).hostname.toLowerCase(); } catch { return ""; } })()
-        : raw.replace(/^\*\./, "");
-      if (!host) return false;
-      return raw.startsWith("*.")
-        ? targetHost.endsWith(`.${host}`)
-        : targetHost === host;
-    });
-    if (!allowed) {
-      throw new ConflictError(
-        `MODEL_PROVIDER_EGRESS_NOT_ALLOWLISTED: ${targetHost} is not approved for ${provider}`,
-      );
-    }
   }
 }
 
@@ -847,230 +779,18 @@ export function registerAiGovernanceRoutes(deps: {
 
   app.post("/api/v1/ai-score-proposals/:id/decide", async (request) => {
     requireRoles(request, "manager", "finance");
-    const body = parse(decideAiScoreProposalSchema, request.body);
-    const tenantId = tenantOf(request);
-    // NPV2-003：裁决人必须是会话主体（平台管理员除外）。
-    const deciderOwn = ownPersonId(request);
-    if (deciderOwn && !isPlatformAdmin(request) && requireActor(request, body.decidedBy, "decide") !== deciderOwn) {
-      throw new ForbiddenError(
-        "AI proposal decisions must use the authenticated identity",
-      );
-    }
-    const persons = await platformStore.listPersons(tenantId);
-    if (!persons.some((person) => person.id === requireActor(request, body.decidedBy, "decide"))) {
-      throw new NotFoundError(`Person ${requireActor(request, body.decidedBy, "decide")} not found`);
-    }
-    const existing = await platformStore.getAiScoreProposal(
-      tenantId,
-      idOf(request),
+    // NP-021：数值评分已退役——裁决入口不再可用（历史记录只读）。
+    throw new ConflictError(
+      "AI_NUMERIC_SCORING_RETIRED: numeric score proposals can no longer be decided",
     );
-    for (const dimension of existing.dimensions) {
-      if (typeof body.independentScores[dimension] !== "number") {
-        throw new ConflictError(
-          `AI_INDEPENDENT_SCORES_REQUIRED: missing ${dimension}`,
-        );
-      }
-    }
-    const override = existing.dimensions.some(
-      (dimension) =>
-        Math.abs(
-          (body.independentScores[dimension] ?? 0) -
-            (existing.scores[dimension] ?? 0),
-        ) > 0.05,
-    );
-    if (override && !body.overrideReason?.trim()) {
-      throw new ConflictError("AI_OVERRIDE_REASON_REQUIRED");
-    }
-    const reviewStartedMs = Date.parse(body.reviewStartedAt);
-    if (
-      !Number.isFinite(reviewStartedMs) ||
-      reviewStartedMs > Date.now()
-    ) {
-      throw new ConflictError("AI_REVIEW_STARTED_AT_INVALID");
-    }
-    const reviewDurationSeconds = Math.max(
-      0,
-      Math.round((Date.now() - reviewStartedMs) / 1000),
-    );
-    let secondReviewerPersonId: string | undefined;
-    let secondIndependentScores: Record<string, number> | undefined;
-    let secondIndependentRationale: string | undefined;
-    let secondReviewStartedAt: string | undefined;
-    let secondEvidenceOpened: number | undefined;
-    let secondReviewOutcome: "AGREE" | "DISAGREE" | undefined;
-    let secondReviewAgreementRate: number | undefined;
-    if (existing.secondReviewRequired) {
-      if (
-        !body.secondReviewerPersonId ||
-        !body.secondIndependentScores ||
-        !body.secondIndependentRationale?.trim() ||
-        !body.secondReviewStartedAt
-      ) {
-        throw new ConflictError(
-          "AI_SECOND_REVIEW_REQUIRED: high-risk proposals need a second independent review",
-        );
-      }
-      if (!persons.some((person) => person.id === body.secondReviewerPersonId)) {
-        throw new NotFoundError(
-          `Person ${body.secondReviewerPersonId} not found`,
-        );
-      }
-      if (
-        body.secondReviewerPersonId === requireActor(request, body.decidedBy, "decide") ||
-        body.secondReviewerPersonId === existing.requestedBy
-      ) {
-        throw new ConflictError(
-          "AI_SECOND_REVIEWER_CONFLICT: second reviewer must differ from requester and first reviewer",
-        );
-      }
-      for (const dimension of existing.dimensions) {
-        if (
-          typeof body.secondIndependentScores[dimension] !== "number"
-        ) {
-          throw new ConflictError(
-            `AI_SECOND_REVIEW_SCORES_REQUIRED: missing ${dimension}`,
-          );
-        }
-      }
-      const secondStartedMs = Date.parse(body.secondReviewStartedAt);
-      if (
-        !Number.isFinite(secondStartedMs) ||
-        secondStartedMs > Date.now()
-      ) {
-        throw new ConflictError("AI_SECOND_REVIEW_STARTED_AT_INVALID");
-      }
-      const matched = existing.dimensions.filter(
-        (dimension) =>
-          Math.abs(
-            (body.secondIndependentScores?.[dimension] ?? 0) -
-              (existing.scores[dimension] ?? 0),
-          ) <= 0.05,
-      ).length;
-      const secondDecision =
-        matched === existing.dimensions.length ? "ACCEPTED" : "REJECTED";
-      if (
-        secondDecision !==
-        (body.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED")
-      ) {
-        throw new ConflictError(
-          "AI_SECOND_REVIEW_DISAGREES: the second reviewer reached a different decision",
-        );
-      }
-      secondReviewerPersonId = body.secondReviewerPersonId;
-      secondIndependentScores = body.secondIndependentScores;
-      secondIndependentRationale = body.secondIndependentRationale;
-      secondReviewStartedAt = body.secondReviewStartedAt;
-      secondEvidenceOpened = body.secondEvidenceOpened ?? 0;
-      secondReviewOutcome = "AGREE";
-      secondReviewAgreementRate =
-        matched / existing.dimensions.length;
-    }
-    const tenant = await platformStore.getTenant(tenantId);
-    const configuredRate = Number(
-      (tenant.settings as { aiAuditSampleRate?: unknown })
-        .aiAuditSampleRate ?? 0.1,
-    );
-    const auditSampleRate = Number.isFinite(configuredRate)
-      ? Math.min(1, Math.max(0, configuredRate))
-      : 0.1;
-    const auditSample = existing.secondReviewRequired
-      ? false
-      : override || Math.random() < auditSampleRate;
-    const proposal = await platformStore.decideAiScoreProposal({
-      tenantId,
-      proposalId: idOf(request),
-      decision: body.decision,
-      decidedBy: requireActorRequired(request, body.decidedBy, "decide"),
-      note: body.note,
-      independentScores: body.independentScores,
-      independentRationale: body.independentRationale,
-      reviewStartedAt: body.reviewStartedAt,
-      reviewDurationSeconds,
-      evidenceOpened: body.evidenceOpened ?? 0,
-      override,
-      overrideReason: body.overrideReason,
-      blindReview: body.blindReview ?? false,
-      auditSample,
-      secondReviewerPersonId,
-      secondIndependentScores,
-      secondIndependentRationale,
-      secondReviewStartedAt,
-      secondEvidenceOpened,
-      secondReviewOutcome,
-      secondReviewAgreementRate,
-    });
-    countEvent(
-      proposal.status === "ACCEPTED"
-        ? "ai_score_proposal_accepted"
-        : "ai_score_proposal_rejected",
-    );
-    return data(proposal, request);
   });
 
   app.post("/api/v1/ai-score-proposals/:id/audit-review", async (request) => {
-      requireRoles(request, "manager", "finance");
-      const body = parse(submitAiScoreAuditSchema, request.body);
-      const tenantId = tenantOf(request);
-      // NPV2-003：复核人必须是会话主体（平台管理员除外）。
-      const auditOwn = ownPersonId(request);
-      if (auditOwn && !isPlatformAdmin(request) && body.reviewerPersonId !== auditOwn) {
-        throw new ForbiddenError(
-          "audit review must use the authenticated identity",
-        );
-      }
-      const persons = await platformStore.listPersons(tenantId);
-      if (!persons.some((person) => person.id === body.reviewerPersonId)) {
-        throw new NotFoundError(
-          `Person ${body.reviewerPersonId} not found`,
-        );
-      }
-      const proposal = await platformStore.getAiScoreProposal(
-        tenantId,
-        idOf(request),
-      );
-      for (const dimension of proposal.dimensions) {
-        if (typeof body.scores[dimension] !== "number") {
-          throw new ConflictError(
-            `AI_AUDIT_SCORES_REQUIRED: missing ${dimension}`,
-          );
-        }
-      }
-      const reviewStartedMs = Date.parse(body.reviewStartedAt);
-      if (
-        !Number.isFinite(reviewStartedMs) ||
-        reviewStartedMs > Date.now()
-      ) {
-        throw new ConflictError("AI_AUDIT_STARTED_AT_INVALID");
-      }
-      const matched = proposal.dimensions.filter(
-        (dimension) =>
-          Math.abs(
-            (body.scores[dimension] ?? 0) -
-              (proposal.scores[dimension] ?? 0),
-          ) <= 0.05,
-      ).length;
-      const agreementRate = matched / proposal.dimensions.length;
-      const secondDecision =
-        matched === proposal.dimensions.length ? "ACCEPTED" : "REJECTED";
-      const outcome =
-        proposal.status === secondDecision ? "AGREE" : "DISAGREE";
-      const reviewed = await platformStore.recordAiScoreAuditReview({
-        tenantId,
-        proposalId: idOf(request),
-        reviewerPersonId: body.reviewerPersonId,
-        scores: body.scores,
-        rationale: body.rationale,
-        reviewStartedAt: body.reviewStartedAt,
-        reviewDurationSeconds: Math.max(
-          0,
-          Math.round((Date.now() - reviewStartedMs) / 1000),
-        ),
-        evidenceOpened: body.evidenceOpened ?? 0,
-        outcome,
-        agreementRate,
-      });
-      countEvent("ai_score_audit_reviewed");
-      return data(reviewed, request);
+    requireRoles(request, "manager", "finance");
+    // NP-021：数值评分已退役——审计复核入口不再可用。
+    throw new ConflictError(
+      "AI_NUMERIC_SCORING_RETIRED: numeric score proposals can no longer be audited",
+    );
   });
   app.post("/api/v1/ai/model-summary", async (request, reply) => {
     requireRoles(request, "manager");

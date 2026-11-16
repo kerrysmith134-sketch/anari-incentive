@@ -14,6 +14,7 @@ import {
   parse,
   personFilter,
   requireRoles,
+  requireActorRequired,
 } from "../../http-helpers.js";
 
 export function registerAttributionRoutes(deps: {
@@ -31,19 +32,41 @@ export function registerAttributionRoutes(deps: {
       requireRoles(request, "manager");
       const body = parse(createAttributionDecisionSchema, request.body);
       const claim = await storeFor(request).getClaim(body.claimId);
-      await assertNoAdjudicatorConflict(
+      // NP-002/AUD-005：裁决人必须是会话身份（不可代他人裁决）。
+      const adjudicatorPersonId = requireActorRequired(
         request,
         body.adjudicatorPersonId,
+        "issuing an attribution decision",
+      );
+      await assertNoAdjudicatorConflict(
+        request,
+        adjudicatorPersonId,
         claim.claimantPersonId,
       );
       return reply
         .status(201)
-        .send(data(await storeFor(request).createAttributionDecision(body), request));
+        .send(
+          data(
+            await storeFor(request).createAttributionDecision({
+              ...body,
+              adjudicatorPersonId,
+            }),
+            request,
+          ),
+        );
     });
     app.post("/api/v1/attribution-decisions:batch", async (request, reply) => {
       requireRoles(request, "manager");
       const body = parse(createAttributionDecisionsBatchSchema, request.body);
-      for (const item of body.items) {
+      const items = body.items.map((item) => ({
+        ...item,
+        adjudicatorPersonId: requireActorRequired(
+          request,
+          item.adjudicatorPersonId,
+          "issuing attribution decisions",
+        ),
+      }));
+      for (const item of items) {
         const claim = await storeFor(request).getClaim(item.claimId);
         await assertNoAdjudicatorConflict(
           request,
@@ -52,7 +75,7 @@ export function registerAttributionRoutes(deps: {
         );
       }
       const decisions = await storeFor(request).createAttributionDecisionsBatch(
-        body.items,
+        items,
       );
       return reply.status(201).send(data({ decisions }, request));
     });

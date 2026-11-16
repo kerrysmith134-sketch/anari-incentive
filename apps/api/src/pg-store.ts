@@ -3288,16 +3288,31 @@ export class PgStore implements IncentiveStore {
         );
         return { draft: await this.loadEvaluationDraft(client, id) };
       }
-      if (Object.keys(input.scores).length === 0) {
-        throw new ConflictError("EVALUATION_SCORES_REQUIRED");
-      }
+      // NP-006：允许"全部维度 NOT_APPLICABLE/INSUFFICIENT_EVIDENCE"的决定
+      // （无数字分）；逐维度校验在下方循环里完成。
+
+      // NP-006/D-03：维度状态完整语义——NOT_APPLICABLE / INSUFFICIENT_EVIDENCE
+      // 可不填数字分（填了必须为 0）；ASSESSED/未声明状态必须有分，0 分须
+      // ASSESSED + 独立理由。
+      const states = input.dimensionStates ?? {};
+      const effectiveScores: Record<string, number> = { ...input.scores };
       for (const dimension of rubric.dimensions) {
-        if (!(dimension in input.scores)) {
+        const state = states[dimension];
+        const hasScore = dimension in input.scores;
+        if (state === "NOT_APPLICABLE" || state === "INSUFFICIENT_EVIDENCE") {
+          if (hasScore && input.scores[dimension] !== 0) {
+            throw new ConflictError(
+              `DIMENSION_STATE_SCORE_CONFLICT: ${dimension} is ${state} but has a numeric score`,
+            );
+          }
+          delete effectiveScores[dimension];
+          continue;
+        }
+        if (!hasScore) {
           throw new ConflictError(`EVALUATION_DIMENSION_MISSING: ${dimension}`);
         }
-        // D-03：零分必须是 ASSESSED 且有独立理由。
         if (input.scores[dimension] === 0) {
-          if (input.dimensionStates?.[dimension] !== "ASSESSED") {
+          if (state !== "ASSESSED") {
             throw new ConflictError(
               `ZERO_SCORE_REQUIRES_ASSESSED_STATE: ${dimension} scored 0 without an ASSESSED dimension state`,
             );
@@ -3309,7 +3324,6 @@ export class PgStore implements IncentiveStore {
           }
         }
       }
-
       const { rows: priorRows } = await client.query(
         `SELECT * FROM evaluation_decisions
           WHERE tenant_id=$1 AND cycle_id=$2 AND person_id=$3
@@ -3343,7 +3357,7 @@ export class PgStore implements IncentiveStore {
           latest ? asNumber(latest.decision_version) + 1 : 1,
           input.rubricVersionId,
           draft.evidenceSnapshotHash,
-          JSON.stringify(input.scores),
+          JSON.stringify(effectiveScores),
           input.rationale,
           input.reviewerPersonId,
           latest?.id ?? null,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T21:36:05.135Z",
+  "generatedAt": "2026-11-16T20:23:54.760Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -470,6 +470,11 @@
       "file": "094_decision_dimension_states.sql",
       "bytes": 282,
       "sha256": "8186daeb78f066f0f3b3af9ed245471bda3f6370bd310532d6be3d00082e0fca"
+    },
+    {
+      "file": "095_decision_dimension_state_guard.sql",
+      "bytes": 1845,
+      "sha256": "f2b7b75fcab95443ba6052a1b21ca86f955f66503aab939f2835d049d02e28a0"
     }
   ]
 }

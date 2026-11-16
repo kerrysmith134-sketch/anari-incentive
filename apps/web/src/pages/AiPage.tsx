@@ -52,7 +52,8 @@ export function AiPage() {
   const { session } = useAuth();
   const toast = useToast();
   const { people } = usePeople();
-  const proposals = useApiQuery<AiScoreProposal[]>("/api/v1/ai-score-proposals");
+  // NP-021：数值评分提案已退役——不再拉取列表（服务端裁决/复核也已 409）。
+  const proposals = useApiQuery<AiScoreProposal[]>(null);
   const prompts = useApiQuery<ModelPrompt[]>("/api/v1/model-prompts");
   const evaluations = useApiQuery<ModelEvaluationRun[]>(
     "/api/v1/model-evaluation-runs",
@@ -73,9 +74,7 @@ export function AiPage() {
     "/api/v1/ai-review-metrics",
   );
   const [tab, setTab] = useState("proposals");
-  const auditQueue = useApiQuery<AiScoreProposal[]>(
-    tab === "audit" ? "/api/v1/ai-score-proposals/audit-queue" : null,
-  );
+  const auditQueue = useApiQuery<AiScoreProposal[]>(null);
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [selected, setSelected] = useState<AiScoreProposal | null>(null);
   const [decision, setDecision] = useState<"ACCEPT" | "REJECT">("ACCEPT");

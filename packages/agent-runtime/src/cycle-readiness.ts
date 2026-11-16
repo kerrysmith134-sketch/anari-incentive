@@ -224,9 +224,11 @@ export class CycleReadinessWorkflow {
 
     // AUD-012：必需门禁（政策/法务/计算/审批）NOT_MEASURABLE 视同未就绪——
     // 只有无阻断且全部必需门禁 PASS 才可判 ready。DATA/APPEAL 保持披露不阻断。
+    // NP-007：评价门禁同样必需——没有评价草案/决定的周期不得判 ready。
     const requiredGates: ReadonlyArray<ReadinessCheck["gate"]> = [
       "POLICY",
       "LEGAL",
+      "EVALUATION",
       "CALCULATION",
       "APPROVAL",
     ];
