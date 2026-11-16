@@ -388,6 +388,10 @@ export interface IncentiveStore {
       independentRationale: string;
       evidenceOpened?: number;
       reviewStartedAt?: string;
+      dimensionStates?: Record<
+        string,
+        "ASSESSED" | "NOT_APPLICABLE" | "INSUFFICIENT_EVIDENCE"
+      >;
     },
   ): Promise<{ draft: EvaluationDraft; decision?: EvaluationDecision }>;
   listEvaluationDecisions(filter?: {

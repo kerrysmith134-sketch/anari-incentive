@@ -29,6 +29,7 @@
 | `WEBHOOK_SECRET_<SOURCE>` / `WEBHOOK_SCHEME_<SOURCE>` | 按集成 | webhook 验签 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 可选 | OTLP 追踪导出 |
 | worker:`WORKER_TOKEN` 或 `OIDC_TOKEN_URL`+`OIDC_CLIENT_ID`+`OIDC_CLIENT_SECRET` | ✅ | worker 调 API 的凭证;token 的 tenant claim 必须匹配 `TENANT_ID` |
+| api:`SERVICE_PRINCIPAL_CLIENT_IDS` | 推荐 | 逗号分隔的 OAuth client id（azp）白名单：这些机器身份可在审计中以"代办"记录 body actor。**未列出的无 person 令牌无法代办任何 actor 写入（fail-closed）**；worker 的 client id 必须列在此处 |
 
 ## 3. 启动安全校验(fail-fast)
 

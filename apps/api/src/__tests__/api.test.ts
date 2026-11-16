@@ -384,6 +384,8 @@ describe("tenant isolation", () => {
           tenantId: credentials.tenantId ?? "tenant-a",
           userId: "user-1",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -835,6 +837,8 @@ describe("employee notices and acknowledgements", () => {
           tenantId: tenant.id,
           userId: "notice-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -1038,6 +1042,8 @@ describe("employee representation and policy consultations", () => {
           tenantId: tenant.id,
           userId: "consult-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -1189,6 +1195,8 @@ describe("DPIA records", () => {
           tenantId: tenant.id,
           userId: "dpia-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -1338,6 +1346,8 @@ describe("DSAR requests", () => {
           tenantId: tenant.id,
           userId: "dsar-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -1556,6 +1566,8 @@ describe("retention policies", () => {
           tenantId: tenant.id,
           userId: "retention-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -1672,6 +1684,8 @@ describe("approval requests", () => {
           tenantId: tenant.id,
           userId: "approval-admin",
           roles: ["admin"],
+          // 无 person 的管理测试替身 = 服务主体（AUD-005）
+          servicePrincipal: true,
         };
       },
     };
@@ -7040,7 +7054,7 @@ evidenceOpened: 1,
       undefined,
       {
         async authenticate() {
-          return { tenantId: tenant.id, userId: "contract-admin", roles: ["admin"] };
+          return { tenantId: tenant.id, userId: "contract-admin", roles: ["admin"], servicePrincipal: true };
         },
       },
       platformStore,
@@ -7666,7 +7680,7 @@ evidenceOpened: 1,
       undefined,
       {
         async authenticate() {
-          return { tenantId: tenant.id, userId: "evidence-admin", roles: ["admin"] };
+          return { tenantId: tenant.id, userId: "evidence-admin", roles: ["admin"], servicePrincipal: true };
         },
       },
       platformStore,

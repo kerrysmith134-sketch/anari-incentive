@@ -266,6 +266,8 @@ export class MemoryPlatformStoreBase {
         slug: string;
         /** AUD-017：扩展模块 capability（缺省 = P0-only）。 */
         modules?: string[];
+        /** D-07：是否已获正式结算 GO（demo 缺省 true）。 */
+        settlementGo?: boolean;
         persons?: Array<{
           id: string;
           employeeCode: string;
@@ -290,7 +292,7 @@ export class MemoryPlatformStoreBase {
         modules:
           demo.modules ?? ["PAYROLL", "EQUITY", "STRATEGIC_POOL"],
         // D-07：演示/试点租户已获结算 GO；新建租户默认只跑影子结算。
-        settlementGo: true,
+        settlementGo: demo.settlementGo ?? true,
       },
       createdAt,
     });

@@ -4,6 +4,11 @@ export interface AuthContext {
   roles: string[];
   /** Employee identity used for object-level filtering. */
   personId?: string;
+  /**
+   * 服务主体（机器身份，如 agent worker）：无 person 声明但允许在审计中
+   * 以"代办"方式记录 body actor。普通用户令牌缺失 person 必须 fail-closed。
+   */
+  servicePrincipal?: boolean;
 }
 
 export interface AuthInput {

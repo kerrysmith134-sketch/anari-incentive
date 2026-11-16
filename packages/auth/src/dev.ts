@@ -16,11 +16,14 @@ export class DevHeaderAuthenticator implements Authenticator {
   ) {}
 
   async authenticate(input: AuthInput): Promise<AuthContext> {
+    const personId = input.personId ?? this.defaults.personId;
     return {
       tenantId: input.tenantId ?? this.defaults.tenantId,
       userId: input.userId ?? this.defaults.userId,
       roles: this.defaults.roles ?? ["employee"],
-      personId: input.personId ?? this.defaults.personId,
+      personId,
+      // 开发/集成头：无 person 声明视为服务主体（worker/连接器）。
+      servicePrincipal: personId ? undefined : true,
     };
   }
 }

@@ -11,10 +11,21 @@ const MEMBER = "00000000-0000-4000-8000-000000000002";
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const OTHER_TENANT = "00000000-0000-4000-8000-000000000010";
 
-function authFor(roles: string[], personId?: string, tenantId = TENANT) {
+function authFor(
+  roles: string[],
+  personId?: string,
+  tenantId = TENANT,
+  servicePrincipal?: boolean,
+) {
   return {
     async authenticate() {
-      return { tenantId, userId: `user-${personId ?? "machine"}`, roles, personId };
+      return {
+        tenantId,
+        userId: `user-${personId ?? "machine"}`,
+        roles,
+        personId,
+        ...(servicePrincipal ? { servicePrincipal: true } : {}),
+      };
     },
   };
 }
@@ -210,6 +221,76 @@ describe("审计加固：证据互链与验收人收口", () => {
       },
     });
     expect(forged.statusCode).toBe(403);
+  });
+});
+
+describe("审计加固：服务主体 vs 无 person 用户令牌（AUD-005）", () => {
+  /** 租户已启用 PAYROLL + 结算 GO，才能观察到 actor 校验本身。 */
+  function payrollReady(servicePrincipal: boolean | undefined) {
+    const platformStore = new MemoryPlatformStore({
+      demoTenant: {
+        id: TENANT,
+        name: "Tenant",
+        slug: "t1",
+        modules: ["PAYROLL"],
+      },
+    });
+    void platformStore.updateTenantSettings({
+      tenantId: TENANT,
+      settings: { settlementGo: true },
+    });
+    return buildApp(
+      () => new Store(TENANT),
+      undefined,
+      authFor(["admin", "finance"], undefined, TENANT, servicePrincipal),
+      platformStore,
+    );
+  }
+
+  const payload = {
+    cycleId: "00000000-0000-4000-8000-000000000020",
+    periodStart: "2026-10-01T00:00:00.000Z",
+    periodEnd: "2026-10-31T23:59:59.999Z",
+    currency: "CNY",
+    preparedBy: OWNER,
+  };
+
+  it("无 person 且非服务主体：actor 写入一律 403（不能凭角色任意署名）", async () => {
+    const app = payrollReady(undefined);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/payroll-runs",
+      payload,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.message).toMatch(/service principal/);
+  });
+
+  it("服务主体（显式标记）可代办：越过 actor 校验进入业务校验", async () => {
+    const app = payrollReady(true);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/payroll-runs",
+      payload,
+    });
+    // 不再是 actor 403——周期不存在等业务错误决定结果。
+    expect(res.statusCode).not.toBe(403);
+  });
+
+  it("无 person 用户代签政策复核同样 fail-closed", async () => {
+    const app = payrollReady(false);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/reports/policy-review:finalize",
+      payload: {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        report: { summary: "ok" },
+        signedOffBy: OWNER,
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.message).toMatch(/service principal/);
   });
 });
 

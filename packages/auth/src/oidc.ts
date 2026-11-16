@@ -15,6 +15,11 @@ export interface OidcOptions {
   keyResolver?: JWTVerifyGetKey;
   tenantClaim?: string;
   personClaim?: string;
+  /**
+   * 允许作为服务主体的 OAuth client id（azp 声明）。只有这些客户端在
+   * 无 person 声明时才可代办 body actor；其它无 person 令牌一律 fail-closed。
+   */
+  servicePrincipalClientIds?: string[];
 }
 
 /**
@@ -54,6 +59,12 @@ export class OidcJwtAuthenticator implements Authenticator {
           ? [rawRoles]
           : [];
       const personId = payload[this.options.personClaim ?? "person_id"];
+      const azp = typeof payload.azp === "string" ? payload.azp : undefined;
+      const allowed = this.options.servicePrincipalClientIds ?? [];
+      const servicePrincipal =
+        (typeof personId !== "string" || personId.length === 0) &&
+        azp !== undefined &&
+        allowed.includes(azp);
       return {
         tenantId,
         userId: String(payload.sub ?? ""),
@@ -61,6 +72,7 @@ export class OidcJwtAuthenticator implements Authenticator {
         ...(typeof personId === "string" && personId.length > 0
           ? { personId }
           : {}),
+        ...(servicePrincipal ? { servicePrincipal: true } : {}),
       };
     } catch (error) {
       if (error instanceof AuthError) throw error;

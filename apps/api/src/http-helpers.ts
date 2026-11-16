@@ -280,6 +280,13 @@ export function requireActor(
     }
     return claimed;
   }
+  // 无 person 声明：只有显式服务主体（worker/连接器）可代办并留审计；
+  // 普通用户令牌缺失 person 一律拒绝（不能凭角色任意署名）。
+  if (request.authContext?.servicePrincipal !== true) {
+    throw new ForbiddenError(
+      `${action}: an authenticated person or a configured service principal is required`,
+    );
+  }
   // 无 person 声明的会话（机器/admin token）：角色鉴权已把关，放行。
   return claimed;
 }

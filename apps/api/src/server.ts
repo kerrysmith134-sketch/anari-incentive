@@ -53,6 +53,14 @@ const primaryAuthenticator =
         issuer: process.env.OIDC_ISSUER ?? "",
         audience: process.env.OIDC_AUDIENCE ?? "",
         jwksUrl: process.env.OIDC_JWKS_URL,
+        // 机器身份（agent worker / 连接器）的 client id 白名单；未配置时
+        // 无 person 的令牌不能代办 body actor（fail-closed）。
+        servicePrincipalClientIds: (
+          process.env.SERVICE_PRINCIPAL_CLIENT_IDS ?? ""
+        )
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
       })
     : new DevHeaderAuthenticator({
         tenantId: defaultTenantId,
