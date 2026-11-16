@@ -70,10 +70,17 @@ export function SettingsPage() {
   const toast = useToast();
   const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
   const health = useApiQuery<{ status: string }>("/health");
-  const auditChain = useApiQuery<{ valid: boolean }>(
-    "/api/v1/audit-events/verify",
+  // 治理/合规设置只对 manager/finance/admin 展示；员工的相应接口本就 403。
+  // 未确认角色前按无权限处理（fail-closed），确认后再放行相应查询。
+  const identityRoles = identity.data?.roles ?? [];
+  const canGovern = identityRoles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
   );
-  const dpias = useApiQuery<DpiaRecord[]>("/api/v1/dpia-records");
+  const governPath = (path: string) => (canGovern ? path : null);
+  const auditChain = useApiQuery<{ valid: boolean }>(
+    governPath("/api/v1/audit-events/verify"),
+  );
+  const dpias = useApiQuery<DpiaRecord[]>(governPath("/api/v1/dpia-records"));
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const [dpiaOpen, setDpiaOpen] = useState(false);
   const [dpiaType, setDpiaType] = useState("DPIA");
@@ -88,7 +95,9 @@ export function SettingsPage() {
   const [resolveStatus, setResolveStatus] = useState("RESOLVED");
   const [resolveRef, setResolveRef] = useState("");
   const [resolveError, setResolveError] = useState<string | null>(null);
-  const retention = useApiQuery<RetentionPolicy[]>("/api/v1/retention-policies");
+  const retention = useApiQuery<RetentionPolicy[]>(
+    governPath("/api/v1/retention-policies"),
+  );
   const retentionReport = useApiQuery<{
     generatedAt: string;
     policies: Array<
@@ -100,41 +109,47 @@ export function SettingsPage() {
   }>("/api/v1/retention-policies/report");
   const retentionRecommendations =
     useApiQuery<RetentionRecommendationsReport>(
-      "/api/v1/retention-policies/recommended",
+      governPath("/api/v1/retention-policies/recommended"),
     );
   const fieldPolicies = useApiQuery<FieldAccessPolicyMatrix>(
-    "/api/v1/field-access-policies",
+    governPath("/api/v1/field-access-policies"),
   );
   const disposals = useApiQuery<RetentionDisposalRequest[]>(
-    "/api/v1/retention-disposal-requests",
+    governPath("/api/v1/retention-disposal-requests"),
   );
-  const dataMap = useApiQuery<DataMapReport>("/api/v1/data-map");
+  const dataMap = useApiQuery<DataMapReport>(governPath("/api/v1/data-map"));
   const conflicts = useApiQuery<ConflictDeclaration[]>(
-    "/api/v1/conflict-declarations",
+    governPath("/api/v1/conflict-declarations"),
   );
-  const trustSurveys = useApiQuery<TrustSurveyRun[]>("/api/v1/trust-surveys");
+  const trustSurveys = useApiQuery<TrustSurveyRun[]>(
+    governPath("/api/v1/trust-surveys"),
+  );
   const commitments = useApiQuery<FairnessCommitment[]>(
-    "/api/v1/fairness-commitments",
+    governPath("/api/v1/fairness-commitments"),
   );
   const training = useApiQuery<ManagerTrainingRecord[]>(
-    "/api/v1/manager-training-records",
+    governPath("/api/v1/manager-training-records"),
   );
   const calibrations = useApiQuery<CalibrationSession[]>(
-    "/api/v1/calibration-sessions",
+    governPath("/api/v1/calibration-sessions"),
   );
   const pilots = useApiQuery<PilotEnrollment[]>("/api/v1/pilot-enrollments");
   const grants = useApiQuery<BreakGlassGrant[]>(
-    "/api/v1/break-glass-grants",
+    governPath("/api/v1/break-glass-grants"),
   );
-  const clawbacks = useApiQuery<ClawbackCase[]>("/api/v1/clawback-cases");
-  const pools = useApiQuery<BudgetPool[]>("/api/v1/budget-pools");
+  const clawbacks = useApiQuery<ClawbackCase[]>(
+    governPath("/api/v1/clawback-cases"),
+  );
+  const pools = useApiQuery<BudgetPool[]>(governPath("/api/v1/budget-pools"));
   const poolReviews = useApiQuery<DiscretionaryPoolReview[]>(
-    "/api/v1/discretionary-pool-reviews",
+    governPath("/api/v1/discretionary-pool-reviews"),
   );
   const providerPolicies = useApiQuery<ModelProviderPolicy[]>(
-    "/api/v1/model-provider-policies",
+    governPath("/api/v1/model-provider-policies"),
   );
-  const redactions = useApiQuery<AuditRedaction[]>("/api/v1/audit-redactions");
+  const redactions = useApiQuery<AuditRedaction[]>(
+    governPath("/api/v1/audit-redactions"),
+  );
   const { people } = usePeople();
 
   const [tenantId, setTenantId] = useState(session.tenantId);
@@ -1429,6 +1444,15 @@ export function SettingsPage() {
         description="会话身份、外观与本租户的保障登记簿。"
       />
 
+
+      {!canGovern ? (
+        <InfoNotice tone="info">
+          治理与合规设置（保障记录、保留策略、数据源登记、利益冲突、信任调查、
+          承诺发布、经理赋能、紧急授权、追回案例、机动池、模型策略、审计脱敏、
+          字段权限）仅对 manager/finance/admin 展示；当前视图只包含个人设置、
+          订阅与试点登记。
+        </InfoNotice>
+      ) : null}
       <div className="split-grid">
         <Panel
           title="会话上下文"
@@ -1604,6 +1628,7 @@ export function SettingsPage() {
         </div>
       </div>
 
+      {canGovern ? (<>
       <div className="section-gap">
         <PageHeader
           eyebrow="登记簿"
@@ -1611,8 +1636,10 @@ export function SettingsPage() {
           description="正式周期依赖的隐私与保留物证的只读视图。"
         />
       </div>
+      </>) : null}
 
       <div className="split-grid">
+        {canGovern ? (<>
         <Panel
           title="DPIAs"
           subtitle="数据保护影响评估"
@@ -1690,6 +1717,7 @@ export function SettingsPage() {
             </div>
           )}
         </Panel>
+        </>) : null}
 
         <Panel
           title="个人数据请求"
@@ -1842,6 +1870,7 @@ export function SettingsPage() {
         )}
       </Panel>
 
+      {canGovern ? (<>
       <Panel
         title="保留策略"
         subtitle={`${heldPolicies.length} under legal hold`}
@@ -1960,6 +1989,7 @@ export function SettingsPage() {
           </div>
         ) : null}
       </Panel>
+      </>) : null}
 
       <Modal
         open={retentionOpen}
@@ -2048,6 +2078,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="数据源登记簿"
         subtitle="每个激励数据源的责任人、响应 SLA 与字段级分类"
@@ -2185,6 +2216,7 @@ export function SettingsPage() {
           </>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={sourceOpen}
@@ -2456,6 +2488,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="利益冲突申报"
         subtitle="生效的关联方申报会阻断两人互相认定"
@@ -2539,6 +2572,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={conflictOpen}
@@ -2640,6 +2674,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="信任调查"
         subtitle="关于公平、发声与流程信心的匿名季度调查"
@@ -2753,6 +2788,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={surveyOpen}
@@ -3065,6 +3101,7 @@ export function SettingsPage() {
         )}
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="无报复承诺"
         subtitle="已发布的公平声明；新版本发布即替代旧版"
@@ -3131,6 +3168,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={commitmentOpen}
@@ -3185,6 +3223,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="经理赋能"
         subtitle="支持一致复核的培训完成与校准会"
@@ -3282,6 +3321,7 @@ export function SettingsPage() {
           </div>
         </div>
       </Panel>
+      </>) : null}
 
       <Modal
         open={trainingOpen}
@@ -3595,6 +3635,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="紧急授权"
         subtitle="限时、需理由的敏感薪酬字段访问"
@@ -3667,6 +3708,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={grantOpen}
@@ -3729,6 +3771,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="追回案例"
         subtitle="追回结算前的同意、分期与困难条款"
@@ -3859,6 +3902,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={clawbackOpen}
@@ -4132,6 +4176,7 @@ export function SettingsPage() {
         )}
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="机动池评审"
         subtitle="委员会决策 + 独立员工观察员"
@@ -4213,6 +4258,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={poolReviewOpen}
@@ -4328,6 +4374,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="模型供应商策略"
         subtitle="每个供应商的零留存、DPA、推理区域与出口白名单"
@@ -4413,6 +4460,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={policyOpen}
@@ -4500,6 +4548,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="审计脱敏"
         subtitle="敏感自由文本原因的双人脱敏；哈希链不变"
@@ -4564,6 +4613,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={redactionOpen}
@@ -4712,6 +4762,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="保留处置请求"
         subtitle="双人复核 + 宽限期的处置流程；无自动硬删除"
@@ -4794,6 +4845,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={disposalOpen}
@@ -4855,6 +4907,7 @@ export function SettingsPage() {
         </form>
       </Modal>
 
+      {canGovern ? (<>
       <Panel
         title="字段权限矩阵"
         subtitle="薪酬与计算资源的按角色脱敏"
@@ -4913,6 +4966,7 @@ export function SettingsPage() {
           </div>
         )}
       </Panel>
+      </>) : null}
 
       <Modal
         open={fieldPolicyOpen}
