@@ -733,7 +733,7 @@ export function SettingsPage() {
         body: { personId: respondentId, scores },
       });
       toast.success(
-        "Response recorded",
+        "响应已记录",
         "Only a pseudonymous hash is stored with the scores.",
       );
       setRespondTarget(null);
@@ -755,7 +755,7 @@ export function SettingsPage() {
     );
     if (policies.length === 0) {
       toast.error(
-        "No disposable retention policy",
+        "没有可处置的保留策略",
         "Create a policy without a legal hold first.",
       );
       return;
@@ -783,7 +783,7 @@ export function SettingsPage() {
         },
       );
       toast.success(
-        "Disposal request created",
+        "处置请求已创建",
         "需另一人批准，随后进入宽限期。",
       );
       setDisposalOpen(false);
@@ -813,7 +813,7 @@ export function SettingsPage() {
       disposals.reload();
     } catch (error) {
       toast.error(
-        "Could not approve disposal",
+        "审批处置失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -911,7 +911,7 @@ export function SettingsPage() {
       providerPolicies.reload();
     } catch (error) {
       toast.error(
-        "Could not retire policy",
+        "停用保留策略失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -1202,7 +1202,7 @@ export function SettingsPage() {
       grants.reload();
     } catch (error) {
       toast.error(
-        "Could not revoke grant",
+        "撤销破窗授权失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {
@@ -1261,7 +1261,7 @@ export function SettingsPage() {
       pilots.reload();
     } catch (error) {
       toast.error(
-        "Could not withdraw enrollment",
+        "撤回试点登记失败",
         error instanceof Error ? error.message : "操作失败。",
       );
     } finally {

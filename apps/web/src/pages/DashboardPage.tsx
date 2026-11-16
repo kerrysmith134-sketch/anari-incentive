@@ -180,11 +180,10 @@ export function DashboardPage() {
           </span>
           <span>
             <strong>
-              {pendingApprovals.length} approval
-              {pendingApprovals.length === 1 ? "" : "s"} waiting
+              {pendingApprovals.length} 项审批待处理
             </strong>
             {blockedRuns.length > 0
-              ? ` · ${blockedRuns.length} payroll run${blockedRuns.length === 1 ? "" : "s"} blocked by the minimum-wage gate`
+              ? ` · ${blockedRuns.length} 个薪酬批次被最低工资门禁阻断`
               : " · 高风险动作在人工决策前保持门禁"}
           </span>
           <Link className="btn btn--secondary btn--sm" to="/approvals">
@@ -202,7 +201,7 @@ export function DashboardPage() {
             cycles.loading
               ? "周期加载中"
               : activeCycles[0]
-                ? `${activeCycles[0].name} · ends ${formatDate(activeCycles[0].endsAt)}`
+                ? `${activeCycles[0].name} · 截止 ${formatDate(activeCycles[0].endsAt)}`
                 : "当前没有进行中的周期"
           }
           icon="layers"
@@ -215,7 +214,7 @@ export function DashboardPage() {
             approvals.loading
               ? "队列加载中"
               : highRisk > 0
-                ? `${highRisk} at T2 or above`
+                ? `${highRisk} 项为 T2 及以上`
                 : "没有 T1 以上事项"
           }
           icon="approvals"
@@ -358,7 +357,7 @@ export function DashboardPage() {
               </div>
             ) : payroll.loading ? (
               <div className="loading-inline">
-                <span className="spinner" /> Loading payroll runs…
+                <span className="spinner" /> 薪酬批次加载中…
               </div>
             ) : sortedRuns.length === 0 ? (
               <EmptyState
@@ -539,7 +538,7 @@ export function DashboardPage() {
                     <div className="coverage-cell__label">已确认申报</div>
                     <div className="coverage-cell__value">{report.claims.confirmed}</div>
                     <div className="coverage-cell__sub">
-                      {report.claims.pending} in review
+                      {report.claims.pending} 项复核中
                     </div>
                   </div>
                   <div className="coverage-cell">
@@ -667,14 +666,14 @@ export function DashboardPage() {
             <ErrorNotice error={team.error} onRetry={team.reload} />
           ) : team.loading || !team.data ? (
             <div className="loading-inline">
-              <span className="spinner" /> Loading team aggregate…
+              <span className="spinner" /> 团队聚合加载中…
             </div>
           ) : team.data.suppressed ? (
             <InfoNotice>
               {team.data.note ??
                 "低于最小人数时团队聚合自动抑制。"}{" "}
-              Current group size is {team.data.teamSize}; at least{" "}
-              {team.data.minimumGroupSize} direct reports are required.
+              当前组内人数为 {team.data.teamSize}；低于最小人数{" "}
+              {team.data.minimumGroupSize} 时不展示聚合明细。
             </InfoNotice>
           ) : (
             <>
@@ -925,13 +924,13 @@ function EmployeeHome() {
         <StatTile
           label="进行中工作"
           value={activeWork.length}
-          detail={`${workPackages.data?.length ?? 0} packages in scope`}
+          detail={`范围内 ${workPackages.data?.length ?? 0} 个工作包`}
           icon="layers"
         />
         <StatTile
           label="未结申诉"
           value={openAppeals.length}
-          detail={`${appeals.data?.length ?? 0} total`}
+          detail={`共 ${appeals.data?.length ?? 0} 条`}
           icon="alert-circle"
           tone={openAppeals.length > 0 ? "warning" : "neutral"}
         />
@@ -947,7 +946,7 @@ function EmployeeHome() {
           value={pendingAi.length}
           detail={
             ai.data?.aiUsed
-              ? `${ai.data.models.join(", ") || "review pending"}`
+              ? `${ai.data.models.join(", ") || "复核待定"}`
               : "你的记录中 AI 未参与"
           }
           icon="ai"

@@ -216,7 +216,7 @@ class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <div className="empty-state" style={{ minHeight: "70vh" }}>
-          <h3>Something broke in the console</h3>
+          <h3>控制台出现错误</h3>
           <p>{this.state.error.message}</p>
           <Button
             variant="primary"

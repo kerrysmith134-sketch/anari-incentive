@@ -1248,7 +1248,7 @@ export function SettlementsPage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>As of</th>
+                          <th>截至</th>
                           <th>准备金</th>
                           <th>预测</th>
                           <th>门禁</th>

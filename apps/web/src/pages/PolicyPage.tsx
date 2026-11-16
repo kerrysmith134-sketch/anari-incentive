@@ -1555,7 +1555,7 @@ export function PolicyPage() {
                     </div>
                   </div>
                   <div className="coverage-cell">
-                    <div className="coverage-cell__label">Notice acknowledgement</div>
+                    <div className="coverage-cell__label">员工告知确认</div>
                     <div className="coverage-cell__value">
                       {review.data.notices.complete}/{review.data.notices.total}
                     </div>
