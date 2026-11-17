@@ -956,6 +956,55 @@ describe("tool contract: timeout/retry/postcondition (NPV2-021)", () => {
     expect(ran.status).toBe("FAILED");
   });
 
+  it("NP-014: timeout aborts the tool signal and clears the timer", async () => {
+    const abortSignal = { current: undefined as AbortSignal | undefined };
+    const hanging: AgentTool = {
+      name: "hanging_probe",
+      riskTier: "T0",
+      access: "READ",
+      description: "hangs past the timeout",
+      contract: { scope: "probe", timeoutMs: 60 },
+      async execute(_input, _context, _execution, signal) {
+        abortSignal.current = signal;
+        // 挂起不退出：超时只能靠 race 的 TOOL_TIMEOUT 胜出。
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return { ok: true };
+      },
+    };
+    const skill: AgentSkill = {
+      name: "PROBE",
+      async observe(context) {
+        return [
+          {
+            code: "PROBE_FINDING",
+            severity: "INFO",
+            subjectType: "TEST",
+            subjectId: `probe-${Date.now()}`,
+            message: "probe",
+          },
+        ];
+      },
+      plan: planOneAction("hanging_probe"),
+    };
+    const { runtime } = makeRuntimeWith([hanging]);
+    const runtimeWithSkill = new AgentRuntime(
+      new FakeContext(),
+      [hanging],
+      { PROBE: skill },
+      { actor: "contract-worker" },
+    );
+    const task = await runtimeWithSkill.enqueue({
+      tenantId: "t1",
+      agentType: "PROBE",
+      triggerType: "MANUAL",
+      idempotencyKey: `abort-1-${Date.now()}`,
+    });
+    const ran = await runtimeWithSkill.run(task.id);
+    expect(ran.results[0]!.error).toContain("exceeded");
+    expect(ran.status).toBe("FAILED");
+    expect(abortSignal.current?.aborted).toBe(true);
+  });
+
   it("retries transient failures and records retry count", async () => {
     let attempts = 0;
     const flaky: AgentTool = {

@@ -1827,7 +1827,9 @@ export function buildApp(
   }
 
   // NPV2-011：证据/摄取域路由已拆分至 modules/evidence（行为等价迁移）。
-  app.register(registerContributionRoutes({ platformStore, storeFor }));
+  app.register(
+    registerContributionRoutes({ platformStore, storeFor, countEvent, modelScoring: options.modelScoring }),
+  );
 
   app.register(
     registerPolicyEngineRoutes({ platformStore, storeFor, countEvent }),

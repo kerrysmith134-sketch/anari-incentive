@@ -4,7 +4,10 @@
  * 行为与拆分前等价。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
-import type { DirectoryPort } from "../../store-ports.js";
+import type { DirectoryPort,
+  TenantPort,
+  ModelgovPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
   contributionEventBatchSchema,
@@ -14,11 +17,18 @@ import {
   createContributionClaimSchema,
   createContributionEventSchema,
   createManualContributionEventSchema,
+  generateContributionAssessmentSchema,
   linkContributionAssessmentDecisionSchema,
   withdrawContributionAttestationSchema,
 } from "@anari/contracts";
 import { ConflictError, NotFoundError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
+import {
+  HttpModelScoringProvider,
+  ModelProviderError,
+  recordModelUsage,
+} from "@anari/ai-gate";
+import { assertModelProviderPolicy } from "../../model-policy.js";
 import {
   data,
   idOf,
@@ -26,16 +36,26 @@ import {
   ownPersonId,
   parse,
   personFilter,
+  requireActorRequired,
   requireRoles,
   tenantOf,
   requireActor,
+  errorBody,
 } from "../../http-helpers.js";
 
 export function registerContributionRoutes(deps: {
-  platformStore: DirectoryPort;
+  platformStore: DirectoryPort & TenantPort & ModelgovPort;
+  countEvent: (event: string) => void;
+  /** NP-020：贡献草案生成的模型配置（与模型摘要共用同一门禁链路）。 */
+  modelScoring?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    fetchImpl?: typeof fetch;
+  };
   storeFor: (request: FastifyRequest) => IncentiveStore;
 }): FastifyPluginAsync {
-  const { platformStore, storeFor } = deps;
+  const { platformStore, storeFor, countEvent } = deps;
   return async (app: FastifyInstance) => {
     app.post("/api/v1/contribution-claims", async (request, reply) => {
       const body = parse(createContributionClaimSchema, request.body);
@@ -278,6 +298,136 @@ export function registerContributionRoutes(deps: {
   // 强制）；依据事件含 ACTIVITY 时存储层 409；未经人工决策不得进入
   // 正式 AttributionDecision（link-decision 要求决定已存在）。
   // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // NP-020：贡献认定草案服务端生成链——证据由服务端按 claim 解析，
+  // 模型只做定性综合（D-02：无数值分），策略门禁先行，生成结果带
+  // 模型元数据与输入哈希，供人工复核（内容在独立判断前仍被盲审掩码）。
+  // ------------------------------------------------------------------
+  app.post(
+    "/api/v1/contribution-claims/:id/generate-assessment-draft",
+    async (request, reply) => {
+      requireRoles(request, "manager", "finance");
+      if (!deps.modelScoring) {
+        return reply.status(501).send({
+          ...errorBody(
+            "LLM_NOT_CONFIGURED",
+            "贡献草案生成未配置模型（modelScoring）。请联系管理员。",
+          ),
+          meta: { correlation_id: request.id },
+        });
+      }
+      const body = parse(generateContributionAssessmentSchema, request.body);
+      const store = storeFor(request);
+      const claim = await store.getClaim(idOf(request));
+      const triggeredBy = requireActorRequired(
+        request,
+        ownPersonId(request),
+        "generating an assessment draft",
+      );
+      // 证据由服务端解析：claim.evidenceRefs 必须全部可解析。
+      const allEvidence = await store.listEvidence();
+      const evidenceNodes = claim.evidenceRefs.map((ref) => {
+        const node = allEvidence.find((candidate) => candidate.id === ref);
+        if (!node) {
+          throw new NotFoundError(`EvidenceNode ${ref} not found`);
+        }
+        return node;
+      });
+      if (evidenceNodes.length === 0) {
+        throw new ConflictError(
+          "INSUFFICIENT_EVIDENCE_FOR_GENERATION: claim has no resolvable evidence",
+        );
+      }
+      // 模型供应商数据策略门禁（NP-005 同款，先于任何出境调用）。
+      await assertModelProviderPolicy(
+        platformStore,
+        request,
+        "deepseek",
+        deps.modelScoring.baseUrl,
+      );
+      const provider = new HttpModelScoringProvider({
+        baseUrl: deps.modelScoring.baseUrl,
+        apiKey: deps.modelScoring.apiKey,
+        model: deps.modelScoring.model,
+        fetchImpl: deps.modelScoring.fetchImpl,
+      });
+      // claimedContribution.dimensions 是数组——直接用其值作为请求维度。
+      const dimensions = claim.claimedContribution?.dimensions ?? ["QUALITY"];
+      let summary;
+      try {
+        summary = await provider.summarise({
+          dimensions,
+          context: body.context,
+          evidence: evidenceNodes.map((node) => ({
+            ref: node.id,
+            text: JSON.stringify(node.normalizedPayload),
+            qualityStatus: node.qualityStatus,
+            sourceSystem: node.sourceSystem,
+          })),
+        });
+      } catch (caught) {
+        const code =
+          caught instanceof ModelProviderError
+            ? caught.code
+            : "MODEL_PROVIDER_HTTP_ERROR";
+        return reply.status(502).send({
+          ...errorBody(code, (caught as Error).message),
+          meta: { correlation_id: request.id },
+        });
+      }
+      recordModelUsage(
+        tenantOf(request),
+        summary.provider,
+        summary.model,
+        summary.usage,
+      );
+      const supporting = summary.dimensionAssessments
+        .filter((item) =>
+          ["SUPPORTED", "PARTIALLY_SUPPORTED"].includes(item.status),
+        )
+        .map((item) => ({
+          statement: item.rationale,
+          evidenceRefs: item.supportingEvidenceRefs,
+          basis: "CLAIM" as const,
+        }));
+      const counter = summary.dimensionAssessments
+        .filter((item) => item.status === "CONTRADICTED")
+        .map((item) => ({
+          statement: item.rationale,
+          evidenceRefs: item.counterEvidenceRefs,
+          basis: "CLAIM" as const,
+        }));
+      const missingInformation = summary.dimensionAssessments.flatMap(
+        (item) => item.missingInformation,
+      );
+      const draft = await store.createContributionAssessmentDraft({
+        claimId: claim.id,
+        generatedByType: "AGENT",
+        generatedById: triggeredBy,
+        modelProvider: summary.provider,
+        modelName: summary.model,
+        promptVersion: "contribution-assessment-v1",
+        supporting: supporting.length > 0 ? supporting : [
+          {
+            statement: summary.summary,
+            evidenceRefs: [evidenceNodes[0]!.id],
+            basis: "CLAIM",
+          },
+        ],
+        counter,
+        missingInformation,
+        alternativeExplanations: [],
+        uncertainty: {
+          band: summary.uncertainty.band,
+          reasons: summary.uncertainty.reasons,
+        },
+        basedOnEventIds: [],
+      });
+      countEvent("contribution_assessment_draft_generated");
+      return reply.status(201).send(data(draft, request));
+    },
+  );
+
   app.post("/api/v1/contribution-assessment-drafts", async (request, reply) => {
     requireRoles(request, "manager", "finance");
     const body = parse(createContributionAssessmentDraftSchema, request.body);

@@ -259,6 +259,11 @@ export interface AgentTool {
     input: Record<string, unknown>,
     context: AgentContext,
     execution?: AgentToolExecutionContext,
+    /**
+     * NP-014：超时取消信号——超时触发 abort()，支持取消的工具应尽早
+     * 停止副作用（HTTP 工具可将 signal 透传给 fetch）。
+     */
+    signal?: AbortSignal,
   ): Promise<unknown>;
 }
 

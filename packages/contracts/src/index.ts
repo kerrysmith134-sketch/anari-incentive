@@ -1115,6 +1115,17 @@ export type CreateAiScoreProposalBody = z.infer<
   typeof createAiScoreProposalSchema
 >;
 
+/**
+ * NP-020：贡献认定草案生成请求——只接收 claim 与可选上下文；
+ * 证据由服务端按 claim 解析，模型输出仅作定性综合（D-02）。
+ */
+export const generateContributionAssessmentSchema = z.object({
+  context: z.string().max(4_000).optional(),
+});
+export type GenerateContributionAssessmentBody = z.infer<
+  typeof generateContributionAssessmentSchema
+>;
+
 export const decideAiScoreProposalSchema = z.object({
   decision: z.enum(["ACCEPT", "REJECT"]),
   decidedBy: uuidSchema,

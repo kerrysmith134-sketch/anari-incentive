@@ -733,25 +733,41 @@ export class AgentRuntime {
     let lastError = "";
     while (attemptsLeft > 0) {
       attemptsLeft -= 1;
+      // NP-014：超时用 AbortController 取消——signal 透传给工具，
+      // 定时器在 finally 中清理（不再泄漏事件循环）。
+      const abortController = new AbortController();
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         // NPV2-021：超时保护——契约声明 timeoutMs 时超时按失败处理。
         const output =
           contract.timeoutMs === undefined
-            ? await tool.execute(toolInput, this.context, toolExecutionContext)
+            ? await tool.execute(
+                toolInput,
+                this.context,
+                toolExecutionContext,
+                abortController.signal,
+              )
             : (await Promise.race([
-                tool.execute(toolInput, this.context, toolExecutionContext),
-                new Promise((_, reject) =>
-                  setTimeout(
-                    () =>
+                tool.execute(
+                  toolInput,
+                  this.context,
+                  toolExecutionContext,
+                  abortController.signal,
+                ),
+                new Promise<never>((_, reject) => {
+                  timeoutTimer = setTimeout(
+                    () => {
+                      abortController.abort();
                       reject(
                         new AgentRuntimeError(
                           "TOOL_TIMEOUT",
                           `tool ${action.tool} exceeded ${contract.timeoutMs}ms`,
                         ),
-                      ),
+                      );
+                    },
                     contract.timeoutMs,
-                  ),
-                ),
+                  );
+                }),
               ]) as unknown);
         // NPV2-021 红线：后置条件不成立 → FAILED，任务不得标 SUCCEEDED。
         if (contract.verifier) {
@@ -810,6 +826,8 @@ export class AgentRuntime {
           invocation.retries += 1;
           continue;
         }
+      } finally {
+        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
       }
     }
     await this.finishToolInvocation(
