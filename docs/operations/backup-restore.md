@@ -12,7 +12,7 @@
 ## 校验
 
 1. 行数一致性：`people`/`evaluation_cycles` 等 src=dst 全 OK；
-2. schema 完整：全部 94 个迁移（含 RLS/FORCE 策略/触发器/索引）随 dump 重放；
+2. schema 完整：全部 95 个迁移（含 RLS/FORCE 策略/触发器/索引）随 dump 重放；
 3. 审计耐久：`audit_events` 行数一致；`amount_ledger` 哈希链列随行恢复，
    运行时 `verifyLedger()` / `verifyAuditChain()` 在恢复侧可直接调用。
 

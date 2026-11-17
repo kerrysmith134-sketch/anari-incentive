@@ -342,7 +342,7 @@ export function registerContributionRoutes(deps: {
       await assertModelProviderPolicy(
         platformStore,
         request,
-        "deepseek",
+        "openai-compatible",
         deps.modelScoring.baseUrl,
       );
       const provider = new HttpModelScoringProvider({

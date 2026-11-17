@@ -142,13 +142,16 @@ export function ManagementCenterPage() {
   );
 
   // NPV2-029：AI 草稿隐藏——独立判断完成的评审人才能看到关联草稿内容。
-  const submittedDrafts = (draftsQuery.data ?? []).filter(
-    (draft) => draft.status === "SUBMITTED" || draft.contentHidden,
+  // NP-004：AI 草稿（非 USER）分两类——SUBMITTED 阶段由服务端掩码
+  // （contentHidden），决定后揭示。USER 草稿不属于盲审范围。
+  const aiDrafts = (draftsQuery.data ?? []).filter(
+    (draft) => draft.generatedByType !== "USER",
   );
-  // NP-004：是否揭示以服务端 contentHidden 为准（前端不再自行推断）。
-  const hiddenDrafts = submittedDrafts.filter((draft) => draft.contentHidden);
-  const visibleDrafts = submittedDrafts.filter(
-    (draft) => !draft.contentHidden,
+  const hiddenDrafts = aiDrafts.filter(
+    (draft) => draft.contentHidden || draft.status === "SUBMITTED",
+  );
+  const visibleDrafts = aiDrafts.filter(
+    (draft) => !draft.contentHidden && draft.status !== "SUBMITTED",
   );
 
   const coverage = coverageQuery.data;
