@@ -76,6 +76,7 @@ export function ContributionPage() {
   const [packageType, setPackageType] = useState("ORDER_DELIVERY");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [generatingClaimId, setGeneratingClaimId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<WorkPackage | null>(
     null,
   );
@@ -467,6 +468,26 @@ export function ContributionPage() {
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function generateDraft(claim: ContributionClaim) {
+    setGeneratingClaimId(claim.id);
+    try {
+      await api(
+        `/api/v1/contribution-claims/${claim.id}/generate-assessment-draft`,
+        { method: "POST", body: {} },
+      );
+      toast.success("AI 草稿已生成", "请在贡献认定草案列表中复核并决定。");
+      claims.reload();
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError || caught instanceof Error
+          ? caught.message
+          : "生成失败。",
+      );
+    } finally {
+      setGeneratingClaimId(null);
     }
   }
 
@@ -999,13 +1020,23 @@ export function ContributionPage() {
                               ) : null}
                               {claim.status === "SUBMITTED" ||
                               claim.status === "UNDER_REVIEW" ? (
-                                <Button
-                                  size="sm"
-                                  variant="primary"
-                                  onClick={() => openAdjudicate(claim)}
-                                >
-                                  认定
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    loading={generatingClaimId === claim.id}
+                                    onClick={() => void generateDraft(claim)}
+                                  >
+                                    生成 AI 草稿
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    onClick={() => openAdjudicate(claim)}
+                                  >
+                                    认定
+                                  </Button>
+                                </>
                               ) : null}
                             </div>
                           </td>
