@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Badge,
   EmptyState,
@@ -37,6 +38,7 @@ interface DraftView {
   cycleId: string;
   personId: string;
   status: string;
+  generatedByType?: string;
   /** NP-004：服务端盲审掩码标记——内容未揭示。 */
   contentHidden?: boolean;
   strengths?: string[];
@@ -215,7 +217,8 @@ export function ManagementCenterPage() {
                 <ul className="stack-list">
                   <li>
                     计算：{readinessQuery.data.calculations.formalLocked} /{" "}
-                    {readinessQuery.data.calculations.formal} 个正式运行已锁定
+                    {readinessQuery.data.calculations.formal} 个正式运行已锁定{" "}
+                    <Link to="/console/cycles">→ 考核周期</Link>
                   </li>
                   {readinessQuery.data.legalGates.map((gate) => (
                     <li key={gate.policyVersionId}>
@@ -225,7 +228,8 @@ export function ManagementCenterPage() {
                   ))}
                   <li>
                     结算批次：{readinessQuery.data.settlement.total} 个（已导出{" "}
-                    {readinessQuery.data.settlement.exported}）
+                    {readinessQuery.data.settlement.exported}）{" "}
+                    <Link to="/console/settlements">→ 结算</Link>
                   </li>
                 </ul>
                 <InfoNotice>
@@ -278,9 +282,9 @@ export function ManagementCenterPage() {
                       <Badge status="APPROVED">AI 草稿已揭示</Badge>{" "}
                       人员 {draft.personId.slice(0, 8)}{" "}
                       <span className="muted">独立判断已记录，可对比 AI 草稿。</span>
-                      {(draft.strengths?.length ??
-                        0 + (draft.counterEvidence?.length ?? 0) +
-                          (draft.missingInformation?.length ?? 0)) > 0 ? (
+                      {((draft.strengths?.length ?? 0) +
+                        (draft.counterEvidence?.length ?? 0) +
+                        (draft.missingInformation?.length ?? 0)) > 0 ? (
                         <ul className="stack-list muted">
                           {(draft.strengths ?? []).map((item, index) => (
                             <li key={`s-${index}`}>支持证据：{item}</li>

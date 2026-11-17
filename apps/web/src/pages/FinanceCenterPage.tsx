@@ -6,6 +6,7 @@ import {
   PageHeader,
   Panel,
 } from "../components/ui.js";
+import { Link } from "react-router-dom";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import { formatMoney } from "../lib/format.js";
 
@@ -160,12 +161,20 @@ export function FinanceCenterPage() {
                     >
                       {row.status === "MATCH" ? "一致" : "差异"}
                     </Badge>{" "}
-                    {row.cycleName}（{row.cycleId.slice(0, 8)}）{" "}
+                    <Link to="/console/cycles" className="mono">
+                      {row.cycleName}（{row.cycleId.slice(0, 8)}）
+                    </Link>{" "}
                     <span className="muted">
                       声明 {row.declared.total ?? "解析错误"} vs 运行{" "}
                       {row.calculated.grossProfit ?? "无正式运行"}
                       {row.deltaMicros !== "0" ? ` · 差异（微单位）${row.deltaMicros}` : ""}
                     </span>
+                    {row.status === "VARIANCE" ? (
+                      <span className="muted">
+                        {" "}
+                        <Link to="/console/settlements">→ 结算核对</Link>
+                      </span>
+                    ) : null}
                     {row.declared.facts.length > 0 ? (
                       <ul className="stack-list muted">
                         {row.declared.facts.map((fact) => (
