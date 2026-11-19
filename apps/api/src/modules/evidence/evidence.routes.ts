@@ -54,6 +54,8 @@ export function registerEvidenceRoutes(deps: {
     redactResourceFields,
   } = deps;
   return async (app: FastifyInstance) => {
+    // NP-INT-010：sourceSystem 收口需要连接上下文模型（NPV2-NP 后续）；
+    // 当前集成令牌已由 requireRoles("integration") 限制。
     app.post("/api/v1/ingestion/events:batch", async (request) => {
       requireRoles(request, "integration");
       const body = parse(ingestionBatchSchema, request.body);

@@ -20,6 +20,12 @@ export interface PilotFactInput {
   payload: Record<string, unknown>;
   periodStart?: string;
   periodEnd?: string;
+  /** NP-ALGO-001：财务事实类型（GROSS_PROFIT/REVENUE/COST/REFUND/ADJUSTMENT…）。 */
+  factType?: string;
+  /** NP-ALGO-001：过账状态（DRAFT/POSTED；草稿不参与对账）。 */
+  postingStatus?: string;
+  /** NP-ALGO-001：关联订单 id（用于订单级对账）。 */
+  orderId?: string;
 }
 
 export interface PilotRunInput {
@@ -29,6 +35,8 @@ export interface PilotRunInput {
   orderGrossProfit?: string;
   /** NP-008：运行订单币种（缺省 CNY）。 */
   currency?: string;
+  /** NP-ALGO-001：运行关联订单 id（订单级对账基准）。 */
+  orderId?: string;
 }
 
 export interface PilotClaimInput {
@@ -93,6 +101,9 @@ export interface PilotMetricsReport {
     deltaMicros: string;
     verdict: PilotVerdict;
     detail: string;
+    /** NP-ALGO-001：非毛利类事实桥接披露（COST/REFUND/ADJUSTMENT…）。 */
+    bridgeByType: Record<string, { count: number; totalMicros: string }>;
+    draftExcluded: number;
   };
   evidenceCoverage: {
     overall: { covered: number; total: number; rate: number | null; verdict: PilotVerdict };
@@ -195,7 +206,35 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   ) {
     factError = `financial facts currency ${[...factCurrencies].join("/")} does not match run currency ${runCurrency}`;
   }
+  // NP-ALGO-001：按 factType 分组——只有 GROSS_PROFIT/REVENUE 参与毛利
+  // 对比；COST/REFUND/ADJUSTMENT 作为桥接项披露；DRAFT 不参与对账。
+  const comparable = cycleFacts.filter((fact) => {
+    const type = (fact.factType ?? "GROSS_PROFIT").toUpperCase();
+    return type === "GROSS_PROFIT" || type === "REVENUE";
+  });
+  const bridgeByType: Record<string, { count: number; totalMicros: string }> = {};
+  const draftExcluded = comparable.filter(
+    (fact) => (fact.postingStatus ?? "POSTED").toUpperCase() !== "POSTED",
+  ).length;
+  const postedComparable = comparable.filter(
+    (fact) => (fact.postingStatus ?? "POSTED").toUpperCase() === "POSTED",
+  );
   for (const fact of cycleFacts) {
+    const type = (fact.factType ?? "GROSS_PROFIT").toUpperCase();
+    if (type === "GROSS_PROFIT" || type === "REVENUE") continue;
+    const key = type;
+    bridgeByType[key] = bridgeByType[key] ?? { count: 0, totalMicros: "0" };
+    bridgeByType[key]!.count += 1;
+    try {
+      bridgeByType[key]!.totalMicros = String(
+        BigInt(bridgeByType[key]!.totalMicros) + amountToMicros(fact.amount),
+      );
+    } catch {
+      /* 桥接项解析失败不阻塞毛利对账 */
+    }
+  }
+
+  for (const fact of postedComparable) {
     try {
       declaredMicros += amountToMicros(fact.amount);
     } catch (error) {
@@ -374,7 +413,9 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
         factError ?? runError ??
         (cycleFacts.length === 0
           ? "no financial facts matched this cycle"
-          : "declared vs benchmark run gross profit"),
+          : "GROSS_PROFIT/REVENUE facts vs benchmark run gross profit"),
+      bridgeByType,
+      draftExcluded,
     },
     evidenceCoverage: {
       overall: {

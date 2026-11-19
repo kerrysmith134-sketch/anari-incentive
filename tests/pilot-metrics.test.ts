@@ -285,6 +285,39 @@ describe("AUD-022 pilot metrics", () => {
     expect(report.review.verdict).toBe("PASS");
   });
 
+  it("NP-ALGO-001: COST/REFUND 桥接披露不参与毛利对比；DRAFT 排除并计入", () => {
+    const report = computePilotMetrics(
+      baseInputs({
+        facts: [
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", payload: { cycleId: CYCLE.id } },
+          { amount: "5000", currency: "CNY", qualityStatus: "VALID", factType: "COST", payload: { cycleId: CYCLE.id } },
+          { amount: "2000", currency: "CNY", qualityStatus: "VALID", factType: "REFUND", payload: { cycleId: CYCLE.id } },
+        ],
+        benchmarkRun: {
+          id: "run-1", mode: "FORMAL", status: "LOCKED", orderGrossProfit: "100000", currency: "CNY",
+        },
+      }),
+    );
+    // COST/REFUND 不再被错误计入毛利对比（此前 107000 ≠ 100000 会 FAIL）
+    expect(report.financial.verdict).toBe("PASS");
+    expect(report.financial.deltaMicros).toBe("0");
+    expect(report.financial.bridgeByType.COST?.count).toBe(1);
+    expect(report.financial.bridgeByType.REFUND?.count).toBe(1);
+  });
+
+  it("NP-ALGO-001: DRAFT 过账状态的事实不参与对账并计入排除数", () => {
+    const report = computePilotMetrics(
+      baseInputs({
+        facts: [
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", payload: { cycleId: CYCLE.id } },
+          { amount: "999999", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "DRAFT", payload: { cycleId: CYCLE.id } },
+        ],
+      }),
+    );
+    expect(report.financial.verdict).toBe("PASS");
+    expect(report.financial.draftExcluded).toBe(1);
+  });
+
   it("金额严格解析：>6 位小数/非数字直接报错（不静默丢精度）", () => {
     expect(amountToMicros("100000.00")).toBe(100_000_000_000n);
     expect(amountToMicros("-0.000001")).toBe(-1n);
