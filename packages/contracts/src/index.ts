@@ -1539,6 +1539,18 @@ export const adjustLedgerEntrySchema = z.object({
 });
 export type AdjustLedgerEntryBody = z.infer<typeof adjustLedgerEntrySchema>;
 
+/**
+ * NP-023（B 方案）：对账差异一键生成调整分录。
+ * 在 adjustLedgerEntry 基础上指定目标 INCENTIVE 分录——分录必须属于该周期
+ * 对账基准运行；金额由前端预填差额、允许人工修正（带审计）。
+ */
+export const postReconciliationAdjustmentSchema = adjustLedgerEntrySchema.extend({
+  ledgerEntryId: uuidSchema,
+});
+export type PostReconciliationAdjustmentBody = z.infer<
+  typeof postReconciliationAdjustmentSchema
+>;
+
 export const receiveInboxMessageSchema = z.object({
   consumerName: z.string().min(1),
   messageId: z.string().min(1),

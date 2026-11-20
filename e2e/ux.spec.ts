@@ -212,6 +212,135 @@ test.describe("2026 policy centre UX", () => {
     await expect(page.getByText(/不执行锁账\/结算/)).toBeVisible();
   });
 
+  test("management center inline blind review decides a hidden AI draft (NP-022)", async ({
+    page,
+    request,
+  }) => {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const headers = {
+      "content-type": "application/json",
+      "x-tenant-id": "tenant-demo",
+      "x-user-id": "dev-user",
+      "x-person-id": "00000000-0000-4000-8000-000000000001",
+    };
+    const CYCLE = "00000000-0000-4000-8000-000000000020";
+    const SUBJECT = "00000000-0000-4000-8000-000000000002";
+    // 造评分标准 → SYSTEM 草案（subject ≠ 复核人，避免自裁）→ 提交（进入盲审隐藏）。
+    const rubric = await request.post("/api/v1/rubrics", {
+      headers,
+      data: {
+        code: `NP022_RUBRIC_${stamp}`,
+        name: "np022 rubric",
+        dimensions: ["QUALITY"],
+        scoringAnchors: {},
+        effectiveFrom: "2026-10-01T00:00:00.000Z",
+      },
+    });
+    expect(rubric.status(), await rubric.text()).toBe(201);
+    const rubricBody = (await rubric.json()) as { data: { id?: string; rubricVersionId?: string } };
+    const rubricId = rubricBody.data.rubricVersionId ?? rubricBody.data.id;
+
+    const draft = await request.post("/api/v1/evaluation-drafts", {
+      headers,
+      data: {
+        cycleId: CYCLE,
+        personId: SUBJECT,
+        generatedByType: "SYSTEM",
+        evidenceSnapshotHash: `np022-${stamp}`,
+        draftPayload: {},
+        strengths: [`np022 支持点 ${stamp}`],
+        counterEvidence: [],
+        missingInformation: [],
+      },
+    });
+    expect(draft.status(), await draft.text()).toBe(201);
+    const draftId = ((await draft.json()) as { data: { id: string } }).data.id;
+    const submitted = await request.post(`/api/v1/evaluation-drafts/${draftId}/submit`, {
+      headers,
+    });
+    expect(submitted.status(), await submitted.text()).toBeLessThan(300);
+
+    await page.goto("/console/management");
+    await page.getByLabel("选择考核周期").selectOption({ value: CYCLE });
+    // 隐藏草案行在位，且提供内联"记录独立判断并决定"入口
+    // （列表按创建序，本测试刚提交的草案是最后一条隐藏行）。
+    const hiddenRow = page
+      .locator("li")
+      .filter({ hasText: "AI 草稿已隐藏" })
+      .last();
+    await expect(hiddenRow).toBeVisible();
+    await hiddenRow.getByRole("button", { name: "记录独立判断并决定" }).click();
+    // 盲审提示 + 内联表单在位（不展示草稿内容）。
+    await expect(
+      page.getByText(/内联复核不会展示草稿内容/),
+    ).toBeVisible();
+    await page
+      .getByLabel(`评分标准-${draftId}`)
+      .selectOption({ label: `NP022_RUBRIC_${stamp} · np022 rubric` });
+    await page
+      .getByLabel(`独立得分-${draftId}`)
+      .fill('{"QUALITY": 4}');
+    await page
+      .getByLabel(`复核理由-${draftId}`)
+      .fill(`独立判断依据 ${stamp}（未参考 AI 草稿）`);
+    await page.getByRole("button", { name: "批准评价", exact: true }).last().click();
+    await expect(page.getByText("评价已批准").first()).toBeVisible();
+    // 决定后服务端揭示：唯一 strengths 文本出现（UI→API→持久化→UI 回写）。
+    await expect(page.getByText(`np022 支持点 ${stamp}`)).toBeVisible();
+  });
+
+  test("finance center variance drill-down opens adjustment modal (NP-023)", async ({
+    page,
+    request,
+  }) => {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const sourceRecordId = `NP023-${stamp}`;
+    const headers = {
+      "content-type": "application/json",
+      "x-tenant-id": "tenant-demo",
+      "x-user-id": "dev-user",
+      "x-person-id": "00000000-0000-4000-8000-000000000001",
+    };
+    // 造一条绑定演示周期的 GROSS_PROFIT 事实（该周期无正式运行 → 必然差异）。
+    const fact = await request.post("/api/v1/financial-facts", {
+      headers,
+      data: {
+        sourceSystem: "E2E",
+        sourceRecordId,
+        factType: "GROSS_PROFIT",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-31",
+        amount: "1234.5",
+        currency: "CNY",
+        qualityStatus: "VALID",
+        payload: { cycleId: "00000000-0000-4000-8000-000000000020" },
+      },
+    });
+    expect(fact.status(), await fact.text()).toBe(201);
+
+    await page.goto("/console/finance-center");
+    await expect(
+      page.getByRole("heading", { name: /引用对账/ }),
+    ).toBeVisible();
+    const varianceRow = page
+      .locator("li")
+      .filter({ hasText: "2026 Q4 demo cycle" })
+      .first();
+    // 列表层：逐笔事实金额与差异标识在位；来源记录号在模态层披露。
+    // （对账合计对残留事实敏感——不断言精确合计，保持测试可重复。）
+    await expect(varianceRow.getByText(/逐笔 GROSS_PROFIT（E2E）/).first()).toBeVisible();
+    await expect(varianceRow.getByText(/差异（微单位）/)).toBeVisible();
+    await varianceRow.getByRole("button", { name: "差异明细与调整" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("差额");
+    // 无正式运行基准 → 调整锚点不可用，但差异明细完整下钻。
+    await expect(dialog).toContainText("无正式运行基准");
+    await expect(dialog).toContainText(sourceRecordId);
+    await expect(dialog).toContainText("¥1,234.50");
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+  });
+
   test("my workbench aggregates personal scopes without cross-tenant data (NPV2-028)", async ({
     page,
   }) => {

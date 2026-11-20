@@ -241,3 +241,19 @@ export function toIsoDate(value: string): string {
 export function sum(values: Array<string | number | undefined | null>): number {
   return values.reduce<number>((total, value) => total + toNumber(value), 0);
 }
+
+/**
+ * 微单位（1e6）→ DecimalString——与 sumMoney 互逆，绝不走 Number（浮点漂移）。
+ * 用于把对账差异 deltaMicros 预填进调整金额输入框（NP-023 B 方案）。
+ */
+export function microsToDecimal(micros: string): string {
+  const value = micros.trim();
+  if (!/^-?\d+$/.test(value)) return "0";
+  const negative = value.startsWith("-");
+  const absolute = (negative ? value.slice(1) : value);
+  const whole = BigInt(absolute) / 1_000_000n;
+  const fraction = String(BigInt(absolute) % 1_000_000n)
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}

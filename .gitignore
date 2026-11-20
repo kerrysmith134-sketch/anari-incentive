@@ -13,6 +13,6 @@ coverage/
 test-results/
 playwright-report/
 
-# generated acceptance reports
-reports/
-sources/
+# generated acceptance reports（仅根级；避免误伤 apps/*/src/modules/reports/ 等源码目录）
+/reports/
+/sources/

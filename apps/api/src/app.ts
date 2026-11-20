@@ -1928,6 +1928,10 @@ export function buildApp(
       auditExport,
       exportHeaders,
       runtimeFor,
+      countEvent,
+      ensureApproval,
+      consumeApprovalForAction,
+      assertNoRetroactiveAdjustment,
     }),
   );
   app.register(registerEvaluationCycleRoutes({ platformStore, storeFor, countEvent }));

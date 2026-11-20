@@ -2,20 +2,30 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Badge,
+  Button,
   EmptyState,
+  FormField,
   InfoNotice,
   LoadingRows,
   PageHeader,
   Panel,
   Select,
+  Textarea,
 } from "../components/ui.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
+import { api, ApiError } from "../lib/api.js";
+import { useAuth } from "../contexts/AuthContext.js";
+import { useToast } from "../contexts/ToastContext.js";
 
 /**
  * NPV2-029：Management Center——主管工作空间。
  * 集中待认定、独立评价进度、异常、团队覆盖、周期准备度；
  * AI 草稿在评审人完成独立判断前隐藏内容（只显示状态）。
  * 主管能识别下一步：每面板给出行动提示。
+ * NP-022：隐藏（SUBMITTED）AI 草稿支持内联"记录独立判断并决定"——
+ * 提交的独立得分与理由即 ATT-06 判断记录，决定后由服务端揭示内容；
+ * 已决定草稿是终态（只读展示）；零分维度（D-03 需 ASSESSED 认定）
+ * 仍走考核周期页完整流程。
  */
 
 interface ReadinessReport {
@@ -52,6 +62,13 @@ interface DecisionView {
   cycleId: string;
   status: string;
   independentScores: Record<string, number>;
+}
+
+interface RubricView {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
 }
 
 interface ClaimView {
@@ -91,6 +108,8 @@ interface CoverageReport {
 export function ManagementCenterPage() {
   useDocumentTitle("管理中心");
   const [cycleId, setCycleId] = useState("");
+  const { session } = useAuth();
+  const toast = useToast();
 
   const cyclesQuery = useApiQuery<
     { id: string; name: string; status: string }[]
@@ -130,6 +149,18 @@ export function ManagementCenterPage() {
       : null,
     activeCycle ? `coverage-${activeCycle}` : "coverage",
   );
+  // NP-022：内联复核需要评分标准版本；决策入口按身份 fail-closed。
+  const rubricsQuery = useApiQuery<RubricView[]>("/api/v1/rubrics", "mc-rubrics");
+  const identityQuery = useApiQuery<{ roles: string[] }>(
+    "/api/v1/platform/identity",
+    "mc-identity",
+  );
+  const canDecide = (identityQuery.data?.roles ?? []).some(
+    (role) => role === "manager" || role === "admin",
+  );
+  const activeRubrics = (rubricsQuery.data ?? []).filter(
+    (rubric) => rubric.status === "ACTIVE",
+  );
 
   const exceptionClaims = useMemo(
     () =>
@@ -157,6 +188,96 @@ export function ManagementCenterPage() {
   );
 
   const coverage = coverageQuery.data;
+
+  // NP-022：内联复核状态（一次展开一份草稿）。
+  const [reviewDraftId, setReviewDraftId] = useState<string | null>(null);
+  const [reviewDecision, setReviewDecision] = useState<"APPROVE" | "REJECT">("APPROVE");
+  const [reviewRubric, setReviewRubric] = useState("");
+  const [reviewScoresText, setReviewScoresText] = useState("{}");
+  const [reviewRationale, setReviewRationale] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  function openReview(draftId: string) {
+    setReviewDraftId(draftId);
+    setReviewDecision("APPROVE");
+    setReviewRubric(activeRubrics[0]?.id ?? "");
+    setReviewScoresText("{}");
+    setReviewRationale("");
+    setReviewError(null);
+  }
+
+  async function submitReview(draftId: string) {
+    let scores: Record<string, number>;
+    try {
+      const parsed = JSON.parse(reviewScoresText || "{}") as unknown;
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed) ||
+        Object.values(parsed).some(
+          (value) => typeof value !== "number" || value < 0 || value > 5,
+        )
+      ) {
+        throw new Error("得分必须是 0–5 的数字对象，例如 {\"QUALITY\":4}");
+      }
+      scores = parsed as Record<string, number>;
+      // D-03：零分必须是有依据的 ASSESSED 认定——完整表单在考核周期页。
+      const zero = Object.entries(scores).find(([, value]) => value === 0);
+      if (zero) {
+        throw new Error(
+          `维度 ${zero[0]} 打 0 分需要在考核周期页走 D-03 认定流程（ASSESSED + 理由）`,
+        );
+      }
+    } catch (caught) {
+      setReviewError(caught instanceof Error ? caught.message : "得分格式无效。");
+      return;
+    }
+    if (!reviewRubric) {
+      setReviewError("必须选择评分标准版本。");
+      return;
+    }
+    if (reviewRationale.trim().length < 3) {
+      setReviewError("必须填写至少 3 个字符的复核理由。");
+      return;
+    }
+    setReviewSubmitting(true);
+    setReviewError(null);
+    try {
+      await api(`/api/v1/evaluation-drafts/${draftId}/decision`, {
+        method: "POST",
+        body: {
+          reviewerPersonId: session.personId,
+          rubricVersionId: reviewRubric,
+          decision: reviewDecision,
+          scores,
+          rationale: reviewRationale.trim(),
+          // ATT-06：复核人先独立判断（得分与理由同时作为独立判断记录）。
+          independentScores: scores,
+          independentRationale: reviewRationale.trim(),
+          evidenceOpened: 0,
+        },
+      });
+      toast.success(
+        reviewDecision === "APPROVE" ? "评价已批准" : "草稿已驳回",
+        draftId.slice(0, 8),
+      );
+      setReviewDraftId(null);
+      draftsQuery.reload();
+      decisionsQuery.reload();
+      coverageQuery.reload();
+    } catch (caught) {
+      setReviewError(
+        caught instanceof ApiError
+          ? caught.message
+          : caught instanceof Error
+            ? caught.message
+            : "无法记录决策。",
+      );
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }
 
   const loading =
     cyclesQuery.loading ||
@@ -275,6 +396,103 @@ export function ManagementCenterPage() {
                       <span className="muted">
                         先完成独立判断（ATT-06），再揭示 AI 草稿。
                       </span>
+                      {canDecide ? (
+                        <>
+                          {" "}
+                          <Button
+                            variant={reviewDraftId === draft.id ? "secondary" : "primary"}
+                            onClick={() =>
+                              reviewDraftId === draft.id
+                                ? setReviewDraftId(null)
+                                : openReview(draft.id)
+                            }
+                          >
+                            {reviewDraftId === draft.id ? "收起复核" : "记录独立判断并决定"}
+                          </Button>
+                        </>
+                      ) : null}
+                      {reviewDraftId === draft.id ? (
+                        <div className="stack">
+                          <InfoNotice>
+                            内联复核不会展示草稿内容——先填写独立得分与理由提交决定，
+                            决定后内容才由服务端揭示（NP-004 盲审）。
+                          </InfoNotice>
+                          <FormField
+                            label="决策"
+                            hint="批准生成正式评价决定；驳回退回重评。两者均记录独立判断。"
+                          >
+                            <Select
+                              value={reviewDecision}
+                              onChange={(event) =>
+                                setReviewDecision(
+                                  event.target.value === "REJECT" ? "REJECT" : "APPROVE",
+                                )
+                              }
+                              aria-label={`决策-${draft.id}`}
+                            >
+                              <option value="APPROVE">批准评价</option>
+                              <option value="REJECT">驳回草稿</option>
+                            </Select>
+                          </FormField>
+                          <FormField label="评分标准版本">
+                            {rubricsQuery.loading ? (
+                              <div className="muted">评分标准加载中…</div>
+                            ) : activeRubrics.length === 0 ? (
+                              <div className="muted">无 ACTIVE 评分标准——先在政策中启用。</div>
+                            ) : (
+                              <Select
+                                value={reviewRubric}
+                                onChange={(event) => setReviewRubric(event.target.value)}
+                                aria-label={`评分标准-${draft.id}`}
+                              >
+                                <option value="">— 选择评分标准 —</option>
+                                {activeRubrics.map((rubric) => (
+                                  <option key={rubric.id} value={rubric.id}>
+                                    {rubric.code} · {rubric.name}
+                                  </option>
+                                ))}
+                              </Select>
+                            )}
+                          </FormField>
+                          <FormField
+                            label="独立得分（JSON）"
+                            hint="维度 → 0–5 分，例如 {&quot;QUALITY&quot;:4}；零分请到考核周期页走 D-03 认定流程。"
+                          >
+                            <Textarea
+                              value={reviewScoresText}
+                              onChange={(event) => setReviewScoresText(event.target.value)}
+                              aria-label={`独立得分-${draft.id}`}
+                              rows={2}
+                              placeholder='{"QUALITY": 4}'
+                            />
+                          </FormField>
+                          <FormField label="独立判断理由（必填，≥3 字，进入正式记录）">
+                            <Textarea
+                              value={reviewRationale}
+                              onChange={(event) => setReviewRationale(event.target.value)}
+                              aria-label={`复核理由-${draft.id}`}
+                              rows={2}
+                              placeholder="基于证据与制度条款的独立判断依据（未参考 AI 草稿）。"
+                            />
+                          </FormField>
+                          {reviewError ? (
+                            <InfoNotice tone="warning">{reviewError}</InfoNotice>
+                          ) : null}
+                          <div>
+                            <Button
+                              variant={reviewDecision === "REJECT" ? "danger" : "primary"}
+                              onClick={() => submitReview(draft.id)}
+                              disabled={reviewSubmitting}
+                            >
+                              {reviewSubmitting
+                                ? "提交中…"
+                                : reviewDecision === "REJECT"
+                                  ? "驳回草稿"
+                                  : "批准评价"}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                   {visibleDrafts.map((draft) => (
