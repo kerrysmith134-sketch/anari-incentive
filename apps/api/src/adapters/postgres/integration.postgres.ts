@@ -890,15 +890,19 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
     async resolveWebhookRoutingKey(
       routingKey: string,
     ): Promise<{ tenantId: string; connectionId: string; provider: string } | null> {
-      // 路由键查找跨租户（键本身即入口）——用平台查询。
-      const { rows } = await this.platformQuery(
-        `SELECT e.tenant_id, e.connection_id, c.provider
-           FROM integration_webhook_endpoints e
-           JOIN integration_connections c
-             ON c.tenant_id = e.tenant_id AND c.id = e.connection_id
-          WHERE e.routing_key=$1`,
-        [routingKey],
-      );
+      // NP-009：路由键查找跨租户（键本身即入口）——需要事务本地平台提权
+      // 读取两张 FORCE RLS 表（与 Outbox claimBatchAtomic 同模式）。
+      const rows = await this.transaction(async (client) => {
+        const result = await client.query(
+          `SELECT e.tenant_id, e.connection_id, c.provider
+             FROM integration_webhook_endpoints e
+             JOIN integration_connections c
+               ON c.tenant_id = e.tenant_id AND c.id = e.connection_id
+            WHERE e.routing_key=$1`,
+          [routingKey],
+        );
+        return result.rows;
+      });
       if (!rows[0]) return null;
       return {
         tenantId: rows[0].tenant_id,

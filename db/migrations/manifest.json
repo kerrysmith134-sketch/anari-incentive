@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-21T12:43:35.072Z",
+  "generatedAt": "2026-11-21T13:57:03.148Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -485,6 +485,11 @@
       "file": "097_integration_sync_hardening.sql",
       "bytes": 2959,
       "sha256": "efa213cf2fb8c5d5ba56ae7f06688d703f2191667431caf16c17e08c1f30bae1"
+    },
+    {
+      "file": "098_webhook_endpoint_policy.sql",
+      "bytes": 876,
+      "sha256": "63eba041ef9998e4bbf27328c634b9b230eff31c300b888380ed1a756b6a73cb"
     }
   ]
 }

@@ -1,3 +1,13 @@
+# 2026-11-21 Integration Foundation 审计整改（Wave 1-5）
+
+对外部审计包 `N_Perform_2026_11_21_Audit_Pack`（35 项 NP-001..035）的四波整改 + 产品级收尾。完整清单与提交记录见 git log（6c8371e / 47a3388 / 本节对应提交）；外部系统接入状态以 README「Provider readiness truth table」为准。
+
+- **Wave 1（资源同步管道闭环）**：SyncResource/SyncCheckpoint/IngestionQuarantine 从"只有表"变为全链路（Port+Memory/PG+契约+路由）；runner 核心入 `@anari/connectors`（可注入测试）；checkpoint 只在目标写入成功后推进（NP-003 数据丢失根修）；财务事实金额/币种类型化（废除硬编码 0/CNY 与吞错，NP-004）；路由按 `mapping.targetType`（NP-015）；运行计数与逐条结果精确对账（NP-016）。
+- **Wave 2（凭据/身份/网关）**：连接配置响应统一脱敏（NP-005）；mapping builder 保留常量/转换/POST body/游标体键/egress allowlist（NP-006）；预设改 `=`常量表达式（NP-007）；外部对象身份解析 API + runner 强制（未解析进隔离区，NP-008）；webhook 不透明路由键 + 服务端派生签名 + 原始载荷 AES-256-GCM 落库（NP-009）；testConnection 真实 provider 探测（NP-010）。
+- **Wave 3（金额算法强校验）**：incentive DSL 负值/超限/重复人员 fail-closed（NP-012）；指标重复测量拒绝 + 锚点单调校验 + coverage/scoreable 分离（NP-013）；ENGINE_VERSION 语义化 2.0.0（NP-014）；四个 finance calculator 严格 Zod（NP-011）。
+- **Wave 4（基础设施加固）**：SSRF 全面化——IPv6 特殊段/IPv4-mapped/NAT64/十进制与八进制与十六进制 IPv4 便取形式/CGNAT/TEST-NET（NP-018）；HTTP 连接器 429 Retry-After + 指数退避重试 + 超时覆盖响应体（NP-017）。
+- **迁移**：097（sync_runs 精确计数列、096 四表租户复合 FK、integration_webhook_endpoints、webhook_inbox.raw_payload_encrypted）。
+
 # PRD V4.1 落地核对（2026-11-05 更新）
 
 **核对对象**：`docs/PRD_V4.1_评审修订版.md`（512 行，P0 基线）+ README 承诺的全部暂缓项

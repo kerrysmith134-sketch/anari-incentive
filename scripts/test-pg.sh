@@ -23,4 +23,5 @@ DATABASE_URL="$MIGRATION_URL" npx tsx scripts/migration-manifest.ts --check
 DATABASE_URL="$MIGRATION_URL" npm run db:seed
 DATABASE_URL="postgres://anari_app:anari_app@localhost:${PORT}/anari_incentive" \
   npx vitest run apps/api/src/__tests__/pg-store.test.ts \
-    apps/api/src/__tests__/store-contract.test.ts
+    apps/api/src/__tests__/store-contract.test.ts \
+    apps/api/src/__tests__/integration-pg-contract.test.ts
