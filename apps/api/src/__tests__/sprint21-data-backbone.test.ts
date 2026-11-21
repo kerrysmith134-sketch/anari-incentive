@@ -23,8 +23,8 @@ function fakeApi(options?: { failRawOnRecordId?: string }) {
     rawAppends: [] as Array<Record<string, unknown>>,
     factPosts: [] as Array<Record<string, unknown>>,
     quarantinePosts: [] as Array<Record<string, unknown>>,
-    leaseClaims: [] as string,
-    leaseReleases: [] as string,
+    leaseClaims: [] as Array<{ owner: string }>,
+    leaseReleases: [] as Array<{ owner: string }>,
     checkpoints: [] as Array<{ cursor: string | null; watermark?: string | null }>,
     finished: [] as string,
   };
@@ -76,11 +76,11 @@ function fakeApi(options?: { failRawOnRecordId?: string }) {
       ) as never;
     }
     if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/claim-lease")) {
-      calls.leaseClaims.push(String((body as { leaseOwner?: string }).leaseOwner));
+      calls.leaseClaims.push({ owner: String((body as { leaseOwner?: string }).leaseOwner) });
       return { fencingToken: 1, leaseUntil: new Date(Date.now() + 300000).toISOString() } as never;
     }
     if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/release-lease")) {
-      calls.leaseReleases.push(String((body as { leaseOwner?: string }).leaseOwner));
+      calls.leaseReleases.push({ owner: String((body as { leaseOwner?: string }).leaseOwner) });
       return { released: true } as never;
     }
     if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/checkpoint")) {
@@ -158,6 +158,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
       maxPages: 1,
       claimNow: nowIso,
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer s21-test",
     });
     expect(summary.schedules[0]!.status).toBe("SUCCEEDED");
     // INT-202：两条记录、两次 raw 落地（先于投影）
@@ -180,6 +181,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
       maxPages: 1,
       claimNow: nowIso,
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer s21-test",
     });
     expect(summary.schedules[0]!.status).toBe("FAILED");
     // 没有任何事实被投影（checkpoint 停留在原位，重放不丢数据）
@@ -220,6 +222,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
         maxPages: 1,
         claimNow: new Date(Date.now() + (round + 1) * 3600_000).toISOString(),
         providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer s21-test",
       });
     }
     // 同一条记录两个运行周期：raw 幂等返回同 id；投影按 payloadHash 去重 → 仅一次事实写入
@@ -237,6 +240,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
       maxPages: 1,
       claimNow: nowIso,
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer s21-test",
     });
     expect(calls.leaseClaims.length).toBeGreaterThan(0);
     expect(calls.leaseReleases).toEqual(calls.leaseClaims);
@@ -250,6 +254,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
       maxPages: 1,
       claimNow: nowIso,
       providerFetchImpl: badProvider,
+      credentialRefResolver: () => "Bearer s21-test",
     });
     expect(failed.schedules[0]!.status).toBe("FAILED");
     expect(failing.calls.leaseReleases.length).toBe(failing.calls.leaseClaims.length);
@@ -267,6 +272,7 @@ describe("Sprint 2.1 批次 A：数据主干", () => {
       maxPages: 1,
       claimNow: nowIso,
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer s21-test",
     });
     const last = calls.checkpoints[calls.checkpoints.length - 1];
     expect(last!.cursor).toBe("next-1");

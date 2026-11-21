@@ -365,19 +365,23 @@ export function registerIntegrationRoutes(deps: {
   app.post("/api/v1/integration-connections/:id/mappings", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createIntegrationMappingSchema, request.body);
+    // INT-210：mapping config 响应同样脱敏（headers 等敏感键不回显）。
     return reply.status(201).send(
       data(
-        await platformStore.createIntegrationMapping({
-          tenantId: tenantOf(request),
-          connectionId: idOf(request),
-          name: body.name,
-          mappingType: body.mappingType,
-          sourceSystem: body.sourceSystem,
-          targetType: body.targetType,
-          fieldMap: body.fieldMap,
-          config: body.config ?? {},
-          version: body.version ?? 1,
-        }),
+        {
+          ...(await platformStore.createIntegrationMapping({
+            tenantId: tenantOf(request),
+            connectionId: idOf(request),
+            name: body.name,
+            mappingType: body.mappingType,
+            sourceSystem: body.sourceSystem,
+            targetType: body.targetType,
+            fieldMap: body.fieldMap,
+            config: body.config ?? {},
+            version: body.version ?? 1,
+          })),
+          config: redactConfig(body.config ?? {}) as Record<string, unknown>,
+        },
         request,
       ),
     );
@@ -389,11 +393,14 @@ export function registerIntegrationRoutes(deps: {
       status?: "ACTIVE" | "RETIRED";
     };
     return data(
-      await platformStore.listIntegrationMappings(
+      (await platformStore.listIntegrationMappings(
         tenantOf(request),
         idOf(request),
         query.status,
-      ),
+      )).map((mapping) => ({
+        ...mapping,
+        config: redactConfig(mapping.config) as Record<string, unknown>,
+      })),
       request,
     );
   });

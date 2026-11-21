@@ -13,6 +13,7 @@ import {
   type IntegrationConnectionLike,
   type IntegrationMappingLike,
 } from "./integration.js";
+import { readFileSync } from "node:fs";
 import { HttpJsonConnector } from "./http-json.js";
 import { canonicalize, sha256Stable, type CanonicalBusinessEvent } from "./canonical.js";
 
@@ -215,6 +216,8 @@ export async function runSyncCycle(deps: {
   maxPages?: number;
   claimNow?: string;
   providerFetchImpl?: typeof fetch;
+  /** INT-201：凭据解析（credentialRef → 真实凭据）。缺省读 SECRETS_JSON/SECRETS_FILE。 */
+  credentialRefResolver?: (credentialRef: string) => string | undefined;
 }): Promise<SyncCycleSummary> {
   const { request } = deps;
   const effectiveMaxPages = Math.max(1, deps.maxPages ?? 5);
@@ -265,6 +268,23 @@ export async function runSyncCycle(deps: {
         const config = buildHttpJsonConnectorConfig(connection, mapping);
         if (!config) continue;
         if (deps.providerFetchImpl) config.fetchImpl = deps.providerFetchImpl;
+        // INT-201：凭据链——脱敏后的连接配置不含真实凭据；经 SecretProvider
+        // 解析 credentialRef 并注入认证头。解析失败 → run FAILED（绝不发送
+        // [REDACTED] 占位请求）。
+        if (connection.credentialRef) {
+          const secret =
+            deps.credentialRefResolver?.(connection.credentialRef) ??
+            resolveSecretFromEnv(connection.credentialRef);
+          if (!secret) {
+            throw new Error(
+              `SECRET_RESOLUTION_FAILED: credentialRef ${connection.credentialRef} is not resolvable — refusing to call the provider without credentials`,
+            );
+          }
+          config.headers = {
+            ...(config.headers ?? {}),
+            authorization: secret.startsWith("Bearer ") ? secret : `Bearer ${secret}`,
+          };
+        }
         // 每个 mapping 的 resourceKey 用 mapping.id 确保独立调度。
         let resource: SyncResource | undefined;
         try {
@@ -503,4 +523,23 @@ export async function runSyncCycle(deps: {
     }
   }
   return summary;
+}
+
+/** INT-201：缺省凭据解析（env：SECRETS_JSON / SECRETS_FILE）。 */
+function resolveSecretFromEnv(credentialRef: string): string | undefined {
+  try {
+    const inline = process.env.SECRETS_JSON;
+    if (inline) {
+      const map = JSON.parse(inline) as Record<string, string>;
+      if (typeof map[credentialRef] === "string") return map[credentialRef];
+    }
+    const filePath = process.env.SECRETS_FILE;
+    if (filePath) {
+      const map = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, string>;
+      if (typeof map[credentialRef] === "string") return map[credentialRef];
+    }
+  } catch {
+    /* 配置错误按缺失处理 */
+  }
+  return undefined;
 }

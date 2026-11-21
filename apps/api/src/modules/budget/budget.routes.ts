@@ -114,7 +114,8 @@ export function registerBudgetRoutes(deps: {
   });
 
   app.post("/api/v1/financial-facts", async (request, reply) => {
-    requireRoles(request, "finance");
+    // INT-210：同步 worker 使用 integration 角色写财务事实（审计授权边界）。
+    requireRoles(request, "finance", "integration");
     const body = parse(createFinancialFactSchema, request.body);
     return reply.status(201).send(
       data(

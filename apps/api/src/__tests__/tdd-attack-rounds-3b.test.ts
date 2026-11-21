@@ -222,6 +222,7 @@ describe("R25-R28: runner 路由与游标接力", () => {
       maxPages: 1,
       claimNow: new Date(Date.now() + 3600_000).toISOString(),
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer tdd3-test",
     });
     expect(summary.schedules[0]!.counters.recordsQuarantined).toBe(1);
     expect(summary.schedules[0]!.counters.recordsUpserted).toBe(0);
@@ -243,6 +244,7 @@ describe("R25-R28: runner 路由与游标接力", () => {
       maxPages: 1,
       claimNow: new Date(Date.now() + 3600_000).toISOString(),
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer tdd3-test",
     });
     expect(summary.schedules[0]!.counters.recordsQuarantined).toBe(1);
     const quarantined = store.get("quarantine:P1") as { reason: string };
@@ -263,6 +265,7 @@ describe("R25-R28: runner 路由与游标接力", () => {
       maxPages: 1,
       claimNow: new Date(Date.now() + 3600_000).toISOString(),
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer tdd3-test",
     });
     expect(summary.schedules[0]!.counters.recordsUpserted).toBe(1);
     const fact = store.get("fact:P2") as { currency: string };
@@ -287,6 +290,7 @@ describe("R25-R28: runner 路由与游标接力", () => {
       maxPages: 2,
       claimNow: new Date(Date.now() + 3600_000).toISOString(),
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer tdd3-test",
     });
     expect(summary.schedules[0]!.counters.recordsFetched).toBe(2);
     expect(summary.schedules[0]!.counters.recordsUpserted).toBe(2);
