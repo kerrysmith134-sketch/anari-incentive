@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-21T16:40:21.710Z",
+  "generatedAt": "2026-11-21T21:27:35.635Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -495,6 +495,16 @@
       "file": "099_integration_lifecycle.sql",
       "bytes": 3438,
       "sha256": "2cdc1f2afa1c60c7977a81a63a3dd099d3646b0dbbb9ab9a0b44828e7281d1e3"
+    },
+    {
+      "file": "100_raw_source_ledger_versions.sql",
+      "bytes": 1465,
+      "sha256": "6735c65752fca94e57cf99db7652163e557425b99a063af4ab29226e201b4cff"
+    },
+    {
+      "file": "101_financial_fact_revisions.sql",
+      "bytes": 2295,
+      "sha256": "f25025dc8e6cd66ea822c8d4f1215b5e11e16beec1a1d393837985d8093a76cd"
     }
   ]
 }

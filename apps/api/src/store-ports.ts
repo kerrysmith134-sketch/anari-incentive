@@ -1060,6 +1060,13 @@ export interface IntegrationPort {
     tenantId: string,
     filter?: { sourceSystem?: string; unresolvedOnly?: boolean },
   ): Promise<QuarantineRecord[]>;
+  // INT-209（Sprint 2.1）：隔离区人工处置闭环（resolve + 审计）。
+  resolveQuarantineRecord(input: {
+    tenantId: string;
+    quarantineId: string;
+    resolutionNote: string;
+    actorPersonId: string;
+  }): Promise<QuarantineRecord>;
   // NP-008：外部对象身份解析（opaque 外部 ID → 内部 UUID）。
   upsertExternalObject(input: {
     tenantId: string;

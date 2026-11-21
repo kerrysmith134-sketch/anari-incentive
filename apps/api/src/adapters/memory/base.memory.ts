@@ -215,6 +215,20 @@ export class MemoryPlatformStoreBase {
     protected readonly budgetAllocations = new Map<string, BudgetAllocation>();
     protected readonly cashGateInputs = new Map<string, CashGateInput>();
     protected readonly financialFacts = new Map<string, FinancialFact>();
+    protected readonly financialFactRevisions = new Map<
+      string,
+      Array<{
+        revision: number;
+        amount: string;
+        currency: string;
+        periodStart?: string;
+        periodEnd?: string;
+        qualityStatus?: string;
+        sourceUpdatedAt?: string;
+        payload: Record<string, unknown>;
+        createdAt: string;
+      }>
+    >();
     protected readonly ruleChangeOrders = new Map<string, RuleChangeOrder>();
     protected readonly policyTestCases = new Map<string, PolicyTestCase>();
     protected readonly policyTestRuns = new Map<string, PolicyTestRun>();

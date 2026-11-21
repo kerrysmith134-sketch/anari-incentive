@@ -433,6 +433,34 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
         input.factType,
       ].join(":");
       const existing = this.financialFacts.get(key);
+      // INT-208（Sprint 2.1 财务红线）：迟到的旧快照不得覆盖新快照——
+      // 同键且两侧均携带 sourceUpdatedAt 时，旧时间戳 → 409 STALE_FINANCIAL_FACT。
+      if (
+        existing &&
+        input.sourceUpdatedAt &&
+        existing.sourceUpdatedAt &&
+        input.sourceUpdatedAt < existing.sourceUpdatedAt
+      ) {
+        throw new ConflictError(
+          `STALE_FINANCIAL_FACT: incoming snapshot (${input.sourceUpdatedAt}) is older than current (${existing.sourceUpdatedAt}) for ${input.sourceSystem}/${input.sourceRecordId}/${input.factType}`,
+        );
+      }
+      // 旧值进修订账本（append-only 语义：Memory 用数组模拟 101 表）。
+      if (existing) {
+        const revisions = this.financialFactRevisions.get(existing.id) ?? [];
+        revisions.push({
+          revision: revisions.length + 1,
+          amount: existing.amount,
+          currency: existing.currency,
+          periodStart: existing.periodStart,
+          periodEnd: existing.periodEnd,
+          qualityStatus: existing.qualityStatus,
+          sourceUpdatedAt: existing.sourceUpdatedAt,
+          payload: existing.payload,
+          createdAt: now(),
+        });
+        this.financialFactRevisions.set(existing.id, revisions);
+      }
       const timestamp = now();
       const fact: FinancialFact = existing ?? {
         id: randomUUID(),

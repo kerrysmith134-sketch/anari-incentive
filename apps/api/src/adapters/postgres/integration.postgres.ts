@@ -767,6 +767,24 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       return this.mapQuarantineRecord(rows[0]);
     }
 
+    async resolveQuarantineRecord(input: {
+      tenantId: string;
+      quarantineId: string;
+      resolutionNote: string;
+      actorPersonId: string;
+    }): Promise<QuarantineRecord> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE ingestion_quarantine
+            SET resolved_at=now(), resolved_by=$3, resolution_note=$4
+          WHERE tenant_id=$1 AND id=$2 AND resolved_at IS NULL
+          RETURNING *`,
+        [input.tenantId, input.quarantineId, input.actorPersonId, input.resolutionNote],
+      );
+      if (!rows[0]) notFound("QuarantineRecord", input.quarantineId);
+      return this.mapQuarantineRecord(rows[0]);
+    }
+
     async listQuarantineRecords(
       tenantId: string,
       filter?: { sourceSystem?: string; unresolvedOnly?: boolean },

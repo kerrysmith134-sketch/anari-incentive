@@ -95,7 +95,7 @@ async function seedConnectionMappingSchedule(
           evidenceType: "evidence_type",
           occurredAt: "occurred_at",
         },
-        config: {},
+        config: { allowUuidPassthrough: true },
         version: 1,
       }),
     },
@@ -329,6 +329,7 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
       maxPages: 1,
       claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
       providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
     });
     expect(summary.schedules).toHaveLength(1);
     const counters = summary.schedules[0]!.counters;
@@ -387,6 +388,7 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
       maxPages: 1,
       claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
       providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
     });
     expect(summary.schedules[0]!.counters.recordsUpserted).toBe(1);
     const facts = await inject<Array<unknown>>("/api/v1/financial-facts");
@@ -428,6 +430,7 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
       maxPages: 1,
       claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
       providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
     });
     expect(summary.schedules[0]!.status).toBe("FAILED");
     expect(summary.schedules[0]!.counters.recordsFailed).toBe(1);
@@ -447,6 +450,7 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
       maxPages: 1,
       claimNow: new Date(Date.now() + 6 * 3600_000).toISOString(),
       providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
     });
     expect(retry.schedules).toHaveLength(1);
     expect(retry.schedules[0]!.counters.recordsUpserted).toBe(1);

@@ -26,7 +26,7 @@ function fakeApi(options?: { failRawOnRecordId?: string }) {
     leaseClaims: [] as Array<{ owner: string }>,
     leaseReleases: [] as Array<{ owner: string }>,
     checkpoints: [] as Array<{ cursor: string | null; watermark?: string | null }>,
-    finished: [] as string,
+    finished: [] as Array<{ status: string }>,
   };
   let runSeq = 0;
   let resSeq = 0;
@@ -120,7 +120,7 @@ function fakeApi(options?: { failRawOnRecordId?: string }) {
       return { id: "q" } as never;
     }
     if (path.startsWith("/api/v1/sync-runs/") && path.endsWith("/finish") && method === "POST") {
-      calls.finished.push(String((body as { status: string }).status));
+      calls.finished.push({ status: String((body as { status: string }).status) });
       return { id: path.split("/")[4] } as never;
     }
     throw new Error(`unexpected ${method} ${path}`);

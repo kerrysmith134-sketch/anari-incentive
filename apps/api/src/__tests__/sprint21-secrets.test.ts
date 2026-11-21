@@ -104,7 +104,11 @@ describe("INT-201: SecretProvider", () => {
               subjectId: "subject_id",
               evidenceType: "=ACTIVITY",
             },
-            config: { url: "https://provider.example/api", recordsPath: "records" },
+            config: {
+              url: "https://provider.example/api",
+              recordsPath: "records",
+              allowUuidPassthrough: true,
+            },
           },
         ] as never;
       }

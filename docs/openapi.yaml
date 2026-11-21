@@ -6784,6 +6784,39 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/ingestion-quarantine/{id}/resolve:
+    post:
+      tags: [Ingestion]
+      summary: Resolve a quarantined record (audited disposition)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolutionNote]
+              properties:
+                resolutionNote:
+                  type: string
+                actorPersonId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/raw-source-records:
     post:
       tags: [Ingestion]

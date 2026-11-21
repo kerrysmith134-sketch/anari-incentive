@@ -199,7 +199,10 @@ describe("R01-R10: store 层语义", () => {
     });
     const rows = (JSON.parse(list.payload) as { data: Array<{ id: string; replayedAt?: string | null }> }).data;
     const row = rows.find((entry) => entry.id === first.data.id);
-    expect(row?.replayedAt ?? null).toBeNull();
+    // INT-202 版本化语义：同版本幂等返回既有，历史状态不可改写（append-only）；
+    // 供应商更正 → 新 sourceVersion 新行。第二次 replay 因已重放同样幂等返回。
+    expect(row?.replayedAt).toBeTruthy();
+    expect(row?.payloadEncrypted ?? "").not.toBe("");
   });
 
   it("R07 已 unlink 的身份再 unlink → 404（valid_to IS NULL 条件）", async () => {
@@ -426,7 +429,8 @@ describe("R11-R20: HTTP 协议层", () => {
     const { createHmac } = await import("node:crypto");
     const body = JSON.stringify({ x: 1 });
     const sig = createHmac("sha256", routing.data.signingSecret).update(body).digest("hex");
-    const tampered = "0" + sig.slice(1);
+    // 确定性篡改：翻转首字符（避免 1/16 概率撞回原签名的不稳定断言）。
+    const tampered = (sig[0] === "0" ? "1" : "0") + sig.slice(1);
     const res = await app.inject({
       method: "POST",
       url: `/api/v1/integration-webhooks/${routing.data.routingKey}`,

@@ -105,8 +105,10 @@ async function resolveSubject(
   sourceSystem: string,
   subjectType: string,
   subjectId: string,
+  /** INT-207：显式 UUID 直通开关（默认关闭——格式不能证明归属）。 */
+  allowUuidPassthrough: boolean,
 ): Promise<{ subjectId: string } | { error: string }> {
-  if (UUID_PATTERN.test(subjectId)) {
+  if (allowUuidPassthrough && UUID_PATTERN.test(subjectId)) {
     return { subjectId };
   }
   try {
@@ -114,10 +116,16 @@ async function resolveSubject(
       `/api/v1/external-objects:resolve?sourceSystem=${encodeURIComponent(sourceSystem)}&externalObjectType=${encodeURIComponent(subjectType)}&externalObjectId=${encodeURIComponent(subjectId)}`,
     );
     return { subjectId: identity.internalObjectId };
-  } catch {
-    return {
-      error: `unresolved external identity ${subjectType}/${subjectId} for ${sourceSystem}`,
-    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // INT-207：404（未注册）→ 未解析隔离；网络/5xx → 抛出让整页重试，
+    // 临时故障不得被误写成 UNRESOLVED_IDENTITY。
+    if (/not found/i.test(message) || /HTTP 404/.test(message)) {
+      return {
+        error: `unresolved external identity ${subjectType}/${subjectId} for ${sourceSystem}`,
+      };
+    }
+    throw error;
   }
 }
 
@@ -182,8 +190,12 @@ async function writeTargetIdempotent(
       /HTTP 409/.test(message) ||
       /duplicate key/i.test(message) ||
       /UNIQUE constraint/i.test(message) ||
-      /_pkey|_key/.test(message) && /duplicate/i.test(message)
+      /_pkey|_key/.test(message) && /duplicate/i.test(message)
     ) {
+      return "DUPLICATE";
+    }
+    // INT-208：迟到的旧财务快照 → 跳过（不覆盖新数据），非失败。
+    if (/STALE_FINANCIAL_FACT/.test(message)) {
       return "DUPLICATE";
     }
     throw error;
@@ -370,12 +382,14 @@ export async function runSyncCycle(deps: {
             const routing = routeTarget(mapping.targetType);
             try {
               if (routing.route === "EVIDENCE") {
-                // NP-008：非 UUID 主体先解析身份；未解析 → 隔离（不投递）。
+                // NP-008 + INT-207：外部 ID（含 UUID 形态）先解析身份；未解析 → 隔离。
                 const subject = await resolveSubject(
                   request,
                   mapping.sourceSystem,
                   String(event.subjectType ?? ""),
                   String(event.subjectId ?? ""),
+                  (mapping.config as { allowUuidPassthrough?: boolean } | undefined)
+                    ?.allowUuidPassthrough === true,
                 );
                 if ("error" in subject) {
                   await recordQuarantine(request, {

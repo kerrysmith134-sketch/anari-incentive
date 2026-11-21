@@ -487,38 +487,87 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       payload: Record<string, unknown>;
     }): Promise<FinancialFact> {
       try {
-        const { rows } = await this.tenantQuery(input.tenantId, 
-          `INSERT INTO financial_facts
-            (id, tenant_id, source_system, source_record_id, fact_type,
-             period_start, period_end, amount, currency, quality_status,
-             source_updated_at, payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-           ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
-           DO UPDATE SET period_start=EXCLUDED.period_start,
-                         period_end=EXCLUDED.period_end,
-                         amount=EXCLUDED.amount,
-                         currency=EXCLUDED.currency,
-                         quality_status=EXCLUDED.quality_status,
-                         source_updated_at=EXCLUDED.source_updated_at,
-                         ingested_at=now(),
-                         payload=EXCLUDED.payload
-           RETURNING *`,
-          [
-            randomUUID(),
-            input.tenantId,
-            input.sourceSystem,
-            input.sourceRecordId,
-            input.factType,
-            input.periodStart ?? null,
-            input.periodEnd ?? null,
-            input.amount,
-            input.currency,
-            input.qualityStatus,
-            input.sourceUpdatedAt ?? null,
-            input.payload,
-          ],
-        );
-        return this.mapFinancialFact(rows[0]);
+        return await this.transactionFor(input.tenantId, async (client) => {
+          // INT-208（Sprint 2.1 财务红线）：迟到旧快照不得覆盖新快照。
+          const { rows: current } = await client.query(
+            `SELECT * FROM financial_facts
+              WHERE tenant_id=$1 AND source_system=$2
+                AND source_record_id=$3 AND fact_type=$4
+              FOR UPDATE`,
+            [input.tenantId, input.sourceSystem, input.sourceRecordId, input.factType],
+          );
+          const existing = current[0];
+          if (
+            existing &&
+            input.sourceUpdatedAt &&
+            existing.source_updated_at &&
+            input.sourceUpdatedAt < existing.source_updated_at
+          ) {
+            throw new ConflictError(
+              `STALE_FINANCIAL_FACT: incoming snapshot (${input.sourceUpdatedAt}) is older than current (${existing.source_updated_at}) for ${input.sourceSystem}/${input.sourceRecordId}/${input.factType}`,
+            );
+          }
+          if (existing) {
+            // 旧值先写入 append-only 修订账本（迁移 101）。
+            const { rows: revRows } = await client.query(
+              `SELECT COALESCE(MAX(revision), 0) + 1 AS next
+                 FROM financial_fact_revisions
+                WHERE tenant_id=$1 AND fact_id=$2`,
+              [input.tenantId, existing.id],
+            );
+            await client.query(
+              `INSERT INTO financial_fact_revisions
+                 (tenant_id, fact_id, revision, amount, currency,
+                  period_start, period_end, quality_status,
+                  source_updated_at, payload)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+              [
+                input.tenantId,
+                existing.id,
+                revRows[0].next,
+                existing.amount,
+                existing.currency,
+                existing.period_start,
+                existing.period_end,
+                existing.quality_status,
+                existing.source_updated_at,
+                JSON.stringify(existing.payload ?? {}),
+              ],
+            );
+          }
+          const { rows } = await client.query(
+            `INSERT INTO financial_facts
+              (id, tenant_id, source_system, source_record_id, fact_type,
+               period_start, period_end, amount, currency, quality_status,
+               source_updated_at, payload)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
+            DO UPDATE SET period_start=EXCLUDED.period_start,
+                          period_end=EXCLUDED.period_end,
+                          amount=EXCLUDED.amount,
+                          currency=EXCLUDED.currency,
+                          quality_status=EXCLUDED.quality_status,
+                          source_updated_at=EXCLUDED.source_updated_at,
+                          ingested_at=now(),
+                          payload=EXCLUDED.payload
+            RETURNING *`,
+            [
+              existing?.id ?? randomUUID(),
+              input.tenantId,
+              input.sourceSystem,
+              input.sourceRecordId,
+              input.factType,
+              input.periodStart ?? null,
+              input.periodEnd ?? null,
+              input.amount,
+              input.currency,
+              input.qualityStatus,
+              input.sourceUpdatedAt ?? null,
+              input.payload,
+            ],
+          );
+          return this.mapFinancialFact(rows[0]);
+        });
       } catch (error) {
         if ((error as { code?: string }).code === "23503") {
           throw new NotFoundError(`Tenant ${input.tenantId} not found`);

@@ -313,3 +313,45 @@ describe("NP-027: 身份生命周期 unlink/merge/历史", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("INT-209: 隔离区 resolve 处置闭环", () => {
+  it("处置留痕 + 未解决过滤 + 缺 note 400", async () => {
+    const app = buildAppFor(TENANT);
+    const post = async (body: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/ingestion-quarantine",
+        payload: JSON.stringify({ sourceSystem: "tdd3", externalRecordId: "Q-R", reason: "OTHER", ...body }),
+        headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+      });
+    await post({});
+    const list = async () =>
+      app.inject({
+        method: "GET",
+        url: "/api/v1/ingestion-quarantine?sourceSystem=tdd3&unresolved=1",
+        headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+      });
+    const rows = (JSON.parse((await list()).payload) as { data: Array<{ id: string }> }).data;
+    const target = rows.find((row) => row.externalRecordId === "Q-R");
+    expect(target).toBeDefined();
+    const resolve = await app.inject({
+      method: "POST",
+      url: `/api/v1/ingestion-quarantine/${target!.id}/resolve`,
+      payload: JSON.stringify({ resolutionNote: "已人工核对并修正来源字段", actorPersonId: ADMIN }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    expect(resolve.statusCode).toBe(200);
+    const resolved = (JSON.parse(resolve.payload) as { data: { resolvedAt: string; resolutionNote: string } }).data;
+    expect(resolved.resolvedAt).toBeTruthy();
+    expect(resolved.resolutionNote).toBe("已人工核对并修正来源字段");
+    const after = (JSON.parse((await list()).payload) as { data: Array<{ id: string }> }).data;
+    expect(after.find((row) => row.id === target!.id)).toBeUndefined();
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/v1/ingestion-quarantine/${target!.id}/resolve`,
+      payload: JSON.stringify({ actorPersonId: ADMIN }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+});

@@ -368,6 +368,7 @@ describe("NP-008: 外部对象身份解析", () => {
       maxPages: 1,
       claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
       providerFetchImpl: providerFetch,
+      credentialRefResolver: () => "Bearer foundation-test",
     });
     expect(summary.schedules[0]!.status).toBe("SUCCEEDED");
     expect(summary.schedules[0]!.counters.recordsUpserted).toBe(1);

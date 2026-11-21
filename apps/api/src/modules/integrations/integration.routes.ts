@@ -525,7 +525,8 @@ export function registerIntegrationRoutes(deps: {
       internalObjectId: body.internalObjectId,
       matchRule: body.matchRule,
       confidence: body.confidence,
-      confirmedBy: body.confirmedBy,
+      // INT-207：确认人一律取会话身份——不信任 body 提交。
+      confirmedBy: ownPersonId(request) ?? undefined,
     });
     return reply.status(201).send(data(identity, request));
   });
@@ -837,7 +838,38 @@ export function registerIntegrationRoutes(deps: {
     return reply.status(201).send(data(record, request));
   });
 
+  // INT-209：隔离区人工处置（resolve）——处置留痕 + 审计。
+  app.post("/api/v1/ingestion-quarantine/:id/resolve", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const note = typeof body.resolutionNote === "string" && body.resolutionNote.trim() ? body.resolutionNote.trim() : "";
+    if (!note) {
+      throw new BadRequestError("RESOLUTION_NOTE_REQUIRED", "resolutionNote 为必填");
+    }
+    const record = await platformStore.resolveQuarantineRecord({
+      tenantId: tenantOf(request),
+      quarantineId: idOf(request),
+      resolutionNote: note,
+      actorPersonId: requireActorRequired(request, body.actorPersonId, "resolve quarantine record"),
+    });
+    try {
+      await storeFor(request)?.recordAuditEvent?.({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? record.resolvedBy ?? undefined,
+        action: "QUARANTINE_RECORD_RESOLVED",
+        objectType: "INGESTION_QUARANTINE",
+        objectId: record.id,
+        reason: note,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    countEvent("quarantine_record_resolved");
+    return data(record, request);
+  });
+
   app.get("/api/v1/ingestion-quarantine", async (request) => {
+
     requireRoles(request, "manager", "finance", "integration");
     const query = request.query as { sourceSystem?: string; unresolved?: string };
     return data(

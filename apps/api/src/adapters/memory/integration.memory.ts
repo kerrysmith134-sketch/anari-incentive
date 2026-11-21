@@ -715,6 +715,22 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       return record;
     }
 
+    async resolveQuarantineRecord(input: {
+      tenantId: string;
+      quarantineId: string;
+      resolutionNote: string;
+      actorPersonId: string;
+    }): Promise<QuarantineRecord> {
+      const record = this.quarantineRecords.get(input.quarantineId);
+      if (!record || record.tenantId !== input.tenantId) {
+        notFound("QuarantineRecord", input.quarantineId);
+      }
+      record.resolvedAt = now();
+      record.resolvedBy = input.actorPersonId;
+      record.resolutionNote = input.resolutionNote;
+      return record;
+    }
+
     async listQuarantineRecords(
       tenantId: string,
       filter?: { sourceSystem?: string; unresolvedOnly?: boolean },
@@ -863,40 +879,45 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       return message;
     }
 
-    // NP-020：原始落地（内存实现——Map 即不可变语义，密文原样存取）。
+    // NP-020 + INT-202（Sprint 2.1）：原始落地——版本化追加，同版本幂等返回。
     async appendRawSourceRecord(input: {
       tenantId: string;
       sourceSystem: string;
       externalRecordId: string;
       payloadEncrypted: string;
+      payloadHash?: string;
+      sourceVersion?: string;
       mappingVersion?: number;
       retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+      resourceId?: string;
+      sourceUpdatedAt?: string;
     }): Promise<RawSourceRecord> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
       const timestamp = now();
-      // 与 PG ON CONFLICT 对等：同 (tenant, system, recordId) 覆盖密文与
-      // mapping 版本并重置重放标记（供应商更正后可再次重放）。
+      const sourceVersion = input.sourceVersion ?? "1";
+      // INT-202：同 (tenant, system, recordId, sourceVersion) 幂等返回既有；
+      // 新版本独立成行（append-only，禁止覆盖旧版本）。
       const existing = [...this.rawSourceRecords.values()].find(
         (record) =>
           record.tenantId === input.tenantId &&
           record.sourceSystem === input.sourceSystem &&
-          record.externalRecordId === input.externalRecordId,
+          record.externalRecordId === input.externalRecordId &&
+          record.sourceVersion === sourceVersion,
       );
-      if (existing) {
-        existing.payloadEncrypted = input.payloadEncrypted;
-        existing.mappingVersion = input.mappingVersion ?? existing.mappingVersion;
-        existing.retentionClass = input.retentionClass ?? existing.retentionClass;
-        existing.replayedAt = null;
-        return existing;
-      }
+      if (existing) return existing;
       const record: RawSourceRecord = {
         id: randomUUID(),
         tenantId: input.tenantId,
         sourceSystem: input.sourceSystem,
         externalRecordId: input.externalRecordId,
         payloadEncrypted: input.payloadEncrypted,
+        payloadHash: input.payloadHash ?? "",
+        sourceVersion,
         mappingVersion: input.mappingVersion ?? 1,
         retentionClass: input.retentionClass ?? "DEFAULT",
+        resourceId: input.resourceId,
+        fetchedAt: timestamp,
+        sourceUpdatedAt: input.sourceUpdatedAt ?? null,
         replayedAt: null,
         createdAt: timestamp,
       };
