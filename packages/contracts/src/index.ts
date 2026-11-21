@@ -1383,6 +1383,63 @@ export type UpsertExternalObjectBody = z.infer<
   typeof upsertExternalObjectSchema
 >;
 
+/** NP-027：身份生命周期契约。 */
+export const externalObjectUnlinkSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalObjectType: z.string().min(1),
+  externalObjectId: z.string().min(1),
+  reason: z.string().min(1),
+  actorPersonId: uuidSchema,
+});
+export type ExternalObjectUnlinkBody = z.infer<typeof externalObjectUnlinkSchema>;
+
+export const externalObjectMergeSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalObjectType: z.string().min(1),
+  keepExternalObjectId: z.string().min(1),
+  mergeExternalObjectIds: z.array(z.string().min(1)).min(1),
+  actorPersonId: uuidSchema,
+});
+export type ExternalObjectMergeBody = z.infer<typeof externalObjectMergeSchema>;
+
+/** NP-020：原始落地契约。 */
+export const createRawSourceRecordSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalRecordId: z.string().min(1),
+  payload: z.record(z.unknown()).default({}),
+  mappingVersion: z.number().int().positive().optional(),
+  retentionClass: z.enum(["DEFAULT", "PII", "FINANCIAL"]).optional(),
+});
+export type CreateRawSourceRecordBody = z.infer<
+  typeof createRawSourceRecordSchema
+>;
+
+export const replayRawSourceRecordSchema = z.object({
+  eventType: z.string().min(1),
+  subjectType: z.string().min(1),
+  subjectId: uuidSchema,
+  evidenceType: z.string().min(1),
+  occurredAt: z.string().datetime().optional(),
+});
+export type ReplayRawSourceRecordBody = z.infer<
+  typeof replayRawSourceRecordSchema
+>;
+
+/** NP-021：资源级租约契约。 */
+export const claimResourceLeaseSchema = z.object({
+  leaseOwner: z.string().min(1),
+  leaseSeconds: z.number().int().min(1).max(3600),
+});
+export type ClaimResourceLeaseBody = z.infer<typeof claimResourceLeaseSchema>;
+
+export const releaseResourceLeaseSchema = z.object({
+  leaseOwner: z.string().min(1),
+  fencingToken: z.number().int().positive(),
+});
+export type ReleaseResourceLeaseBody = z.infer<
+  typeof releaseResourceLeaseSchema
+>;
+
 export const quarantineReasons = [
   "UNRESOLVED_IDENTITY",
   "INVALID_CURRENCY",

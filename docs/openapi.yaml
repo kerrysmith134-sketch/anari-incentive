@@ -6740,6 +6740,165 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/external-objects/unlink:
+    post:
+      tags: [Ingestion]
+      summary: Terminate an external object identity mapping (audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalObjectUnlink"
+      responses:
+        "200":
+          description: Unlinked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/external-objects:merge:
+    post:
+      tags: [Ingestion]
+      summary: Merge external identities into one canonical internal object (audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalObjectMerge"
+      responses:
+        "200":
+          description: Merged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/raw-source-records:
+    post:
+      tags: [Ingestion]
+      summary: Land a raw source record (append-only, encrypted payload)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRawSourceRecord"
+      responses:
+        "201":
+          description: Landed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Ingestion]
+      summary: List raw source records (payloads encrypted at rest)
+      parameters:
+        - name: sourceSystem
+          in: query
+          schema: { type: string }
+        - name: replayed
+          in: query
+          schema: { type: string, enum: ["1", "true"] }
+      responses:
+        "200":
+          description: Listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/raw-source-records/{id}/replay:
+    post:
+      tags: [Ingestion]
+      summary: Replay a landed raw record under the current mapping version
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplayRawSourceRecord"
+      responses:
+        "200":
+          description: Replay result (idempotent for already-replayed records)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/sync-resources/{id}/claim-lease:
+    post:
+      tags: [Ingestion]
+      summary: Claim the resource-level sync lease (fencing token increments)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimResourceLease"
+      responses:
+        "200":
+          description: Lease acquired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/sync-resources/{id}/release-lease:
+    post:
+      tags: [Ingestion]
+      summary: Release the resource lease (stale fencing token rejected)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReleaseResourceLease"
+      responses:
+        "200":
+          description: Released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/external-objects:resolve:
     get:
       tags: [Ingestion]
@@ -13466,6 +13625,66 @@ components:
         cursorBefore:
           type: object
           additionalProperties: true
+
+    ExternalObjectUnlink:
+      type: object
+      required: [sourceSystem, externalObjectType, externalObjectId, reason, actorPersonId]
+      properties:
+        sourceSystem: { type: string }
+        externalObjectType: { type: string }
+        externalObjectId: { type: string }
+        reason: { type: string }
+        actorPersonId: { type: string, format: uuid }
+
+    ExternalObjectMerge:
+      type: object
+      required: [sourceSystem, externalObjectType, keepExternalObjectId, mergeExternalObjectIds, actorPersonId]
+      properties:
+        sourceSystem: { type: string }
+        externalObjectType: { type: string }
+        keepExternalObjectId: { type: string }
+        mergeExternalObjectIds:
+          type: array
+          items: { type: string }
+        actorPersonId: { type: string, format: uuid }
+
+    CreateRawSourceRecord:
+      type: object
+      required: [sourceSystem, externalRecordId]
+      properties:
+        sourceSystem: { type: string }
+        externalRecordId: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+        mappingVersion: { type: integer, minimum: 1 }
+        retentionClass:
+          type: string
+          enum: [DEFAULT, PII, FINANCIAL]
+
+    ReplayRawSourceRecord:
+      type: object
+      required: [eventType, subjectType, subjectId, evidenceType]
+      properties:
+        eventType: { type: string }
+        subjectType: { type: string }
+        subjectId: { type: string, format: uuid }
+        evidenceType: { type: string }
+        occurredAt: { type: string, format: date-time }
+
+    ClaimResourceLease:
+      type: object
+      required: [leaseOwner, leaseSeconds]
+      properties:
+        leaseOwner: { type: string }
+        leaseSeconds: { type: integer, minimum: 1, maximum: 3600 }
+
+    ReleaseResourceLease:
+      type: object
+      required: [leaseOwner, fencingToken]
+      properties:
+        leaseOwner: { type: string }
+        fencingToken: { type: integer, minimum: 1 }
 
     CreateSyncResource:
       type: object

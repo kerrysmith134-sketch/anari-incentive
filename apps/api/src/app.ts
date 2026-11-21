@@ -1910,6 +1910,7 @@ export function buildApp(
   app.register(
     registerIntegrationRoutes({
       platformStore,
+      storeFor,
       countEvent,
       integrationProbe: options.integrationProbe,
       webhookSigningSecret: process.env.WEBHOOK_SIGNING_SECRET,

@@ -5,13 +5,19 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { IntegrationPort } from "../../store-ports.js";
 import {
   claimDueSyncSchedulesSchema,
+  claimResourceLeaseSchema,
   createIntegrationConnectionSchema,
   createIntegrationMappingSchema,
   createQuarantineRecordSchema,
+  createRawSourceRecordSchema,
   createSyncResourceSchema,
   createSyncRunSchema,
   createSyncScheduleSchema,
+  externalObjectMergeSchema,
+  externalObjectUnlinkSchema,
   finishSyncRunSchema,
+  releaseResourceLeaseSchema,
+  replayRawSourceRecordSchema,
   setIntegrationConnectionStatusSchema,
   setSyncScheduleEnabledSchema,
   upsertExternalObjectSchema,
@@ -24,6 +30,31 @@ import {
   createCipheriv,
   createDecipheriv,
 } from "node:crypto";
+
+/** 重放/证据转投所需的最小 store 面。 */
+interface IngestionStoreLike {
+  ingestEvents(batch: {
+    sourceSystem: string;
+    events: Array<{
+      sourceRecordId: string;
+      sourceEventVersion?: string;
+      eventType: string;
+      occurredAt?: string;
+      subjectType: string;
+      subjectId: string;
+      evidenceType: string;
+      payload?: Record<string, unknown>;
+    }>;
+  }): Promise<unknown>;
+  recordAuditEvent?(event: {
+    actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+    actorId?: string;
+    action: string;
+    objectType: string;
+    objectId?: string;
+    reason?: string;
+  }): Promise<unknown>;
+}
 
 /** NP-010：provider 探针（可注入以便测试；默认实现真实 fetch）。 */
 export interface IntegrationProviderProbe {
@@ -40,6 +71,8 @@ import {
   errorBody,
   parse,
   requireRoles,
+  requireActorRequired,
+  ownPersonId,
   tenantOf,
   idOf,
   paramOf,
@@ -78,12 +111,13 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 
 export function registerIntegrationRoutes(deps: {
   platformStore: IntegrationPort;
+  storeFor: (request: FastifyRequest) => IngestionStoreLike;
   countEvent: (event: string) => void;
   integrationProbe?: IntegrationProviderProbe;
   webhookSigningSecret?: string;
   webhookRawEncryptionKey?: string;
 }): FastifyPluginAsync {
-  const { platformStore, countEvent, integrationProbe, webhookSigningSecret, webhookRawEncryptionKey } = deps;
+  const { platformStore, storeFor, countEvent, integrationProbe, webhookSigningSecret, webhookRawEncryptionKey } = deps;
 
   // ------------------------------------------------------------------
   // NP-005（2026-11-21 审计）：凭据脱敏——任何连接/映射配置响应中的
@@ -529,11 +563,170 @@ export function registerIntegrationRoutes(deps: {
     const query = request.query as {
       sourceSystem?: string;
       externalObjectType?: string;
+      includeUnlinked?: string;
     };
     return data(
-      await platformStore.listExternalObjects(tenantOf(request), query),
+      await platformStore.listExternalObjects(tenantOf(request), {
+        sourceSystem: query.sourceSystem,
+        externalObjectType: query.externalObjectType,
+        includeUnlinked: query.includeUnlinked === "1" || query.includeUnlinked === "true",
+      }),
       request,
     );
+  });
+
+  // ------------------------------------------------------------------
+  // NP-027：身份生命周期——unlink 终止映射（人工处置留痕）、merge 并入。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/external-objects/unlink", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(externalObjectUnlinkSchema, request.body);
+    const identity = await platformStore.unlinkExternalObject({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      externalObjectType: body.externalObjectType,
+      externalObjectId: body.externalObjectId,
+      reason: body.reason,
+      actorPersonId: requireActorRequired(request, body.actorPersonId, "unlink external object"),
+    });
+    try {
+      await storeFor(request)?.recordAuditEvent?.({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? body.actorPersonId,
+        action: "EXTERNAL_IDENTITY_UNLINKED",
+        objectType: "EXTERNAL_OBJECT_IDENTITY",
+        objectId: identity.id,
+        reason: `${body.sourceSystem}/${body.externalObjectType}/${body.externalObjectId}:${body.reason}`,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    countEvent("external_identity_unlinked");
+    return data(identity, request);
+  });
+
+  app.post("/api/v1/external-objects:merge", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(externalObjectMergeSchema, request.body);
+    const result = await platformStore.mergeExternalObjects({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      externalObjectType: body.externalObjectType,
+      keepExternalObjectId: body.keepExternalObjectId,
+      mergeExternalObjectIds: body.mergeExternalObjectIds,
+      actorPersonId: requireActorRequired(request, body.actorPersonId, "merge external objects"),
+    });
+    try {
+      await storeFor(request)?.recordAuditEvent?.({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? body.actorPersonId,
+        action: "EXTERNAL_IDENTITY_MERGED",
+        objectType: "EXTERNAL_OBJECT_IDENTITY",
+        objectId: `${body.sourceSystem}/${body.externalObjectType}/${body.keepExternalObjectId}`,
+        reason: `merged=${result.merged} into=${result.internalObjectId}`,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    countEvent("external_identity_merged");
+    return data(result, request);
+  });
+
+  // ------------------------------------------------------------------
+  // NP-020：原始落地（append-only；payload AES-256-GCM 密文）+ 重放。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/raw-source-records", async (request, reply) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(createRawSourceRecordSchema, request.body);
+    const record = await platformStore.appendRawSourceRecord({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      externalRecordId: body.externalRecordId,
+      payloadEncrypted: encryptRawPayload(JSON.stringify(body.payload ?? {})),
+      mappingVersion: body.mappingVersion,
+      retentionClass: body.retentionClass,
+    });
+    countEvent("raw_source_record_appended");
+    return reply.status(201).send(
+      data({ ...record, payload: undefined, payloadEncrypted: "[ENCRYPTED]" }, request),
+    );
+  });
+
+  app.get("/api/v1/raw-source-records", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as { sourceSystem?: string; replayed?: string };
+    return data(
+      (await platformStore.listRawSourceRecords(tenantOf(request), {
+        sourceSystem: query.sourceSystem,
+        replayedOnly: query.replayed === "1" || query.replayed === "true",
+      })).map((record) => ({ ...record, payloadEncrypted: "[ENCRYPTED]" })),
+      request,
+    );
+  });
+
+  // 重放：解密原始 payload → 按调用方给定的解析字段转投证据通道 → 标记。
+  app.post("/api/v1/raw-source-records/:id/replay", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(replayRawSourceRecordSchema, request.body);
+    const record = await platformStore.getRawSourceRecord(tenantOf(request), idOf(request));
+    if (!record.replayedAt) {
+      const rawText = decryptRawPayload(record.payloadEncrypted);
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(rawText) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      await storeFor(request).ingestEvents({
+        sourceSystem: record.sourceSystem,
+        events: [
+          {
+            sourceRecordId: record.externalRecordId,
+            sourceEventVersion: `replay-${record.mappingVersion}`,
+            eventType: body.eventType,
+            occurredAt: body.occurredAt,
+            subjectType: body.subjectType,
+            subjectId: body.subjectId,
+            evidenceType: body.evidenceType,
+            payload,
+          },
+        ],
+      });
+      await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
+      countEvent("raw_source_record_replayed");
+      return data({ replayed: true, sourceRecordId: record.externalRecordId }, request);
+    }
+    // 已重放过：幂等返回（不重复转投）。
+    return data({ replayed: true, duplicate: true, sourceRecordId: record.externalRecordId }, request);
+  });
+
+  // ------------------------------------------------------------------
+  // NP-021：资源级租约（fencing token）。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/sync-resources/:id/claim-lease", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(claimResourceLeaseSchema, request.body);
+    const lease = await platformStore.claimResourceSyncLease({
+      tenantId: tenantOf(request),
+      resourceId: idOf(request),
+      leaseOwner: body.leaseOwner,
+      leaseSeconds: body.leaseSeconds,
+    });
+    countEvent("resource_lease_claimed");
+    return data(lease, request);
+  });
+
+  app.post("/api/v1/sync-resources/:id/release-lease", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(releaseResourceLeaseSchema, request.body);
+    await platformStore.releaseResourceSyncLease({
+      tenantId: tenantOf(request),
+      resourceId: idOf(request),
+      leaseOwner: body.leaseOwner,
+      fencingToken: body.fencingToken,
+    });
+    countEvent("resource_lease_released");
+    return data({ released: true }, request);
   });
 
   // ------------------------------------------------------------------

@@ -113,6 +113,7 @@ import type {
   SettlementExport,
   ExternalObjectIdentity,
   QuarantineRecord,
+  RawSourceRecord,
   WebhookRoutingKey,
   SyncCheckpoint,
   SyncResource,
@@ -1954,8 +1955,25 @@ export class PgPlatformStoreBase {
       mappingId: row.mapping_id ?? undefined,
       scheduleId: row.schedule_id ?? undefined,
       status: row.status,
+      leaseOwner: row.lease_owner ?? null,
+      leaseUntil: iso(row.lease_until),
+      fencingToken: Number(row.fencing_token ?? 0),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
       updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  protected mapRawSourceRecord(row: QueryResultRow): RawSourceRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      externalRecordId: row.external_record_id,
+      payloadEncrypted: row.payload_encrypted,
+      mappingVersion: Number(row.mapping_version ?? 1),
+      retentionClass: row.retention_class ?? "DEFAULT",
+      replayedAt: iso(row.replayed_at),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
 
@@ -1986,6 +2004,8 @@ export class PgPlatformStoreBase {
       confirmedBy: row.confirmed_by ?? undefined,
       validFrom: iso(row.valid_from) ?? new Date().toISOString(),
       validTo: iso(row.valid_to),
+      unlinkReason: row.unlink_reason ?? null,
+      unlinkedBy: row.unlinked_by ?? null,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }

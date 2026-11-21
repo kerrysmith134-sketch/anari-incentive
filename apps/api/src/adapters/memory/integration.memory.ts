@@ -48,6 +48,7 @@ import type {
   ExternalIdentity,
   ExternalObjectIdentity,
   QuarantineRecord,
+  RawSourceRecord,
   SyncCheckpoint,
   WebhookRoutingKey,
   SyncResource,
@@ -595,6 +596,9 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         mappingId: input.mappingId,
         scheduleId: input.scheduleId,
         status: "ACTIVE",
+        leaseOwner: null,
+        leaseUntil: null,
+        fencingToken: 0,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -793,22 +797,6 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       );
     }
 
-    async listExternalObjects(
-      tenantId: string,
-      filter?: { sourceSystem?: string; externalObjectType?: string },
-    ): Promise<ExternalObjectIdentity[]> {
-      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
-      return [...this.externalObjects.values()]
-        .filter(
-          (identity) =>
-            identity.tenantId === tenantId &&
-            (!filter?.sourceSystem || identity.sourceSystem === filter.sourceSystem) &&
-            (!filter?.externalObjectType ||
-              identity.externalObjectType === filter.externalObjectType),
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    }
-
     // NP-009：不透明 webhook 路由键 + 原始载荷（加密）收件。
     async issueWebhookRoutingKey(input: {
       tenantId: string;
@@ -873,6 +861,193 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       };
       this.webhooks.set(message.id, message);
       return message;
+    }
+
+    // NP-020：原始落地（内存实现——Map 即不可变语义，密文原样存取）。
+    async appendRawSourceRecord(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalRecordId: string;
+      payloadEncrypted: string;
+      mappingVersion?: number;
+      retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+    }): Promise<RawSourceRecord> {
+      if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+      const timestamp = now();
+      const record: RawSourceRecord = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        sourceSystem: input.sourceSystem,
+        externalRecordId: input.externalRecordId,
+        payloadEncrypted: input.payloadEncrypted,
+        mappingVersion: input.mappingVersion ?? 1,
+        retentionClass: input.retentionClass ?? "DEFAULT",
+        replayedAt: null,
+        createdAt: timestamp,
+      };
+      this.rawSourceRecords.set(record.id, record);
+      return record;
+    }
+
+    async listRawSourceRecords(
+      tenantId: string,
+      filter?: { sourceSystem?: string; replayedOnly?: boolean },
+    ): Promise<RawSourceRecord[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.rawSourceRecords.values()]
+        .filter(
+          (record) =>
+            record.tenantId === tenantId &&
+            (!filter?.sourceSystem || record.sourceSystem === filter.sourceSystem) &&
+            (!filter?.replayedOnly || record.replayedAt !== null),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+
+    async getRawSourceRecord(tenantId: string, id: string): Promise<RawSourceRecord> {
+      const record = this.rawSourceRecords.get(id);
+      if (!record || record.tenantId !== tenantId) notFound("RawSourceRecord", id);
+      return record;
+    }
+
+    async markRawSourceRecordReplayed(tenantId: string, id: string): Promise<RawSourceRecord> {
+      const record = await this.getRawSourceRecord(tenantId, id);
+      record.replayedAt = now();
+      return record;
+    }
+
+    // NP-021：资源级租约。
+    async claimResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      leaseSeconds: number;
+    }): Promise<{ fencingToken: number; leaseUntil: string }> {
+      const resource = this.syncResources.get(input.resourceId);
+      if (!resource || resource.tenantId !== input.tenantId) {
+        notFound("SyncResource", input.resourceId);
+      }
+      const current = Date.now();
+      const heldUntil = resource.leaseUntil ? Date.parse(resource.leaseUntil) : 0;
+      const heldByOther =
+        resource.leaseOwner &&
+        resource.leaseOwner !== input.leaseOwner &&
+        heldUntil > current;
+      if (heldByOther) {
+        throw new ConflictError(
+          `RESOURCE_LEASED: ${resource.id} is held by ${resource.leaseOwner} until ${resource.leaseUntil}`,
+        );
+      }
+      const fencingToken = (resource.fencingToken ?? 0) + 1;
+      resource.fencingToken = fencingToken;
+      resource.leaseOwner = input.leaseOwner;
+      resource.leaseUntil = new Date(current + input.leaseSeconds * 1000).toISOString();
+      resource.updatedAt = now();
+      return { fencingToken, leaseUntil: resource.leaseUntil! };
+    }
+
+    async releaseResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      fencingToken: number;
+    }): Promise<void> {
+      const resource = this.syncResources.get(input.resourceId);
+      if (!resource || resource.tenantId !== input.tenantId) {
+        notFound("SyncResource", input.resourceId);
+      }
+      // stale fencing：token 不匹配或持有者不同 → 拒绝（旧持有者写不过新持有者）。
+      if (
+        resource.leaseOwner !== input.leaseOwner ||
+        (resource.fencingToken ?? 0) !== input.fencingToken
+      ) {
+        throw new ConflictError(
+          `RESOURCE_LEASE_STALE: fencing token mismatch on ${resource.id}`,
+        );
+      }
+      resource.leaseOwner = null;
+      resource.leaseUntil = null;
+      resource.updatedAt = now();
+    }
+
+    // NP-027：身份生命周期。
+    async unlinkExternalObject(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      externalObjectId: string;
+      reason: string;
+      actorPersonId: string;
+    }): Promise<ExternalObjectIdentity> {
+      const identity = await this.resolveExternalObject(
+        input.tenantId,
+        input.sourceSystem,
+        input.externalObjectType,
+        input.externalObjectId,
+      );
+      if (!identity) {
+        notFound(
+          "ExternalObjectIdentity",
+          `${input.sourceSystem}/${input.externalObjectType}/${input.externalObjectId}`,
+        );
+      }
+      identity.validTo = now();
+      identity.unlinkReason = input.reason;
+      identity.unlinkedBy = input.actorPersonId;
+      return identity;
+    }
+
+    async mergeExternalObjects(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      keepExternalObjectId: string;
+      mergeExternalObjectIds: string[];
+      actorPersonId: string;
+    }): Promise<{ merged: number; internalObjectId: string }> {
+      const keep = await this.resolveExternalObject(
+        input.tenantId,
+        input.sourceSystem,
+        input.externalObjectType,
+        input.keepExternalObjectId,
+      );
+      if (!keep) {
+        notFound("ExternalObjectIdentity", input.keepExternalObjectId);
+      }
+      let merged = 0;
+      for (const externalObjectId of input.mergeExternalObjectIds) {
+        const identity = await this.resolveExternalObject(
+          input.tenantId,
+          input.sourceSystem,
+          input.externalObjectType,
+          externalObjectId,
+        );
+        if (!identity || identity.id === keep!.id) continue;
+        identity.internalObjectType = keep!.internalObjectType;
+        identity.internalObjectId = keep!.internalObjectId;
+        // 被并入的旧内部对象关系终止留痕（NP-027：可审计可回溯）。
+        identity.unlinkReason = "MERGED";
+        identity.unlinkedBy = input.actorPersonId;
+        merged += 1;
+      }
+      return { merged, internalObjectId: keep!.internalObjectId };
+    }
+
+    async listExternalObjects(
+      tenantId: string,
+      filter?: { sourceSystem?: string; externalObjectType?: string; includeUnlinked?: boolean },
+    ): Promise<ExternalObjectIdentity[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.externalObjects.values()]
+        .filter(
+          (identity) =>
+            identity.tenantId === tenantId &&
+            (!filter?.sourceSystem || identity.sourceSystem === filter.sourceSystem) &&
+            (!filter?.externalObjectType ||
+              identity.externalObjectType === filter.externalObjectType) &&
+            (filter?.includeUnlinked || !identity.validTo),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
 
     async upsertExternalIdentity(input: {

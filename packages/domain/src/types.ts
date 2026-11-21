@@ -1592,6 +1592,11 @@ export interface SyncResource {
   mappingId?: UUID;
   scheduleId?: UUID;
   status: "ACTIVE" | "PAUSED" | "RETIRED";
+  /** NP-021：资源级租约（一个资源同一时刻只有一个 worker 持有）。 */
+  leaseOwner?: string | null;
+  leaseUntil?: string | null;
+  /** NP-021：fencing token 单调递增——旧持有者过期后写不过新持有者。 */
+  fencingToken: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1622,6 +1627,22 @@ export interface ExternalObjectIdentity {
   confirmedBy?: UUID;
   validFrom: string;
   validTo?: string | null;
+  /** NP-027：终止原因（WRONG_MAPPING/MERGED/MANUAL…）与操作人。 */
+  unlinkReason?: string | null;
+  unlinkedBy?: UUID | null;
+  createdAt: string;
+}
+
+/** NP-020（2026-11-21 审计）：不可变原始落地记录（payload 密文）。 */
+export interface RawSourceRecord {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  externalRecordId: string;
+  payloadEncrypted: string;
+  mappingVersion: number;
+  retentionClass: "DEFAULT" | "PII" | "FINANCIAL";
+  replayedAt?: string | null;
   createdAt: string;
 }
 

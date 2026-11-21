@@ -97,6 +97,7 @@ import type {
   SettlementExport,
   ExternalObjectIdentity,
   QuarantineRecord,
+  RawSourceRecord,
   SyncCheckpoint,
   WebhookRoutingKey,
   SyncResource,
@@ -843,26 +844,6 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       return rows[0] ? this.mapExternalObjectIdentity(rows[0]) : null;
     }
 
-    async listExternalObjects(
-      tenantId: string,
-      filter?: { sourceSystem?: string; externalObjectType?: string },
-    ): Promise<ExternalObjectIdentity[]> {
-      await this.assertTenant(tenantId);
-      const params: string[] = [tenantId];
-      let sql = "SELECT * FROM external_object_identities WHERE tenant_id=$1";
-      if (filter?.sourceSystem) {
-        params.push(filter.sourceSystem);
-        sql += ` AND source_system=$${params.length}`;
-      }
-      if (filter?.externalObjectType) {
-        params.push(filter.externalObjectType);
-        sql += ` AND external_object_type=$${params.length}`;
-      }
-      sql += " ORDER BY created_at DESC";
-      const { rows } = await this.tenantQuery(tenantId, sql, params);
-      return rows.map((row: QueryResultRow) => this.mapExternalObjectIdentity(row));
-    }
-
     // NP-009：不透明 webhook 路由键 + 原始载荷（加密）收件。
     async issueWebhookRoutingKey(input: {
       tenantId: string;
@@ -935,6 +916,245 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         ],
       );
       return this.mapWebhook(rows[0]);
+    }
+
+    // NP-020：原始落地（PG——append-only 由迁移 099 触发器强制）。
+    async appendRawSourceRecord(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalRecordId: string;
+      payloadEncrypted: string;
+      mappingVersion?: number;
+      retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+    }): Promise<RawSourceRecord> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO raw_source_records
+           (tenant_id, source_system, external_record_id, payload_encrypted, mapping_version, retention_class)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, source_system, external_record_id) DO UPDATE
+           SET payload_encrypted = EXCLUDED.payload_encrypted,
+               mapping_version = EXCLUDED.mapping_version,
+               replayed_at = NULL
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.externalRecordId,
+          input.payloadEncrypted,
+          input.mappingVersion ?? 1,
+          input.retentionClass ?? "DEFAULT",
+        ],
+      );
+      return this.mapRawSourceRecord(rows[0]);
+    }
+
+    async listRawSourceRecords(
+      tenantId: string,
+      filter?: { sourceSystem?: string; replayedOnly?: boolean },
+    ): Promise<RawSourceRecord[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM raw_source_records WHERE tenant_id=$1";
+      if (filter?.sourceSystem) {
+        params.push(filter.sourceSystem);
+        sql += ` AND source_system=$${params.length}`;
+      }
+      if (filter?.replayedOnly) {
+        sql += " AND replayed_at IS NOT NULL";
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapRawSourceRecord(row));
+    }
+
+    async getRawSourceRecord(tenantId: string, id: string): Promise<RawSourceRecord> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM raw_source_records WHERE tenant_id=$1 AND id=$2",
+        [tenantId, id],
+      );
+      if (!rows[0]) notFound("RawSourceRecord", id);
+      return this.mapRawSourceRecord(rows[0]);
+    }
+
+    async markRawSourceRecordReplayed(tenantId: string, id: string): Promise<RawSourceRecord> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `UPDATE raw_source_records SET replayed_at=now()
+          WHERE tenant_id=$1 AND id=$2
+          RETURNING *`,
+        [tenantId, id],
+      );
+      if (!rows[0]) notFound("RawSourceRecord", id);
+      return this.mapRawSourceRecord(rows[0]);
+    }
+
+    // NP-021：资源级租约（fencing token 递增；持有期内他人 RESOURCE_LEASED）。
+    async claimResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      leaseSeconds: number;
+    }): Promise<{ fencingToken: number; leaseUntil: string }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows } = await client.query(
+          `SELECT * FROM sync_resources
+            WHERE tenant_id=$1 AND id=$2
+            FOR UPDATE`,
+          [input.tenantId, input.resourceId],
+        );
+        if (!rows[0]) notFound("SyncResource", input.resourceId);
+        const heldUntil = rows[0].lease_until ? new Date(rows[0].lease_until).getTime() : 0;
+        const heldByOther =
+          rows[0].lease_owner &&
+          rows[0].lease_owner !== input.leaseOwner &&
+          heldUntil > Date.now();
+        if (heldByOther) {
+          throw new ConflictError(
+            `RESOURCE_LEASED: ${input.resourceId} is held by ${rows[0].lease_owner} until ${rows[0].lease_until}`,
+          );
+        }
+        const { rows: updated } = await client.query(
+          `UPDATE sync_resources
+              SET lease_owner=$3,
+                  lease_until=now() + ($4 * interval '1 second'),
+                  fencing_token = fencing_token + 1,
+                  updated_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING fencing_token, lease_until`,
+          [input.tenantId, input.resourceId, input.leaseOwner, input.leaseSeconds],
+        );
+        return {
+          fencingToken: Number(updated[0].fencing_token),
+          leaseUntil: new Date(updated[0].lease_until).toISOString(),
+        };
+      });
+    }
+
+    async releaseResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      fencingToken: number;
+    }): Promise<void> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE sync_resources
+            SET lease_owner=NULL, lease_until=NULL
+          WHERE tenant_id=$1 AND id=$2
+            AND lease_owner=$3 AND fencing_token=$4
+          RETURNING id`,
+        [input.tenantId, input.resourceId, input.leaseOwner, input.fencingToken],
+      );
+      if (!rows[0]) {
+        throw new ConflictError(
+          `RESOURCE_LEASE_STALE: fencing token mismatch on ${input.resourceId}`,
+        );
+      }
+    }
+
+    // NP-027：身份生命周期。
+    async unlinkExternalObject(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      externalObjectId: string;
+      reason: string;
+      actorPersonId: string;
+    }): Promise<ExternalObjectIdentity> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE external_object_identities
+            SET valid_to=now(), unlink_reason=$5, unlinked_by=$6
+          WHERE tenant_id=$1 AND source_system=$2
+            AND external_object_type=$3 AND external_object_id=$4
+            AND valid_to IS NULL
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.externalObjectType,
+          input.externalObjectId,
+          input.reason,
+          input.actorPersonId,
+        ],
+      );
+      if (!rows[0]) {
+        notFound(
+          "ExternalObjectIdentity",
+          `${input.sourceSystem}/${input.externalObjectType}/${input.externalObjectId}`,
+        );
+      }
+      return this.mapExternalObjectIdentity(rows[0]);
+    }
+
+    async mergeExternalObjects(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      keepExternalObjectId: string;
+      mergeExternalObjectIds: string[];
+      actorPersonId: string;
+    }): Promise<{ merged: number; internalObjectId: string }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: keepRows } = await client.query(
+          `SELECT * FROM external_object_identities
+            WHERE tenant_id=$1 AND source_system=$2
+              AND external_object_type=$3 AND external_object_id=$4
+              AND valid_to IS NULL
+            FOR UPDATE`,
+          [input.tenantId, input.sourceSystem, input.externalObjectType, input.keepExternalObjectId],
+        );
+        if (!keepRows[0]) notFound("ExternalObjectIdentity", input.keepExternalObjectId);
+        let merged = 0;
+        for (const externalObjectId of input.mergeExternalObjectIds) {
+          if (externalObjectId === input.keepExternalObjectId) continue;
+          const { rows } = await client.query(
+            `UPDATE external_object_identities
+                SET internal_object_type=$5, internal_object_id=$6,
+                    unlink_reason='MERGED', unlinked_by=$7
+              WHERE tenant_id=$1 AND source_system=$2
+                AND external_object_type=$3 AND external_object_id=$4
+                AND valid_to IS NULL
+              RETURNING internal_object_id`,
+            [
+              input.tenantId,
+              input.sourceSystem,
+              input.externalObjectType,
+              externalObjectId,
+              keepRows[0].internal_object_type,
+              keepRows[0].internal_object_id,
+              input.actorPersonId,
+            ],
+          );
+          if (rows[0]) merged += 1;
+        }
+        return { merged, internalObjectId: keepRows[0].internal_object_id };
+      });
+    }
+
+    async listExternalObjects(
+      tenantId: string,
+      filter?: { sourceSystem?: string; externalObjectType?: string; includeUnlinked?: boolean },
+    ): Promise<ExternalObjectIdentity[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM external_object_identities WHERE tenant_id=$1";
+      if (filter?.sourceSystem) {
+        params.push(filter.sourceSystem);
+        sql += ` AND source_system=$${params.length}`;
+      }
+      if (filter?.externalObjectType) {
+        params.push(filter.externalObjectType);
+        sql += ` AND external_object_type=$${params.length}`;
+      }
+      if (!filter?.includeUnlinked) {
+        sql += " AND valid_to IS NULL";
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapExternalObjectIdentity(row));
     }
 
     async upsertExternalIdentity(input: {

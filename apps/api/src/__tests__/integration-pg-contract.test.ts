@@ -17,19 +17,41 @@ const describePg = databaseUrl ? describe : describe.skip;
 
 const CONTRACT_TENANT_ID = "00000000-0000-4000-8000-00000000d1a2";
 const ADMIN = "00000000-0000-4000-8000-00000000c801";
+/** NP-027 生命周期测试专用人员（独立于 store-contract 的 c801，避免跨租户 ON CONFLICT 跳过）。 */
+const LIFECYCLE_PERSON = "00000000-0000-4000-8000-00000000d201";
 
 describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
   let pool: Pool;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: databaseUrl });
-    // 契约租户（幂等）
+    // 契约租户 + 契约人员（幂等；身份生命周期 unlinked_by 复合 FK 需要）。
     await pool.query(
       `INSERT INTO tenants (id, name, slug)
        VALUES ($1, 'NP033 Contract Tenant', 'np033-contract')
        ON CONFLICT (id) DO NOTHING`,
       [CONTRACT_TENANT_ID],
     );
+    // people 有 RLS：必须带租户上下文插入（anari_app 无上下文直插被拒）。
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+        CONTRACT_TENANT_ID,
+      ]);
+      await client.query(
+        `INSERT INTO people (id, tenant_id, employee_code, display_name)
+         VALUES ($1, $2, 'NP033-C1', '契约操作员')
+         ON CONFLICT (id) DO NOTHING`,
+        [LIFECYCLE_PERSON, CONTRACT_TENANT_ID],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 
   afterAll(async () => {
@@ -270,6 +292,154 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       }),
     ).rejects.toThrow();
     void store;
+  });
+
+  it("NP-020 raw landing：落地/密文存取/重放标记（append-only）", async () => {
+    const store = new PgPlatformStore(pool);
+    const record = await store.appendRawSourceRecord({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalRecordId: "RAW-1",
+      payloadEncrypted: "v1:aa:bb:cc",
+      mappingVersion: 2,
+      retentionClass: "FINANCIAL",
+    });
+    expect(record.payloadEncrypted).toBe("v1:aa:bb:cc");
+    expect(record.retentionClass).toBe("FINANCIAL");
+    const fetched = await store.getRawSourceRecord(CONTRACT_TENANT_ID, record.id);
+    expect(fetched.mappingVersion).toBe(2);
+    const marked = await store.markRawSourceRecordReplayed(CONTRACT_TENANT_ID, record.id);
+    expect(marked.replayedAt).toBeTruthy();
+    const replayedList = await store.listRawSourceRecords(CONTRACT_TENANT_ID, {
+      sourceSystem: "np033-system",
+      replayedOnly: true,
+    });
+    expect(replayedList.some((entry) => entry.id === record.id)).toBe(true);
+    // append-only：DELETE 被 DB 触发器拒绝。
+    await expect(
+      withTenantContext(async (client) => {
+        await client.query("DELETE FROM raw_source_records WHERE id=$1", [record.id]);
+      }),
+    ).rejects.toThrow(/APPEND_ONLY/);
+    // 经济列冻结：改 payload 被拒。
+    await expect(
+      withTenantContext(async (client) => {
+        await client.query(
+          "UPDATE raw_source_records SET payload_encrypted=$2 WHERE id=$1",
+          [record.id, "v1:xx"],
+        );
+      }),
+    ).rejects.toThrow(/IMMUTABLE/);
+  });
+
+  it("NP-021 资源级租约：token 递增/持有期内 409/stale fencing 拒绝", async () => {
+    const store = new PgPlatformStore(pool);
+    const { connectionId } = await seedConnection(store);
+    const resource = await store.createSyncResource({
+      tenantId: CONTRACT_TENANT_ID,
+      connectionId,
+      resourceKey: "lease-pg",
+    });
+    const first = await store.claimResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "worker-a",
+      leaseSeconds: 300,
+    });
+    expect(first.fencingToken).toBeGreaterThanOrEqual(1);
+    await expect(
+      store.claimResourceSyncLease({
+        tenantId: CONTRACT_TENANT_ID,
+        resourceId: resource.id,
+        leaseOwner: "worker-b",
+        leaseSeconds: 300,
+      }),
+    ).rejects.toThrow(/RESOURCE_LEASED/);
+    // stale fencing release 被拒。
+    await expect(
+      store.releaseResourceSyncLease({
+        tenantId: CONTRACT_TENANT_ID,
+        resourceId: resource.id,
+        leaseOwner: "worker-b",
+        fencingToken: first.fencingToken,
+      }),
+    ).rejects.toThrow(/RESOURCE_LEASE_STALE/);
+    await store.releaseResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "worker-a",
+      fencingToken: first.fencingToken,
+    });
+    const second = await store.claimResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "worker-b",
+      leaseSeconds: 300,
+    });
+    expect(second.fencingToken).toBeGreaterThan(first.fencingToken);
+  });
+
+  it("NP-027 身份生命周期：merge 并入/unlink 终止/历史可查", async () => {
+    const store = new PgPlatformStore(pool);
+    const internalA = randomUUID();
+    const internalB = randomUUID();
+    await store.upsertExternalObject({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalObjectType: "ORDER",
+      externalObjectId: "LC-1",
+      internalObjectType: "ORDER",
+      internalObjectId: internalA,
+      matchRule: "MANUAL",
+    });
+    await store.upsertExternalObject({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalObjectType: "ORDER",
+      externalObjectId: "LC-2",
+      internalObjectType: "ORDER",
+      internalObjectId: internalB,
+      matchRule: "MANUAL",
+    });
+    const merged = await store.mergeExternalObjects({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalObjectType: "ORDER",
+      keepExternalObjectId: "LC-1",
+      mergeExternalObjectIds: ["LC-2"],
+      actorPersonId: LIFECYCLE_PERSON,
+    });
+    expect(merged).toEqual({ merged: 1, internalObjectId: internalA });
+    const resolved = await store.resolveExternalObject(
+      CONTRACT_TENANT_ID,
+      "np033-system",
+      "ORDER",
+      "LC-2",
+    );
+    expect(resolved?.internalObjectId).toBe(internalA);
+    const unlinked = await store.unlinkExternalObject({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalObjectType: "ORDER",
+      externalObjectId: "LC-2",
+      reason: "WRONG_MAPPING",
+      actorPersonId: LIFECYCLE_PERSON,
+    });
+    expect(unlinked.unlinkReason).toBe("WRONG_MAPPING");
+    expect(unlinked.validTo).toBeTruthy();
+    const gone = await store.resolveExternalObject(
+      CONTRACT_TENANT_ID,
+      "np033-system",
+      "ORDER",
+      "LC-2",
+    );
+    expect(gone).toBeNull();
+    const history = await store.listExternalObjects(CONTRACT_TENANT_ID, {
+      sourceSystem: "np033-system",
+      includeUnlinked: true,
+    });
+    const row = history.find((entry) => entry.externalObjectId === "LC-2");
+    expect(row?.unlinkReason).toBe("WRONG_MAPPING");
   });
 
   it("Memory/PG 契约对等：同一套生命周期在 Memory 实现上表现一致", async () => {

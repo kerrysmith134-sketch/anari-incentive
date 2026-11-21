@@ -95,6 +95,7 @@ import type {
   SettlementExport,
   ExternalObjectIdentity,
   QuarantineRecord,
+  RawSourceRecord,
   WebhookRoutingKey,
   SyncCheckpoint,
   SyncResource,
@@ -1096,6 +1097,61 @@ export interface IntegrationPort {
     payloadHash: string;
     rawPayloadEncrypted: string;
   }): Promise<WebhookInboxMessage>;
+  // NP-020：原始落地（append-only；payload 密文）。
+  appendRawSourceRecord(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalRecordId: string;
+    payloadEncrypted: string;
+    mappingVersion?: number;
+    retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+  }): Promise<RawSourceRecord>;
+  listRawSourceRecords(
+    tenantId: string,
+    filter?: { sourceSystem?: string; replayedOnly?: boolean },
+  ): Promise<RawSourceRecord[]>;
+  getRawSourceRecord(
+    tenantId: string,
+    id: string,
+  ): Promise<RawSourceRecord>;
+  markRawSourceRecordReplayed(
+    tenantId: string,
+    id: string,
+  ): Promise<RawSourceRecord>;
+  // NP-021：资源级租约（fencing token 递增；持有期内他人 409）。
+  claimResourceSyncLease(input: {
+    tenantId: string;
+    resourceId: string;
+    leaseOwner: string;
+    leaseSeconds: number;
+  }): Promise<{ fencingToken: number; leaseUntil: string }>;
+  releaseResourceSyncLease(input: {
+    tenantId: string;
+    resourceId: string;
+    leaseOwner: string;
+    fencingToken: number;
+  }): Promise<void>;
+  // NP-027：身份生命周期。
+  unlinkExternalObject(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalObjectType: string;
+    externalObjectId: string;
+    reason: string;
+    actorPersonId: string;
+  }): Promise<ExternalObjectIdentity>;
+  mergeExternalObjects(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalObjectType: string;
+    keepExternalObjectId: string;
+    mergeExternalObjectIds: string[];
+    actorPersonId: string;
+  }): Promise<{ merged: number; internalObjectId: string }>;
+  listExternalObjects(
+    tenantId: string,
+    filter?: { sourceSystem?: string; externalObjectType?: string; includeUnlinked?: boolean },
+  ): Promise<ExternalObjectIdentity[]>;
 }
 
 /** 模型治理端口：供应商策略/金标集/评测门禁/提示词/红队/AI 提案/受限工作流。 */
