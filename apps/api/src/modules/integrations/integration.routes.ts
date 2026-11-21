@@ -7,39 +7,181 @@ import {
   claimDueSyncSchedulesSchema,
   createIntegrationConnectionSchema,
   createIntegrationMappingSchema,
+  createQuarantineRecordSchema,
+  createSyncResourceSchema,
   createSyncRunSchema,
   createSyncScheduleSchema,
   finishSyncRunSchema,
   setIntegrationConnectionStatusSchema,
   setSyncScheduleEnabledSchema,
+  upsertExternalObjectSchema,
+  upsertSyncCheckpointSchema,
 } from "@anari/contracts";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  createCipheriv,
+  createDecipheriv,
+} from "node:crypto";
+
+/** NP-010：provider 探针（可注入以便测试；默认实现真实 fetch）。 */
+export interface IntegrationProviderProbe {
+  (input: { url: string; headers: Record<string, string> }): Promise<{
+    ok: boolean;
+    status?: number;
+    detail?: string;
+    sample?: unknown;
+  }>;
+}
 import { FIELD_MAPPING_PRESETS } from "@anari/connectors";
 import {
   data,
+  errorBody,
   parse,
   requireRoles,
   tenantOf,
   idOf,
+  paramOf,
 } from "../../http-helpers.js";
+import { sha256 } from "@anari/policy-dsl";
+
+/** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
+class BadRequestError extends Error {
+  readonly statusCode = 400;
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+class NotFoundError extends Error {
+  readonly code = "RESOURCE_NOT_FOUND";
+  readonly statusCode = 404;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  let diff = 0;
+  for (let index = 0; index < bufA.length; index += 1) {
+    diff |= bufA[index]! ^ bufB[index]!;
+  }
+  return diff === 0;
+}
 
 export function registerIntegrationRoutes(deps: {
   platformStore: IntegrationPort;
   countEvent: (event: string) => void;
+  integrationProbe?: IntegrationProviderProbe;
+  webhookSigningSecret?: string;
+  webhookRawEncryptionKey?: string;
 }): FastifyPluginAsync {
-  const { platformStore, countEvent } = deps;
+  const { platformStore, countEvent, integrationProbe, webhookSigningSecret, webhookRawEncryptionKey } = deps;
+
+  // ------------------------------------------------------------------
+  // NP-005（2026-11-21 审计）：凭据脱敏——任何连接/映射配置响应中的
+  // 敏感键（Authorization/API key/secret/token/password）替换为 [REDACTED]。
+  // 凭据值只能来自服务端 SecretProvider（凭据引用 → 值），永不回显。
+  // ------------------------------------------------------------------
+  const SENSITIVE_KEY_PATTERN =
+    /authorization|api[_-]?key|secret|token|password|credential/i;
+  function redactConfig(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(redactConfig);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, inner]) => [
+          key,
+          SENSITIVE_KEY_PATTERN.test(key) && typeof inner === "string" && inner
+            ? "[REDACTED]"
+            : redactConfig(inner),
+        ]),
+      );
+    }
+    return value;
+  }
+  function redactConnection<T extends { config?: Record<string, unknown> }>(
+    connection: T,
+  ): T {
+    return { ...connection, config: redactConfig(connection.config) as T["config"] };
+  }
+
+  // NP-010：服务端凭据解析（引用 → 值）。来自 SECRETS_JSON / SECRETS_FILE。
+  function resolveSecret(credentialRef: string): string | undefined {
+    const inline = process.env.SECRETS_JSON;
+    if (inline) {
+      try {
+        const map = JSON.parse(inline) as Record<string, string>;
+        if (typeof map[credentialRef] === "string") return map[credentialRef];
+      } catch {
+        /* 配置错误按缺失处理 */
+      }
+    }
+    return undefined;
+  }
+
+  // NP-009：签名密钥由服务端密钥 + routing key 派生——无需存储即可校验。
+  function signingKeyFor(routingKey: string): string {
+    const serverSecret =
+      webhookSigningSecret ??
+      process.env.WEBHOOK_SIGNING_SECRET ??
+      process.env.SESSION_SECRET ??
+      "dev-integration-webhook-secret";
+    return createHmac("sha256", serverSecret).update(routingKey).digest("hex");
+  }
+
+  function encryptRawPayload(text: string): string {
+    const keySource =
+      webhookRawEncryptionKey ??
+      process.env.WEBHOOK_RAW_KEY ??
+      process.env.SESSION_SECRET ??
+      "dev-integration-webhook-raw";
+    const key = createHash("sha256").update(keySource).digest();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `v1:${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
+  }
+
+  function decryptRawPayload(stored: string): string {
+    const [version, ivHex, tagHex, dataHex] = stored.split(":");
+    if (version !== "v1" || !ivHex || !tagHex || !dataHex) return "";
+    const keySource =
+      webhookRawEncryptionKey ??
+      process.env.WEBHOOK_RAW_KEY ??
+      process.env.SESSION_SECRET ??
+      "dev-integration-webhook-raw";
+    const key = createHash("sha256").update(keySource).digest();
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(dataHex, "hex")),
+      decipher.final(),
+    ]).toString("utf8");
+  }
+
   return async (app: FastifyInstance) => {
   app.post("/api/v1/integration-connections", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createIntegrationConnectionSchema, request.body);
     return reply.status(201).send(
       data(
-        await platformStore.createIntegrationConnection({
-          tenantId: tenantOf(request),
-          provider: body.provider,
-          connectionName: body.connectionName,
-          credentialRef: body.credentialRef,
-          config: body.config ?? {},
-        }),
+        redactConnection(
+          await platformStore.createIntegrationConnection({
+            tenantId: tenantOf(request),
+            provider: body.provider,
+            connectionName: body.connectionName,
+            credentialRef: body.credentialRef,
+            config: body.config ?? {},
+          }),
+        ),
         request,
       ),
     );
@@ -48,7 +190,9 @@ export function registerIntegrationRoutes(deps: {
   app.get("/api/v1/integration-connections", async (request) => {
     requireRoles(request, "manager", "finance", "integration");
     return data(
-      await platformStore.listIntegrationConnections(tenantOf(request)),
+      (await platformStore.listIntegrationConnections(tenantOf(request))).map(
+        (connection) => redactConnection(connection),
+      ),
       request,
     );
   });
@@ -56,15 +200,18 @@ export function registerIntegrationRoutes(deps: {
   app.get("/api/v1/integration-connections/:id", async (request) => {
     requireRoles(request, "manager", "finance", "integration");
     return data(
-      await platformStore.getIntegrationConnection(
-        tenantOf(request),
-        idOf(request),
+      redactConnection(
+        await platformStore.getIntegrationConnection(
+          tenantOf(request),
+          idOf(request),
+        ),
       ),
       request,
     );
   });
 
-  // 连接测试：校验凭据引用存在、配置 JSON 可解析、字段映射可解析。
+  // 连接测试（NP-010）：凭据引用/必需键之外，必须真实探测 provider
+  // （认证 + 端点读取 + 样例）；诊断信息脱敏（只回状态码/摘要，不回凭据）。
   app.get("/api/v1/integration-connections/:id/test", async (request) => {
     requireRoles(request, "admin", "integration");
     const connection = await platformStore.getIntegrationConnection(
@@ -80,21 +227,79 @@ export function registerIntegrationRoutes(deps: {
         : "缺失：请填写保管库路径或密钥名",
     });
     const config = (connection.config ?? {}) as Record<string, unknown>;
+    const url =
+      typeof config.url === "string" && config.url.trim()
+        ? config.url.trim()
+        : undefined;
     const required =
       connection.provider === "hubspot"
         ? ["portalId"]
         : connection.provider === "feishu"
           ? ["appToken"]
-          : ["baseUrl"];
+          : ["url"];
     const missing = required.filter((key) => !(key in config));
     checks.push({
       name: "连接配置",
-      ok: missing.length === 0,
+      ok: missing.length === 0 && Boolean(url),
       detail:
-        missing.length === 0
+        missing.length === 0 && url
           ? "必需键齐全"
-          : `缺少键：${missing.join(", ")}`,
+          : `缺少键：${missing.join(", ") || "url"}`,
     });
+    // NP-010：provider 真实探测（注入探针可测；默认 fetch 实现）。
+    let sample: unknown;
+    if (url) {
+      const secret = connection.credentialRef
+        ? resolveSecret(connection.credentialRef)
+        : undefined;
+      const probePath =
+        typeof config.probePath === "string" && config.probePath
+          ? config.probePath
+          : "";
+      const probe =
+        integrationProbe ??
+        (async (input: { url: string; headers: Record<string, string> }) => {
+          try {
+            const response = await fetch(input.url, {
+              headers: input.headers,
+              signal: AbortSignal.timeout(10_000),
+              redirect: "manual",
+            });
+            const payload = (await response.json().catch(() => undefined)) as
+              | { records?: unknown[]; data?: { items?: unknown[] } }
+              | undefined;
+            const records =
+              payload && typeof payload === "object"
+                ? (payload.records ??
+                  payload.data?.items ??
+                  undefined)
+                : undefined;
+            return {
+              ok: response.ok,
+              status: response.status,
+              detail: response.ok ? undefined : `provider returned ${response.status}`,
+              sample: Array.isArray(records) ? records[0] : undefined,
+            };
+          } catch (error) {
+            return {
+              ok: false,
+              detail: error instanceof Error ? error.message : "provider unreachable",
+            };
+          }
+        });
+      const result = await probe({
+        url: `${url.replace(/\/$/, "")}${probePath}`,
+        headers: secret
+          ? { authorization: `Bearer ${secret}`, accept: "application/json" }
+          : { accept: "application/json" },
+      });
+      checks.push({
+        name: "provider 探测",
+        ok: result.ok,
+        detail: result.detail,
+      });
+      if (result.ok) sample = result.sample;
+    }
     const ok = checks.every((check) => check.ok);
     countEvent("integration_connection_tested");
     return data(
@@ -103,6 +308,7 @@ export function registerIntegrationRoutes(deps: {
         provider: connection.provider,
         ok,
         checks,
+        sample,
         testedAt: new Date().toISOString(),
       },
       request,
@@ -263,6 +469,186 @@ export function registerIntegrationRoutes(deps: {
     );
   });
 
+  // ------------------------------------------------------------------
+  // NP-008：外部对象身份注册/解析（opaque 外部 ID → 内部 UUID）。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/external-objects", async (request, reply) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(upsertExternalObjectSchema, request.body);
+    const identity = await platformStore.upsertExternalObject({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      externalObjectType: body.externalObjectType,
+      externalObjectId: body.externalObjectId,
+      internalObjectType: body.internalObjectType,
+      internalObjectId: body.internalObjectId,
+      matchRule: body.matchRule,
+      confidence: body.confidence,
+      confirmedBy: body.confirmedBy,
+    });
+    return reply.status(201).send(data(identity, request));
+  });
+
+  app.get("/api/v1/external-objects:resolve", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as {
+      sourceSystem?: string;
+      externalObjectType?: string;
+      externalObjectId?: string;
+    };
+    if (!query.sourceSystem || !query.externalObjectType || !query.externalObjectId) {
+      throw new BadRequestError(
+        "RESOLVE_PARAMS_REQUIRED",
+        "sourceSystem/externalObjectType/externalObjectId 均为必填",
+      );
+    }
+    const identity = await platformStore.resolveExternalObject(
+      tenantOf(request),
+      query.sourceSystem,
+      query.externalObjectType,
+      query.externalObjectId,
+    );
+    if (!identity) {
+      throw new NotFoundError(
+        `ExternalObjectIdentity ${query.sourceSystem}/${query.externalObjectType}/${query.externalObjectId} not found`,
+      );
+    }
+    return data(
+      {
+        internalObjectType: identity.internalObjectType,
+        internalObjectId: identity.internalObjectId,
+        matchRule: identity.matchRule,
+        confidence: identity.confidence,
+      },
+      request,
+    );
+  });
+
+  app.get("/api/v1/external-objects", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as {
+      sourceSystem?: string;
+      externalObjectType?: string;
+    };
+    return data(
+      await platformStore.listExternalObjects(tenantOf(request), query),
+      request,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // NP-009：webhook 不透明路由键（签发时一次性返回派生签名密钥）。
+  // ------------------------------------------------------------------
+  app.post(
+    "/api/v1/integration-connections/:id/webhook-routing-key",
+    async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const entry = await platformStore.issueWebhookRoutingKey({
+        tenantId: tenantOf(request),
+        connectionId: idOf(request),
+      });
+      countEvent("integration_webhook_key_issued");
+      // signingSecret 派生自服务端密钥 + routing key，仅在签发响应中出现一次。
+      return reply.status(201).send(
+        data(
+          {
+            routingKey: entry.routingKey,
+            signingSecret: signingKeyFor(entry.routingKey),
+          },
+          request,
+        ),
+      );
+    },
+  );
+
+  // ------------------------------------------------------------------
+  // NP-001（2026-11-21 审计 Wave 1）：资源流 / 检查点 / 隔离区端点。
+  // runner（scripts/sync-runner.ts）依赖以下全部路径。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/sync-resources", async (request, reply) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(createSyncResourceSchema, request.body);
+    const resource = await platformStore.createSyncResource({
+      tenantId: tenantOf(request),
+      connectionId: body.connectionId,
+      resourceKey: body.resourceKey,
+      mappingId: body.mappingId,
+      scheduleId: body.scheduleId,
+    });
+    return reply.status(201).send(data(resource, request));
+  });
+
+  app.get("/api/v1/sync-resources", async (request) => {
+    requireRoles(request, "manager", "finance", "integration");
+    const query = request.query as { connectionId?: string };
+    return data(
+      await platformStore.listSyncResources(tenantOf(request), query.connectionId),
+      request,
+    );
+  });
+
+  app.get("/api/v1/sync-resources/:id/checkpoint", async (request) => {
+    requireRoles(request, "manager", "finance", "integration");
+    const checkpoint = await platformStore.getSyncCheckpoint(
+      tenantOf(request),
+      idOf(request),
+    );
+    // 首次运行无 checkpoint → 返回空游标默认值（runner 语义）。
+    return data(
+      checkpoint ?? {
+        id: null,
+        resourceId: idOf(request),
+        cursor: null,
+        watermark: null,
+        overlapSeconds: 0,
+        lastRunId: null,
+        updatedAt: null,
+      },
+      request,
+    );
+  });
+
+  app.put("/api/v1/sync-resources/:id/checkpoint", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(upsertSyncCheckpointSchema, request.body);
+    return data(
+      await platformStore.saveSyncCheckpoint({
+        tenantId: tenantOf(request),
+        resourceId: idOf(request),
+        cursor: body.cursor ?? null,
+        watermark: body.watermark ?? null,
+        lastRunId: body.lastRunId ?? null,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/ingestion-quarantine", async (request, reply) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(createQuarantineRecordSchema, request.body);
+    const record = await platformStore.recordQuarantineRecord({
+      tenantId: tenantOf(request),
+      sourceSystem: body.sourceSystem,
+      externalRecordId: body.externalRecordId,
+      reason: body.reason,
+      payload: body.payload,
+      resolutionNote: body.resolutionNote,
+    });
+    return reply.status(201).send(data(record, request));
+  });
+
+  app.get("/api/v1/ingestion-quarantine", async (request) => {
+    requireRoles(request, "manager", "finance", "integration");
+    const query = request.query as { sourceSystem?: string; unresolved?: string };
+    return data(
+      await platformStore.listQuarantineRecords(tenantOf(request), {
+        sourceSystem: query.sourceSystem,
+        unresolvedOnly: query.unresolved === "1" || query.unresolved === "true",
+      }),
+      request,
+    );
+  });
+
   app.post("/api/v1/sync-runs/:id/finish", async (request) => {
     requireRoles(request, "manager", "finance", "integration");
     const body = parse(finishSyncRunSchema, request.body);
@@ -273,11 +659,62 @@ export function registerIntegrationRoutes(deps: {
         status: body.status,
         recordsSeen: body.recordsSeen ?? 0,
         recordsUpserted: body.recordsUpserted ?? 0,
+        recordsFetched: body.recordsFetched,
+        recordsQuarantined: body.recordsQuarantined,
+        recordsFailed: body.recordsFailed,
         cursorAfter: body.cursorAfter,
         errorSummary: body.errorSummary,
       }),
       request,
     );
+  });
+
+  // ------------------------------------------------------------------
+  // NP-009：供应商签名回调（公开路由——routing key 即租户入口，无员工会话）。
+  // HMAC-SHA256 原始体校验；原始载荷 AES-256-GCM 加密落库；messageId 幂等。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/integration-webhooks/:routingKey", async (request, reply) => {
+    const routingKey = paramOf(request, "routingKey");
+    const resolved = await platformStore.resolveWebhookRoutingKey(routingKey);
+    if (!resolved) {
+      throw new NotFoundError("Webhook routing key not found");
+    }
+    const raw =
+      (request as FastifyRequest & { rawBody?: Buffer }).rawBody ??
+      Buffer.alloc(0);
+    const rawText = raw.toString("utf8");
+    const expected = createHmac("sha256", signingKeyFor(routingKey))
+      .update(rawText)
+      .digest("hex");
+    const provided = String(request.headers["x-signature-256"] ?? "").replace(
+      /^sha256=/,
+      "",
+    );
+    if (
+      !provided ||
+      provided.length !== expected.length ||
+      !timingSafeEqualStr(provided, expected)
+    ) {
+      countEvent("integration_webhook_rejected");
+      return reply.status(401).send({
+        ...errorBody("WEBHOOK_SIGNATURE_INVALID", "signature mismatch"),
+        meta: { correlation_id: request.id },
+      });
+    }
+    const payload = (request.body ?? {}) as { messageId?: string };
+    const messageId =
+      (request.headers["x-message-id"] as string | undefined) ??
+      payload.messageId ??
+      sha256(rawText);
+    const webhook = await platformStore.receiveIntegrationWebhook({
+      tenantId: resolved.tenantId,
+      sourceSystem: resolved.provider,
+      messageId,
+      payloadHash: sha256(rawText),
+      rawPayloadEncrypted: encryptRawPayload(rawText),
+    });
+    countEvent("integration_webhook_received");
+    return reply.status(202).send(data(webhook, request));
   });
   };
 }

@@ -28,9 +28,9 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
     fieldMap: {
       sourceRecordId: "id",
       eventType: "properties.dealstage",
-      subjectType: "objectType",
+      subjectType: "=ORDER",
       subjectId: "id",
-      evidenceType: "CRM_DEAL",
+      evidenceType: "=CRM_DEAL",
       occurredAt: "properties.closedate",
     },
     config: {
@@ -52,7 +52,7 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
       eventType: "fields.event_type",
       subjectType: "fields.subject_type",
       subjectId: "fields.subject_id",
-      evidenceType: "FEISHU_RECORD",
+      evidenceType: "=FEISHU_RECORD",
       occurredAt: "fields.occurred_at",
     },
     config: {
@@ -72,9 +72,9 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
     fieldMap: {
       sourceRecordId: "order_id",
       eventType: "event_type",
-      subjectType: "subject_type",
-      subjectId: "subject_id",
-      evidenceType: "ERP_ORDER",
+      subjectType: "=ORDER",
+      subjectId: "order_id",
+      evidenceType: "=ERP_ORDER",
       occurredAt: "occurred_at",
     },
     config: {

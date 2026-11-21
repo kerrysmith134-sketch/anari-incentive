@@ -465,6 +465,8 @@ export interface BuildAppOptions {
     windowMs?: number;
     now?: () => number;
   };
+  /** NP-010：provider 探针注入（测试用）；缺省为真实 fetch。 */
+  integrationProbe?: import("./modules/integrations/integration.routes.js").IntegrationProviderProbe;
   /** Per-tenant/actor limit for CSV, bank-file and evidence-package exports. */
   exportRateLimit?: {
     limit: number;
@@ -1905,7 +1907,15 @@ export function buildApp(
     }),
   );
   app.register(registerWorkflowRunRoutes({ platformStore }));
-  app.register(registerIntegrationRoutes({ platformStore, countEvent }));
+  app.register(
+    registerIntegrationRoutes({
+      platformStore,
+      countEvent,
+      integrationProbe: options.integrationProbe,
+      webhookSigningSecret: process.env.WEBHOOK_SIGNING_SECRET,
+      webhookRawEncryptionKey: process.env.WEBHOOK_RAW_KEY,
+    }),
+  );
   app.register(registerAdverseActionRoutes({ platformStore, countEvent }));
   app.register(
     registerReportRoutes({
@@ -2225,7 +2235,9 @@ export function buildApp(
   app.addHook("preParsing", async (request, _reply, payload) => {
     if (
       !request.url.startsWith("/api/v1/webhooks/") &&
-      !request.url.startsWith("/api/v1/esign/webhooks/")
+      !request.url.startsWith("/api/v1/esign/webhooks/") &&
+      // NP-009：供应商集成回调同样需要原始体做 HMAC 校验。
+      !request.url.startsWith("/api/v1/integration-webhooks/")
     ) {
       return payload;
     }
@@ -2245,6 +2257,8 @@ export function buildApp(
     if (!request.url.startsWith("/api/v1")) return;
     // Unauthenticated marketing/onboarding surface; routes apply their own guards.
     if (request.url.startsWith("/api/v1/public/")) return;
+    // NP-009：供应商签名回调——routing key 即租户入口，HMAC 校验在路由内。
+    if (request.url.startsWith("/api/v1/integration-webhooks/")) return;
     // Browser OAuth redirects; the callback validates one-time state itself.
     if (request.url.startsWith("/api/v1/auth/")) return;
     try {

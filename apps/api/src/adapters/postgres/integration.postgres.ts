@@ -95,6 +95,11 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  ExternalObjectIdentity,
+  QuarantineRecord,
+  SyncCheckpoint,
+  WebhookRoutingKey,
+  SyncResource,
   SyncSchedule,
   StrategicPoolCase,
   SyncRun,
@@ -578,6 +583,9 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       status: string;
       recordsSeen: number;
       recordsUpserted: number;
+      recordsFetched?: number;
+      recordsQuarantined?: number;
+      recordsFailed?: number;
       cursorAfter?: Record<string, unknown>;
       errorSummary?: string;
     }): Promise<SyncRun> {
@@ -596,8 +604,9 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         const { rows: updated } = await client.query(
           `UPDATE sync_runs
               SET status=$3, records_seen=$4, records_upserted=$5,
-                  cursor_after=COALESCE($6, cursor_after),
-                  error_summary=$7, finished_at=now()
+                  records_fetched=$6, records_quarantined=$7, records_failed=$8,
+                  cursor_after=COALESCE($9, cursor_after),
+                  error_summary=$10, finished_at=now()
             WHERE tenant_id=$1 AND id=$2
             RETURNING *`,
           [
@@ -606,6 +615,9 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
             input.status,
             input.recordsSeen,
             input.recordsUpserted,
+            input.recordsFetched ?? null,
+            input.recordsQuarantined ?? null,
+            input.recordsFailed ?? null,
             input.cursorAfter ?? null,
             input.errorSummary ?? null,
           ],
@@ -620,6 +632,307 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       });
     }
     
+    // ------------------------------------------------------------------
+    // NP-001（2026-11-21 审计 Wave 1）：资源流 / 检查点 / 隔离区。
+    // ------------------------------------------------------------------
+    async createSyncResource(input: {
+      tenantId: string;
+      connectionId: string;
+      resourceKey: string;
+      mappingId?: string;
+      scheduleId?: string;
+    }): Promise<SyncResource> {
+      await this.getIntegrationConnection(input.tenantId, input.connectionId);
+      const { rows: existing } = await this.tenantQuery(
+        input.tenantId,
+        `SELECT * FROM sync_resources
+          WHERE tenant_id=$1 AND connection_id=$2 AND resource_key=$3`,
+        [input.tenantId, input.connectionId, input.resourceKey],
+      );
+      if (existing[0]) {
+        throw new ConflictError(
+          `SYNC_RESOURCE_EXISTS: ${input.connectionId}/${input.resourceKey}`,
+        );
+      }
+      const inserted = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO sync_resources
+           (tenant_id, connection_id, resource_key, mapping_id, schedule_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.connectionId,
+          input.resourceKey,
+          input.mappingId ?? null,
+          input.scheduleId ?? null,
+        ],
+      );
+      return this.mapSyncResource(inserted.rows[0]);
+    }
+
+    async listSyncResources(
+      tenantId: string,
+      connectionId?: string,
+    ): Promise<SyncResource[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM sync_resources WHERE tenant_id=$1";
+      if (connectionId) {
+        params.push(connectionId);
+        sql += " AND connection_id=$2";
+      }
+      sql += " ORDER BY created_at ASC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapSyncResource(row));
+    }
+
+    async getSyncCheckpoint(
+      tenantId: string,
+      resourceId: string,
+    ): Promise<SyncCheckpoint | null> {
+      const { rows: resource } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM sync_resources WHERE tenant_id=$1 AND id=$2",
+        [tenantId, resourceId],
+      );
+      if (!resource[0]) notFound("SyncResource", resourceId);
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM sync_checkpoints WHERE tenant_id=$1 AND resource_id=$2",
+        [tenantId, resourceId],
+      );
+      return rows[0] ? this.mapSyncCheckpoint(rows[0]) : null;
+    }
+
+    async saveSyncCheckpoint(input: {
+      tenantId: string;
+      resourceId: string;
+      cursor?: string | null;
+      watermark?: string | null;
+      lastRunId?: string | null;
+    }): Promise<SyncCheckpoint> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO sync_checkpoints
+           (tenant_id, resource_id, cursor, watermark, last_run_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (tenant_id, resource_id) DO UPDATE
+           SET cursor = COALESCE($3, sync_checkpoints.cursor),
+               watermark = COALESCE($4, sync_checkpoints.watermark),
+               last_run_id = COALESCE($5, sync_checkpoints.last_run_id),
+               updated_at = now()
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.resourceId,
+          input.cursor ?? null,
+          input.watermark ?? null,
+          input.lastRunId ?? null,
+        ],
+      );
+      return this.mapSyncCheckpoint(rows[0]);
+    }
+
+    async recordQuarantineRecord(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalRecordId?: string;
+      reason: string;
+      payload?: Record<string, unknown>;
+      resolutionNote?: string;
+    }): Promise<QuarantineRecord> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO ingestion_quarantine
+           (tenant_id, source_system, external_record_id, reason, payload, resolution_note)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+         ON CONFLICT (tenant_id, source_system, external_record_id) DO UPDATE
+           SET reason = EXCLUDED.reason,
+               payload = EXCLUDED.payload,
+               resolution_note = EXCLUDED.resolution_note,
+               resolved_at = NULL,
+               resolved_by = NULL
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.externalRecordId ?? null,
+          input.reason,
+          JSON.stringify(input.payload ?? {}),
+          input.resolutionNote ?? null,
+        ],
+      );
+      return this.mapQuarantineRecord(rows[0]);
+    }
+
+    async listQuarantineRecords(
+      tenantId: string,
+      filter?: { sourceSystem?: string; unresolvedOnly?: boolean },
+    ): Promise<QuarantineRecord[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM ingestion_quarantine WHERE tenant_id=$1";
+      if (filter?.sourceSystem) {
+        params.push(filter.sourceSystem);
+        sql += ` AND source_system=$${params.length}`;
+      }
+      if (filter?.unresolvedOnly) {
+        sql += " AND resolved_at IS NULL";
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapQuarantineRecord(row));
+    }
+
+    // NP-008：外部对象身份（096 表 external_object_identities）。
+    async upsertExternalObject(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      externalObjectId: string;
+      internalObjectType: string;
+      internalObjectId: string;
+      matchRule?: string;
+      confidence?: number;
+      confirmedBy?: string;
+    }): Promise<ExternalObjectIdentity> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO external_object_identities
+           (tenant_id, source_system, external_object_type, external_object_id,
+            internal_object_type, internal_object_id, match_rule, confidence, confirmed_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (tenant_id, source_system, external_object_type, external_object_id)
+         DO UPDATE SET internal_object_type = EXCLUDED.internal_object_type,
+             internal_object_id = EXCLUDED.internal_object_id,
+             match_rule = EXCLUDED.match_rule,
+             confidence = EXCLUDED.confidence,
+             confirmed_by = EXCLUDED.confirmed_by,
+             valid_to = NULL
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.externalObjectType,
+          input.externalObjectId,
+          input.internalObjectType,
+          input.internalObjectId,
+          input.matchRule ?? "MANUAL",
+          input.confidence ?? 1,
+          input.confirmedBy ?? null,
+        ],
+      );
+      return this.mapExternalObjectIdentity(rows[0]);
+    }
+
+    async resolveExternalObject(
+      tenantId: string,
+      sourceSystem: string,
+      externalObjectType: string,
+      externalObjectId: string,
+    ): Promise<ExternalObjectIdentity | null> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM external_object_identities
+          WHERE tenant_id=$1 AND source_system=$2
+            AND external_object_type=$3 AND external_object_id=$4
+            AND valid_to IS NULL`,
+        [tenantId, sourceSystem, externalObjectType, externalObjectId],
+      );
+      return rows[0] ? this.mapExternalObjectIdentity(rows[0]) : null;
+    }
+
+    async listExternalObjects(
+      tenantId: string,
+      filter?: { sourceSystem?: string; externalObjectType?: string },
+    ): Promise<ExternalObjectIdentity[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM external_object_identities WHERE tenant_id=$1";
+      if (filter?.sourceSystem) {
+        params.push(filter.sourceSystem);
+        sql += ` AND source_system=$${params.length}`;
+      }
+      if (filter?.externalObjectType) {
+        params.push(filter.externalObjectType);
+        sql += ` AND external_object_type=$${params.length}`;
+      }
+      sql += " ORDER BY created_at DESC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapExternalObjectIdentity(row));
+    }
+
+    // NP-009：不透明 webhook 路由键 + 原始载荷（加密）收件。
+    async issueWebhookRoutingKey(input: {
+      tenantId: string;
+      connectionId: string;
+    }): Promise<WebhookRoutingKey> {
+      await this.getIntegrationConnection(input.tenantId, input.connectionId);
+      const { rows: existing } = await this.tenantQuery(
+        input.tenantId,
+        "SELECT * FROM integration_webhook_endpoints WHERE tenant_id=$1 AND connection_id=$2",
+        [input.tenantId, input.connectionId],
+      );
+      if (existing[0]) return this.mapWebhookRoutingKey(existing[0]);
+      const routingKey = `${Date.now().toString(36)}${randomUUID().replace(/-/g, "")}`;
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO integration_webhook_endpoints (tenant_id, connection_id, routing_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, connection_id) DO UPDATE SET routing_key = EXCLUDED.routing_key
+         RETURNING *`,
+        [input.tenantId, input.connectionId, routingKey],
+      );
+      return this.mapWebhookRoutingKey(rows[0]);
+    }
+
+    async resolveWebhookRoutingKey(
+      routingKey: string,
+    ): Promise<{ tenantId: string; connectionId: string; provider: string } | null> {
+      // 路由键查找跨租户（键本身即入口）——用平台查询。
+      const { rows } = await this.platformQuery(
+        `SELECT e.tenant_id, e.connection_id, c.provider
+           FROM integration_webhook_endpoints e
+           JOIN integration_connections c
+             ON c.tenant_id = e.tenant_id AND c.id = e.connection_id
+          WHERE e.routing_key=$1`,
+        [routingKey],
+      );
+      if (!rows[0]) return null;
+      return {
+        tenantId: rows[0].tenant_id,
+        connectionId: rows[0].connection_id,
+        provider: rows[0].provider,
+      };
+    }
+
+    async receiveIntegrationWebhook(input: {
+      tenantId: string;
+      sourceSystem: string;
+      messageId: string;
+      payloadHash: string;
+      rawPayloadEncrypted: string;
+    }): Promise<WebhookInboxMessage> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO webhook_inbox
+           (tenant_id, source_system, message_id, payload_hash, status, raw_payload_encrypted)
+         VALUES ($1, $2, $3, $4, 'RECEIVED', $5)
+         ON CONFLICT (tenant_id, source_system, message_id) DO UPDATE
+           SET raw_payload_encrypted = EXCLUDED.raw_payload_encrypted
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.messageId,
+          input.payloadHash,
+          input.rawPayloadEncrypted,
+        ],
+      );
+      return this.mapWebhook(rows[0]);
+    }
+
     async upsertExternalIdentity(input: {
       tenantId: string;
       sourceSystem: string;

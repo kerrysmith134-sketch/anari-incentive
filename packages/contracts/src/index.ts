@@ -1221,10 +1221,67 @@ export const finishSyncRunSchema = z.object({
   status: z.string().min(1),
   recordsSeen: z.number().int().min(0).default(0),
   recordsUpserted: z.number().int().min(0).default(0),
+  /** NP-016：精确计数——与逐条结果对账。 */
+  recordsFetched: z.number().int().min(0).optional(),
+  recordsQuarantined: z.number().int().min(0).optional(),
+  recordsFailed: z.number().int().min(0).optional(),
   cursorAfter: z.record(z.unknown()).optional(),
   errorSummary: z.string().optional(),
 });
 export type FinishSyncRunBody = z.infer<typeof finishSyncRunSchema>;
+
+/**
+ * NP-001（2026-11-21 审计 Wave 1）：资源流、检查点与隔离区契约。
+ */
+export const createSyncResourceSchema = z.object({
+  connectionId: uuidSchema,
+  resourceKey: z.string().min(1),
+  mappingId: uuidSchema.optional(),
+  scheduleId: uuidSchema.optional(),
+});
+export type CreateSyncResourceBody = z.infer<typeof createSyncResourceSchema>;
+
+export const upsertSyncCheckpointSchema = z.object({
+  cursor: z.string().nullable().optional(),
+  watermark: z.string().datetime().nullable().optional(),
+  lastRunId: uuidSchema.nullable().optional(),
+});
+export type UpsertSyncCheckpointBody = z.infer<
+  typeof upsertSyncCheckpointSchema
+>;
+
+/** NP-008：外部对象身份注册/解析契约。 */
+export const upsertExternalObjectSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalObjectType: z.string().min(1),
+  externalObjectId: z.string().min(1),
+  internalObjectType: z.string().min(1),
+  internalObjectId: uuidSchema,
+  matchRule: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  confirmedBy: uuidSchema.optional(),
+});
+export type UpsertExternalObjectBody = z.infer<
+  typeof upsertExternalObjectSchema
+>;
+
+export const quarantineReasons = [
+  "UNRESOLVED_IDENTITY",
+  "INVALID_CURRENCY",
+  "MISSING_RELATION",
+  "SCHEMA_MISMATCH",
+  "OTHER",
+] as const;
+export const createQuarantineRecordSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalRecordId: z.string().min(1).optional(),
+  reason: z.enum(quarantineReasons),
+  payload: z.record(z.unknown()).default({}),
+  resolutionNote: z.string().optional(),
+});
+export type CreateQuarantineRecordBody = z.infer<
+  typeof createQuarantineRecordSchema
+>;
 
 export const createSyncScheduleSchema = z.object({
   name: z.string().min(1),

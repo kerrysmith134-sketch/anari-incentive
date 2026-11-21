@@ -1562,6 +1562,10 @@ export interface SyncRun {
   cursorAfter?: Record<string, unknown>;
   recordsSeen: number;
   recordsUpserted: number;
+  /** NP-016：精确计数——拉取/隔离/失败与 upserted 对账。 */
+  recordsFetched?: number;
+  recordsQuarantined?: number;
+  recordsFailed?: number;
   errorSummary?: string;
   createdAt: string;
 }
@@ -1577,6 +1581,62 @@ export interface SyncSchedule {
   lastRunAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** NP-001（2026-11-21 审计）：连接下的独立资源流（每 mapping 一条）。 */
+export interface SyncResource {
+  id: UUID;
+  tenantId: UUID;
+  connectionId: UUID;
+  resourceKey: string;
+  mappingId?: UUID;
+  scheduleId?: UUID;
+  status: "ACTIVE" | "PAUSED" | "RETIRED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 资源级游标（断点续跑）：只在目标写入成功后推进。 */
+export interface SyncCheckpoint {
+  id: UUID;
+  tenantId: UUID;
+  resourceId: UUID;
+  cursor?: string | null;
+  watermark?: string | null;
+  overlapSeconds: number;
+  lastRunId?: UUID | null;
+  updatedAt: string;
+}
+
+/** NP-008（2026-11-21 审计）：外部对象 → 内部对象的身份映射（opaque ID 解析）。 */
+export interface ExternalObjectIdentity {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  externalObjectType: string;
+  externalObjectId: string;
+  internalObjectType: string;
+  internalObjectId: UUID;
+  matchRule: string;
+  confidence: number;
+  confirmedBy?: UUID;
+  validFrom: string;
+  validTo?: string | null;
+  createdAt: string;
+}
+
+/** 隔离区记录（无法路由/校验失败的数据，待人工处置）。 */
+export interface QuarantineRecord {
+  id: UUID;
+  tenantId: UUID;
+  sourceSystem: string;
+  externalRecordId?: string | null;
+  reason: string;
+  payload: Record<string, unknown>;
+  resolvedAt?: string | null;
+  resolvedBy?: UUID | null;
+  resolutionNote?: string | null;
+  createdAt: string;
 }
 
 export interface ExternalIdentity {
@@ -1599,6 +1659,17 @@ export interface WebhookInboxMessage {
   processedAt?: string;
   status: string;
   errorCode?: string;
+  /** NP-009：AES-256-GCM 加密的原始载荷（仅 process 端点解密回读）。 */
+  rawPayloadEncrypted?: string;
+}
+
+/** NP-009：不透明 webhook 路由端点（routing key → 连接）。 */
+export interface WebhookRoutingKey {
+  id: UUID;
+  tenantId: UUID;
+  connectionId: UUID;
+  routingKey: string;
+  createdAt: string;
 }
 
 export interface AdjustmentRecord {

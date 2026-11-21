@@ -93,6 +93,11 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  ExternalObjectIdentity,
+  QuarantineRecord,
+  WebhookRoutingKey,
+  SyncCheckpoint,
+  SyncResource,
   SyncSchedule,
   StrategicPoolCase,
   SyncRun,
@@ -985,6 +990,10 @@ export interface IntegrationPort {
     status: string;
     recordsSeen: number;
     recordsUpserted: number;
+    /** NP-016：精确计数（可选——旧 runner 不传时保持 undefined）。 */
+    recordsFetched?: number;
+    recordsQuarantined?: number;
+    recordsFailed?: number;
     cursorAfter?: Record<string, unknown>;
     errorSummary?: string;
   }): Promise<SyncRun>;
@@ -1014,6 +1023,78 @@ export interface IntegrationPort {
     webhookId: string;
     status: "PROCESSED" | "FAILED";
     errorCode?: string;
+  }): Promise<WebhookInboxMessage>;
+  // NP-001（2026-11-21 审计 Wave 1）：资源流 / 检查点 / 隔离区。
+  createSyncResource(input: {
+    tenantId: string;
+    connectionId: string;
+    resourceKey: string;
+    mappingId?: string;
+    scheduleId?: string;
+  }): Promise<SyncResource>;
+  listSyncResources(
+    tenantId: string,
+    connectionId?: string,
+  ): Promise<SyncResource[]>;
+  getSyncCheckpoint(
+    tenantId: string,
+    resourceId: string,
+  ): Promise<SyncCheckpoint | null>;
+  saveSyncCheckpoint(input: {
+    tenantId: string;
+    resourceId: string;
+    cursor?: string | null;
+    watermark?: string | null;
+    lastRunId?: string | null;
+  }): Promise<SyncCheckpoint>;
+  recordQuarantineRecord(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalRecordId?: string;
+    reason: string;
+    payload?: Record<string, unknown>;
+    resolutionNote?: string;
+  }): Promise<QuarantineRecord>;
+  listQuarantineRecords(
+    tenantId: string,
+    filter?: { sourceSystem?: string; unresolvedOnly?: boolean },
+  ): Promise<QuarantineRecord[]>;
+  // NP-008：外部对象身份解析（opaque 外部 ID → 内部 UUID）。
+  upsertExternalObject(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalObjectType: string;
+    externalObjectId: string;
+    internalObjectType: string;
+    internalObjectId: string;
+    matchRule?: string;
+    confidence?: number;
+    confirmedBy?: string;
+  }): Promise<ExternalObjectIdentity>;
+  resolveExternalObject(
+    tenantId: string,
+    sourceSystem: string,
+    externalObjectType: string,
+    externalObjectId: string,
+  ): Promise<ExternalObjectIdentity | null>;
+  listExternalObjects(
+    tenantId: string,
+    filter?: { sourceSystem?: string; externalObjectType?: string },
+  ): Promise<ExternalObjectIdentity[]>;
+  // NP-009：不透明 webhook 路由键（供应商回调入口，routing key 即租户入口）。
+  issueWebhookRoutingKey(input: {
+    tenantId: string;
+    connectionId: string;
+  }): Promise<WebhookRoutingKey>;
+  resolveWebhookRoutingKey(
+    routingKey: string,
+  ): Promise<{ tenantId: string; connectionId: string; provider: string } | null>;
+  receiveIntegrationWebhook(input: {
+    tenantId: string;
+    sourceSystem: string;
+    messageId: string;
+    payloadHash: string;
+    rawPayloadEncrypted: string;
   }): Promise<WebhookInboxMessage>;
 }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-19T19:32:30.225Z",
+  "generatedAt": "2026-11-21T12:43:35.072Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -480,6 +480,11 @@
       "file": "096_integration_platform.sql",
       "bytes": 4013,
       "sha256": "fd66799788dc42a7663a533195bdb8b7d14ebc7ca44491695de0ae053905bfaf"
+    },
+    {
+      "file": "097_integration_sync_hardening.sql",
+      "bytes": 2959,
+      "sha256": "efa213cf2fb8c5d5ba56ae7f06688d703f2191667431caf16c17e08c1f30bae1"
     }
   ]
 }

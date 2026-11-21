@@ -111,6 +111,11 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  ExternalObjectIdentity,
+  QuarantineRecord,
+  WebhookRoutingKey,
+  SyncCheckpoint,
+  SyncResource,
   SyncSchedule,
   StrategicPoolCase,
   SyncRun,
@@ -1923,7 +1928,89 @@ export class PgPlatformStoreBase {
       cursorAfter: row.cursor_after ?? undefined,
       recordsSeen: Number(row.records_seen),
       recordsUpserted: Number(row.records_upserted),
+      recordsFetched: row.records_fetched === null || row.records_fetched === undefined
+        ? undefined
+        : Number(row.records_fetched),
+      recordsQuarantined: row.records_quarantined === null || row.records_quarantined === undefined
+        ? undefined
+        : Number(row.records_quarantined),
+      recordsFailed: row.records_failed === null || row.records_failed === undefined
+        ? undefined
+        : Number(row.records_failed),
       errorSummary: row.error_summary ?? undefined,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // NP-001（2026-11-21 审计 Wave 1）：资源流 / 检查点 / 隔离区行映射。
+  // ------------------------------------------------------------------
+  protected mapSyncResource(row: QueryResultRow): SyncResource {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      connectionId: row.connection_id,
+      resourceKey: row.resource_key,
+      mappingId: row.mapping_id ?? undefined,
+      scheduleId: row.schedule_id ?? undefined,
+      status: row.status,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  protected mapSyncCheckpoint(row: QueryResultRow): SyncCheckpoint {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      resourceId: row.resource_id,
+      cursor: row.cursor ?? null,
+      watermark: row.watermark ?? null,
+      overlapSeconds: Number(row.overlap_seconds ?? 0),
+      lastRunId: row.last_run_id ?? null,
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
+  protected mapExternalObjectIdentity(row: QueryResultRow): ExternalObjectIdentity {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      externalObjectType: row.external_object_type,
+      externalObjectId: row.external_object_id,
+      internalObjectType: row.internal_object_type,
+      internalObjectId: row.internal_object_id,
+      matchRule: row.match_rule ?? "MANUAL",
+      confidence: Number(row.confidence ?? 1),
+      confirmedBy: row.confirmed_by ?? undefined,
+      validFrom: iso(row.valid_from) ?? new Date().toISOString(),
+      validTo: iso(row.valid_to),
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  protected mapWebhookRoutingKey(row: QueryResultRow): WebhookRoutingKey {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      connectionId: row.connection_id,
+      routingKey: row.routing_key,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+    };
+  }
+
+  protected mapQuarantineRecord(row: QueryResultRow): QuarantineRecord {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      sourceSystem: row.source_system,
+      externalRecordId: row.external_record_id ?? null,
+      reason: row.reason,
+      payload: (row.payload ?? {}) as Record<string, unknown>,
+      resolvedAt: iso(row.resolved_at),
+      resolvedBy: row.resolved_by ?? null,
+      resolutionNote: row.resolution_note ?? null,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
@@ -1951,6 +2038,7 @@ export class PgPlatformStoreBase {
       processedAt: iso(row.processed_at),
       status: row.status,
       errorCode: row.error_code ?? undefined,
+      rawPayloadEncrypted: row.raw_payload_encrypted ?? undefined,
     };
   }
   

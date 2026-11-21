@@ -77,5 +77,59 @@ export function buildHttpJsonConnectorConfig(
   if (typeof merged.pageSize === "number" && merged.pageSize > 0) {
     config.pageSize = merged.pageSize;
   }
+  // NP-006（2026-11-21 审计）：完整保留映射语义——常量/转换/POST body/游标体键/egress allowlist。
+  if (
+    merged.constants &&
+    typeof merged.constants === "object" &&
+    !Array.isArray(merged.constants)
+  ) {
+    const constants = Object.fromEntries(
+      Object.entries(merged.constants as Record<string, unknown>)
+        .filter(([, value]) => typeof value === "string" && value.length > 0)
+        .map(([key, value]) => [key, String(value)]),
+    );
+    if (Object.keys(constants).length > 0) columns.constants = constants;
+  }
+  if (
+    merged.transforms &&
+    typeof merged.transforms === "object" &&
+    !Array.isArray(merged.transforms)
+  ) {
+    const transforms = Object.fromEntries(
+      Object.entries(merged.transforms as Record<string, unknown>)
+        .map(([key, value]) => {
+          if (Array.isArray(value)) {
+            return [key, value.map(String)];
+          }
+          if (typeof value === "string" && value.trim()) {
+            // 管道语法："date|trim" → ["date", "trim"]。
+            return [key, value.split("|").map((part) => part.trim())];
+          }
+          return [key, []];
+        })
+        .filter(([, value]) => (value as string[]).length > 0),
+    ) as Record<string, string[]>;
+    if (Object.keys(transforms).length > 0) columns.transforms = transforms;
+  }
+  if (merged.method === "POST" || merged.method === "GET") {
+    config.method = merged.method;
+  }
+  if (
+    merged.body &&
+    typeof merged.body === "object" &&
+    !Array.isArray(merged.body)
+  ) {
+    config.body = merged.body as Record<string, unknown>;
+  }
+  const cursorBodyKey = text(merged.cursorBodyKey);
+  if (cursorBodyKey) config.cursorBodyKey = cursorBodyKey;
+  if (
+    Array.isArray(merged.egressAllowlist) &&
+    merged.egressAllowlist.every((item) => typeof item === "string" && item.trim())
+  ) {
+    config.egressAllowlist = (merged.egressAllowlist as string[]).map((item) =>
+      item.trim(),
+    );
+  }
   return config;
 }

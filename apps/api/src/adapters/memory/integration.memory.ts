@@ -46,6 +46,11 @@ import type {
   EquityGrant,
   EquityVesting,
   ExternalIdentity,
+  ExternalObjectIdentity,
+  QuarantineRecord,
+  SyncCheckpoint,
+  WebhookRoutingKey,
+  SyncResource,
   FairnessCommitment,
   FinancialFact,
   CalibrationSession,
@@ -528,6 +533,9 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       status: string;
       recordsSeen: number;
       recordsUpserted: number;
+      recordsFetched?: number;
+      recordsQuarantined?: number;
+      recordsFailed?: number;
       cursorAfter?: Record<string, unknown>;
       errorSummary?: string;
     }): Promise<SyncRun> {
@@ -542,6 +550,9 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       run.status = input.status;
       run.recordsSeen = input.recordsSeen;
       run.recordsUpserted = input.recordsUpserted;
+      run.recordsFetched = input.recordsFetched;
+      run.recordsQuarantined = input.recordsQuarantined;
+      run.recordsFailed = input.recordsFailed;
       run.cursorAfter = input.cursorAfter;
       run.errorSummary = input.errorSummary;
       run.finishedAt = timestamp;
@@ -553,6 +564,317 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       return run;
     }
     
+    // ------------------------------------------------------------------
+    // NP-001（2026-11-21 审计 Wave 1）：资源流 / 检查点 / 隔离区。
+    // ------------------------------------------------------------------
+    async createSyncResource(input: {
+      tenantId: string;
+      connectionId: string;
+      resourceKey: string;
+      mappingId?: string;
+      scheduleId?: string;
+    }): Promise<SyncResource> {
+      await this.getIntegrationConnection(input.tenantId, input.connectionId);
+      const duplicate = [...this.syncResources.values()].find(
+        (resource) =>
+          resource.tenantId === input.tenantId &&
+          resource.connectionId === input.connectionId &&
+          resource.resourceKey === input.resourceKey,
+      );
+      if (duplicate) {
+        throw new ConflictError(
+          `SYNC_RESOURCE_EXISTS: ${input.connectionId}/${input.resourceKey}`,
+        );
+      }
+      const timestamp = now();
+      const resource: SyncResource = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        connectionId: input.connectionId,
+        resourceKey: input.resourceKey,
+        mappingId: input.mappingId,
+        scheduleId: input.scheduleId,
+        status: "ACTIVE",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      this.syncResources.set(resource.id, resource);
+      return resource;
+    }
+
+    async listSyncResources(
+      tenantId: string,
+      connectionId?: string,
+    ): Promise<SyncResource[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.syncResources.values()]
+        .filter(
+          (resource) =>
+            resource.tenantId === tenantId &&
+            (!connectionId || resource.connectionId === connectionId),
+        )
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    }
+
+    async getSyncCheckpoint(
+      tenantId: string,
+      resourceId: string,
+    ): Promise<SyncCheckpoint | null> {
+      const resource = this.syncResources.get(resourceId);
+      if (!resource || resource.tenantId !== tenantId) {
+        notFound("SyncResource", resourceId);
+      }
+      return (
+        [...this.syncCheckpoints.values()].find(
+          (checkpoint) =>
+            checkpoint.tenantId === tenantId &&
+            checkpoint.resourceId === resourceId,
+        ) ?? null
+      );
+    }
+
+    async saveSyncCheckpoint(input: {
+      tenantId: string;
+      resourceId: string;
+      cursor?: string | null;
+      watermark?: string | null;
+      lastRunId?: string | null;
+    }): Promise<SyncCheckpoint> {
+      const resource = this.syncResources.get(input.resourceId);
+      if (!resource || resource.tenantId !== input.tenantId) {
+        notFound("SyncResource", input.resourceId);
+      }
+      const timestamp = now();
+      const existing = [...this.syncCheckpoints.values()].find(
+        (checkpoint) =>
+          checkpoint.tenantId === input.tenantId &&
+          checkpoint.resourceId === input.resourceId,
+      );
+      if (existing) {
+        existing.cursor = input.cursor ?? existing.cursor;
+        existing.watermark = input.watermark ?? existing.watermark;
+        existing.lastRunId = input.lastRunId ?? existing.lastRunId;
+        existing.updatedAt = timestamp;
+        return existing;
+      }
+      const checkpoint: SyncCheckpoint = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        resourceId: input.resourceId,
+        cursor: input.cursor ?? null,
+        watermark: input.watermark ?? null,
+        overlapSeconds: 0,
+        lastRunId: input.lastRunId ?? null,
+        updatedAt: timestamp,
+      };
+      this.syncCheckpoints.set(checkpoint.id, checkpoint);
+      return checkpoint;
+    }
+
+    async recordQuarantineRecord(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalRecordId?: string;
+      reason: string;
+      payload?: Record<string, unknown>;
+      resolutionNote?: string;
+    }): Promise<QuarantineRecord> {
+      const timestamp = now();
+      const existing = [...this.quarantineRecords.values()].find(
+        (record) =>
+          record.tenantId === input.tenantId &&
+          record.sourceSystem === input.sourceSystem &&
+          record.externalRecordId !== null &&
+          record.externalRecordId === input.externalRecordId,
+      );
+      if (existing) {
+        existing.reason = input.reason;
+        existing.payload = input.payload ?? existing.payload;
+        existing.resolutionNote = input.resolutionNote ?? existing.resolutionNote;
+        existing.resolvedAt = null;
+        existing.resolvedBy = null;
+        return existing;
+      }
+      const record: QuarantineRecord = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        sourceSystem: input.sourceSystem,
+        externalRecordId: input.externalRecordId ?? null,
+        reason: input.reason,
+        payload: input.payload ?? {},
+        resolvedAt: null,
+        resolvedBy: null,
+        resolutionNote: input.resolutionNote ?? null,
+        createdAt: timestamp,
+      };
+      this.quarantineRecords.set(record.id, record);
+      return record;
+    }
+
+    async listQuarantineRecords(
+      tenantId: string,
+      filter?: { sourceSystem?: string; unresolvedOnly?: boolean },
+    ): Promise<QuarantineRecord[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.quarantineRecords.values()]
+        .filter(
+          (record) =>
+            record.tenantId === tenantId &&
+            (!filter?.sourceSystem || record.sourceSystem === filter.sourceSystem) &&
+            (!filter?.unresolvedOnly || !record.resolvedAt),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+
+    // NP-008：外部对象身份（096 表 external_object_identities）。
+    async upsertExternalObject(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalObjectType: string;
+      externalObjectId: string;
+      internalObjectType: string;
+      internalObjectId: string;
+      matchRule?: string;
+      confidence?: number;
+      confirmedBy?: string;
+    }): Promise<ExternalObjectIdentity> {
+      if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+      const timestamp = now();
+      const existing = [...this.externalObjects.values()].find(
+        (identity) =>
+          identity.tenantId === input.tenantId &&
+          identity.sourceSystem === input.sourceSystem &&
+          identity.externalObjectType === input.externalObjectType &&
+          identity.externalObjectId === input.externalObjectId,
+      );
+      if (existing) {
+        existing.internalObjectType = input.internalObjectType;
+        existing.internalObjectId = input.internalObjectId;
+        existing.matchRule = input.matchRule ?? existing.matchRule;
+        existing.confidence = input.confidence ?? existing.confidence;
+        existing.confirmedBy = input.confirmedBy ?? existing.confirmedBy;
+        existing.validTo = null;
+        return existing;
+      }
+      const identity: ExternalObjectIdentity = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        sourceSystem: input.sourceSystem,
+        externalObjectType: input.externalObjectType,
+        externalObjectId: input.externalObjectId,
+        internalObjectType: input.internalObjectType,
+        internalObjectId: input.internalObjectId,
+        matchRule: input.matchRule ?? "MANUAL",
+        confidence: input.confidence ?? 1,
+        confirmedBy: input.confirmedBy,
+        validFrom: timestamp,
+        validTo: null,
+        createdAt: timestamp,
+      };
+      this.externalObjects.set(identity.id, identity);
+      return identity;
+    }
+
+    async resolveExternalObject(
+      tenantId: string,
+      sourceSystem: string,
+      externalObjectType: string,
+      externalObjectId: string,
+    ): Promise<ExternalObjectIdentity | null> {
+      return (
+        [...this.externalObjects.values()].find(
+          (identity) =>
+            identity.tenantId === tenantId &&
+            identity.sourceSystem === sourceSystem &&
+            identity.externalObjectType === externalObjectType &&
+            identity.externalObjectId === externalObjectId &&
+            !identity.validTo,
+        ) ?? null
+      );
+    }
+
+    async listExternalObjects(
+      tenantId: string,
+      filter?: { sourceSystem?: string; externalObjectType?: string },
+    ): Promise<ExternalObjectIdentity[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.externalObjects.values()]
+        .filter(
+          (identity) =>
+            identity.tenantId === tenantId &&
+            (!filter?.sourceSystem || identity.sourceSystem === filter.sourceSystem) &&
+            (!filter?.externalObjectType ||
+              identity.externalObjectType === filter.externalObjectType),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+
+    // NP-009：不透明 webhook 路由键 + 原始载荷（加密）收件。
+    async issueWebhookRoutingKey(input: {
+      tenantId: string;
+      connectionId: string;
+    }): Promise<WebhookRoutingKey> {
+      await this.getIntegrationConnection(input.tenantId, input.connectionId);
+      const timestamp = now();
+      const existing = [...this.webhookRoutingKeys.values()].find(
+        (entry) =>
+          entry.tenantId === input.tenantId &&
+          entry.connectionId === input.connectionId,
+      );
+      if (existing) return existing;
+      const entry: WebhookRoutingKey = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        connectionId: input.connectionId,
+        routingKey: `${Date.now().toString(36)}${randomUUID().replace(/-/g, "")}`,
+        createdAt: timestamp,
+      };
+      this.webhookRoutingKeys.set(entry.routingKey, entry);
+      return entry;
+    }
+
+    async resolveWebhookRoutingKey(
+      routingKey: string,
+    ): Promise<{ tenantId: string; connectionId: string; provider: string } | null> {
+      const entry = this.webhookRoutingKeys.get(routingKey);
+      if (!entry) return null;
+      const connection = this.integrationConnections.get(entry.connectionId);
+      return {
+        tenantId: entry.tenantId,
+        connectionId: entry.connectionId,
+        provider: connection?.provider ?? "generic",
+      };
+    }
+
+    async receiveIntegrationWebhook(input: {
+      tenantId: string;
+      sourceSystem: string;
+      messageId: string;
+      payloadHash: string;
+      rawPayloadEncrypted: string;
+    }): Promise<WebhookInboxMessage> {
+      const timestamp = now();
+      const existing = [...this.webhooks.values()].find(
+        (message) =>
+          message.tenantId === input.tenantId &&
+          message.sourceSystem === input.sourceSystem &&
+          message.messageId === input.messageId,
+      );
+      if (existing) return existing;
+      const message: WebhookInboxMessage = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        sourceSystem: input.sourceSystem,
+        messageId: input.messageId,
+        payloadHash: input.payloadHash,
+        receivedAt: timestamp,
+        status: "PENDING",
+        rawPayloadEncrypted: input.rawPayloadEncrypted,
+      };
+      this.webhooks.set(message.id, message);
+      return message;
+    }
+
     async upsertExternalIdentity(input: {
       tenantId: string;
       sourceSystem: string;

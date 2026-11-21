@@ -111,6 +111,11 @@ import type {
   RuleChangeOrder,
   SettlementAcknowledgement,
   SettlementExport,
+  ExternalObjectIdentity,
+  QuarantineRecord,
+  SyncCheckpoint,
+  WebhookRoutingKey,
+  SyncResource,
   SyncSchedule,
   StrategicPoolCase,
   SyncRun,
@@ -247,6 +252,11 @@ export class MemoryPlatformStoreBase {
     protected readonly payrollRuns = new Map<string, PayrollRun>();
     protected readonly payrollLines = new Map<string, PayrollLine[]>();
     protected readonly syncRuns = new Map<string, SyncRun>();
+    protected readonly syncResources = new Map<string, SyncResource>();
+    protected readonly syncCheckpoints = new Map<string, SyncCheckpoint>();
+    protected readonly quarantineRecords = new Map<string, QuarantineRecord>();
+    protected readonly externalObjects = new Map<string, ExternalObjectIdentity>();
+    protected readonly webhookRoutingKeys = new Map<string, WebhookRoutingKey>();
     protected readonly externalIdentities = new Map<string, ExternalIdentity>();
     protected readonly webhooks = new Map<string, WebhookInboxMessage>();
     protected readonly inboxMessages = new Map<string, InboxMessage>();
