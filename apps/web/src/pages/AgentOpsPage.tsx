@@ -16,6 +16,7 @@ import {
   Textarea,
   TextInput,
 } from "../components/ui.js";
+import { BarChart } from "../components/charts.js";
 import { PersonSelect, usePeople } from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -430,6 +431,37 @@ export function AgentOpsPage() {
         ) : (
           <LoadingRows rows={2} />
         )}
+        {agentMetrics.data ? (
+          (() => {
+            // NP-035：域诊断条形图——只有可测指标才进图（不可测显式空态）。
+            const measurable = [
+              agentMetrics.data.verifiedClosureRate,
+              agentMetrics.data.falsePositiveRate,
+            ].some((value) => value !== null);
+            if (!measurable) return null;
+            const percent = (value: number | null, fallback = 0): number =>
+              value === null ? fallback : Math.round(value * 10000) / 100;
+            return (
+              <BarChart
+                title="Agent 质量指标（%）"
+                summary="Agent verified 闭环率与误报率（百分比）；verified 闭环率 = verifier 通过的 EXECUTED 占比，误报率 = 人工标注的误报占比。窗口内无数据时整图显示为空态。"
+                bars={[
+                  { label: "verified 闭环率", value: percent(agentMetrics.data.verifiedClosureRate, 0) },
+                  { label: "误报率", value: percent(agentMetrics.data.falsePositiveRate, 0) },
+                ]}
+                unit="%"
+                table={{
+                  caption: "Agent 质量指标数据表（NP-035）",
+                  headers: ["指标", "百分比"],
+                  rows: [
+                    ["verified 闭环率", `${percent(agentMetrics.data.verifiedClosureRate, 0)}%`],
+                    ["误报率", `${percent(agentMetrics.data.falsePositiveRate, 0)}%`],
+                  ],
+                }}
+              />
+            );
+          })()
+        ) : null}
       </Panel>
 
       <Tabs

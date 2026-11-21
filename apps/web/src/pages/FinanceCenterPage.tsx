@@ -14,7 +14,8 @@ import {
 } from "../components/ui.js";
 import { Link } from "react-router-dom";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
-import { formatMoney, microsToDecimal } from "../lib/format.js";
+import { formatMoney, microsToDecimal, sumMoney } from "../lib/format.js";
+import { WaterfallChart } from "../components/charts.js";
 import { api, ApiError } from "../lib/api.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -100,6 +101,16 @@ interface BudgetPoolView {
   status: string;
 }
 
+/** NP-029：调整记录（解决状态判定——原分录属于本周期基准运行即视为已处置）。 */
+interface AdjustmentRecordView {
+  id: string;
+  originalLedgerId: string;
+  adjustmentLedgerId: string;
+  reasonCode: string;
+  explanation: string;
+  approvedAt: string;
+}
+
 /** 台账分录（/api/v1/ledger）：调整锚点必须是对账基准运行的 LOCKED INCENTIVE。 */
 interface LedgerEntryView {
   id: string;
@@ -144,6 +155,12 @@ export function FinanceCenterPage() {
   const isFinance = (identityQuery.data?.roles ?? []).some(
     (role) => role === "finance" || role === "admin",
   );
+  // NP-029：调整记录（解决状态）——仅 finance 可读。
+  const adjustmentsQuery = useApiQuery<AdjustmentRecordView[]>(
+    isFinance ? "/api/v1/adjustment-records" : null,
+    "finance-adjustments",
+  );
+  const adjustmentRecords = adjustmentsQuery.data ?? [];
 
   const loading =
     policyQuery.loading ||
@@ -378,6 +395,88 @@ export function FinanceCenterPage() {
                     <span className="muted">（{adjustRow.deltaMicros} 微单位；正数 = 财务申报高于运行基准）</span>
                   </li>
                 </ul>
+                {/* NP-029：差异桥接瀑布——运行基准 → 未对平差异 → 财务申报 */}
+                <WaterfallChart
+                  title={`差异桥接（运行基准 → 财务申报，${adjustRow.cycleName}）`}
+                  summary={`该周期对账桥接：运行基准 ${formatMoney(adjustRow.calculated.grossProfit ?? "0")}，未对平差异 ${microsToDecimal(adjustRow.deltaMicros)}，财务申报合计 ${formatMoney(adjustRow.declared.total ?? "0")}；金额按 1e6 微单位整数换算。`}
+                  steps={[
+                    {
+                      label: "运行基准",
+                      kind: "start",
+                      delta: Number(adjustRow.calculated.totalMicros) / 1_000_000,
+                    },
+                    {
+                      label: "未对平差异",
+                      kind: Number(adjustRow.deltaMicros) >= 0 ? "increase" : "decrease",
+                      delta: Number(adjustRow.deltaMicros) / 1_000_000,
+                    },
+                    {
+                      label: "财务申报合计",
+                      kind: "total",
+                      delta: Number(adjustRow.declared.totalMicros) / 1_000_000,
+                    },
+                  ]}
+                />
+                {/* NP-029：factType × 币种 对账表 + 逐笔源记录 */}
+                <table className="table">
+                  <caption className="muted">按事实类型与币种的对账分解（NP-029）</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">事实类型</th>
+                      <th scope="col">币种</th>
+                      <th scope="col">笔数</th>
+                      <th scope="col">金额合计</th>
+                      <th scope="col">源记录</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(
+                      adjustRow.declared.facts.reduce<
+                        Record<string, { count: number; total: string; records: string[] }>
+                      >((groups, fact) => {
+                        const key = `${fact.factType}|${fact.currency}`;
+                        const group = groups[key] ?? { count: 0, total: "0", records: [] };
+                        groups[key] = {
+                          count: group.count + 1,
+                          total: sumMoney([group.total, fact.amount]),
+                          records: [...group.records, `${fact.sourceSystem}#${fact.sourceRecordId}`],
+                        };
+                        return groups;
+                      }, {}),
+                    ).map(([key, group]) => {
+                      const [factType, currency] = key.split("|");
+                      return (
+                        <tr key={key}>
+                          <th scope="row">{factType}</th>
+                          <td>{currency}</td>
+                          <td>{group.count}</td>
+                          <td>{formatMoney(group.total, currency)}</td>
+                          <td>{group.records.join("、")}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {(() => {
+                  // NP-029：解决状态——本周期基准运行分录存在调整记录即视为已处置。
+                  const cycleLedgerIds = new Set(
+                    (ledgerQuery.data ?? [])
+                      .filter((entry) => entry.cycleId === adjustRow.cycleId)
+                      .map((entry) => entry.id),
+                  );
+                  const resolvedCount = adjustmentRecords.filter(
+                    (record) =>
+                      record.reasonCode === "RECONCILIATION_VARIANCE" &&
+                      cycleLedgerIds.has(record.originalLedgerId),
+                  ).length;
+                  return resolvedCount > 0 ? (
+                    <InfoNotice tone="success">
+                      解决状态：已生成 {resolvedCount} 条对账调整分录（RECONCILIATION_VARIANCE）。
+                    </InfoNotice>
+                  ) : (
+                    <InfoNotice tone="warning">解决状态：待处理——尚未生成对账调整分录。</InfoNotice>
+                  );
+                })()}
                 {adjustRow.declared.facts.length > 0 ? (
                   <ul className="stack-list muted">
                     {adjustRow.declared.facts.map((fact) => (

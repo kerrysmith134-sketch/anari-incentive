@@ -119,7 +119,7 @@
 
 .nav-group__label {
   padding: 0 10px 7px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -250,7 +250,7 @@
 }
 
 .user-chip__copy span {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--sidebar-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -642,7 +642,7 @@
   padding: 9px 16px;
   background: var(--surface-sunken);
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -737,7 +737,7 @@
   height: 22px;
   padding: 0 9px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 630;
   letter-spacing: 0.008em;
   white-space: nowrap;
@@ -792,7 +792,7 @@
   border-radius: 6px;
   background: var(--surface);
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono);
   white-space: nowrap;
 }
@@ -1049,7 +1049,7 @@
 }
 
 .form-section__title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 680;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1170,7 +1170,7 @@
   border-radius: 999px;
   background: var(--surface-sunken);
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -1689,7 +1689,7 @@
 
 .approval-row__meta .chip {
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .activity-list {
@@ -1915,7 +1915,7 @@
 
 .connection-card__provider {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-4);
   font-family: var(--font-mono);
 }
@@ -1927,7 +1927,7 @@
   gap: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--line-soft);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-4);
 }
 
@@ -2049,7 +2049,7 @@
 
 .bracket-row--head {
   background: var(--surface-sunken);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 680;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2609,7 +2609,7 @@
 }
 
 .user-card__copy span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -2715,7 +2715,7 @@
   border-radius: 999px;
   background: var(--critical);
   color: #ffffff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -2765,7 +2765,7 @@
   border-radius: 999px;
   background: var(--brand-soft);
   color: var(--brand-text, var(--brand));
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -2883,7 +2883,7 @@
 .task-card__status {
   margin-left: auto;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .task-card__finding {
@@ -2963,7 +2963,7 @@
 .task-card__done {
   margin-left: auto;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .agent-drawer__inbox {
@@ -3009,7 +3009,7 @@
 
 .agent-inbox__meta {
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .agent-drawer__inbox a {
@@ -3056,4 +3056,54 @@
 .agent-drawer__chat-input button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* NP-030/NP-031：图表框架与最小字号（图表内文字一律 ≥12px） */
+.chart-frame {
+  margin: 0 0 12px;
+  padding: 8px 0 4px;
+}
+.chart-frame__title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.chart-frame__empty {
+  font-size: 13px;
+  margin: 8px 0;
+}
+.chart-svg {
+  width: 100%;
+  height: auto;
+  max-width: 640px;
+}
+.chart-frame__table {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.chart-frame__table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.chart-frame__table th,
+.chart-frame__table td {
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: left;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* NP-031：muted 上下文里的链接必须靠下划线区分（不依赖颜色/字号）——
+   字号统一到 ≥12px 后，link-in-text-block 需要显式非颜色线索。 */
+.muted a,
+a.muted {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

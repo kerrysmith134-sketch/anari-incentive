@@ -341,6 +341,79 @@ test.describe("2026 policy centre UX", () => {
     await expect(dialog).not.toBeVisible();
   });
 
+  test("management center renders coverage funnel chart with accessible data table (NP-035)", async ({
+    page,
+  }) => {
+    await page.goto("/console/management");
+    await expect(page.getByRole("heading", { name: "管理中心" })).toBeVisible();
+    // NP-035：周期漏斗图（在职分母 → 有草案 → 已决定）+ 可访问数据表。
+    await expect(page.getByText("周期覆盖漏斗", { exact: true })).toBeVisible();
+    await page.getByText("数据表").first().click();
+    await expect(page.getByText("周期覆盖漏斗数据表").first()).toBeVisible();
+  });
+
+  test("finance center drill-down shows variance bridge and type breakdown (NP-029)", async ({
+    page,
+    request,
+  }) => {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const headers = {
+      "content-type": "application/json",
+      "x-tenant-id": "tenant-demo",
+      "x-user-id": "dev-user",
+      "x-person-id": "00000000-0000-4000-8000-000000000001",
+    };
+    const fact = await request.post("/api/v1/financial-facts", {
+      headers,
+      data: {
+        sourceSystem: "E2E",
+        sourceRecordId: `NP029-${stamp}`,
+        factType: "REVENUE",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-31",
+        amount: "222.25",
+        currency: "CNY",
+        qualityStatus: "VALID",
+        payload: { cycleId: "00000000-0000-4000-8000-000000000020" },
+      },
+    });
+    expect(fact.status(), await fact.text()).toBe(201);
+    await page.goto("/console/finance-center");
+    const varianceRow = page
+      .locator("li")
+      .filter({ hasText: "2026 Q4 demo cycle" })
+      .first();
+    await varianceRow.getByRole("button", { name: "差异明细与调整" }).click();
+    const dialog = page.getByRole("dialog");
+    // NP-029：差异桥接瀑布 + factType×币种 对账表 + 解决状态。
+    await expect(dialog).toContainText("差异桥接");
+    await expect(dialog).toContainText("按事实类型与币种的对账分解");
+    await expect(dialog).toContainText("解决状态");
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test("integration wizard replaces JSON-first setup (NP-028)", async ({ page }) => {
+    await page.goto("/console/integrations");
+    await expect(
+      page.getByRole("heading", { name: /集成|Integrations/ }).first(),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /新建连接（向导）/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    // 步骤 1：供应商与预设（无 JSON 输入框）。
+    await expect(dialog).toContainText("供应商");
+    await expect(dialog.locator('textarea')).toHaveCount(0);
+    await dialog.getByRole("button", { name: "下一步" }).click();
+    // 步骤 2：结构化连接字段（凭据引用 + provider 字段）。
+    await expect(dialog).toContainText("凭据引用");
+    await dialog.getByLabel("连接名称").fill(`E2E 向导 ${Date.now()}`);
+    await dialog.getByLabel("凭据引用").fill("vault://e2e/wizard");
+    await dialog.getByRole("button", { name: "上一步" }).click();
+    await expect(dialog).toContainText("映射预设");
+    await dialog.getByRole("button", { name: "取消" }).click();
+    await expect(dialog).not.toBeVisible();
+  });
+
   test("my workbench aggregates personal scopes without cross-tenant data (NPV2-028)", async ({
     page,
   }) => {

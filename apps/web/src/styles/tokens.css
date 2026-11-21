@@ -71,6 +71,13 @@
   --info-text: #0369a1;
   --info-soft: #e3f3fc;
 
+  /* NP-030：图表分类色（仅图表/计量场景使用，不进状态语义） */
+  --chart-1: var(--accent-strong);
+  --chart-2: #0284c7;
+  --chart-3: #15803d;
+  --chart-4: #d97706;
+  --chart-grid: rgba(86, 80, 75, 0.18);
+
   /* Sidebar stays a deep neutral panel in both themes (no coloured gradient) */
   --sidebar-bg: #101318;
   --sidebar-ink: #eef0f4;
@@ -145,6 +152,13 @@
   --critical-text: #fca5a5;
   --critical-soft: rgba(248, 113, 113, 0.14);
   --info: #38bdf8;
+
+  /* NP-030：图表分类色（暗色重映射） */
+  --chart-1: var(--accent-bright);
+  --chart-2: #38bdf8;
+  --chart-3: #4ade80;
+  --chart-4: #fbbf24;
+  --chart-grid: rgba(148, 141, 133, 0.22);
   --info-text: #7dd3fc;
   --info-soft: rgba(56, 189, 248, 0.14);
 

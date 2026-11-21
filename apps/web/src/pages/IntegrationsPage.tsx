@@ -16,6 +16,7 @@ import {
   TextInput,
   Textarea,
 } from "../components/ui.js";
+import { IntegrationWizard } from "../components/integration-wizard.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { api, ApiError } from "../lib/api.js";
@@ -50,12 +51,6 @@ export function IntegrationsPage() {
   } | null>(null);
   const [testBusy, setTestBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [provider, setProvider] = useState("");
-  const [connectionName, setConnectionName] = useState("");
-  const [credentialRef, setCredentialRef] = useState("");
-  const [config, setConfig] = useState("{}");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
 
@@ -83,11 +78,6 @@ export function IntegrationsPage() {
   );
 
   function openCreate() {
-    setProvider("");
-    setConnectionName("");
-    setCredentialRef("");
-    setConfig("{}");
-    setFormError(null);
     setCreateOpen(true);
   }
 
@@ -110,51 +100,6 @@ export function IntegrationsPage() {
       );
     } finally {
       setTestBusy(false);
-    }
-  }
-
-async function createConnection(event: FormEvent) {
-    event.preventDefault();
-    setFormError(null);
-    let parsedConfig: unknown = {};
-    try {
-      parsedConfig = config.trim() ? JSON.parse(config) : {};
-    } catch {
-      setFormError("配置必须是合法 JSON。");
-      return;
-    }
-    if (
-      typeof parsedConfig !== "object" ||
-      parsedConfig === null ||
-      Array.isArray(parsedConfig)
-    ) {
-      setFormError("配置必须是 JSON 对象。");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const created = await api<IntegrationConnection>(
-        "/api/v1/integration-connections",
-        {
-          method: "POST",
-          body: {
-            provider: provider.trim(),
-            connectionName: connectionName.trim(),
-            credentialRef: credentialRef.trim(),
-            config: parsedConfig,
-          },
-        },
-      );
-      toast.success("连接已创建", connectionName);
-      setCreateOpen(false);
-      setSelectedId(created.id);
-      connections.reload();
-    } catch (caught) {
-      setFormError(
-        caught instanceof Error ? caught.message : "创建连接失败。",
-      );
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -250,7 +195,7 @@ async function createConnection(event: FormEvent) {
             description="先添加供应商连接，再挂接版本化映射与同步计划。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-                创建连接
+                新建连接（向导）
               </Button>
             }
           />
@@ -461,81 +406,12 @@ async function createConnection(event: FormEvent) {
         </>
       )}
 
-      <Modal
+      <IntegrationWizard
         open={createOpen}
-        title="新建集成连接"
-        description="只保存凭据引用——绝不保存密钥本体。"
+        presets={presets.data ?? []}
         onClose={() => setCreateOpen(false)}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              取消
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              form="create-connection-form"
-              loading={submitting}
-            >
-              创建连接
-            </Button>
-          </>
-        }
-      >
-        <form id="create-connection-form" onSubmit={createConnection} className="form-grid">
-          {formError ? (
-            <div className="field--full">
-              <InfoNotice tone="warning">{formError}</InfoNotice>
-            </div>
-          ) : null}
-          <FormField label="供应商" htmlFor="connection-provider">
-            <TextInput
-              id="connection-provider"
-              value={provider}
-              onChange={(event) => setProvider(event.target.value)}
-              placeholder="hubspot"
-              required
-            />
-          </FormField>
-          <FormField label="连接名称" htmlFor="connection-name">
-            <TextInput
-              id="connection-name"
-              value={connectionName}
-              onChange={(event) => setConnectionName(event.target.value)}
-              placeholder="Revenue CRM"
-              required
-            />
-          </FormField>
-          <FormField
-            label="凭据引用"
-            htmlFor="connection-credential"
-            className="field--full"
-            hint="保管库路径或密钥名，不是凭据值本身。"
-          >
-            <TextInput
-              id="connection-credential"
-              value={credentialRef}
-              onChange={(event) => setCredentialRef(event.target.value)}
-              placeholder="vault://integrations/hubspot"
-              required
-            />
-          </FormField>
-          <FormField
-            label="配置 JSON"
-            htmlFor="connection-config"
-            className="field--full"
-            hint="可选的非敏感配置，如 base URL 或 portal id。"
-          >
-            <Textarea
-              id="connection-config"
-              value={config}
-              onChange={(event) => setConfig(event.target.value)}
-              className="input mono"
-              spellCheck={false}
-            />
-          </FormField>
-        </form>
-      </Modal>
+        onCreated={() => connections.reload()}
+      />
     </>
   );
 }

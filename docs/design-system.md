@@ -25,6 +25,18 @@ without making the console feel assembled from different products.
 All tokens live in [`apps/web/src/styles/tokens.css`](../apps/web/src/styles/tokens.css).
 Use roles, not raw hex values.
 
+### Minimum type scale（NP-031，2026-11-21 审计）
+
+界面文字一律 ≥12px，由 `tests/ui-type-scale.test.ts` 门禁强制：
+
+| 层级 | 最小值 | 说明 |
+|---|---|---|
+| 元数据/徽标/脚注 | 12px | 原 9–11px 标签全部提升 |
+| 表格正文 | 13px | 密表也不得低于此值 |
+| 正文 | 14–16px | 页面主体阅读文字 |
+
+第三方 provider logo 无官方资产，暂以文字徽标呈现（不虚构商标）；语义动作图标沿用既有 icon set。
+
 | Group | Examples | Rule |
 |---|---|---|
 | Planes | `--bg`, `--surface`, `--surface-raised`, `--surface-sunken` | Page, panel and inset surfaces |

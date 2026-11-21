@@ -16,6 +16,10 @@ import {
   Textarea,
   TextInput,
 } from "../components/ui.js";
+import {
+  PersonalStatusSection,
+  SubscriptionSection,
+} from "../components/settings/personal-sections.js";
 import { Icon } from "../components/Icon.js";
 import { Link } from "react-router-dom";
 import {
@@ -23,7 +27,6 @@ import {
   usePeople,
 } from "../components/PersonSelect.js";
 import { useAuth } from "../contexts/AuthContext.js";
-import { useTheme, type ThemePreference } from "../contexts/ThemeContext.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { ApiError, api, DEFAULT_SESSION } from "../lib/api.js";
 import { zhClawbackReason, zhStatus } from "../lib/zh.js";
@@ -66,10 +69,8 @@ import type {
 export function SettingsPage() {
   useDocumentTitle("设置");
   const { session, updateSession } = useAuth();
-  const { preference, setPreference } = useTheme();
   const toast = useToast();
   const identity = useApiQuery<PlatformIdentity>("/api/v1/platform/identity");
-  const health = useApiQuery<{ status: string }>("/health");
   // 治理/合规设置只对 manager/finance/admin 展示；员工的相应接口本就 403。
   // 未确认角色前按无权限处理（fail-closed），确认后再放行相应查询。
   const identityRoles = identity.data?.roles ?? [];
@@ -77,9 +78,6 @@ export function SettingsPage() {
     ["admin", "manager", "finance"].includes(role),
   );
   const governPath = (path: string) => (canGovern ? path : null);
-  const auditChain = useApiQuery<{ valid: boolean }>(
-    governPath("/api/v1/audit-events/verify"),
-  );
   const dpias = useApiQuery<DpiaRecord[]>(governPath("/api/v1/dpia-records"));
   const dsars = useApiQuery<DsarRequest[]>("/api/v1/dsar-requests");
   const [dpiaOpen, setDpiaOpen] = useState(false);
@@ -330,12 +328,6 @@ export function SettingsPage() {
     session.personId,
   );
   const [redactionApprover, setRedactionApprover] = useState("");
-  const subscription = useApiQuery<
-    import("../lib/ops-types.js").TenantSubscriptionView | null
-  >("/api/v1/me/subscription");
-  const myInvoices = useApiQuery<
-    import("../lib/ops-types.js").TenantInvoiceView[]
-  >("/api/v1/me/invoices");
   const [recoveryTarget, setRecoveryTarget] = useState<ClawbackCase | null>(
     null,
   );
@@ -1526,106 +1518,10 @@ export function SettingsPage() {
           </Link>
         </Panel>
 
-        <div className="stack">
-          <Panel title="外观" subtitle="主题按浏览器记忆">
-            <div className="toolbar__group">
-              {(
-                [
-                  { id: "light", label: "Light", icon: "sun" },
-                  { id: "dark", label: "Dark", icon: "moon" },
-                  { id: "system", label: "System", icon: "settings" },
-                ] as Array<{ id: ThemePreference; label: string; icon: "sun" | "moon" | "settings" }>
-              ).map((option) => (
-                <Button
-                  key={option.id}
-                  variant={preference === option.id ? "primary" : "secondary"}
-                  icon={option.icon}
-                  onClick={() => setPreference(option.id)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-            <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
-              Dark mode is a selected palette, not an inverted filter. Charts and
-              status colours keep their validated contrast on both surfaces.
-            </p>
-          </Panel>
-
-          <Panel title="身份解析" subtitle="服务端所见">
-            {identity.error ? (
-              <ErrorNotice error={identity.error} onRetry={identity.reload} />
-            ) : identity.loading ? (
-              <LoadingRows rows={3} />
-            ) : identity.data ? (
-              <DefinitionList
-                items={[
-                  { label: "用户", value: <span className="mono">{identity.data.userId}</span> },
-                  {
-                    label: "Linked person",
-                    value: identity.data.personId ? (
-                      <span className="mono">{identity.data.personId}</span>
-                    ) : (
-                      "未绑定"
-                    ),
-                  },
-                  {
-                    label: "成员角色",
-                    value:
-                      identity.data.roles.length > 0
-                        ? identity.data.roles.join(", ")
-                        : "None recorded",
-                  },
-                ]}
-              />
-            ) : null}
-            <div className="row-actions section-gap" style={{ justifyContent: "flex-start" }}>
-              <CopyButton value={session.tenantId} label="复制租户" />
-              <CopyButton value={session.personId} label="复制人员" />
-            </div>
-          </Panel>
-
-          <Panel title="系统健康" subtitle="来自本浏览器的实时探测">
-            <DefinitionList
-              items={[
-                {
-                  label: "API health",
-                  value: health.loading ? (
-                    "检查中…"
-                  ) : health.error ? (
-                    <Badge tone="danger">不可达</Badge>
-                  ) : (
-                    <Badge tone="success">
-                      {titleCase(health.data?.status ?? "ok")}
-                    </Badge>
-                  ),
-                },
-                {
-                  label: "审计链",
-                  value: auditChain.loading ? (
-                    "检查中…"
-                  ) : auditChain.data?.valid ? (
-                    <Badge tone="success">已验证</Badge>
-                  ) : (
-                    <Badge tone="danger">需要关注</Badge>
-                  ),
-                },
-                {
-                  label: "控制台来源",
-                  value: <span className="mono">{window.location.origin}</span>,
-                },
-                {
-                  label: "API base",
-                  value: (
-                    <span className="mono">
-                      {import.meta.env.VITE_API_BASE || "same origin"}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-          </Panel>
-        </div>
+        <PersonalStatusSection
+          session={{ tenantId: session.tenantId, personId: session.personId }}
+          auditChainPath={governPath("/api/v1/audit-events/verify")}
+        />
       </div>
 
       {canGovern ? (<>
@@ -1805,70 +1701,7 @@ export function SettingsPage() {
         </Panel>
       </div>
 
-      <Panel
-        title="订阅"
-        subtitle="本租户的套餐、席位与发票（只读；由平台运营方管理）"
-        className="section-gap"
-      >
-        {subscription.error ? (
-          <div style={{ padding: 16 }}>
-            <InfoNotice>
-              No subscription is attached to this tenant. Onboarding and seat
-              limits are unrestricted until the platform operator assigns a
-              plan.
-            </InfoNotice>
-          </div>
-        ) : subscription.data ? (
-          <div style={{ padding: 16 }} className="stack">
-            <DefinitionList
-              items={[
-                {
-                  label: "套餐",
-                  value: `${subscription.data.planName} (${subscription.data.planCode})`,
-                },
-                { label: "状态", value: subscription.data.status },
-                { label: "席位", value: String(subscription.data.seats) },
-                {
-                  label: "周期结束",
-                  value: formatDateTime(subscription.data.currentPeriodEnd),
-                },
-              ]}
-            />
-            {(myInvoices.data ?? []).length > 0 ? (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>发票</th>
-                    <th>状态</th>
-                    <th>合计</th>
-                    <th>截止</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(myInvoices.data ?? []).map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td>
-                        <code>{invoice.number}</code>
-                      </td>
-                      <td>{invoice.status}</td>
-                      <td>
-                        {invoice.totalAmount} {invoice.currency}
-                      </td>
-                      <td>{invoice.dueDate ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="hint">暂无发票</p>
-            )}
-          </div>
-        ) : (
-          <div style={{ padding: 16 }}>
-            <LoadingRows rows={2} />
-          </div>
-        )}
-      </Panel>
+<SubscriptionSection />
 
       {canGovern ? (<>
       <Panel

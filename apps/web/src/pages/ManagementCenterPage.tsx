@@ -12,6 +12,7 @@ import {
   Select,
   Textarea,
 } from "../components/ui.js";
+import { BarChart } from "../components/charts.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import { api, ApiError } from "../lib/api.js";
 import { useAuth } from "../contexts/AuthContext.js";
@@ -520,10 +521,54 @@ export function ManagementCenterPage() {
                     </li>
                   ))}
                 </ul>
+                {/* NP-035：周期漏斗——在职分母 → 有草案 → 已决定 */}
+                <BarChart
+                  title="周期覆盖漏斗"
+                  summary={`本周期覆盖漏斗：在职分母 ${coverage.denominator} 人，其中 ${coverage.withDraft} 人有评价草案、${coverage.decided} 人已完成决定；分母为在职 roster（后端计算）。`}
+                  bars={[
+                    { label: "在职分母", value: coverage.denominator },
+                    { label: "有草案", value: coverage.withDraft },
+                    { label: "已决定", value: coverage.decided },
+                  ]}
+                  unit="人"
+                  table={{
+                    caption: "周期覆盖漏斗数据表（NP-035）",
+                    headers: ["阶段", "人数"],
+                    rows: [
+                      ["在职分母", coverage.denominator],
+                      ["有草案", coverage.withDraft],
+                      ["已决定", coverage.decided],
+                      ["待处理", coverage.pending],
+                    ],
+                  }}
+                />
                 {coverage.excluded.length > 0 ? (
-                  <InfoNotice>
-                    排除项：{coverage.excluded.map((entry) => `${entry.displayName}（${entry.reason}）`).join("、")}
-                  </InfoNotice>
+                  <>
+                    <InfoNotice>
+                      排除项：{coverage.excluded.map((entry) => `${entry.displayName}（${entry.reason}）`).join("、")}
+                    </InfoNotice>
+                    <BarChart
+                      title="排除/缺失分布"
+                      summary="离职等排除原因的人数分布；N/A 与缺失语义分离——排除者不计入分母。"
+                      bars={Object.entries(
+                        coverage.excluded.reduce<Record<string, number>>((groups, entry) => {
+                          groups[entry.reason] = (groups[entry.reason] ?? 0) + 1;
+                          return groups;
+                        }, {}),
+                      ).map(([reason, count]) => ({ label: reason, value: count }))}
+                      unit="人"
+                      table={{
+                        caption: "排除原因分布数据表（NP-035）",
+                        headers: ["排除原因", "人数"],
+                        rows: Object.entries(
+                          coverage.excluded.reduce<Record<string, number>>((groups, entry) => {
+                            groups[entry.reason] = (groups[entry.reason] ?? 0) + 1;
+                            return groups;
+                          }, {}),
+                        ),
+                      }}
+                    />
+                  </>
                 ) : null}
               </>
             )}
