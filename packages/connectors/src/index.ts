@@ -10,3 +10,4 @@ export * from "./presets.js";
 export * from "./integration.js";
 export * from "./feishu-directory.js";
 export * from "./sync-runner.js";
+export * from "./canonical.js";

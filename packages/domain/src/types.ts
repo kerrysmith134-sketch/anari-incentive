@@ -1633,15 +1633,22 @@ export interface ExternalObjectIdentity {
   createdAt: string;
 }
 
-/** NP-020（2026-11-21 审计）：不可变原始落地记录（payload 密文）。 */
+/** NP-020（2026-11-21 审计）+ INT-202（Sprint 2.1）：不可变原始落地记录（版本化，payload 密文）。 */
 export interface RawSourceRecord {
   id: UUID;
   tenantId: UUID;
   sourceSystem: string;
   externalRecordId: string;
   payloadEncrypted: string;
+  /** 稳定内容哈希（投影幂等判定 + 篡改检测）。 */
+  payloadHash: string;
+  /** 来源版本（来源事件版本或内容哈希）；同记录多版本并存。 */
+  sourceVersion: string;
   mappingVersion: number;
   retentionClass: "DEFAULT" | "PII" | "FINANCIAL";
+  resourceId?: UUID;
+  fetchedAt: string;
+  sourceUpdatedAt?: string | null;
   replayedAt?: string | null;
   createdAt: string;
 }

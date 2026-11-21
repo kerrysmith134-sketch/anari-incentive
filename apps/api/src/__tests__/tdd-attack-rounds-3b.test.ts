@@ -136,6 +136,17 @@ describe("R25-R28: runner 路由与游标接力", () => {
       if (path.startsWith("/api/v1/sync-resources?connectionId=")) {
         return [...store.values()] as never;
       }
+      if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/claim-lease")) {
+        const body = JSON.parse(init!.body!) as { leaseOwner: string };
+        const resourceId = path.split("/")[4];
+        store.set(`lease:${resourceId}`, body.leaseOwner);
+        return { fencingToken: 1, leaseUntil: new Date(Date.now() + 900000).toISOString() } as never;
+      }
+      if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/release-lease")) {
+        const resourceId = path.split("/")[4];
+        store.delete(`lease:${resourceId}`);
+        return { released: true } as never;
+      }
       if (path.startsWith("/api/v1/sync-resources/") && path.endsWith("/checkpoint")) {
         const id = path.split("/")[4];
         if (method === "PUT") {
@@ -149,6 +160,12 @@ describe("R25-R28: runner 路由与游标接力", () => {
         const body = JSON.parse(init!.body!) as { externalRecordId?: string; reason: string };
         store.set(`quarantine:${body.externalRecordId ?? "none"}`, body);
         return { id: "q" } as never;
+      }
+      if (path === "/api/v1/raw-source-records" && method === "POST") {
+        const body = JSON.parse(init!.body!) as { sourceRecordId?: string; sourceVersion?: string; payloadHash?: string };
+        const rawKey = `raw:${body.sourceRecordId}:${body.sourceVersion ?? "1"}`;
+        if (!store.has(rawKey)) store.set(rawKey, { id: rawKey, externalRecordId: body.sourceRecordId, replayedAt: null });
+        return store.get(rawKey) as never;
       }
       if (path === "/api/v1/financial-facts" && method === "POST") {
         const body = JSON.parse(init!.body!) as Record<string, unknown>;

@@ -14,6 +14,7 @@ import {
   type IntegrationMappingLike,
 } from "./integration.js";
 import { HttpJsonConnector } from "./http-json.js";
+import { canonicalize, sha256Stable, type CanonicalBusinessEvent } from "./canonical.js";
 
 export type SyncRequestFn = <T>(
   path: string,
@@ -34,6 +35,7 @@ interface Mapping extends IntegrationMappingLike {
   id: string;
   status: string;
   targetType?: string;
+  version?: number;
 }
 
 interface SyncResource {
@@ -161,8 +163,9 @@ function parseFinancialFact(
 }
 
 /**
- * 409 = 同一源记录重复写入（financial_facts 唯一键 / 证据幂等键）→ 幂等成功。
- * NP-003：重放同一页不会重复入账，也不会丢数据。
+ * 幂等投影：仅当错误明确是目标端唯一键冲突（HTTP 409 / duplicate key /
+ * UNIQUE constraint）才视为 DUPLICATE。收紧匹配（Sprint 2.1）：宽松的
+ * "already" 前缀会把非幂等冲突隐藏为成功。
  */
 async function writeTargetIdempotent(
   request: SyncRequestFn,
@@ -174,7 +177,12 @@ async function writeTargetIdempotent(
     return "CREATED";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/already|duplicate|UNIQUE|HTTP 409/i.test(message)) {
+    if (
+      /HTTP 409/.test(message) ||
+      /duplicate key/i.test(message) ||
+      /UNIQUE constraint/i.test(message) ||
+      /_pkey|_key/.test(message) && /duplicate/i.test(message)
+    ) {
       return "DUPLICATE";
     }
     throw error;
@@ -223,6 +231,10 @@ export async function runSyncCycle(deps: {
       recordsQuarantined: 0,
       recordsFailed: 0,
     };
+    /** INT-205：已领取租约（fencing token），循环结束或失败时统一释放。 */
+    const claimedLeases: Array<{ resourceId: string; fencingToken: number }> = [];
+    /** INT-204：本次运行已投影的 canonical 哈希（raw 版本化 + 目标唯一键双保险）。 */
+    const projectedHashes = new Set<string>();
     let run: SyncRun | undefined;
     try {
       run = await request<SyncRun>(
@@ -281,6 +293,12 @@ export async function runSyncCycle(deps: {
       }
 
       for (const { resource, mapping, config } of resources) {
+        // INT-205：资源级租约——worker 实际使用 API 租约与 fencing token。
+        const lease = await request<{ fencingToken: number; leaseUntil: string }>(
+          `/api/v1/sync-resources/${resource.id}/claim-lease`,
+          { method: "POST", body: JSON.stringify({ leaseOwner: run!.id, leaseSeconds: 900 }) },
+        );
+        claimedLeases.push({ resourceId: resource.id, fencingToken: lease.fencingToken });
         const connector = new HttpJsonConnector(config);
         // NP-INT-003：从 checkpoint 断点续跑（不回到第一页）。
         let cursor: string | null = null;
@@ -295,10 +313,40 @@ export async function runSyncCycle(deps: {
         for (let page = 0; page < effectiveMaxPages; page += 1) {
           const result = await connector.pull(cursor);
           counters.recordsFetched += result.events.length;
+          // INT-206：页内最大 occurredAt 作为增量 watermark（checkpoint 观测基准）。
+          let pageWatermark: string | null = null;
           // NP-003：本页全部目标写入成功后才推进 checkpoint；
           // 任一写入失败抛出 → run FAILED → checkpoint 停留上一页（可重放、不丢数据）。
           for (const rawEvent of result.events) {
             const event = rawEvent as unknown as Record<string, unknown>;
+            const occurredAt =
+              typeof event.occurredAt === "string" && event.occurredAt
+                ? event.occurredAt
+                : undefined;
+            if (occurredAt && (!pageWatermark || occurredAt > pageWatermark)) {
+              pageWatermark = occurredAt;
+            }
+            // INT-203：先规范化为 Canonical Business Event（fail-closed）。
+            const canonical: CanonicalBusinessEvent = canonicalize(event, {
+              sourceSystem: mapping.sourceSystem,
+              mappingVersion: mapping.version ?? 1,
+            });
+            // INT-202：raw-first——先加密落地原始记录（版本化、带内容哈希），
+            // 落地失败抛出 → 整页失败，checkpoint 不推进（重放不丢数据）。
+            await writeTargetIdempotent(request, "/api/v1/raw-source-records", JSON.stringify({
+              sourceSystem: mapping.sourceSystem,
+              externalRecordId: canonical.externalObjectId !== canonical.eventType ? String(event.sourceRecordId ?? canonical.externalObjectId) : canonical.externalObjectId,
+              payload: event.payload ?? {},
+              payloadHash: canonical.payloadHash,
+              sourceVersion: canonical.sourceVersion,
+              mappingVersion: canonical.mappingVersion,
+            }));
+            // INT-204：投影幂等——同 canonical 哈希本运行内不重复投影。
+            const projectionKey = `${canonical.payloadHash}:${canonical.mappingVersion}`;
+            if (projectedHashes.has(projectionKey)) {
+              continue;
+            }
+            projectedHashes.add(projectionKey);
             const routing = routeTarget(mapping.targetType);
             try {
               if (routing.route === "EVIDENCE") {
@@ -381,14 +429,22 @@ export async function runSyncCycle(deps: {
               throw error;
             }
           }
-          // 本页全部写入成功 → 推进 checkpoint（NP-003）。
+          // 本页全部写入成功 → 推进 checkpoint（NP-003）+ watermark（INT-206）。
           await request(`/api/v1/sync-resources/${resource.id}/checkpoint`, {
             method: "PUT",
-            body: JSON.stringify({ cursor: result.nextCursor, lastRunId: run.id }),
+            body: JSON.stringify({ cursor: result.nextCursor, lastRunId: run.id, watermark: pageWatermark }),
           });
           cursor = result.nextCursor;
           if (!cursor) break;
         }
+      }
+
+      // INT-205：统一释放租约（真实 fencing token）。
+      for (const lease of claimedLeases) {
+        await request(`/api/v1/sync-resources/${lease.resourceId}/release-lease`, {
+          method: "POST",
+          body: JSON.stringify({ leaseOwner: run!.id, fencingToken: lease.fencingToken }),
+        }).catch(() => undefined);
       }
 
       // NP-016：finish 计数与逐条结果对账。
@@ -414,6 +470,13 @@ export async function runSyncCycle(deps: {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // INT-205：失败路径同样释放已领取租约（stale 被拒属预期，吞掉）。
+      for (const lease of claimedLeases) {
+        await request(`/api/v1/sync-resources/${lease.resourceId}/release-lease`, {
+          method: "POST",
+          body: JSON.stringify({ leaseOwner: run?.id ?? "unknown", fencingToken: lease.fencingToken }),
+        }).catch(() => undefined);
+      }
       if (run) {
         await request(`/api/v1/sync-runs/${run.id}/finish`, {
           method: "POST",

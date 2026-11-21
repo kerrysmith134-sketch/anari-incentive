@@ -1970,8 +1970,13 @@ export class PgPlatformStoreBase {
       sourceSystem: row.source_system,
       externalRecordId: row.external_record_id,
       payloadEncrypted: row.payload_encrypted,
+      payloadHash: row.payload_hash ?? "",
+      sourceVersion: row.source_version ?? "1",
       mappingVersion: Number(row.mapping_version ?? 1),
       retentionClass: row.retention_class ?? "DEFAULT",
+      resourceId: row.resource_id ?? undefined,
+      fetchedAt: iso(row.fetched_at) ?? new Date().toISOString(),
+      sourceUpdatedAt: iso(row.source_updated_at),
       replayedAt: iso(row.replayed_at),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };

@@ -1103,8 +1103,12 @@ export interface IntegrationPort {
     sourceSystem: string;
     externalRecordId: string;
     payloadEncrypted: string;
+    payloadHash?: string;
+    sourceVersion?: string;
     mappingVersion?: number;
     retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+    resourceId?: string;
+    sourceUpdatedAt?: string;
   }): Promise<RawSourceRecord>;
   listRawSourceRecords(
     tenantId: string,
