@@ -30,22 +30,55 @@ import {
 
 const HUNDRED = parseDecimal("100");
 const ZERO = parseDecimal("0");
+
+// ----------------------------------------------------------------------
+// NP-012（2026-11-21 审计 Wave 3）：金额/比率域不变量——负值会让
+// "扣减/分摊/系数"语义反转，重复人员会让台账行键碰撞，一律 fail-closed。
+// 错误经 policy.routes 的 runPolicyInput 包装为 400 POLICY_INPUT_INVALID。
+// ----------------------------------------------------------------------
+function requireNonNegative(name: string, raw: string): bigint {
+  const value = parseDecimal(raw);
+  if (value < 0n) {
+    throw new Error(`${name} 不能为负数（收到 ${raw}）`);
+  }
+  return value;
+}
+
+function requirePercent(name: string, raw: string, max = "100"): bigint {
+  const value = requireNonNegative(name, raw);
+  if (value > parseDecimal(max)) {
+    throw new Error(`${name} 超过上限 ${max}%（收到 ${raw}）`);
+  }
+  return value;
+}
+
+function requireUniquePersonIds(name: string, ids: string[]): void {
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      throw new Error(`${name} 存在重复人员 ${id}`);
+    }
+    seen.add(id);
+  }
+}
+
 const clamp = (value: bigint, lower: bigint, upper: bigint): bigint =>
   value < lower ? lower : value > upper ? upper : value;
 
 /** 016 第六条：业务中心可分配贡献利润（DBCP）。 */
 export function calculateDbcp(input: DbcpStatementInput): DbcpStatementResult {
   const grossProfit = parseDecimal(input.grossProfit);
-  const base = parseDecimal(
+  const base = requireNonNegative(
+    "管理计提基数",
     input.managementProvisionBase ?? input.grossProfit,
   );
-  const rate = parseDecimal(input.managementProvisionRatePercent ?? "5");
+  const rate = requirePercent("管理计提率", input.managementProvisionRatePercent ?? "5");
   const provision = div(mul(base, rate), HUNDRED);
   const deductions =
-    parseDecimal(input.businessExpenses) +
-    parseDecimal(input.laborAndTravel) +
-    parseDecimal(input.allocatedBusinessUnitExpenses) +
-    parseDecimal(input.allocatedBackendPayroll) +
+    requireNonNegative("业务费用", input.businessExpenses) +
+    requireNonNegative("差旅人工", input.laborAndTravel) +
+    requireNonNegative("分摊业务中心费用", input.allocatedBusinessUnitExpenses) +
+    requireNonNegative("分摊后台人力成本", input.allocatedBackendPayroll) +
     provision;
   return {
     grossProfit: formatDecimal(roundTo(grossProfit, 2, "HALF_UP")),
@@ -71,7 +104,22 @@ export function calculateBusinessUnitCommission(
   input: BusinessUnitCommissionInput,
 ): BusinessUnitCommissionResult {
   const dbcp = parseDecimal(input.dbcp);
-  const netCollection = parseDecimal(input.netCollection);
+  const netCollection = requireNonNegative("净回款", input.netCollection);
+  const rawBands = (input.bands ?? DEFAULT_MARGIN_BANDS).map((band) => ({
+    min: requireNonNegative("档位利润率下限", band.minMarginPercent),
+    rate: requirePercent("档位提成率", band.ratePercent),
+  }));
+  const sortedBands = [...rawBands].sort((left, right) => Number(left.min - right.min));
+  for (let index = 1; index < sortedBands.length; index += 1) {
+    if (sortedBands[index]!.min === sortedBands[index - 1]!.min) {
+      throw new Error(`提成档位利润率下限重复 ${formatDecimal(sortedBands[index]!.min)}%`);
+    }
+    if (sortedBands[index]!.rate < sortedBands[index - 1]!.rate) {
+      throw new Error(
+        `提成档位率必须随利润率单调递增（${formatDecimal(sortedBands[index]!.min)}% 档低于前一档）`,
+      );
+    }
+  }
   if (netCollection <= 0n) {
     return {
       marginPercent: "0",
@@ -91,14 +139,8 @@ export function calculateBusinessUnitCommission(
     };
   }
   const margin = div(mul(dbcp, HUNDRED), netCollection);
-  const bands = (input.bands ?? DEFAULT_MARGIN_BANDS)
-    .map((band) => ({
-      min: parseDecimal(band.minMarginPercent),
-      rate: parseDecimal(band.ratePercent),
-    }))
-    .sort((left, right) => Number(left.min - right.min));
   let rate = ZERO;
-  for (const band of bands) {
+  for (const band of sortedBands) {
     if (margin >= band.min) rate = band.rate;
   }
   const commission = div(mul(netCollection, rate), HUNDRED);
@@ -141,9 +183,19 @@ export function calculateExecutiveSupplement(
 export function calculateInternalSplit(
   input: InternalSplitInput,
 ): InternalSplitResult {
-  const pool = parseDecimal(input.commissionPool);
-  const marketing = parseDecimal(input.marketingReward);
-  const supplement = parseDecimal(input.executiveSupplement);
+  const pool = requireNonNegative("提成池", input.commissionPool);
+  const marketing = requireNonNegative("营销奖励", input.marketingReward);
+  const supplement = requireNonNegative("管理补差", input.executiveSupplement);
+  requireUniquePersonIds(
+    "内部分配参与人",
+    input.participants.map((participant) => participant.personId),
+  );
+  for (const participant of input.participants) {
+    requireNonNegative(
+      `参与人 ${participant.personId} 分配比例`,
+      participant.sharePercent,
+    );
+  }
   const remaining = pool - marketing - supplement;
   const errors: string[] = [];
   if (remaining < 0n) {
@@ -417,6 +469,11 @@ export function calculateTechCenterAward(
 export function calculateTechCenterPool(
   input: TechCenterPoolInput,
 ): TechCenterPoolResult {
+  requireNonNegative("业务中心提成总额", input.totalBusinessCommission);
+  requireUniquePersonIds(
+    "技术中心成员",
+    input.members.map((member) => member.personId),
+  );
   const pool = div(
     mul(parseDecimal(input.totalBusinessCommission), parseDecimal("19")),
     HUNDRED,
@@ -435,10 +492,10 @@ export function calculateTechCenterPool(
     else if (missed >= 2) headAdjustment = parseDecimal("-0.2");
   }
   const prepared = input.members.map((member) => {
-    const coefficient =
-      member.personId === input.headPersonId
-        ? member.positionCoefficient
-        : member.positionCoefficient;
+    requireNonNegative("岗位系数", member.positionCoefficient);
+    requireNonNegative("项目贡献度", member.projectContribution);
+    requireNonNegative("绩效系数", member.performanceCoefficient);
+    const coefficient = member.positionCoefficient;
     const adjusted = max(
       ZERO,
       parseDecimal(coefficient) + (member.personId === input.headPersonId ? headAdjustment : ZERO),

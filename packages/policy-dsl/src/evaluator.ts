@@ -16,7 +16,12 @@ import {
 } from "./decimal.js";
 import { sha256 } from "./hash.js";
 
-export const ENGINE_VERSION = "policy-dsl/0.1.0";
+/**
+ * NP-014（2026-11-21 审计）：引擎语义版本——任何算法行为变化（校验不变量、
+ * 舍入、封顶、评分函数）都必须 bump，保证 resultHash/replay 证据可追溯。
+ * 2.0.0 = 引入金额域不变量（负值/重复 fail-closed）与锚点单调校验。
+ */
+export const ENGINE_VERSION = "policy-dsl/2.0.0";
 const CENT = 10_000n; // 0.01 at 1e6 scale
 
 export interface OrderContributionResult {

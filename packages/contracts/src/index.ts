@@ -6,6 +6,124 @@ const decimal = z
 
 export const uuidSchema = z.string().uuid();
 
+// ----------------------------------------------------------------------
+// NP-011（2026-11-21 审计 Wave 3）：制度金额计算器严格 Zod——
+// 负值/越界/重复人员在协议层 400，不进入算法层才失败。
+// decimalExt 允许附加元数据字段（period 等），核心金额字段严格校验。
+// ----------------------------------------------------------------------
+const nonNegativeDecimal = z
+  .string()
+  .regex(/^\d+(\.\d{1,6})?$/, "expected a non-negative decimal string");
+const percentDecimal = z
+  .string()
+  .regex(/^\d{1,3}(\.\d{1,6})?$/, "expected a percent in [0,100]")
+  .refine((value) => Number(value) <= 100, "percent must be <= 100");
+
+export const dbcpCalculationSchema = z
+  .object({
+    grossProfit: decimal,
+    managementProvisionBase: nonNegativeDecimal.optional(),
+    managementProvisionRatePercent: percentDecimal.optional(),
+    // 与 DbcpStatementInput 一致：费用列为必填（缺省视为 0 由调用方显式传 "0"）。
+    businessExpenses: nonNegativeDecimal,
+    laborAndTravel: nonNegativeDecimal,
+    allocatedBusinessUnitExpenses: nonNegativeDecimal,
+    allocatedBackendPayroll: nonNegativeDecimal,
+  })
+  .passthrough();
+export type DbcpCalculationBody = z.infer<typeof dbcpCalculationSchema>;
+
+export const businessUnitCommissionCalculationSchema = z
+  .object({
+    dbcp: decimal,
+    netCollection: nonNegativeDecimal,
+    bands: z
+      .array(
+        z.object({
+          minMarginPercent: nonNegativeDecimal,
+          ratePercent: percentDecimal,
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+export type BusinessUnitCommissionCalculationBody = z.infer<
+  typeof businessUnitCommissionCalculationSchema
+>;
+
+export const internalSplitCalculationSchema = z
+  .object({
+    commissionPool: nonNegativeDecimal,
+    marketingReward: nonNegativeDecimal,
+    executiveSupplement: nonNegativeDecimal,
+    participants: z
+      .array(
+        z.object({
+          personId: uuidSchema,
+          sharePercent: nonNegativeDecimal,
+        }),
+      )
+      .min(1),
+  })
+  .passthrough()
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    for (const participant of value.participants) {
+      if (seen.has(participant.personId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `重复参与人 ${participant.personId}`,
+          path: ["participants"],
+        });
+      }
+      seen.add(participant.personId);
+    }
+  });
+export type InternalSplitCalculationBody = z.infer<
+  typeof internalSplitCalculationSchema
+>;
+
+export const techCenterPoolCalculationSchema = z
+  .object({
+    totalBusinessCommission: nonNegativeDecimal,
+    headPersonId: uuidSchema,
+    headReview: z
+      .object({
+        roadmapAchievementPercent: nonNegativeDecimal,
+        crossFunctionalSatisfaction: nonNegativeDecimal,
+        techDebtControlled: z.boolean(),
+        retentionMet: z.boolean(),
+      })
+      .optional(),
+    members: z
+      .array(
+        z.object({
+          personId: uuidSchema,
+          positionCoefficient: nonNegativeDecimal,
+          projectContribution: nonNegativeDecimal,
+          performanceCoefficient: nonNegativeDecimal,
+        }),
+      )
+      .min(1),
+  })
+  .passthrough()
+  .superRefine((value, ctx) => {
+    const seen = new Set<string>();
+    for (const member of value.members) {
+      if (seen.has(member.personId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `重复成员 ${member.personId}`,
+          path: ["members"],
+        });
+      }
+      seen.add(member.personId);
+    }
+  });
+export type TechCenterPoolCalculationBody = z.infer<
+  typeof techCenterPoolCalculationSchema
+>;
+
 export const createWorkPackageSchema = z.object({
   title: z.string().min(2).max(200),
   objective: z.string().min(3),

@@ -45,6 +45,12 @@ import {
   type PerformanceGoalCard,
   type TaskPod,
 } from "@anari/domain";
+import {
+  businessUnitCommissionCalculationSchema,
+  dbcpCalculationSchema,
+  internalSplitCalculationSchema,
+  techCenterPoolCalculationSchema,
+} from "@anari/contracts";
 import { ConflictError } from "../../store.js";
 import { calculateTaskClosureRate } from "@anari/policy-dsl";
 import { parseDecimal, formatDecimal } from "@anari/policy-dsl";
@@ -289,33 +295,31 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
 
     app.post("/api/v1/policy/incentive/dbcp", async (request) => {
       requireRoles(request, "finance");
-      const body = policyBody(request);
-      const input = body as unknown as Parameters<typeof calculateDbcp>[0];
-      const result = runPolicyInput(() => calculateDbcp(input));
+      // NP-011：严格 Zod——负费用/超上限计提率在协议层 400。
+      const body = parse(dbcpCalculationSchema, request.body);
+      const result = runPolicyInput(() => calculateDbcp(body));
       const record = await platformStore.savePolicyEngineRecord({
         tenantId: tenantOf(request),
         recordType: "DBCP_STATEMENT",
         period: typeof body.period === "string" ? body.period : undefined,
         status: "COMPUTED",
-        payload: { request: input, result },
+        payload: { request: body, result },
       });
       return data({ ...result, recordId: record.id }, request);
     });
 
     app.post("/api/v1/policy/incentive/business-unit-commission", async (request) => {
         requireRoles(request, "finance");
-        const body = policyBody(request);
-        const input =
-          body as unknown as Parameters<typeof calculateBusinessUnitCommission>[0];
+        const body = parse(businessUnitCommissionCalculationSchema, request.body);
         const result = runPolicyInput(() =>
-          calculateBusinessUnitCommission(input),
+          calculateBusinessUnitCommission(body),
         );
         const record = await platformStore.savePolicyEngineRecord({
           tenantId: tenantOf(request),
           recordType: "BUSINESS_UNIT_COMMISSION",
           period: typeof body.period === "string" ? body.period : undefined,
           status: result.eligible ? "COMPUTED" : "INELIGIBLE",
-          payload: { request: input, result },
+          payload: { request: body, result },
         });
         return data({ ...result, recordId: record.id }, request);
       },
@@ -336,10 +340,7 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
 
     app.post("/api/v1/policy/incentive/internal-split", async (request) => {
       requireRoles(request, "finance");
-      const input =
-        policyBody(request) as unknown as Parameters<
-          typeof calculateInternalSplit
-        >[0];
+      const input = parse(internalSplitCalculationSchema, request.body);
       const result = runPolicyInput(() => calculateInternalSplit(input));
       return data(result, request);
     });
@@ -382,16 +383,14 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
 
     app.post("/api/v1/policy/incentive/tech-center/pool", async (request) => {
       requireRoles(request, "finance");
-      const body = policyBody(request);
-      const input =
-        body as unknown as Parameters<typeof calculateTechCenterPool>[0];
-      const result = runPolicyInput(() => calculateTechCenterPool(input));
+      const body = parse(techCenterPoolCalculationSchema, request.body);
+      const result = runPolicyInput(() => calculateTechCenterPool(body));
       const record = await platformStore.savePolicyEngineRecord({
         tenantId: tenantOf(request),
         recordType: "TECH_CENTER_POOL",
         period: typeof body.period === "string" ? body.period : undefined,
         status: "COMPUTED",
-        payload: { request: input, result },
+        payload: { request: body, result },
       });
       return data({ ...result, recordId: record.id }, request);
     });

@@ -139,6 +139,36 @@ function clamp(value: bigint, lower: bigint, upper: bigint): bigint {
   return min(max(value, lower), upper);
 }
 
+/**
+ * NP-013（2026-11-21 审计 Wave 3）：锚点 fail-closed 校验——
+ * raw 必须唯一；分数沿 raw 方向必须单调（ascending: PIECEWISE/正向；
+ * descending: REVERSE 反向）。畸形锚点直接拒绝，不静默插值。
+ */
+function validateAnchors(
+  anchors: ScoringAnchor[],
+  direction: "ascending" | "descending",
+): void {
+  const points = anchors
+    .map((anchor) => ({ raw: parseDecimal(anchor.raw), score: parseDecimal(anchor.score) }))
+    .sort((left, right) => Number(left.raw - right.raw));
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index]!.raw === points[index - 1]!.raw) {
+      throw new Error(`评分锚点 raw 重复：${formatDecimal(points[index]!.raw)}`);
+    }
+    if (direction === "ascending") {
+      if (points[index]!.score < points[index - 1]!.score) {
+        throw new Error(
+          `评分锚点分数必须随 raw 单调不减（raw=${formatDecimal(points[index]!.raw)} 处下降）`,
+        );
+      }
+    } else if (points[index]!.score > points[index - 1]!.score) {
+      throw new Error(
+        `反向指标锚点分数必须随 raw 单调不增（raw=${formatDecimal(points[index]!.raw)} 处上升）`,
+      );
+    }
+  }
+}
+
 function interpolate(
   anchors: ScoringAnchor[],
   raw: bigint,
@@ -197,6 +227,7 @@ export function scoreMetric(
     }
     case "REVERSE_LINEAR": {
       if (metric.scoringAnchors && metric.scoringAnchors.length > 0) {
+        validateAnchors(metric.scoringAnchors, "descending");
         const result = interpolate(metric.scoringAnchors, raw);
         return {
           score: clamp(result.score, ZERO, maxScore),
@@ -222,6 +253,7 @@ export function scoreMetric(
           `metric ${metric.metricId} requires scoring anchors`,
         );
       }
+      validateAnchors(metric.scoringAnchors, "ascending");
       const result = interpolate(metric.scoringAnchors, raw);
       return {
         score: clamp(result.score, ZERO, maxScore),
@@ -272,6 +304,9 @@ function isApplicable(
 export function scorePerformance(
   request: PerformanceScoreRequest,
 ): PerformanceScoreResult {
+  // NP-013：coverageComplete（证据/测量覆盖完整）与 scoreable（可形成正式分）
+  // 语义分离——覆盖不完整时结果仍可计算但不可作为正式评价依据。
+  const coverageComplete = request.coverageComplete ?? true;
   const seenMetricIds = new Set<string>();
   for (const metric of request.metrics) {
     if (seenMetricIds.has(metric.metricId)) {
@@ -282,6 +317,15 @@ export function scorePerformance(
   const metricById = new Map(
     request.metrics.map((metric) => [metric.metricId, metric]),
   );
+  // NP-013：重复测量拒绝（此前 last-win 静默覆盖——同一测量两个值会让
+  // 复核与重放对不上，必须显式失败）。
+  const seenMeasurementIds = new Set<string>();
+  for (const measurement of request.measurements) {
+    if (seenMeasurementIds.has(measurement.metricId)) {
+      throw new Error(`重复测量 metricId: ${measurement.metricId}`);
+    }
+    seenMeasurementIds.add(measurement.metricId);
+  }
   const measurementById = new Map(
     request.measurements.map((measurement) => [measurement.metricId, measurement]),
   );
@@ -342,6 +386,8 @@ export function scorePerformance(
       naMetricIds,
       renormalized: false,
       complete: false,
+      coverageComplete,
+      scoreable: false,
       note: "无法形成完整评价：所有指标均为 N/A",
       resultHash: sha256({ request, complete: false }),
     };
@@ -409,9 +455,14 @@ export function scorePerformance(
     naMetricIds,
     renormalized,
     complete: true,
+    coverageComplete,
+    // scoreable = 覆盖完整才可作为正式评价依据；coverage 缺失只降级不报错。
+    scoreable: coverageComplete,
     note: renormalized
       ? "存在 N/A 指标，已按其余适用指标同比例归一化权重"
-      : undefined,
+      : !coverageComplete
+        ? "覆盖不完整：结果仅供复核参考，不得作为正式评价依据"
+        : undefined,
   };
   return {
     ...resultWithoutHash,

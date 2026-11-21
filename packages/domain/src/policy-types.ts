@@ -89,6 +89,11 @@ export interface PerformanceScoreRequest {
   manualAdjustment?: DecimalString;
   manualAdjustmentReason?: string;
   performanceGrade?: PerformanceGrade;
+  /**
+   * NP-013（2026-11-21 审计）：测量/证据覆盖完整性——缺省 true；
+   * false 时结果仍计算但 scoreable=false，不得作为正式评价依据。
+   */
+  coverageComplete?: boolean;
 }
 
 /**
@@ -140,6 +145,10 @@ export interface PerformanceScoreResult {
   naMetricIds: string[];
   renormalized: boolean;
   complete: boolean;
+  /** NP-013：覆盖完整性（缺省 true 时与 complete 同义传递）。 */
+  coverageComplete: boolean;
+  /** NP-013：是否可作为正式评价依据（= coverageComplete）。 */
+  scoreable: boolean;
   note?: string;
   resultHash: string;
 }

@@ -6570,6 +6570,232 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/sync-resources:
+    post:
+      tags: [Ingestion]
+      summary: Create a sync resource (per-mapping stream)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSyncResource"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+    get:
+      tags: [Ingestion]
+      summary: List sync resources for a connection
+      parameters:
+        - name: connectionId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/sync-resources/{id}/checkpoint:
+    get:
+      tags: [Ingestion]
+      summary: Read the resource cursor checkpoint
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Checkpoint (empty cursor when first run)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Ingestion]
+      summary: Advance the resource cursor (after durable target writes)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertSyncCheckpoint"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/ingestion-quarantine:
+    post:
+      tags: [Ingestion]
+      summary: Quarantine an unrouteable or invalid record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuarantineRecord"
+      responses:
+        "201":
+          description: Recorded (idempotent upsert)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Ingestion]
+      summary: List quarantine records
+      parameters:
+        - name: sourceSystem
+          in: query
+          schema: { type: string }
+        - name: unresolved
+          in: query
+          schema: { type: string, enum: ["1", "true"] }
+      responses:
+        "200":
+          description: Listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/external-objects:
+    post:
+      tags: [Ingestion]
+      summary: Register an external object identity mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertExternalObject"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      tags: [Ingestion]
+      summary: List external object identities
+      parameters:
+        - name: sourceSystem
+          in: query
+          schema: { type: string }
+        - name: externalObjectType
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/external-objects:resolve:
+    get:
+      tags: [Ingestion]
+      summary: Resolve an external object to an internal canonical object
+      parameters:
+        - name: sourceSystem
+          in: query
+          required: true
+          schema: { type: string }
+        - name: externalObjectType
+          in: query
+          required: true
+          schema: { type: string }
+        - name: externalObjectId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/integration-webhooks/{routingKey}:
+    post:
+      tags: [Ingestion]
+      summary: Provider signed callback (public; HMAC over raw body)
+      parameters:
+        - name: routingKey
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "202":
+          description: Accepted (raw payload encrypted at rest)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          description: Signature invalid
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/sync-runs/{id}/finish:
     post:
       tags: [Ingestion]
@@ -13240,6 +13466,81 @@ components:
         cursorBefore:
           type: object
           additionalProperties: true
+
+    CreateSyncResource:
+      type: object
+      required: [connectionId, resourceKey]
+      properties:
+        connectionId:
+          type: string
+          format: uuid
+        resourceKey:
+          type: string
+        mappingId:
+          type: string
+          format: uuid
+        scheduleId:
+          type: string
+          format: uuid
+
+    UpsertSyncCheckpoint:
+      type: object
+      properties:
+        cursor:
+          type: [string, "null"]
+        watermark:
+          type: [string, "null"]
+          format: date-time
+        lastRunId:
+          type: [string, "null"]
+          format: uuid
+
+    CreateQuarantineRecord:
+      type: object
+      required: [sourceSystem, reason]
+      properties:
+        sourceSystem:
+          type: string
+        externalRecordId:
+          type: string
+        reason:
+          type: string
+          enum:
+            - UNRESOLVED_IDENTITY
+            - INVALID_CURRENCY
+            - MISSING_RELATION
+            - SCHEMA_MISMATCH
+            - OTHER
+        payload:
+          type: object
+          additionalProperties: true
+        resolutionNote:
+          type: string
+
+    UpsertExternalObject:
+      type: object
+      required: [sourceSystem, externalObjectType, externalObjectId, internalObjectType, internalObjectId]
+      properties:
+        sourceSystem:
+          type: string
+        externalObjectType:
+          type: string
+        externalObjectId:
+          type: string
+        internalObjectType:
+          type: string
+        internalObjectId:
+          type: string
+          format: uuid
+        matchRule:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        confirmedBy:
+          type: string
+          format: uuid
 
     FinishSyncRun:
       type: object
