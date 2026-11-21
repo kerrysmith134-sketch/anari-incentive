@@ -1434,7 +1434,8 @@ export type ClaimResourceLeaseBody = z.infer<typeof claimResourceLeaseSchema>;
 
 export const releaseResourceLeaseSchema = z.object({
   leaseOwner: z.string().min(1),
-  fencingToken: z.number().int().positive(),
+  // 0 也是合法输入——必然 stale（token 从 1 起），由租约逻辑返回 409。
+  fencingToken: z.number().int().min(0),
 });
 export type ReleaseResourceLeaseBody = z.infer<
   typeof releaseResourceLeaseSchema

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -8,16 +8,18 @@ import { describe, expect, it } from "vitest";
  */
 function walk(dir: string): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry.name ?? entry);
+  for (const entryName of readdirSync(dir)) {
+    const full = join(dir, entryName);
+    let isDirectory = false;
     try {
-      if (entry.isDirectory?.()) {
-        out.push(...walk(full));
-      } else if (/\.(css|tsx|ts)$/.test(String(entry.name ?? entry))) {
-        out.push(full);
-      }
+      isDirectory = statSync(full).isDirectory();
     } catch {
-      /* ignore unreadable entries */
+      isDirectory = false;
+    }
+    if (isDirectory) {
+      out.push(...walk(full));
+    } else if (/\.(css|tsx|ts)$/.test(entryName)) {
+      out.push(full);
     }
   }
   return out;

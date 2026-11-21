@@ -874,6 +874,21 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
     }): Promise<RawSourceRecord> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
       const timestamp = now();
+      // 与 PG ON CONFLICT 对等：同 (tenant, system, recordId) 覆盖密文与
+      // mapping 版本并重置重放标记（供应商更正后可再次重放）。
+      const existing = [...this.rawSourceRecords.values()].find(
+        (record) =>
+          record.tenantId === input.tenantId &&
+          record.sourceSystem === input.sourceSystem &&
+          record.externalRecordId === input.externalRecordId,
+      );
+      if (existing) {
+        existing.payloadEncrypted = input.payloadEncrypted;
+        existing.mappingVersion = input.mappingVersion ?? existing.mappingVersion;
+        existing.retentionClass = input.retentionClass ?? existing.retentionClass;
+        existing.replayedAt = null;
+        return existing;
+      }
       const record: RawSourceRecord = {
         id: randomUUID(),
         tenantId: input.tenantId,
