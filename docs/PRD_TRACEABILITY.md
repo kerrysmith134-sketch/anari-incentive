@@ -1,3 +1,22 @@
+# Sprint 2.1 — Production Integration Readiness（2026-11-22 完成）
+
+针对第二轮审计（基于 89cbb39）八项发现的整改。十项 P0（INT-201..210）全部落地：
+
+- **INT-201 SecretProvider**：`apps/api/src/secret-provider.ts`（SECRETS_JSON + SECRETS_FILE）；runner `credentialRefResolver` 凭据链——脱敏配置不再被当真实凭据发送，解析失败 fail-closed。
+- **INT-202 版本化 Raw Ledger**：迁移 100（source_version/payload_hash/resource_id/fetched_at/source_updated_at，版本唯一键）；runner **raw-first**（每条记录先加密落 raw 再投影；落地失败整页失败）。
+- **INT-203 Canonical Business Event**：`connectors/canonical.ts` canonicalize()——统一中间表示（来源/对象/事件/稳定哈希）。
+- **INT-204 Raw-to-Target Projection**：canonical 哈希投影幂等 + 目标唯一键 409 DUPLICATE（writeTargetIdempotent 收紧）。
+- **INT-205 Sync Lease Integration**：runner claim/release（真实 fencing token，失败路径同样释放）。
+- **INT-206 Watermark Engine**：checkpoint watermark（页内最大 occurredAt）+ connector `updatedSinceParam/updatedSinceBodyKey` 增量拉取 + overlap 窗口回退。
+- **INT-207 Identity Resolution 强类型**：UUID 直通废除（显式 allowUuidPassthrough）；404=隔离 vs 网络/5xx=页重试；confirmedBy 会话强制。
+- **INT-208 FinancialFact Revision Ledger**：迁移 101（append-only 修订账本）；迟到旧快照 409 STALE_FINANCIAL_FACTOR（红线：旧不覆新）；runner STALE→跳过。
+- **INT-209 Quarantine/Replay**：隔离区 resolve 端点（处置留痕+审计）+ 运营页签（处置说明+标记已处置）+ 资源监控（cursor/租约状态）。
+- **INT-210 Integration Security**：mapping 响应脱敏 + financial-facts integration 角色边界 + SSRF/退避（前批已落）。
+
+ERP 财务数据契约：`docs/integration/erp-financial-fact-contract.md`（法人/订单/
+发票/收入确认/FX/期间关闭 payload 约定 + 影子核算验收清单）——**NO_GO 解除
+的前置条件**。接入顺序与真值表见 README。
+
 # 2026-11-21 Integration Foundation 审计整改（Wave 1-5）
 
 对外部审计包 `N_Perform_2026_11_21_Audit_Pack`（35 项 NP-001..035）的四波整改 + 产品级收尾。完整清单与提交记录见 git log（6c8371e / 47a3388 / 本节对应提交）；外部系统接入状态以 README「Provider readiness truth table」为准。

@@ -92,7 +92,7 @@ This repository is the implementation baseline for PRD V4.1. The core is **insti
 | 通用 HTTP/JSON | `FRAMEWORK_ONLY` | 资源级管道已闭合（SyncResource/Checkpoint/隔离区/身份解析）；仅限内部 mock 契约夹具 |
 | CSV | `PARTIAL` | 行级校验后可用于受控匿名试点 |
 | CRM（HubSpot 等） | `PARTIAL` | 通用框架 + HubSpot helper；OAuth/search/webhook 全链路未接通，仅可原型 |
-| ERP 财务 | `NO_GO` | 示例映射存在；财务事实通道已类型化（金额/币种校验 + 隔离），但 **未经真实 ERP 对账验证前禁止接入生产财务数据** |
+| ERP 财务 | `NO_GO` | 示例映射存在；财务事实通道已类型化（金额/币种校验 + 隔离），但 **未经真实 ERP 对账验证前禁止接入生产财务数据**。数据契约见 [`docs/integration/erp-financial-fact-contract.md`](docs/integration/erp-financial-fact-contract.md) |
 | PingCode | `NOT_READY` | 无原生 adapter（待厂商 API 契约） |
 | Commercial 内部系统 | `NOT_READY` | 缺内部 API 契约与样本 |
 | Ticketing | `NOT_READY` | 无原生 adapter |
