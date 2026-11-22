@@ -36,7 +36,7 @@ interface SyncResourceView {
 }
 
 /** 连接的隔离区待处置列表 + 一键处置。 */
-function QuarantineReview({ connectionId }: { connectionId: string }) {
+function QuarantineReview({ connectionId, session }: { connectionId: string; session: { personId: string } }) {
   const toast = useToast();
   const quarantine = useApiQuery<QuarantineRecordView[]>(
     `/api/v1/ingestion-quarantine?unresolved=1`,
@@ -44,6 +44,13 @@ function QuarantineReview({ connectionId }: { connectionId: string }) {
   );
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [replayFor, setReplayFor] = useState<string | null>(null);
+  const [replayForm, setReplayForm] = useState({
+    eventType: "updated",
+    subjectType: "ORDER",
+    subjectId: "",
+    evidenceType: "ACTIVITY",
+  });
 
   async function resolve(id: string) {
     const note = (notes[id] ?? "").trim();
@@ -106,7 +113,93 @@ function QuarantineReview({ connectionId }: { connectionId: string }) {
                 onClick={() => void resolve(record.id)}
               >
                 标记已处置
+              </Button>{" "}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  setReplayFor(replayFor === record.id ? null : record.id)
+                }
+              >
+                按新映射版本重放
               </Button>
+              {replayFor === record.id ? (
+                <div className="stack" style={{ marginTop: 8 }}>
+                  <InfoNotice>
+                    重放将解密原始载荷并按下方解析字段转投证据通道（INT-209）。
+                  </InfoNotice>
+                  <div className="toolbar__group">
+                    <input
+                      className="input"
+                      value={replayForm.eventType}
+                      onChange={(event) =>
+                        setReplayForm((form) => ({ ...form, eventType: event.target.value }))
+                      }
+                      aria-label={`重放 eventType-${record.id}`}
+                      placeholder="eventType"
+                    />
+                    <input
+                      className="input"
+                      value={replayForm.subjectType}
+                      onChange={(event) =>
+                        setReplayForm((form) => ({ ...form, subjectType: event.target.value }))
+                      }
+                      aria-label={`重放 subjectType-${record.id}`}
+                      placeholder="subjectType"
+                    />
+                    <input
+                      className="input"
+                      value={replayForm.subjectId}
+                      onChange={(event) =>
+                        setReplayForm((form) => ({ ...form, subjectId: event.target.value }))
+                      }
+                      aria-label={`重放 subjectId-${record.id}`}
+                      placeholder="内部对象 UUID"
+                    />
+                    <input
+                      className="input"
+                      value={replayForm.evidenceType}
+                      onChange={(event) =>
+                        setReplayForm((form) => ({ ...form, evidenceType: event.target.value }))
+                      }
+                      aria-label={`重放 evidenceType-${record.id}`}
+                      placeholder="evidenceType"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={async () => {
+                      setBusyId(record.id);
+                      try {
+                        await api(
+                          `/api/v1/raw-source-records/${record.id}/replay`,
+                          {
+                            method: "POST",
+                            body: {
+                              eventType: replayForm.eventType,
+                              subjectType: replayForm.subjectType,
+                              subjectId: replayForm.subjectId,
+                              evidenceType: replayForm.evidenceType,
+                            },
+                          },
+                        );
+                        toast.success("重放完成", record.id.slice(0, 8));
+                        quarantine.reload();
+                      } catch (caught) {
+                        toast.error(
+                          "重放失败",
+                          caught instanceof ApiError ? caught.message : undefined,
+                        );
+                      } finally {
+                        setBusyId(null);
+                      }
+                    }}
+                  >
+                    执行重放
+                  </Button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -168,10 +261,17 @@ function ResourceMonitor({ connectionId }: { connectionId: string }) {
   );
 }
 
-export function OpsSection({ connection }: { connection: { id: string } }) {
+export function OpsSection({
+  connection,
+  session,
+}: {
+  connection: { id: string };
+  session: { personId: string };
+}) {
   return (
     <div className="stack">
-      <QuarantineReview connectionId={connection.id} />
+      <SyncHealthCard connectionId={connection.id} />
+      <QuarantineReview connectionId={connection.id} session={session} />
       <ResourceMonitor connectionId={connection.id} />
       <RawRecordExplorer />
       <LineageQuery />
@@ -199,6 +299,9 @@ function CheckpointInspector({ resourceId }: { resourceId: string }) {
         ? formatDateTime(data.watermark)
         : "—"}
       · overlap {data && "overlapSeconds" in data ? (data.overlapSeconds ?? 0) : 0}s
+      {data && "lastRunId" in data && data.lastRunId
+        ? ` · 最近运行 ${String(data.lastRunId).slice(0, 8)}`
+        : ""}
     </div>
   );
 }
@@ -396,3 +499,54 @@ function SchemaDriftPanel({ connectionId }: { connectionId: string }) {
   );
 }
 
+/** Sync Health Dashboard：成功率/延迟/错误分布（P1）。 */
+function SyncHealthCard({ connectionId }: { connectionId: string }) {
+  const health = useApiQuery<{
+    totalRuns: number;
+    succeeded: number;
+    failed: number;
+    successRate: number | null;
+    avgDurationMs: number | null;
+    errorSummaryCounts: Record<string, number>;
+  }>(
+    `/api/v1/reports/sync-health?connectionId=${connectionId}`,
+    `ops-sync-health-${connectionId}`,
+  );
+  return (
+    <div className="detail-section">
+      <div className="detail-section__title">同步健康（最近运行）</div>
+      {health.error ? (
+        <ErrorNotice error={health.error} onRetry={health.reload} />
+      ) : health.loading ? (
+        <LoadingRows rows={2} />
+      ) : health.data ? (
+        <>
+          <ul className="stack-list">
+            <li>
+              成功率：
+              {health.data.successRate !== null
+                ? `${Math.round(health.data.successRate * 10000) / 100}%`
+                : "无已完成运行"}
+            </li>
+            <li>
+              平均耗时：
+              {health.data.avgDurationMs !== null
+                ? `${health.data.avgDurationMs}ms`
+                : "—"}
+            </li>
+            <li>失败运行数：{health.data.failed}</li>
+          </ul>
+          {Object.keys(health.data.errorSummaryCounts).length > 0 ? (
+            <ul className="stack-list muted">
+              {Object.entries(health.data.errorSummaryCounts).map(([summary, count]) => (
+                <li key={summary}>
+                  ×{count} {summary}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}

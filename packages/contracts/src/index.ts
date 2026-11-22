@@ -1296,12 +1296,50 @@ export type FinishWorkflowRunBody = z.infer<
   typeof finishWorkflowRunSchema
 >;
 
-export const createIntegrationConnectionSchema = z.object({
-  provider: z.string().min(1),
-  connectionName: z.string().min(1),
-  credentialRef: z.string().min(1),
-  config: z.record(z.unknown()).default({}),
-});
+/** INT-201 红线（Sprint 2.1）：凭据只走 credentialRef——连接/映射 config
+ * 中出现敏感键（headers 认证、api key、token、密码等）一律拒绝存储。 */
+const SENSITIVE_CONFIG_KEY = /authorization|api[-_]?key|secret|token|password|credential/i;
+
+function rejectSensitiveConfig(
+  config: Record<string, unknown>,
+  ctx: z.RefinementCtx,
+): void {
+  for (const [key, value] of Object.entries(config)) {
+    if (SENSITIVE_CONFIG_KEY.test(key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `敏感键 "${key}" 禁止写入配置——凭据只走 credentialRef（SecretProvider）`,
+        path: [key],
+      });
+      continue;
+    }
+    if (
+      key === "headers" &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      for (const headerKey of Object.keys(value as Record<string, unknown>)) {
+        if (SENSITIVE_CONFIG_KEY.test(headerKey)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `headers 中的 "${headerKey}" 属于凭据——只走 credentialRef（SecretProvider）`,
+            path: ["headers", headerKey],
+          });
+        }
+      }
+    }
+  }
+}
+
+export const createIntegrationConnectionSchema = z
+  .object({
+    provider: z.string().min(1),
+    connectionName: z.string().min(1),
+    credentialRef: z.string().min(1),
+    config: z.record(z.unknown()).default({}),
+  })
+  .superRefine((value, ctx) => rejectSensitiveConfig(value.config ?? {}, ctx));
 export type CreateIntegrationConnectionBody = z.infer<
   typeof createIntegrationConnectionSchema
 >;
@@ -1313,18 +1351,20 @@ export type SetIntegrationConnectionStatusBody = z.infer<
   typeof setIntegrationConnectionStatusSchema
 >;
 
-export const createIntegrationMappingSchema = z.object({
-  name: z.string().min(1),
-  mappingType: z.enum(["CSV", "HTTP_JSON"]),
-  sourceSystem: z.string().min(1),
-  targetType: z.string().min(1),
-  fieldMap: z.record(z.string().min(1)).refine(
-    (value) => Object.keys(value).length > 0,
-    "fieldMap must contain at least one mapping",
-  ),
-  config: z.record(z.unknown()).default({}),
-  version: z.number().int().positive().default(1),
-});
+export const createIntegrationMappingSchema = z
+  .object({
+    name: z.string().min(1),
+    mappingType: z.enum(["CSV", "HTTP_JSON"]),
+    sourceSystem: z.string().min(1),
+    targetType: z.string().min(1),
+    fieldMap: z.record(z.string().min(1)).refine(
+      (value) => Object.keys(value).length > 0,
+      "fieldMap must contain at least one mapping",
+    ),
+    config: z.record(z.unknown()).default({}),
+    version: z.number().int().positive().default(1),
+  })
+  .superRefine((value, ctx) => rejectSensitiveConfig(value.config ?? {}, ctx));
 export type CreateIntegrationMappingBody = z.infer<
   typeof createIntegrationMappingSchema
 >;

@@ -605,6 +605,46 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
   // AUD-015：评价覆盖率以全员 roster 为分母（不是“有草案的人才算”）。
   // decision 匹配按 person+cycle（decision 由草案审批产生，归属同周期）。
   // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // P1 Sync Health Dashboard：最近运行的延迟/失败率/错误分布聚合。
+  // ------------------------------------------------------------------
+  app.get("/api/v1/reports/sync-health", async (request) => {
+    requireRoles(request, "manager", "finance", "integration");
+    const query = request.query as { connectionId?: string; limit?: string };
+    const runs = await platformStore.listSyncRuns(tenantOf(request), query.connectionId);
+    const limit = Math.min(Math.max(Number(query.limit ?? 50), 1), 200);
+    const recent = runs
+      .filter((run) => run.finishedAt)
+      .slice(0, limit);
+    const succeeded = recent.filter((run) => run.status === "SUCCEEDED");
+    const failed = recent.filter((run) => run.status === "FAILED");
+    const durations = recent
+      .filter((run) => run.startedAt && run.finishedAt)
+      .map((run) => new Date(run.finishedAt!).getTime() - new Date(run.startedAt!).getTime());
+    const avgDurationMs =
+      durations.length > 0
+        ? Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length)
+        : null;
+    const errorSummaryCounts: Record<string, number> = {};
+    for (const run of failed) {
+      const key = (run.errorSummary ?? "unknown").slice(0, 80);
+      errorSummaryCounts[key] = (errorSummaryCounts[key] ?? 0) + 1;
+    }
+    const report = {
+      window: recent.length,
+      totalRuns: recent.length,
+      succeeded: succeeded.length,
+      failed: failed.length,
+      successRate: recent.length > 0 ? succeeded.length / recent.length : null,
+      avgDurationMs,
+      recordsFetched: recent.reduce((sum, run) => sum + run.recordsFetched ?? 0, 0) || recent.reduce((sum, run) => sum + run.recordsSeen, 0),
+      recordsFailed: recent.reduce((sum, run) => sum + (run.recordsFailed ?? 0), 0),
+      errorSummaryCounts,
+      generatedAt: new Date().toISOString(),
+    };
+    return data(report, request);
+  });
+
   app.get("/api/v1/reports/evaluation-coverage", async (request) => {
     requireRoles(request, "manager", "finance");
     const query = request.query as { cycleId?: string };

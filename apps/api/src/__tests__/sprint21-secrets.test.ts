@@ -208,6 +208,85 @@ describe("INT-201: SecretProvider", () => {
   });
 });
 
+describe("INT-201 红线：敏感键禁止入配置（schema 层拒绝）", () => {
+  it("连接 config 含 Authorization header → 400（凭据只走 credentialRef）", async () => {
+    const platformStore = new MemoryPlatformStore({
+      demoTenant: { id: TENANT, name: "red", slug: "red" },
+    });
+    const app = buildApp(
+      () => new Store(TENANT),
+      undefined,
+      {
+        async authenticate() {
+          return { tenantId: TENANT, userId: "r", roles: ["admin", "integration"], personId: ADMIN };
+        },
+      },
+      platformStore,
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/integration-connections",
+      payload: JSON.stringify({
+        provider: "generic",
+        connectionName: "red-conn",
+        credentialRef: "vault/red",
+        config: {
+          url: "https://p.example",
+          headers: { Authorization: "Bearer sk-should-be-rejected" },
+        },
+      }),
+      headers: { "content-type": "application/json", "x-tenant-id": TENANT, "x-user-id": "r", "x-person-id": ADMIN },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.json())).toContain("credentialRef");
+    // 存储层确认：Memory store 中无该连接（schema 拒绝，未落库）
+  });
+
+  it("mapping config 含 X-Api-Key → 400", async () => {
+    const platformStore = new MemoryPlatformStore({
+      demoTenant: { id: TENANT, name: "red2", slug: "red2" },
+    });
+    const app = buildApp(
+      () => new Store(TENANT),
+      undefined,
+      {
+        async authenticate() {
+          return { tenantId: TENANT, userId: "r", roles: ["admin", "integration"], personId: ADMIN };
+        },
+      },
+      platformStore,
+    );
+    const conn = await app.inject({
+      method: "POST",
+      url: "/api/v1/integration-connections",
+      payload: JSON.stringify({
+        provider: "generic",
+        connectionName: "red2-conn",
+        credentialRef: "vault/red2",
+        config: {},
+      }),
+      headers: { "content-type": "application/json", "x-tenant-id": TENANT, "x-user-id": "r", "x-person-id": ADMIN },
+    });
+    const connectionId = (JSON.parse(conn.payload) as { data: { id: string } }).data.id;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/integration-connections/${connectionId}/mappings`,
+      payload: JSON.stringify({
+        name: "red2-mapping",
+        mappingType: "HTTP_JSON",
+        sourceSystem: "red2",
+        targetType: "EVIDENCE",
+        fieldMap: { sourceRecordId: "id", eventType: "e", subjectType: "s", subjectId: "sid", evidenceType: "=ACTIVITY" },
+        config: { "X-Api-Key": "ak-secret" },
+        version: 1,
+      }),
+      headers: { "content-type": "application/json", "x-tenant-id": TENANT, "x-user-id": "r", "x-person-id": ADMIN },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.json())).toContain("credentialRef");
+  });
+});
+
 describe("INT-210: mappings 脱敏 + financial-facts 角色", () => {
   it("mapping GET/POST 响应 config 敏感键脱敏", async () => {
     const platformStore = new MemoryPlatformStore({
@@ -235,11 +314,12 @@ describe("INT-210: mappings 脱敏 + financial-facts 角色", () => {
       headers: { "content-type": "application/json", "x-tenant-id": TENANT, "x-user-id": "b", "x-person-id": ADMIN },
     });
     const connectionId = (JSON.parse(conn.payload) as { data: { id: string } }).data.id;
-    const mapping = await app.inject({
+    // INT-201 红线后：新建 mapping 携带敏感键会在 schema 层被拒（400）。
+    const rejected = await app.inject({
       method: "POST",
       url: `/api/v1/integration-connections/${connectionId}/mappings`,
       payload: JSON.stringify({
-        name: "b2-mapping",
+        name: "b2-rejected",
         mappingType: "HTTP_JSON",
         sourceSystem: "b2",
         targetType: "EVIDENCE",
@@ -249,14 +329,29 @@ describe("INT-210: mappings 脱敏 + financial-facts 角色", () => {
       }),
       headers: { "content-type": "application/json", "x-tenant-id": TENANT, "x-user-id": "b", "x-person-id": ADMIN },
     });
-    expect(mapping.statusCode).toBe(201);
-    expect(mapping.payload).not.toContain("mapping-secret");
+    expect(rejected.statusCode).toBe(400);
+    // 纵深防御：历史遗留（直接落库）的敏感 config，GET 响应仍脱敏。
+    const platformMapping = await platformStore.createIntegrationMapping({
+      tenantId: TENANT,
+      connectionId,
+      name: "legacy mapping",
+      mappingType: "HTTP_JSON",
+      sourceSystem: "b2",
+      targetType: "EVIDENCE",
+      fieldMap: { sourceRecordId: "id", eventType: "e", subjectType: "s", subjectId: "sid", evidenceType: "=ACTIVITY" },
+      config: { headers: { Authorization: "Bearer legacy-secret" } },
+      version: 1,
+    });
+    void platformMapping;
     const list = await app.inject({
       method: "GET",
       url: `/api/v1/integration-connections/${connectionId}/mappings?status=ACTIVE`,
       headers: { "x-tenant-id": TENANT, "x-user-id": "b", "x-person-id": ADMIN },
     });
-    expect(list.payload).not.toContain("mapping-secret");
+    const legacyConfig = (JSON.parse(list.payload) as {
+      data: Array<{ config: { headers?: Record<string, string> } }>;
+    }).data.find((mapping) => mapping.config?.headers?.Authorization);
+    expect(legacyConfig?.config.headers.Authorization).toBe("[REDACTED]");
   });
 
   it("integration 角色可写 financial-facts（同步 worker 授权边界）", async () => {

@@ -137,6 +137,59 @@ describe("Schema Discovery（P1）", () => {
   });
 });
 
+describe("Sync Health Dashboard（P1）", () => {
+  it("聚合最近运行的 成功率/延迟/错误分布", async () => {
+    const app = buildAppFor(TENANT);
+    const connectionId = await makeConnection(app);
+    // 造两次 run：一成一败
+    for (const status of ["SUCCEEDED", "FAILED"]) {
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/integration-connections/${connectionId}/sync-runs`,
+        payload: JSON.stringify({ status: "RUNNING" }),
+        headers: { ...H, "x-tenant-id": TENANT, "x-user-id": "p1", "x-person-id": ADMIN },
+      });
+    }
+    const runsRes = await app.inject({
+      method: "GET",
+      url: `/api/v1/integration-connections/${connectionId}/sync-runs`,
+      headers: { ...H, "x-tenant-id": TENANT, "x-user-id": "p1", "x-person-id": ADMIN },
+    });
+    const runs = (JSON.parse(runsRes.payload) as { data: Array<{ id: string }> }).data;
+    for (const [index, run] of runs.entries()) {
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/sync-runs/${run.id}/finish`,
+        payload: JSON.stringify({
+          status: index === 0 ? "FAILED" : "SUCCEEDED",
+          recordsSeen: 10,
+          recordsUpserted: index === 0 ? 0 : 10,
+          recordsFetched: 10,
+          errorSummary: index === 0 ? "HTTP connector failed: 500" : undefined,
+        }),
+        headers: { ...H, "x-tenant-id": TENANT, "x-user-id": "p1", "x-person-id": ADMIN },
+      });
+    }
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/reports/sync-health?connectionId=${connectionId}`,
+      headers: { ...H, "x-tenant-id": TENANT, "x-user-id": "p1", "x-person-id": ADMIN },
+    });
+    expect(res.statusCode, res.payload).toBe(200);
+    const report = (JSON.parse(res.payload) as { data: {
+      totalRuns: number; succeeded: number; failed: number;
+      successRate: number; avgDurationMs: number | null;
+      errorSummaryCounts: Record<string, number>;
+    } }).data;
+    expect(report.totalRuns).toBe(2);
+    expect(report.succeeded).toBe(1);
+    expect(report.failed).toBe(1);
+    expect(report.successRate).toBe(0.5);
+    expect(report.avgDurationMs).not.toBeNull();
+    expect(Object.keys(report.errorSummaryCounts).length).toBeGreaterThan(0);
+  });
+});
+
 describe("Data Lineage（P1）", () => {
   it("raw 记录血缘：从原始记录追溯投影产物（证据节点）", async () => {
     const app = buildAppFor(TENANT);

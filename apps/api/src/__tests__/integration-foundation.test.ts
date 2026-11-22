@@ -72,12 +72,14 @@ function injectRequestFactory(app: Awaited<ReturnType<typeof buildApp>>): SyncRe
 }
 
 describe("NP-005: 连接凭据脱敏 + NP-010 真实探测", () => {
-  it("创建带敏感 header 的连接后，GET 响应永不回显凭据值", async () => {
+  it("INT-201 红线：config 敏感键 schema 拒绝；credentialRef-only 连接 GET 不回显敏感值", async () => {
     const app = buildAppFor(TENANT_A);
     const inject = injectRequestFactory(app);
-    const connection = await inject<{ id: string; config: Record<string, unknown> }>(
-      "/api/v1/integration-connections",
-      {
+    // A1 红线：config 带 Authorization header → schema 400（凭据只走 credentialRef）。
+    // injectRequestFactory 对非 2xx 抛 ApiError——用捕获断言状态码。
+    let rejectedStatus = 0;
+    try {
+      await inject("/api/v1/integration-connections", {
         method: "POST",
         body: JSON.stringify({
           provider: "generic",
@@ -91,18 +93,32 @@ describe("NP-005: 连接凭据脱敏 + NP-010 真实探测", () => {
             },
           },
         }),
+      });
+    } catch (caught) {
+      rejectedStatus = /400|validation/i.test(caught instanceof Error ? caught.message : "") ? 400 : 0;
+    }
+    expect(rejectedStatus).toBe(400);
+    // 合法路径：credentialRef-only → 创建成功，GET 响应无任何敏感值。
+    const connection = await inject<{ id: string; config: Record<string, unknown> }>(
+      "/api/v1/integration-connections",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "generic",
+          connectionName: `secret-ok-${Date.now()}`,
+          credentialRef: "vault/prod/api-key",
+          config: { url: "https://provider.example/api" },
+        }),
       },
     );
-    // NP-005：创建/读取响应都不含敏感值。
-    const raw = JSON.stringify(connection);
-    expect(raw).not.toContain("sk-super-secret-value");
-    expect(raw).not.toContain("ak-another-secret");
     const fetched = await inject<Record<string, unknown>>(
       `/api/v1/integration-connections/${connection.id}`,
     );
-    expect(JSON.stringify(fetched)).not.toContain("sk-super-secret-value");
+    const raw = JSON.stringify(fetched);
+    expect(raw).not.toContain("sk-super-secret-value");
+    expect(raw).not.toContain("ak-another-secret");
     // credentialRef 本身允许回显（是引用不是值）。
-    expect(JSON.stringify(fetched)).toContain("vault/prod/api-key");
+    expect(raw).toContain("vault/prod/api-key");
   });
 
   it("NP-010：testConnection 通过注入探针真实请求 provider——成功含样例与时间，失败含脱敏诊断", async () => {

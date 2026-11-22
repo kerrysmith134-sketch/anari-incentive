@@ -17,6 +17,7 @@ import {
   Textarea,
 } from "../components/ui.js";
 import { IntegrationWizard } from "../components/integration-wizard.js";
+import { useAuth } from "../contexts/AuthContext.js";
 import { OpsSection } from "../components/settings/ops-section.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -37,6 +38,7 @@ import type {
 import type { ExternalIdentityView } from "../lib/ops-types.js";
 
 export function IntegrationsPage() {
+  const { session } = useAuth();
   useDocumentTitle("集成");
   const toast = useToast();
   const connections = useApiQuery<IntegrationConnection[]>(
@@ -345,7 +347,7 @@ export function IntegrationsPage() {
                     <IdentitiesSection />
                   ) : null}
                   {detailTab === "ops" ? (
-                    <OpsSection connection={selected} />
+                    <OpsSection connection={selected} session={session} />
                   ) : null}
                 </div>
               </Panel>
