@@ -46,6 +46,23 @@ interface IngestionStoreLike {
       payload?: Record<string, unknown>;
     }>;
   }): Promise<unknown>;
+  listFinancialFacts?(): Promise<
+    Array<{
+      id: string;
+      sourceSystem: string;
+      sourceRecordId: string;
+      amount: string;
+      currency: string;
+    }>
+  >;
+  listEvidence(): Promise<
+    Array<{
+      id: string;
+      sourceSystem: string;
+      normalizedPayload?: Record<string, unknown>;
+      subjectId?: string;
+    }>
+  >;
   recordAuditEvent?(event: {
     actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
     actorId?: string;
@@ -200,6 +217,18 @@ export function registerIntegrationRoutes(deps: {
       decipher.final(),
     ]).toString("utf8");
   }
+  function rawPayloadOf(payloadEncrypted: string): Record<string, unknown> {
+    try {
+      const text = decryptRawPayload(payloadEncrypted);
+      const parsed = JSON.parse(text) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
 
   return async (app: FastifyInstance) => {
   app.post("/api/v1/integration-connections", async (request, reply) => {
@@ -343,6 +372,127 @@ export function registerIntegrationRoutes(deps: {
         ok,
         checks,
         sample,
+        testedAt: new Date().toISOString(),
+      },
+      request,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // P1 Provider Schema Discovery：probe 真实拉一页样本 → 顶层字段推断 →
+  // 与 ACTIVE mapping 的 fieldMap 对比给出 drift 警告 → 映射后事件预览。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/integration-connections/:id/schema-preview", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const connection = await platformStore.getIntegrationConnection(
+      tenantOf(request),
+      idOf(request),
+    );
+    const config = (connection.config ?? {}) as Record<string, unknown>;
+    const url =
+      typeof config.url === "string" && config.url.trim() ? config.url.trim() : undefined;
+    const body = (request.body ?? {}) as { probePath?: string; recordsPath?: string };
+    const secret = connection.credentialRef ? resolveSecret(connection.credentialRef) : undefined;
+    const probePath =
+      typeof body.probePath === "string" && body.probePath ? body.probePath : "";
+    const recordsPath =
+      typeof body.recordsPath === "string" && body.recordsPath
+        ? body.recordsPath
+        : "records";
+    const probe =
+      integrationProbe ??
+      (async (input: { url: string; headers: Record<string, string> }) => {
+        try {
+          const response = await fetch(input.url, {
+            headers: input.headers,
+            signal: AbortSignal.timeout(10_000),
+            redirect: "manual",
+          });
+          const payload = (await response.json().catch(() => undefined)) as unknown;
+          const records = payload && typeof payload === "object"
+            ? (payload as { records?: unknown[] }).records ?? undefined
+            : undefined;
+          return {
+            ok: response.ok,
+            detail: response.ok ? undefined : `provider returned ${response.status}`,
+            sample: Array.isArray(records) ? records[0] : undefined,
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            detail: error instanceof Error ? error.message : "provider unreachable",
+          };
+        }
+      });
+    let sample: Record<string, unknown> | undefined;
+    let ok = false;
+    let probeDetail: string | undefined;
+    if (url) {
+      const result = await probe({
+        url: `${url.replace(/\/$/, "")}${probePath}`,
+        headers: secret
+          ? { authorization: `Bearer ${secret}`, accept: "application/json" }
+          : { accept: "application/json" },
+      });
+      ok = result.ok;
+      probeDetail = result.detail;
+      if (result.ok && result.sample && typeof result.sample === "object") {
+        sample = result.sample as Record<string, unknown>;
+      }
+    }
+    // Drift 检测：ACTIVE mapping 的 fieldMap 源路径（非 =常量）与样本顶层字段对比。
+    const drift: string[] = [];
+    const mappedPreview: Record<string, string> = {};
+    if (sample) {
+      const sampleKeys = new Set(Object.keys(sample));
+      const mappings = await platformStore.listIntegrationMappings(
+        tenantOf(request),
+        idOf(request),
+        "ACTIVE",
+      );
+      for (const mapping of mappings) {
+        for (const [column, expression] of Object.entries(mapping.fieldMap)) {
+          if (expression.startsWith("=")) {
+            mappedPreview[column] = expression.slice(1);
+            continue;
+          }
+          const [path] = expression.split("|");
+          const topKey = (path ?? "").split(".")[0]!;
+          if (!sampleKeys.has(topKey)) {
+            drift.push(`${mapping.name}: 源字段 "${topKey}" 不在样本中（列 ${column}）`);
+          }
+          const value = (path ?? "")
+            .split(".")
+            .reduce<unknown>(
+              (acc, segment) =>
+                acc && typeof acc === "object"
+                  ? (acc as Record<string, unknown>)[segment]
+                  : undefined,
+              sample,
+            );
+          if (value !== undefined) mappedPreview[column] = String(value);
+        }
+        // 样本中出现但任何 mapping 未引用的顶层字段 → drift 提示
+        for (const key of sampleKeys) {
+          const referenced = mappings.some((mapping) =>
+            Object.values(mapping.fieldMap).some((expr) => !expr.startsWith("=") && (expr.split("|")[0] ?? "").split(".")[0] === key),
+          );
+          if (!referenced && !drift.some((entry) => entry.includes(`"${key}"`))) {
+            drift.push(`样本字段 "${key}" 未被任何 ACTIVE 映射引用`);
+          }
+        }
+      }
+    }
+    countEvent("integration_schema_previewed");
+    return data(
+      {
+        connectionId: connection.id,
+        ok,
+        detail: probeDetail,
+        fields: sample ? Object.keys(sample) : [],
+        sample,
+        mappedPreview,
+        drift,
         testedAt: new Date().toISOString(),
       },
       request,
@@ -670,6 +820,56 @@ export function registerIntegrationRoutes(deps: {
       })).map((record) => ({ ...record, payloadEncrypted: "[ENCRYPTED]" })),
       request,
     );
+  });
+
+  // ------------------------------------------------------------------
+  // P1 Data Lineage：从原始记录追溯投影产物（证据/财务事实）。
+  // ------------------------------------------------------------------
+  app.get("/api/v1/raw-source-records/lineage", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const query = request.query as {
+      sourceSystem?: string;
+      externalRecordId?: string;
+    };
+    if (!query.sourceSystem || !query.externalRecordId) {
+      throw new BadRequestError(
+        "LINEAGE_PARAMS_REQUIRED",
+        "sourceSystem 与 externalRecordId 均为必填",
+      );
+    }
+    const store = storeFor(request);
+    const raws = await platformStore.listRawSourceRecords(tenantOf(request), {
+      sourceSystem: query.sourceSystem,
+    });
+    const raw = raws.find((entry) => entry.externalRecordId === query.externalRecordId) ?? null;
+    // 投影产物：财务事实按 (source_system, source_record_id) 精确匹配；
+    // 证据按 source_system + normalized_payload 与 raw payload 语义相等匹配。
+    const facts = ((await store.listFinancialFacts?.()) ?? []).filter(
+      (fact) =>
+        fact.sourceSystem === query.sourceSystem &&
+        fact.sourceRecordId === query.externalRecordId,
+    );
+    const rawPayloadText = raw ? JSON.stringify(rawPayloadOf(raw.payloadEncrypted)) : "";
+    const evidence = (await store.listEvidence()).filter(
+      (node) =>
+        node.sourceSystem === query.sourceSystem &&
+        raw &&
+        JSON.stringify(node.normalizedPayload ?? {}) === rawPayloadText,
+    );
+    const projections = [
+      ...facts.map((fact) => ({
+        kind: "FINANCIAL_FACT" as const,
+        id: fact.id,
+        amount: fact.amount,
+        currency: fact.currency,
+      })),
+      ...evidence.map((node) => ({
+        kind: "EVIDENCE" as const,
+        id: node.id,
+        subjectId: node.subjectId,
+      })),
+    ];
+    return data({ raw, projections }, request);
   });
 
   // 重放：解密原始 payload → 按调用方给定的解析字段转投证据通道 → 标记。

@@ -6817,6 +6817,57 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/integration-connections/{id}/schema-preview:
+    post:
+      tags: [Ingestion]
+      summary: Provider Schema Discovery — probe a sample and diff against ACTIVE mappings
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                probePath:
+                  type: string
+                recordsPath:
+                  type: string
+      responses:
+        "200":
+          description: Sample fields, mapped preview and drift warnings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/raw-source-records/lineage:
+    get:
+      tags: [Ingestion]
+      summary: Trace projections (evidence / financial facts) from a raw record
+      parameters:
+        - name: sourceSystem
+          in: query
+          required: true
+          schema: { type: string }
+        - name: externalRecordId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Raw record with its projections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/raw-source-records:
     post:
       tags: [Ingestion]

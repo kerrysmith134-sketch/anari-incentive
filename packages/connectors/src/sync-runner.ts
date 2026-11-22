@@ -339,7 +339,11 @@ export async function runSyncCycle(deps: {
         let updatedSince: string | undefined;
         try {
           const cp = await request<
-            SyncCheckpoint & { overlapSeconds?: number }
+            SyncCheckpoint & {
+              overlapSeconds?: number;
+              updatedAt?: string;
+              intervalOverrideMinutes?: number;
+            }
           >(`/api/v1/sync-resources/${resource.id}/checkpoint`);
           cursor = cp.cursor;
           resourceOverlapSeconds = cp.overlapSeconds ?? resourceOverlapSeconds;
@@ -348,6 +352,30 @@ export async function runSyncCycle(deps: {
             updatedSince = new Date(
               new Date(cp.watermark).getTime() - overlapMs,
             ).toISOString();
+          }
+          // P1 Resource Scheduler（简版）：资源级调度间隔覆盖——距上次同步
+          // 不足 override 间隔 → 释放租约并跳过该资源（连接级排期仍驱动轮询）。
+          const overrideMinutes = cp.intervalOverrideMinutes;
+          if (overrideMinutes && cp.updatedAt) {
+            const elapsedMinutes =
+              (Date.now() - new Date(cp.updatedAt).getTime()) / 60_000;
+            if (elapsedMinutes < overrideMinutes) {
+              await request(`/api/v1/sync-resources/${resource.id}/release-lease`, {
+                method: "POST",
+                body: JSON.stringify({
+                  leaseOwner: run!.id,
+                  fencingToken: lease.fencingToken,
+                }),
+              }).catch(() => undefined);
+              const idx = claimedLeases.findIndex(
+                (entry) => entry.resourceId === resource.id,
+              );
+              if (idx >= 0) claimedLeases.splice(idx, 1);
+              console.log(
+                `resource=${resource.id} throttled: next sync in ${Math.ceil(overrideMinutes - elapsedMinutes)}min`,
+              );
+              continue;
+            }
           }
         } catch {
           /* 首次运行无 checkpoint */

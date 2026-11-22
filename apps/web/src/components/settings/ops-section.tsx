@@ -124,11 +124,6 @@ function ResourceMonitor({ connectionId }: { connectionId: string }) {
     `/api/v1/sync-resources?connectionId=${connectionId}`,
     `ops-resources-${connectionId}`,
   );
-  const checkpoints = useApiQuery<Record<string, unknown>[]>(
-    "/api/v1/sync-resources",
-    "ops-resources-all",
-  );
-  void checkpoints;
   return (
     <div className="detail-section">
       <div className="detail-section__title">资源同步状态</div>
@@ -143,24 +138,28 @@ function ResourceMonitor({ connectionId }: { connectionId: string }) {
           description="每个字段映射会创建一条独立资源流（断点续跑与租约隔离的单位）。"
         />
       ) : (
-        <ul className="stack-list">
-          {(resources.data ?? []).map((resource) => (
-            <li key={resource.id}>
-              <Badge status={resource.status === "ACTIVE" ? "APPROVED" : "WAITING_APPROVAL"}>
-                {resource.status}
-              </Badge>{" "}
-              <span className="mono">{resource.resourceKey.slice(0, 12)}</span>{" "}
-              {resource.leaseOwner ? (
-                <span className="muted">
-                  租约中：{resource.leaseOwner.slice(0, 12)}
-                  {resource.leaseUntil ? `（至 ${formatDateTime(resource.leaseUntil)}）` : ""}
-                </span>
-              ) : (
-                <span className="muted">空闲</span>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="stack-list">
+            {(resources.data ?? []).map((resource) => (
+              <li key={resource.id}>
+                <Badge status={resource.status === "ACTIVE" ? "APPROVED" : "WAITING_APPROVAL"}>
+                  {resource.status}
+                </Badge>{" "}
+                <span className="mono">{resource.resourceKey.slice(0, 12)}</span>{" "}
+                {resource.leaseOwner ? (
+                  <span className="muted">
+                    租约中：{resource.leaseOwner.slice(0, 12)}
+                    {resource.leaseUntil ? `（至 ${formatDateTime(resource.leaseUntil)}）` : ""}
+                  </span>
+                ) : (
+                  <span className="muted">空闲</span>
+                )}
+                <CheckpointInspector resourceId={resource.id} />
+              </li>
+            ))}
+          </ul>
+          <SchemaDriftPanel connectionId={connectionId} />
+        </>
       )}
       <InfoNotice>
         租约保证同一资源流同一时刻只有一个 worker 在同步；fencing token 防止过期 worker 写回。
@@ -174,6 +173,226 @@ export function OpsSection({ connection }: { connection: { id: string } }) {
     <div className="stack">
       <QuarantineReview connectionId={connection.id} />
       <ResourceMonitor connectionId={connection.id} />
+      <RawRecordExplorer />
+      <LineageQuery />
     </div>
   );
 }
+
+/** Checkpoint Inspector：cursor/watermark/overlap 明细（INT-206 运营可见）。 */
+function CheckpointInspector({ resourceId }: { resourceId: string }) {
+  const checkpoint = useApiQuery<
+    | {
+        cursor?: string | null;
+        watermark?: string | null;
+        overlapSeconds?: number;
+        updatedAt?: string | null;
+      }
+    | { cursor: null }
+  >(`/api/v1/sync-resources/${resourceId}/checkpoint`, `ops-cp-${resourceId}`);
+  const data = "cursor" in (checkpoint.data ?? {}) ? checkpoint.data : undefined;
+  return (
+    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+      Checkpoint：cursor {data && "cursor" in data ? (data.cursor ?? "空") : "—"} ·
+      watermark{" "}
+      {data && "watermark" in data && data.watermark
+        ? formatDateTime(data.watermark)
+        : "—"}
+      · overlap {data && "overlapSeconds" in data ? (data.overlapSeconds ?? 0) : 0}s
+    </div>
+  );
+}
+
+/** Raw Record Explorer：原始落地记录（元数据；密文永不展示）。 */
+function RawRecordExplorer() {
+  const raws = useApiQuery<
+    Array<{
+      id: string;
+      sourceSystem: string;
+      externalRecordId: string;
+      sourceVersion: string;
+      mappingVersion: number;
+      retentionClass: string;
+      replayedAt?: string | null;
+      createdAt: string;
+    }>
+  >("/api/v1/raw-source-records", "ops-raw-records");
+  return (
+    <div className="detail-section">
+      <div className="detail-section__title">
+        Raw Record Explorer（密文元数据；payload 永不回显）
+      </div>
+      {raws.error ? (
+        <ErrorNotice error={raws.error} onRetry={raws.reload} />
+      ) : raws.loading ? (
+        <LoadingRows rows={2} />
+      ) : (raws.data ?? []).length === 0 ? (
+        <p className="muted">暂无原始落地记录。</p>
+      ) : (
+        <ul className="stack-list">
+          {(raws.data ?? []).slice(0, 20).map((record) => (
+            <li key={record.id}>
+              <span className="mono">
+                {record.sourceSystem}#{record.externalRecordId}
+              </span>{" "}
+              <span className="muted">
+                v{record.sourceVersion} · mapping v{record.mappingVersion} ·{" "}
+                {record.retentionClass}
+                {record.replayedAt ? " · 已重放" : ""}
+              </span>{" "}
+              <span className="muted">{formatDateTime(record.createdAt)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Data Lineage 查询：原始记录 → 投影产物（证据/财务事实）。 */
+function LineageQuery() {
+  const [sourceSystem, setSourceSystem] = useState("");
+  const [externalRecordId, setExternalRecordId] = useState("");
+  const [result, setResult] = useState<{
+    projections: Array<{ kind: string; id: string }>;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function query() {
+    setError(null);
+    setBusy(true);
+    try {
+      const data = await api<{
+        raw: { id: string } | null;
+        projections: Array<{ kind: string; id: string }>;
+      }>(
+        `/api/v1/raw-source-records/lineage?sourceSystem=${encodeURIComponent(
+          sourceSystem,
+        )}&externalRecordId=${encodeURIComponent(externalRecordId)}`,
+      );
+      setResult(data);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "查询失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="detail-section">
+      <div className="detail-section__title">数据血缘查询</div>
+      <div className="toolbar__group">
+        <input
+          className="input"
+          value={sourceSystem}
+          onChange={(event) => setSourceSystem(event.target.value)}
+          placeholder="来源系统"
+          aria-label="血缘来源系统"
+        />
+        <input
+          className="input"
+          value={externalRecordId}
+          onChange={(event) => setExternalRecordId(event.target.value)}
+          placeholder="外部记录 ID"
+          aria-label="血缘外部记录 ID"
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={busy}
+          onClick={() => void query()}
+        >
+          查询血缘
+        </Button>
+      </div>
+      {error ? <InfoNotice tone="warning">{error}</InfoNotice> : null}
+      {result ? (
+        result.projections.length === 0 ? (
+          <p className="muted">无投影产物（未同步或已隔离）。</p>
+        ) : (
+          <ul className="stack-list">
+            {result.projections.map((projection) => (
+              <li key={`${projection.kind}-${projection.id}`}>
+                <Badge status="APPROVED">{projection.kind}</Badge>{" "}
+                <span className="mono">{projection.id.slice(0, 12)}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** Schema Drift：probe 真实样本与 ACTIVE 映射对比（供应商字段变化检测）。 */
+function SchemaDriftPanel({ connectionId }: { connectionId: string }) {
+  const [preview, setPreview] = useState<{
+    fields: string[];
+    drift: string[];
+    mappedPreview: Record<string, string>;
+    ok: boolean;
+    detail?: string;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  async function runPreview() {
+    setBusy(true);
+    try {
+      const data = await api<{
+        fields: string[];
+        drift: string[];
+        mappedPreview: Record<string, string>;
+        ok: boolean;
+        detail?: string;
+      }>(`/api/v1/integration-connections/${connectionId}/schema-preview`, {
+        method: "POST",
+        body: {},
+      });
+      setPreview(data);
+    } catch (caught) {
+      toast.error(
+        "Schema 预览失败",
+        caught instanceof ApiError ? caught.message : undefined,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="detail-section">
+      <div className="detail-section__title">Schema Drift 检测</div>
+      <Button size="sm" variant="secondary" loading={busy} onClick={() => void runPreview()}>
+        拉取样本并对比映射
+      </Button>
+      {preview ? (
+        <>
+          <InfoNotice tone={preview.ok ? "success" : "warning"}>
+            {preview.ok
+              ? `样本字段：${preview.fields.join("、")}`
+              : `探测失败：${preview.detail ?? "未知"}`}
+          </InfoNotice>
+          {preview.drift.length > 0 ? (
+            <InfoNotice tone="warning">
+              Drift：{preview.drift.join("；")}
+            </InfoNotice>
+          ) : preview.ok ? (
+            <InfoNotice tone="success">无 drift——样本字段与映射一致。</InfoNotice>
+          ) : null}
+          {Object.keys(preview.mappedPreview).length > 0 ? (
+            <ul className="stack-list muted">
+              {Object.entries(preview.mappedPreview).map(([column, value]) => (
+                <li key={column}>
+                  {column} → <span className="mono">{value}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
