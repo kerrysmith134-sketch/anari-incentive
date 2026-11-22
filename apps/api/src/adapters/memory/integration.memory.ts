@@ -724,7 +724,12 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       actorPersonId: string;
     }): Promise<QuarantineRecord> {
       const record = this.quarantineRecords.get(input.quarantineId);
-      if (!record || record.tenantId !== input.tenantId) {
+      // 与 PG 实现对等：仅未处置记录可 resolve（二次处置 → 404）。
+      if (
+        !record ||
+        record.tenantId !== input.tenantId ||
+        record.resolvedAt
+      ) {
         notFound("QuarantineRecord", input.quarantineId);
       }
       record.resolvedAt = now();
