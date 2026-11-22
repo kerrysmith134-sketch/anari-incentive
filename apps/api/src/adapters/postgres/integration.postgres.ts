@@ -712,16 +712,18 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       cursor?: string | null;
       watermark?: string | null;
       lastRunId?: string | null;
+      overlapSeconds?: number;
     }): Promise<SyncCheckpoint> {
       const { rows } = await this.tenantQuery(
         input.tenantId,
         `INSERT INTO sync_checkpoints
-           (tenant_id, resource_id, cursor, watermark, last_run_id)
-         VALUES ($1, $2, $3, $4, $5)
+           (tenant_id, resource_id, cursor, watermark, last_run_id, overlap_seconds)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (tenant_id, resource_id) DO UPDATE
            SET cursor = COALESCE($3, sync_checkpoints.cursor),
                watermark = COALESCE($4, sync_checkpoints.watermark),
                last_run_id = COALESCE($5, sync_checkpoints.last_run_id),
+               overlap_seconds = COALESCE($6, sync_checkpoints.overlap_seconds),
                updated_at = now()
          RETURNING *`,
         [
@@ -730,6 +732,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
           input.cursor ?? null,
           input.watermark ?? null,
           input.lastRunId ?? null,
+          input.overlapSeconds ?? null,
         ],
       );
       return this.mapSyncCheckpoint(rows[0]);

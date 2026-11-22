@@ -72,7 +72,7 @@ export class CsvConnector implements Connector {
     this.rows = parsed.slice(1);
   }
 
-  async pull(cursor: string | null): Promise<ConnectorPullResult> {
+  async pull(cursor: string | null, _updatedSince?: string): Promise<ConnectorPullResult> {
     const pageSize = this.config.pageSize ?? 100;
     const start = cursor ? Number(cursor) : 0;
     if (!Number.isInteger(start) || start < 0) {

@@ -12,5 +12,6 @@ export interface ConnectorPullResult {
  */
 export interface Connector {
   name: string;
-  pull(cursor: string | null): Promise<ConnectorPullResult>;
+  /** INT-206：updatedSince 为增量 watermark（可选；connector 未配置时间参数时忽略）。 */
+  pull(cursor: string | null, updatedSince?: string): Promise<ConnectorPullResult>;
 }

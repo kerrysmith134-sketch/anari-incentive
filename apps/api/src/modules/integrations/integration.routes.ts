@@ -819,6 +819,7 @@ export function registerIntegrationRoutes(deps: {
         cursor: body.cursor ?? null,
         watermark: body.watermark ?? null,
         lastRunId: body.lastRunId ?? null,
+        overlapSeconds: body.overlapSeconds,
       }),
       request,
     );

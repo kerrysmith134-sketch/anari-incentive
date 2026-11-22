@@ -643,6 +643,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       cursor?: string | null;
       watermark?: string | null;
       lastRunId?: string | null;
+      overlapSeconds?: number;
     }): Promise<SyncCheckpoint> {
       const resource = this.syncResources.get(input.resourceId);
       if (!resource || resource.tenantId !== input.tenantId) {
@@ -658,6 +659,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         existing.cursor = input.cursor ?? existing.cursor;
         existing.watermark = input.watermark ?? existing.watermark;
         existing.lastRunId = input.lastRunId ?? existing.lastRunId;
+        existing.overlapSeconds = input.overlapSeconds ?? existing.overlapSeconds;
         existing.updatedAt = timestamp;
         return existing;
       }
@@ -667,7 +669,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         resourceId: input.resourceId,
         cursor: input.cursor ?? null,
         watermark: input.watermark ?? null,
-        overlapSeconds: 0,
+        overlapSeconds: input.overlapSeconds ?? 0,
         lastRunId: input.lastRunId ?? null,
         updatedAt: timestamp,
       };

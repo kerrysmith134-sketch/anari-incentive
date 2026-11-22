@@ -197,7 +197,7 @@ describe("R01-R10: store 层语义", () => {
       url: "/api/v1/raw-source-records?sourceSystem=tdd3",
       headers: tenantHeaders(),
     });
-    const rows = (JSON.parse(list.payload) as { data: Array<{ id: string; replayedAt?: string | null }> }).data;
+    const rows = (JSON.parse(list.payload) as { data: Array<{ id: string; replayedAt?: string | null; payloadEncrypted?: string }> }).data;
     const row = rows.find((entry) => entry.id === first.data.id);
     // INT-202 版本化语义：同版本幂等返回既有，历史状态不可改写（append-only）；
     // 供应商更正 → 新 sourceVersion 新行。第二次 replay 因已重放同样幂等返回。

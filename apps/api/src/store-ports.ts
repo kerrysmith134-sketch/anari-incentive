@@ -1047,6 +1047,8 @@ export interface IntegrationPort {
     cursor?: string | null;
     watermark?: string | null;
     lastRunId?: string | null;
+    /** INT-206：边界防丢重叠窗口（秒）。 */
+    overlapSeconds?: number;
   }): Promise<SyncCheckpoint>;
   recordQuarantineRecord(input: {
     tenantId: string;

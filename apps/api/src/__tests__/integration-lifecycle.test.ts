@@ -331,7 +331,7 @@ describe("INT-209: 隔离区 resolve 处置闭环", () => {
         url: "/api/v1/ingestion-quarantine?sourceSystem=tdd3&unresolved=1",
         headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
       });
-    const rows = (JSON.parse((await list()).payload) as { data: Array<{ id: string }> }).data;
+    const rows = (JSON.parse((await list()).payload) as { data: Array<{ id: string; externalRecordId: string | null }> }).data;
     const target = rows.find((row) => row.externalRecordId === "Q-R");
     expect(target).toBeDefined();
     const resolve = await app.inject({

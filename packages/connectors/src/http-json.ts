@@ -20,6 +20,10 @@ export interface HttpJsonConnectorConfig {
   method?: "GET" | "POST";
   /** NP-017：单次请求超时（含响应体消费）；默认 30s。 */
   timeoutMs?: number;
+  /** INT-206：增量拉取的更新时间查询参数名（GET）。 */
+  updatedSinceParam?: string;
+  /** INT-206：增量拉取的更新时间 body 键（POST）。 */
+  updatedSinceBodyKey?: string;
   /** Static JSON body for POST requests. */
   body?: Record<string, unknown>;
   /** For POST requests: body key that carries the cursor (e.g. HubSpot `after`). */
@@ -257,7 +261,10 @@ export class HttpJsonConnector implements Connector {
     this.name = `http-json:${config.sourceSystem}`;
   }
 
-  async pull(cursor: string | null): Promise<ConnectorPullResult> {
+  async pull(
+    cursor: string | null,
+    updatedSince?: string,
+  ): Promise<ConnectorPullResult> {
     const fetchImpl = this.config.fetchImpl ?? fetch;
     const url = new URL(this.config.url);
     assertEgressAllowed(url, this.config.egressAllowlist);
@@ -269,6 +276,10 @@ export class HttpJsonConnector implements Connector {
         this.config.pageSizeParam,
         String(this.config.pageSize ?? 100),
       );
+    }
+    // INT-206：增量 watermark——供应商按更新时间过滤，避免全量重扫。
+    if (updatedSince && this.config.updatedSinceParam) {
+      url.searchParams.set(this.config.updatedSinceParam, updatedSince);
     }
 
     const method = this.config.method ?? "GET";
@@ -283,6 +294,9 @@ export class HttpJsonConnector implements Connector {
       };
       if (cursor && this.config.cursorBodyKey) {
         body[this.config.cursorBodyKey] = cursor;
+      }
+      if (updatedSince && this.config.updatedSinceBodyKey) {
+        body[this.config.updatedSinceBodyKey] = updatedSince;
       }
       requestInit = {
         ...requestInit,

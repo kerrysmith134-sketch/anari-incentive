@@ -17,6 +17,7 @@ import {
   Textarea,
 } from "../components/ui.js";
 import { IntegrationWizard } from "../components/integration-wizard.js";
+import { OpsSection } from "../components/settings/ops-section.js";
 import { Icon } from "../components/Icon.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { api, ApiError } from "../lib/api.js";
@@ -276,6 +277,7 @@ export function IntegrationsPage() {
                       count: syncRuns.data?.length ?? 0,
                     },
                     { id: "identities", label: "身份映射" },
+                    { id: "ops", label: "运营" },
                   ]}
                   active={detailTab}
                   onChange={setDetailTab}
@@ -341,6 +343,9 @@ export function IntegrationsPage() {
                   ) : null}
                   {detailTab === "identities" ? (
                     <IdentitiesSection />
+                  ) : null}
+                  {detailTab === "ops" ? (
+                    <OpsSection connection={selected} />
                   ) : null}
                 </div>
               </Panel>

@@ -325,6 +325,7 @@ export async function runSyncCycle(deps: {
       }
 
       for (const { resource, mapping, config } of resources) {
+        let resourceOverlapSeconds = 0;
         // INT-205：资源级租约——worker 实际使用 API 租约与 fencing token。
         const lease = await request<{ fencingToken: number; leaseUntil: string }>(
           `/api/v1/sync-resources/${resource.id}/claim-lease`,
@@ -334,16 +335,25 @@ export async function runSyncCycle(deps: {
         const connector = new HttpJsonConnector(config);
         // NP-INT-003：从 checkpoint 断点续跑（不回到第一页）。
         let cursor: string | null = null;
+        // INT-206：watermark 回退 overlap 窗口作为增量起点（边界防丢）。
+        let updatedSince: string | undefined;
         try {
-          const cp = await request<SyncCheckpoint>(
-            `/api/v1/sync-resources/${resource.id}/checkpoint`,
-          );
+          const cp = await request<
+            SyncCheckpoint & { overlapSeconds?: number }
+          >(`/api/v1/sync-resources/${resource.id}/checkpoint`);
           cursor = cp.cursor;
+          resourceOverlapSeconds = cp.overlapSeconds ?? resourceOverlapSeconds;
+          if (cp.watermark) {
+            const overlapMs = (cp.overlapSeconds ?? 0) * 1000;
+            updatedSince = new Date(
+              new Date(cp.watermark).getTime() - overlapMs,
+            ).toISOString();
+          }
         } catch {
           /* 首次运行无 checkpoint */
         }
         for (let page = 0; page < effectiveMaxPages; page += 1) {
-          const result = await connector.pull(cursor);
+          const result = await connector.pull(cursor, updatedSince);
           counters.recordsFetched += result.events.length;
           // INT-206：页内最大 occurredAt 作为增量 watermark（checkpoint 观测基准）。
           let pageWatermark: string | null = null;
@@ -466,7 +476,12 @@ export async function runSyncCycle(deps: {
           // 本页全部写入成功 → 推进 checkpoint（NP-003）+ watermark（INT-206）。
           await request(`/api/v1/sync-resources/${resource.id}/checkpoint`, {
             method: "PUT",
-            body: JSON.stringify({ cursor: result.nextCursor, lastRunId: run.id, watermark: pageWatermark }),
+            body: JSON.stringify({
+              cursor: result.nextCursor,
+              lastRunId: run.id,
+              watermark: pageWatermark,
+              overlapSeconds: resourceOverlapSeconds,
+            }),
           });
           cursor = result.nextCursor;
           if (!cursor) break;

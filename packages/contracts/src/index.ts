@@ -1363,6 +1363,8 @@ export const upsertSyncCheckpointSchema = z.object({
   cursor: z.string().nullable().optional(),
   watermark: z.string().datetime().nullable().optional(),
   lastRunId: uuidSchema.nullable().optional(),
+  /** INT-206：边界防丢重叠窗口（秒）；沿用 checkpoint 既有值。 */
+  overlapSeconds: z.number().int().min(0).max(86400).optional(),
 });
 export type UpsertSyncCheckpointBody = z.infer<
   typeof upsertSyncCheckpointSchema
