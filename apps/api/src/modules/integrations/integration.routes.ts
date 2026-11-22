@@ -63,6 +63,22 @@ interface IngestionStoreLike {
       subjectId?: string;
     }>
   >;
+  createFinancialFact?(
+    input: {
+      tenantId: string;
+      sourceSystem: string;
+      sourceRecordId: string;
+      factType: string;
+      periodStart?: string;
+      periodEnd?: string;
+      amount: string;
+      currency: string;
+      qualityStatus: "VALID" | "UNVERIFIED" | "STALE" | "CONFLICTED" | "MISSING" | "INVALID";
+      sourceUpdatedAt?: string;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<{ id: string; sourceUpdatedAt?: string | null }>;
+
   recordAuditEvent?(event: {
     actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
     actorId?: string;
@@ -82,7 +98,14 @@ export interface IntegrationProviderProbe {
     sample?: unknown;
   }>;
 }
-import { FIELD_MAPPING_PRESETS } from "@anari/connectors";
+import {
+  buildHttpJsonConnectorConfig,
+  mapRecordToEvent,
+  parseFinancialFact,
+  routeTarget,
+  FIELD_MAPPING_PRESETS,
+  type IntegrationMappingLike,
+} from "@anari/connectors";
 import {
   data,
   errorBody,
@@ -95,6 +118,7 @@ import {
   paramOf,
 } from "../../http-helpers.js";
 import { sha256 } from "@anari/policy-dsl";
+import { ConflictError } from "../../store.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
 class BadRequestError extends Error {
@@ -484,6 +508,20 @@ export function registerIntegrationRoutes(deps: {
       }
     }
     countEvent("integration_schema_previewed");
+    if (drift.length > 0) {
+      try {
+        await storeFor(request)?.recordAuditEvent?.({
+          actorType: "USER",
+          actorId: ownPersonId(request) ?? undefined,
+          action: "INTEGRATION_SCHEMA_DRIFT_DETECTED",
+          objectType: "INTEGRATION_CONNECTION",
+          objectId: connection.id,
+          reason: drift.slice(0, 5).join("; "),
+        });
+      } catch {
+        /* audit is best-effort */
+      }
+    }
     return data(
       {
         connectionId: connection.id,
@@ -844,10 +882,26 @@ export function registerIntegrationRoutes(deps: {
     const raw = raws.find((entry) => entry.externalRecordId === query.externalRecordId) ?? null;
     // 投影产物：财务事实按 (source_system, source_record_id) 精确匹配；
     // 证据按 source_system + normalized_payload 与 raw payload 语义相等匹配。
-    const facts = ((await store.listFinancialFacts?.()) ?? []).filter(
-      (fact) =>
-        fact.sourceSystem === query.sourceSystem &&
-        fact.sourceRecordId === query.externalRecordId,
+    const facts = (
+      (
+        (await (
+          store as unknown as {
+            listFinancialFacts?: () => Promise<
+              Array<{
+                id: string;
+                sourceSystem: string;
+                sourceRecordId: string;
+                amount: string;
+                currency: string;
+              }>
+            >;
+          }
+        ).listFinancialFacts?.()) ?? []
+      ).filter(
+        (fact) =>
+          fact.sourceSystem === query.sourceSystem &&
+          fact.sourceRecordId === query.externalRecordId,
+      )
     );
     const rawPayloadText = raw ? JSON.stringify(rawPayloadOf(raw.payloadEncrypted)) : "";
     const evidence = (await store.listEvidence()).filter(
@@ -877,35 +931,127 @@ export function registerIntegrationRoutes(deps: {
     requireRoles(request, "admin", "integration");
     const body = parse(replayRawSourceRecordSchema, request.body);
     const record = await platformStore.getRawSourceRecord(tenantOf(request), idOf(request));
-    if (!record.replayedAt) {
-      const rawText = decryptRawPayload(record.payloadEncrypted);
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = JSON.parse(rawText) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      await storeFor(request).ingestEvents({
-        sourceSystem: record.sourceSystem,
-        events: [
-          {
-            sourceRecordId: record.externalRecordId,
-            sourceEventVersion: `replay-${record.mappingVersion}`,
-            eventType: body.eventType,
-            occurredAt: body.occurredAt,
-            subjectType: body.subjectType,
-            subjectId: body.subjectId,
-            evidenceType: body.evidenceType,
-            payload,
-          },
-        ],
-      });
-      await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
-      countEvent("raw_source_record_replayed");
-      return data({ replayed: true, sourceRecordId: record.externalRecordId }, request);
+    if (record.replayedAt) {
+      // 已重放过：幂等返回（不重复转投）。
+      return data(
+        { replayed: true, duplicate: true, sourceRecordId: record.externalRecordId },
+        request,
+      );
     }
-    // 已重放过：幂等返回（不重复转投）。
-    return data({ replayed: true, duplicate: true, sourceRecordId: record.externalRecordId }, request);
+    const rawText = decryptRawPayload(record.payloadEncrypted);
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(rawText) as Record<string, unknown>;
+    } catch {
+      payload = {};
+    }
+    if (body.mappingId) {
+      // INT-209（Sprint 2.1 P1）：基于 Mapping 版本的重放——服务端读映射、
+      // 应用 fieldMap（含 =常量与转换）并按其 targetType 投影；审计可追溯。
+      const mapping = await platformStore.getIntegrationMapping(
+        tenantOf(request),
+        body.mappingId,
+      );
+      const providerConnection = await platformStore.getIntegrationConnection(
+        tenantOf(request),
+        mapping.connectionId,
+      );
+      const mappingLike = mapping as unknown as IntegrationMappingLike;
+      const columns = buildHttpJsonConnectorConfig(
+        {
+          provider: providerConnection.provider,
+          credentialRef: providerConnection.credentialRef,
+          config: providerConnection.config,
+        },
+        mappingLike,
+      )?.columns;
+      if (!columns) {
+        throw new ConflictError(
+          `REPLAY_MAPPING_UNUSABLE: mapping ${mapping.id} is not an HTTP_JSON mapping with usable columns`,
+        );
+      }
+      const event = mapRecordToEvent(payload, columns);
+      const routing = routeTarget(mappingLike.targetType);
+      if (routing.route === "EVIDENCE") {
+        await storeFor(request).ingestEvents({
+          sourceSystem: mapping.sourceSystem,
+          events: [{ ...event, payload }],
+        });
+      } else if (routing.route === "FINANCIAL_FACT") {
+        const parsed = parseFinancialFact(
+          event as unknown as Record<string, unknown>,
+        );
+        if ("error" in parsed) {
+          throw new ConflictError(
+            `REPLAY_FINANCIAL_FACT_INVALID: ${parsed.error}`,
+          );
+        }
+        const occurredAt =
+          typeof event.occurredAt === "string" ? event.occurredAt : "";
+        await (
+          storeFor(request) as unknown as {
+            createFinancialFact: (input: Record<string, unknown>) => Promise<unknown>;
+          }
+        ).createFinancialFact({
+          tenantId: tenantOf(request),
+          sourceSystem: mapping.sourceSystem,
+          sourceRecordId: String(event.sourceRecordId ?? record.externalRecordId),
+          factType: parsed.factType,
+          periodStart: occurredAt.slice(0, 10) || undefined,
+          periodEnd: occurredAt.slice(0, 10) || undefined,
+          amount: parsed.amount,
+          currency: parsed.currency,
+          qualityStatus: "UNVERIFIED",
+          payload: event.payload ?? {},
+        });
+      } else {
+        throw new ConflictError(
+          `REPLAY_TARGET_UNSUPPORTED: targetType ${mappingLike.targetType ?? "(missing)"} cannot be replayed`,
+        );
+      }
+      await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
+      countEvent("raw_source_record_replayed_by_mapping");
+      try {
+        await storeFor(request)?.recordAuditEvent?.({
+          actorType: "USER",
+          actorId: ownPersonId(request) ?? undefined,
+          action: "RAW_SOURCE_RECORD_REPLAYED_BY_MAPPING",
+          objectType: "RAW_SOURCE_RECORD",
+          objectId: record.id,
+          reason: `mapping=${body.mappingId} sourceRecord=${record.externalRecordId}`,
+        });
+      } catch {
+        /* audit is best-effort */
+      }
+      return data(
+        {
+          replayed: true,
+          sourceRecordId: record.externalRecordId,
+          mappingId: body.mappingId,
+          targetType: mappingLike.targetType,
+        },
+        request,
+      );
+    }
+    // 兼容路径：调用方提供解析字段（无 mappingId）
+    await storeFor(request).ingestEvents({
+      sourceSystem: record.sourceSystem,
+      events: [
+        {
+          sourceRecordId: record.externalRecordId,
+          sourceEventVersion: `replay-${record.mappingVersion}`,
+          eventType: body.eventType!,
+          occurredAt: body.occurredAt,
+          subjectType: body.subjectType!,
+          subjectId: body.subjectId!,
+          evidenceType: body.evidenceType!,
+          payload,
+        },
+      ],
+    });
+    await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
+    countEvent("raw_source_record_replayed");
+    return data({ replayed: true, sourceRecordId: record.externalRecordId }, request);
   });
 
   // ------------------------------------------------------------------

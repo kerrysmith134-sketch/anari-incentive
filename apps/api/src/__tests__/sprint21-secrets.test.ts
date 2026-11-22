@@ -351,7 +351,7 @@ describe("INT-210: mappings 脱敏 + financial-facts 角色", () => {
     const legacyConfig = (JSON.parse(list.payload) as {
       data: Array<{ config: { headers?: Record<string, string> } }>;
     }).data.find((mapping) => mapping.config?.headers?.Authorization);
-    expect(legacyConfig?.config.headers.Authorization).toBe("[REDACTED]");
+    expect(legacyConfig?.config.headers?.Authorization).toBe("[REDACTED]");
   });
 
   it("integration 角色可写 financial-facts（同步 worker 授权边界）", async () => {

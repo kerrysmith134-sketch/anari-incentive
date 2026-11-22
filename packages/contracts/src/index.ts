@@ -1456,13 +1456,36 @@ export type CreateRawSourceRecordBody = z.infer<
   typeof createRawSourceRecordSchema
 >;
 
-export const replayRawSourceRecordSchema = z.object({
-  eventType: z.string().min(1),
-  subjectType: z.string().min(1),
-  subjectId: uuidSchema,
-  evidenceType: z.string().min(1),
-  occurredAt: z.string().datetime().optional(),
-});
+export const replayRawSourceRecordSchema = z
+  .object({
+    eventType: z.string().min(1).optional(),
+    subjectType: z.string().min(1).optional(),
+    subjectId: uuidSchema.optional(),
+    evidenceType: z.string().min(1).optional(),
+    occurredAt: z.string().datetime().optional(),
+    /** INT-209（Sprint 2.1 P1）：基于 Mapping 版本重放——服务端读映射自行应用 fieldMap。 */
+    mappingId: uuidSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasMapping = value.mappingId !== undefined;
+    const hasFields =
+      value.eventType !== undefined &&
+      value.subjectType !== undefined &&
+      value.subjectId !== undefined &&
+      value.evidenceType !== undefined;
+    if (!hasMapping && !hasFields) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "必须提供 mappingId（基于映射重放）或完整解析字段",
+      });
+    }
+    if (hasMapping && hasFields) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "mappingId 与解析字段互斥——二选一",
+      });
+    }
+  });
 export type ReplayRawSourceRecordBody = z.infer<
   typeof replayRawSourceRecordSchema
 >;

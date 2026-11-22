@@ -10,6 +10,7 @@ export interface IntegrationConnectionLike {
 export interface IntegrationMappingLike {
   mappingType: "CSV" | "HTTP_JSON";
   sourceSystem: string;
+  targetType?: string;
   fieldMap: Record<string, string>;
   config: Record<string, unknown>;
 }

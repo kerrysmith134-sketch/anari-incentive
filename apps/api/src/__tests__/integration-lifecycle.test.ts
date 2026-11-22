@@ -355,3 +355,101 @@ describe("INT-209: 隔离区 resolve 处置闭环", () => {
     expect(bad.statusCode).toBe(400);
   });
 });
+
+describe("INT-209 完成：基于 Mapping 版本的重放（Sprint 2.1 P1 追溯）", () => {
+  it("replay 带 mappingId → 服务端读映射自行应用 fieldMap 投影，无需调用方解析字段", async () => {
+    const app = buildAppFor(TENANT);
+    const connectionId = await (async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/integration-connections",
+        payload: JSON.stringify({
+          provider: "generic",
+          connectionName: `mrev-${Date.now()}`,
+          credentialRef: "vault/mrev",
+          config: { url: "https://p.example" },
+        }),
+        headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+      });
+      return (JSON.parse(res.payload) as { data: { id: string } }).data.id;
+    })();
+    // mapping：fieldMap 引用 payload 顶层字段；evidenceType 用 =常量
+    const mapRes = await app.inject({
+      method: "POST",
+      url: `/api/v1/integration-connections/${connectionId}/mappings`,
+      payload: JSON.stringify({
+        name: "mrev-mapping",
+        mappingType: "HTTP_JSON",
+        sourceSystem: "mrev-sys",
+        targetType: "EVIDENCE",
+        fieldMap: {
+          sourceRecordId: "record_id",
+          eventType: "event_type",
+          subjectType: "=ORDER",
+          subjectId: "subject_id",
+          evidenceType: "=ACTIVITY",
+        },
+        config: {},
+        version: 7,
+      }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    expect(mapRes.statusCode).toBe(201);
+    const mappingId = (JSON.parse(mapRes.payload) as { data: { id: string } }).data.id;
+    // 落一条原始记录
+    const landed = await app.inject({
+      method: "POST",
+      url: "/api/v1/raw-source-records",
+      payload: JSON.stringify({
+        sourceSystem: "mrev-sys",
+        externalRecordId: "MR-1",
+        payload: {
+          record_id: "MR-1",
+          event_type: "created",
+          subject_id: ADMIN,
+        },
+      }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    const rawId = (JSON.parse(landed.payload) as { data: { id: string } }).data.id;
+    // 重放只给 mappingId（调用方不提供解析字段）
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/v1/raw-source-records/${rawId}/replay`,
+      payload: JSON.stringify({ mappingId }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    expect(replay.statusCode, replay.payload).toBe(200);
+    expect((JSON.parse(replay.payload) as { data: { replayed: boolean } }).data.replayed).toBe(true);
+    // 投影产物：证据按 mapping fieldMap 生成（evidenceType=ACTIVITY 常量）
+    const evidence = await app.inject({
+      method: "GET",
+      url: "/api/v1/evidence",
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    const nodes = (JSON.parse(evidence.payload) as { data: Array<{ evidenceType: string; sourceSystem: string }> }).data;
+    expect(nodes.some((node) => node.evidenceType === "ACTIVITY" && node.sourceSystem === "mrev-sys")).toBe(true);
+  });
+
+  it("replay 的 mappingId 不存在 → 404", async () => {
+    const app = buildAppFor(TENANT);
+    const landed = await app.inject({
+      method: "POST",
+      url: "/api/v1/raw-source-records",
+      payload: JSON.stringify({
+        sourceSystem: "mrev-sys",
+        externalRecordId: "MR-2",
+        payload: {},
+      }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    const rawId = (JSON.parse(landed.payload) as { data: { id: string } }).data.id;
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/v1/raw-source-records/${rawId}/replay`,
+      payload: JSON.stringify({ mappingId: "00000000-0000-4000-8000-0000000000e9" }),
+      headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": "s21c", "x-person-id": ADMIN },
+    });
+    expect(replay.statusCode).toBe(404);
+  });
+});

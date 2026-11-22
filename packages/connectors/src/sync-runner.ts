@@ -130,7 +130,7 @@ async function resolveSubject(
 }
 
 /** NP-015：路由由 mapping.targetType 显式决定；不再从 evidenceType 猜测。 */
-function routeTarget(targetType: string | undefined): {
+export function routeTarget(targetType: string | undefined): {
   route: "EVIDENCE" | "FINANCIAL_FACT" | "QUARANTINE";
   reason?: string;
 } {
@@ -143,7 +143,7 @@ function routeTarget(targetType: string | undefined): {
 }
 
 /** NP-004：财务事实类型化校验——金额/币种必须来自 payload 且格式合法。 */
-function parseFinancialFact(
+export function parseFinancialFact(
   event: Record<string, unknown>,
 ): { amount: string; currency: string; factType: string } | { error: string; reason: string } {
   const factType = String(event.evidenceType ?? "").toUpperCase();

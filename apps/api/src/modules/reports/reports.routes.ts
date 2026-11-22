@@ -637,7 +637,10 @@ ${blockers ? `<ul>${blockers}</ul>` : "<p>无阻断项。</p>"}
       failed: failed.length,
       successRate: recent.length > 0 ? succeeded.length / recent.length : null,
       avgDurationMs,
-      recordsFetched: recent.reduce((sum, run) => sum + run.recordsFetched ?? 0, 0) || recent.reduce((sum, run) => sum + run.recordsSeen, 0),
+      recordsFetched: recent.reduce(
+        (sum, run) => sum + (run.recordsFetched ?? run.recordsSeen),
+        0,
+      ),
       recordsFailed: recent.reduce((sum, run) => sum + (run.recordsFailed ?? 0), 0),
       errorSummaryCounts,
       generatedAt: new Date().toISOString(),
