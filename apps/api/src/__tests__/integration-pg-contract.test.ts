@@ -398,6 +398,68 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
     ).rejects.toThrow(/IMMUTABLE/);
   });
 
+  it("Sprint 3 Commercial：Account→Opportunity→Quote→Contract→Order 持久化与门禁", async () => {
+    const store = new PgPlatformStore(pool);
+    const suffix = randomUUID().slice(0, 8);
+    const account = await store.createAccount({
+      tenantId: CONTRACT_TENANT_ID,
+      externalAccountId: `ACC-${suffix}`,
+      name: "PG commercial account",
+    });
+    const opportunity = await store.createOpportunity({
+      tenantId: CONTRACT_TENANT_ID,
+      accountId: account.id,
+      externalOpportunityId: `HS-${suffix}`,
+      name: "PG opportunity",
+      currency: "USD",
+      estimatedAmount: "1000",
+    });
+    const quote = await store.createQuote({
+      tenantId: CONTRACT_TENANT_ID,
+      opportunityId: opportunity.id,
+      currency: "USD",
+      amount: "1000",
+    });
+    expect(quote.version).toBe(1);
+    const accepted = await store.acceptQuote(CONTRACT_TENANT_ID, quote.id);
+    expect(accepted.status).toBe("ACCEPTED");
+    const contract = await store.createContract({
+      tenantId: CONTRACT_TENANT_ID,
+      accountId: account.id,
+      opportunityId: opportunity.id,
+      quoteId: quote.id,
+      contractRef: `CT-${suffix}`,
+      currency: "USD",
+      amount: "1000",
+    });
+    const signed = await store.signContract(CONTRACT_TENANT_ID, contract.id);
+    expect(signed.status).toBe("SIGNED");
+    const order = await store.createOrder({
+      tenantId: CONTRACT_TENANT_ID,
+      accountId: account.id,
+      contractId: contract.id,
+      orderNumber: `SO-${suffix}`,
+      currency: "USD",
+      lines: [
+        {
+          kind: "PRODUCT",
+          description: "charger",
+          quantity: "1",
+          unitPrice: "1000",
+          amount: "1000",
+          currency: "USD",
+        },
+      ],
+    });
+    expect(order.status).toBe("DRAFT");
+    const confirmed = await store.confirmOrder(CONTRACT_TENANT_ID, order.id);
+    expect(confirmed.status).toBe("CONFIRMED");
+    expect(confirmed.lines).toHaveLength(1);
+
+    const orders = await store.listOrders(CONTRACT_TENANT_ID, account.id);
+    expect(orders.map((entry) => entry.orderNumber)).toContain(`SO-${suffix}`);
+  });
+
   it("Sprint 5 财务事实：POSTED 强类型 + 会计期间关闭/重开凭证", async () => {
     const store = new PgPlatformStore(pool);
     const legalEntityId = `LE-TEST-${randomUUID().slice(0, 8)}`;

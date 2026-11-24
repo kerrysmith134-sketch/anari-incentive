@@ -1506,3 +1506,73 @@ export interface PlatformOrgNode {
   active: boolean;
   createdAt: string;
 }
+
+export interface CommercialAccount {
+  id: string;
+  tenantId: string;
+  externalAccountId?: string;
+  name: string;
+  status: "ACTIVE" | "INACTIVE";
+  ownerPersonId?: string;
+}
+
+export interface CommercialOpportunity {
+  id: string;
+  tenantId: string;
+  accountId: string;
+  externalOpportunityId?: string;
+  name: string;
+  stage: "PROSPECT" | "QUALIFIED" | "PROPOSAL" | "WON" | "LOST";
+  estimatedAmount?: string;
+  currency: string;
+  ownerPersonId?: string;
+}
+
+export interface CommercialQuote {
+  id: string;
+  tenantId: string;
+  opportunityId: string;
+  version: number;
+  status: "DRAFT" | "ISSUED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  currency: string;
+  amount: string;
+  issuedAt?: string;
+  acceptedAt?: string;
+  supersedesQuoteId?: string;
+}
+
+export interface CommercialContract {
+  id: string;
+  tenantId: string;
+  accountId: string;
+  opportunityId: string;
+  quoteId: string;
+  contractRef: string;
+  status: "DRAFT" | "SIGNED" | "TERMINATED";
+  signedAt?: string;
+  currency: string;
+  amount: string;
+}
+
+export interface CommercialOrderLine {
+  id: string;
+  orderId: string;
+  kind: "PRODUCT" | "SERVICE" | "DISCOUNT" | "SURCHARGE";
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+  currency: string;
+}
+
+export interface CommercialOrder {
+  id: string;
+  tenantId: string;
+  accountId: string;
+  contractId: string;
+  orderNumber: string;
+  status: "DRAFT" | "CONFIRMED" | "CANCELLED";
+  currency: string;
+  confirmedAt?: string;
+  lines: CommercialOrderLine[];
+}

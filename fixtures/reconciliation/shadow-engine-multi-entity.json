@@ -1,0 +1,16 @@
+[
+  {
+    "personKey": "p1",
+    "amount": "100",
+    "currency": "CNY",
+    "legalEntity": "LE-A",
+    "accountingPeriod": "2026-10"
+  },
+  {
+    "personKey": "p1",
+    "amount": "-100",
+    "currency": "CNY",
+    "legalEntity": "LE-B",
+    "accountingPeriod": "2026-10"
+  }
+]

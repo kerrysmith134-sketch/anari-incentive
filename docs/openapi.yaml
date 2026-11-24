@@ -3650,6 +3650,23 @@ paths:
           required: false
           schema:
             type: string
+        - name: legalEntityId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: accountingPeriod
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        - name: recognitionStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [DRAFT, POSTED]
       responses:
         "200":
           description: Financial facts
@@ -3755,6 +3772,262 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/accounts:
+    get:
+      tags: [Commercial]
+      summary: List commercial accounts
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Commercial]
+      summary: Create a commercial account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommercialAccount"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/commercial/opportunities:
+    get:
+      tags: [Commercial]
+      summary: List opportunities (CRM deals map here, never to orders)
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Opportunities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Commercial]
+      summary: Create an opportunity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommercialOpportunity"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/commercial/quotes:
+    get:
+      tags: [Commercial]
+      summary: List versioned quotes
+      parameters:
+        - name: opportunityId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Quotes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Commercial]
+      summary: Create a quote or a new quote version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommercialQuote"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/commercial/quotes/{id}/accept:
+    post:
+      tags: [Commercial]
+      summary: Accept a quote
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/contracts:
+    get:
+      tags: [Commercial]
+      summary: List contracts
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Contracts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Commercial]
+      summary: Create a draft contract from an accepted quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommercialContract"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/contracts/{id}/sign:
+    post:
+      tags: [Commercial]
+      summary: Sign a draft contract
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/orders:
+    get:
+      tags: [Commercial]
+      summary: List orders with lines
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Orders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Commercial]
+      summary: Create a draft order from a signed contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommercialOrder"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/orders/{id}/confirm:
+    post:
+      tags: [Commercial]
+      summary: Confirm an order (requires accepted quote + signed contract)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
@@ -12924,6 +13197,73 @@ components:
           format: uuid
         reopeningRef: { type: string }
         reason: { type: string, minLength: 3 }
+
+    CreateCommercialAccount:
+      type: object
+      required: [name]
+      properties:
+        externalAccountId: { type: string }
+        name: { type: string }
+        ownerPersonId: { type: string, format: uuid }
+
+    CreateCommercialOpportunity:
+      type: object
+      required: [accountId, name, currency]
+      properties:
+        accountId: { type: string, format: uuid }
+        externalOpportunityId: { type: string }
+        name: { type: string }
+        stage:
+          type: string
+          enum: [PROSPECT, QUALIFIED, PROPOSAL, WON, LOST]
+        estimatedAmount: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        ownerPersonId: { type: string, format: uuid }
+
+    CreateCommercialQuote:
+      type: object
+      required: [opportunityId, currency, amount]
+      properties:
+        opportunityId: { type: string, format: uuid }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: string }
+        issuedAt: { type: string, format: date-time }
+        supersedesQuoteId: { type: string, format: uuid }
+
+    CreateCommercialContract:
+      type: object
+      required: [accountId, opportunityId, quoteId, contractRef, currency, amount]
+      properties:
+        accountId: { type: string, format: uuid }
+        opportunityId: { type: string, format: uuid }
+        quoteId: { type: string, format: uuid }
+        contractRef: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: string }
+
+    CreateCommercialOrder:
+      type: object
+      required: [accountId, contractId, orderNumber, currency, lines]
+      properties:
+        accountId: { type: string, format: uuid }
+        contractId: { type: string, format: uuid }
+        orderNumber: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [kind, description, quantity, unitPrice, amount, currency]
+            properties:
+              kind:
+                type: string
+                enum: [PRODUCT, SERVICE, DISCOUNT, SURCHARGE]
+              description: { type: string }
+              quantity: { type: string }
+              unitPrice: { type: string }
+              amount: { type: string }
+              currency: { type: string, minLength: 3, maxLength: 3 }
 
     CreateRuleChangeOrder:
       type: object

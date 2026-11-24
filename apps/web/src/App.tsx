@@ -137,6 +137,11 @@ const ExceptionsPage = lazy(() =>
     default: module.ExceptionsPage,
   })),
 );
+const CommercialPage = lazy(() =>
+  import("./pages/CommercialPage.js").then((module) => ({
+    default: module.CommercialPage,
+  })),
+);
 const IntegrationsPage = lazy(() =>
   import("./pages/IntegrationsPage.js").then((module) => ({
     default: module.IntegrationsPage,
@@ -299,6 +304,7 @@ export function App() {
                     <Route path="/exceptions" element={<ExceptionsPage />} />
                     <Route path="/audit" element={<AuditPage />} />
                     <Route path="/integrations" element={<IntegrationsPage />} />
+                    <Route path="/commercial" element={<CommercialPage />} />
                     <Route path="/people" element={<PeoplePage />} />
                     <Route path="/my-ai" element={<MyAiPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

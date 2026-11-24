@@ -123,6 +123,60 @@
         "installmentMonths"
       ]
     },
+    "CreateCommercialAccount": {
+      "required": [
+        "name"
+      ],
+      "optional": [
+        "externalAccountId",
+        "ownerPersonId"
+      ]
+    },
+    "CreateCommercialContract": {
+      "required": [
+        "accountId",
+        "amount",
+        "contractRef",
+        "currency",
+        "opportunityId",
+        "quoteId"
+      ],
+      "optional": []
+    },
+    "CreateCommercialOpportunity": {
+      "required": [
+        "accountId",
+        "currency",
+        "name"
+      ],
+      "optional": [
+        "estimatedAmount",
+        "externalOpportunityId",
+        "ownerPersonId",
+        "stage"
+      ]
+    },
+    "CreateCommercialOrder": {
+      "required": [
+        "accountId",
+        "contractId",
+        "currency",
+        "lines",
+        "orderNumber"
+      ],
+      "optional": []
+    },
+    "CreateCommercialQuote": {
+      "required": [
+        "amount",
+        "currency",
+        "opportunityId"
+      ],
+      "optional": [
+        "issuedAt",
+        "supersedesQuoteId"
+      ]
+    },
     "CreateContributionClaim": {
       "required": [
         "claimType",

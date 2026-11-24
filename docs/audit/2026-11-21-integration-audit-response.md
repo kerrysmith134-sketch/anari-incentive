@@ -84,11 +84,16 @@
 | Financial Fact 强类型 | 关闭（API/DB） | 迁移 105：`legal_entity_id`、`order_id`、`contract_ref`、`instrument_type`、`recognition_status`、`accounting_period`、`fx_snapshot`、`source_version`、`reversal_of`、`reopening_ref`；POSTED 必填并由 DB CHECK 兜底；DRAFT 兼容旧数据 |
 | Accounting Period 关闭/重开 | 关闭 | `accounting_periods` 表 + `GET /api/v1/accounting-periods`、`POST .../close`、`POST .../reopen`；关闭后 POSTED 409 `PERIOD_CLOSED`，重开后必须携带同一 `reopeningRef` |
 | 币种精度（JPY/KWD） | 关闭 | `packages/policy-dsl/src/currency.ts`：ISO 4217 minor units（JPY 0 / USD 2 / KWD 3）；分配池、余数、现金加权模型按币种最小单位舍入 |
-| Commercial / PingCode / Ticketing Adapter | 未关闭 | 仍无真实 API 契约与样本；README 真值表保持 `NOT_READY` |
-| Account→Opportunity→Quote→Contract→Order 领域模型 | 部分关闭 | 新增 `packages/domain/src/commercial.ts`：Deal→Opportunity（禁止 Deal→Order）、Quote 版本化、Order 必须来自已接受 Quote + 已签 Contract、FinancialFact 可追溯门禁；见 [commercial-domain-model](../v2/commercial-domain-model.md)；持久化/API 尚未建立 |
+| Commercial / PingCode / Ticketing Adapter | 未关闭 | Commercial 领域实体/API 已落（迁移 106），但 HubSpot/Commercial/PingCode/Ticketing 原生 adapter 仍无真实 API 契约与样本；README 真值表保持 `NOT_READY` |
+| Account→Opportunity→Quote→Contract→Order 领域模型 | 部分关闭 | 新增 `packages/domain/src/commercial.ts`：Deal→Opportunity（禁止 Deal→Order）、Quote 版本化、Order 必须来自已接受 Quote + 已签 Contract、FinancialFact 可追溯门禁；见 [commercial-domain-model](../v2/commercial-domain-model.md)；迁移 106 已落 6 张表与 API，前端/连接器未做 |
 | HubSpot Deal → ORDER | 关闭 | 预设改为 `OPPORTUNITY`，并新增契约样本测试 |
 | OAuth token 生命周期 | 关闭（runner） | `oauthTokenResolver` 接入 runner；401 → `invalidate()` + 重新取 token 重试一次；CLI 支持 `OAUTH_*` 环境变量 |
 | Integrations 前端拆分 | 关闭 | `IntegrationsPage.tsx` 从 1,391 行降到 434 行；Mappings/Schedules/Runs/Identities/Feishu 拆到 `apps/web/src/components/integrations`，新增工作台摘要 |
+| Raw 数据保留分类 | 关闭 | 原始记录按同步目标/来源强制 FINANCIAL/PII；显式 DEFAULT 冲突返回 409 `RETENTION_CLASS_MISMATCH` |
+| Financial Fact 维度过滤 | 关闭 | `GET /financial-facts` 支持 `legalEntityId` / `accountingPeriod` / `recognitionStatus` |
+| ERP 财务事实标准载荷 | 部分关闭 | 新增 `packages/connectors/src/erp-financial.ts`、`erp-financial-facts` 预设与脱敏样本；仍是 generic HTTP 契约，不是原生 ERP adapter |
+| Commercial 工作台 UI | 关闭 | 新增 `/commercial` 页面：客户/机会/报价/合同/订单列表与生命周期操作（接受报价、签合同、确认订单）。 |
+| 多法人 shadow settlement 负例 | 关闭（算法/CLI） | `scripts/shadow-settlement.ts` 读取法人/期间/订单/批次维度；新增负例 fixture + 测试证明跨法人金额不会被净额抵消。真实脱敏数据周期仍未跑。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -96,8 +101,8 @@
 | 项目 | 原因 |
 | --- | --- |
 | ERP 财务生产接入 | 无真实 ERP API 契约/样本；财务事实虽已强类型，但 ERP 连接器、科目映射、FX 来源、期间关闭对账未验证 |
-| Commercial / PingCode / Ticketing | 无原生 adapter；领域模型不等于连接器 |
-| 多法人/多币种影子结算 | 算法与对账已支持维度，但真实脱敏数据影子周期未跑 |
+| PingCode / Ticketing / Commercial 原生连接器 | Commercial 领域实体/API/UI 已落；PingCode/Ticketing/HubSpot 原生 adapter 仍缺真实 API 契约与样本 |
+| 多法人/多币种影子结算 | 算法/CLI 已支持维度并有负例；真实脱敏数据影子周期未跑 |
 | HSM / KMS 自动轮换 | keyring 文件已支持，HSM 内加解密与 reload 未实现 |
 | Accounting Period 并发/审批 | 关闭/重开有角色与凭证，但尚未接入双人审批流 |
 | Integrations UI 工作台 IA | 已拆分组件并加摘要，但 Mapping Studio / Sync Monitor / Data Quality 的深度工作台尚未重构 |
@@ -113,10 +118,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：131 files passed / 2 skipped；1318 tests passed / 106 skipped。
+- `npm test`：133 files passed / 2 skipped；1331 tests passed / 107 skipped。
 - `npm run typecheck`：API + web 全绿。
-- `npm run test:pg`：3 files / 119 tests passed（含迁移 102–105、Raw Ledger 四列唯一键、checkpoint fencing、显式 null 清空、lease renew、Financial Fact 强类型与期间关闭/重开）。
-- `npm run test:pg-upgrade`：89 → 105 migrations，107 tests passed。
+- `npm run test:pg`：3 files / 120 tests passed（迁移 102–106；含 Commercial 持久化、Financial Fact 强类型、期间关闭/重开）。
+- `npm run test:pg-upgrade`：89 → 106 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

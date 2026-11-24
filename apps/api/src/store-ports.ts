@@ -9,6 +9,11 @@
  */
 import type {
   AccountingPeriod,
+  CommercialOrder,
+  Contract,
+  Quote,
+  Opportunity,
+  Account,
   Acceptance,
   AdverseActionCase,
   AiScoreProposal,
@@ -374,7 +379,13 @@ export interface BudgetPort {
   }): Promise<FinancialFact>;
   listFinancialFacts(
     tenantId: string,
-    filter?: { factType?: string; sourceSystem?: string },
+    filter?: {
+      factType?: string;
+      sourceSystem?: string;
+      legalEntityId?: string;
+      accountingPeriod?: string;
+      recognitionStatus?: FinancialFact["recognitionStatus"];
+    },
   ): Promise<FinancialFact[]>;
   // 2026-11-21 审计 Sprint 5：会计期间关闭/重开（POSTED 事实前置门禁）。
   listAccountingPeriods(
@@ -401,6 +412,69 @@ export interface BudgetPort {
     reopeningRef: string;
     reason: string;
   }): Promise<AccountingPeriod>;
+}
+
+/** Commercial 域端口（Sprint 3）：Account→Opportunity→Quote→Contract→Order。 */
+export interface CommercialPort {
+  createAccount(input: {
+    tenantId: string;
+    externalAccountId?: string;
+    name: string;
+    ownerPersonId?: string;
+  }): Promise<Account>;
+  listAccounts(tenantId: string): Promise<Account[]>;
+  createOpportunity(input: {
+    tenantId: string;
+    accountId: string;
+    externalOpportunityId?: string;
+    name: string;
+    stage?: Opportunity["stage"];
+    estimatedAmount?: string;
+    currency: string;
+    ownerPersonId?: string;
+  }): Promise<Opportunity>;
+  listOpportunities(
+    tenantId: string,
+    accountId?: string,
+  ): Promise<Opportunity[]>;
+  createQuote(input: {
+    tenantId: string;
+    opportunityId: string;
+    currency: string;
+    amount: string;
+    issuedAt?: string;
+    supersedesQuoteId?: string;
+  }): Promise<Quote>;
+  listQuotes(tenantId: string, opportunityId?: string): Promise<Quote[]>;
+  acceptQuote(tenantId: string, quoteId: string): Promise<Quote>;
+  createContract(input: {
+    tenantId: string;
+    accountId: string;
+    opportunityId: string;
+    quoteId: string;
+    contractRef: string;
+    currency: string;
+    amount: string;
+  }): Promise<Contract>;
+  signContract(tenantId: string, contractId: string): Promise<Contract>;
+  listContracts(tenantId: string, accountId?: string): Promise<Contract[]>;
+  createOrder(input: {
+    tenantId: string;
+    accountId: string;
+    contractId: string;
+    orderNumber: string;
+    currency: string;
+    lines: Array<{
+      kind: CommercialOrder["lines"][number]["kind"];
+      description: string;
+      quantity: string;
+      unitPrice: string;
+      amount: string;
+      currency: string;
+    }>;
+  }): Promise<CommercialOrder>;
+  confirmOrder(tenantId: string, orderId: string): Promise<CommercialOrder>;
+  listOrders(tenantId: string, accountId?: string): Promise<CommercialOrder[]>;
 }
 
 /** 告知域端口：公告/确认回执/入站消息。 */

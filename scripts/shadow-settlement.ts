@@ -74,11 +74,41 @@ if (!amountColumn || !currencyColumn) {
 const personIndex = header.indexOf(personColumn);
 const amountIndex = header.indexOf(amountColumn);
 const currencyIndex = header.indexOf(currencyColumn);
-const financeLines: ShadowSettlementLine[] = rows.slice(1).map((row) => ({
-  personKey: (row[personIndex] ?? "").trim(),
-  amount: (row[amountIndex] ?? "").trim(),
-  currency: (row[currencyIndex] ?? "").trim().toUpperCase(),
-}));
+
+/** 2026-11-21 审计：多法人/多期间/多订单不得在 person+currency 层净额抵消。 */
+const DIMENSION_COLUMNS: Array<[keyof ShadowSettlementLine, string[]]> = [
+  ["legalEntity", ["legal_entity", "legalentity", "legal_entity_id"]],
+  ["accountingPeriod", ["accounting_period", "accountingperiod", "period"]],
+  ["orderId", ["order_id", "orderid"]],
+  ["contractRef", ["contract_ref", "contractref"]],
+  ["payoutBatch", ["payout_batch", "payoutbatch", "batch_id"]],
+  ["incentiveType", ["incentive_type", "incentivetype"]],
+];
+function optionalIndex(candidates: string[]): number {
+  const index = header.findIndex((column) =>
+    candidates.includes(column.trim().toLowerCase()),
+  );
+  return index >= 0 ? index : -1;
+}
+const dimensionIndexes = DIMENSION_COLUMNS.map(([field, candidates]) => ({
+  field,
+  index: optionalIndex(candidates),
+})).filter((entry) => entry.index >= 0);
+
+const financeLines: ShadowSettlementLine[] = rows.slice(1).map((row) => {
+  const line: ShadowSettlementLine = {
+    personKey: (row[personIndex] ?? "").trim(),
+    amount: (row[amountIndex] ?? "").trim(),
+    currency: (row[currencyIndex] ?? "").trim().toUpperCase(),
+  };
+  for (const { field, index } of dimensionIndexes) {
+    const value = (row[index] ?? "").trim();
+    if (value) {
+      (line as unknown as Record<string, string>)[field] = value;
+    }
+  }
+  return line;
+});
 
 const report = compareShadowSettlement(engineLines, financeLines, {
   tolerance,

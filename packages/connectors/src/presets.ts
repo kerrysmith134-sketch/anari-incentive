@@ -91,6 +91,31 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
       updatedSinceParam: "updated_since",
     },
   },
+  {
+    code: "erp-financial-facts",
+    provider: "erp",
+    name: "ERP financial facts (typed)",
+    mappingType: "HTTP_JSON",
+    sourceSystem: "erp",
+    targetType: "FINANCIAL_FACT",
+    fieldMap: {
+      sourceRecordId: "fact_id",
+      eventType: "event_type",
+      subjectType: "=ORDER",
+      subjectId: "order_id",
+      evidenceType: "fact_type",
+      occurredAt: "occurred_at",
+      sourceUpdatedAt: "updated_at",
+      sourceEventVersion: "source_version",
+    },
+    config: {
+      recordsPath: "records",
+      nextCursorPath: "next_cursor",
+      cursorParam: "cursor",
+      pageSizeParam: "page_size",
+      updatedSinceParam: "updated_since",
+    },
+  },
 ];
 
 /**

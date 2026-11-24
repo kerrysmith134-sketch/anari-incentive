@@ -305,6 +305,57 @@ describe("NP-001: sync-resources / checkpoint / quarantine 端点", () => {
   });
 });
 
+describe("INT-215: raw record retention classification", () => {
+  it("FINANCIAL_FACT 资源的原始记录必须标为 FINANCIAL，DEFAULT 被拒绝", async () => {
+    const app = buildAppFor(TENANT_A);
+    const inject = injectRequestFactory(app);
+    const seed = await seedConnectionMappingSchedule(
+      app,
+      "https://provider.example/api/financial-raw",
+      "FINANCIAL_FACT",
+    );
+    const resource = await inject<{ id: string }>("/api/v1/sync-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        connectionId: seed.connection.id,
+        resourceKey: "financial-raw",
+        mappingId: seed.mapping.id,
+      }),
+    });
+    const wrong = await app.inject({
+      method: "POST",
+      url: "/api/v1/raw-source-records",
+      payload: {
+        sourceSystem: "wave1-system",
+        externalRecordId: "RAW-FIN-1",
+        payload: { amount: "1", currency: "USD" },
+        resourceId: resource.id,
+        retentionClass: "DEFAULT",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(wrong.statusCode).toBe(409);
+    expect(wrong.json().error.message).toMatch(/RETENTION_CLASS_MISMATCH/);
+
+    const inferred = await app.inject({
+      method: "POST",
+      url: "/api/v1/raw-source-records",
+      payload: {
+        sourceSystem: "wave1-system",
+        externalRecordId: "RAW-FIN-2",
+        payload: { amount: "1", currency: "USD" },
+        resourceId: resource.id,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(inferred.statusCode).toBe(201);
+    expect(
+      (inferred.json() as { data: { retentionClass: string } }).data
+        .retentionClass,
+    ).toBe("FINANCIAL");
+  });
+});
+
 describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () => {
   it("targetType=FINANCIAL_FACT：金额/币种从 payload 类型化入账，checkpoint 推进，计数精确", async () => {
     const app = buildAppFor(TENANT_A);

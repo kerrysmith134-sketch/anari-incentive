@@ -848,6 +848,37 @@ export function registerIntegrationRoutes(deps: {
     requireRoles(request, "admin", "integration");
     const body = parse(createRawSourceRecordSchema, request.body);
     const payload = body.payload ?? {};
+    // INT-215：保留分类由同步目标/来源推导，调用方不得把 FINANCIAL 原始数据
+    // 标成 DEFAULT（否则会被普通保留策略提前清理）。
+    let inferredRetention: "PII" | "FINANCIAL" | undefined;
+    if (body.resourceId) {
+      const resource = await platformStore.getSyncResource(
+        tenantOf(request),
+        body.resourceId,
+      );
+      if (resource.mappingId) {
+        const mapping = await platformStore.getIntegrationMapping(
+          tenantOf(request),
+          resource.mappingId,
+        );
+        if (mapping.targetType === "FINANCIAL_FACT") inferredRetention = "FINANCIAL";
+      }
+    }
+    if (!inferredRetention) {
+      if (body.sourceSystem === "feishu" || body.sourceSystem === "hr") {
+        inferredRetention = "PII";
+      }
+    }
+    if (
+      inferredRetention &&
+      body.retentionClass &&
+      body.retentionClass !== inferredRetention
+    ) {
+      throw new ConflictError(
+        `RETENTION_CLASS_MISMATCH: ${body.sourceSystem}/${body.externalRecordId} ` +
+          `must be ${inferredRetention}, got ${body.retentionClass}`,
+      );
+    }
     // INT-202：版本键必须由同一稳定哈希派生——缺省时服务端计算，绝不写空串。
     const payloadHash =
       body.payloadHash ??
@@ -860,7 +891,7 @@ export function registerIntegrationRoutes(deps: {
       payloadHash,
       sourceVersion: body.sourceVersion ?? payloadHash,
       mappingVersion: body.mappingVersion,
-      retentionClass: body.retentionClass,
+      retentionClass: body.retentionClass ?? inferredRetention,
       resourceId: body.resourceId,
       sourceUpdatedAt: body.sourceUpdatedAt,
     });

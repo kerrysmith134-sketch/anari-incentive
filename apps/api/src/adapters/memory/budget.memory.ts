@@ -608,7 +608,13 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
     
     async listFinancialFacts(
       tenantId: string,
-      filter?: { factType?: string; sourceSystem?: string },
+      filter?: {
+        factType?: string;
+        sourceSystem?: string;
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        recognitionStatus?: FinancialFact["recognitionStatus"];
+      },
     ): Promise<FinancialFact[]> {
       if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
       return [...this.financialFacts.values()]
@@ -617,7 +623,13 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
             fact.tenantId === tenantId &&
             (!filter?.factType || fact.factType === filter.factType) &&
             (!filter?.sourceSystem ||
-              fact.sourceSystem === filter.sourceSystem),
+              fact.sourceSystem === filter.sourceSystem) &&
+            (!filter?.legalEntityId ||
+              fact.legalEntityId === filter.legalEntityId) &&
+            (!filter?.accountingPeriod ||
+              fact.accountingPeriod === filter.accountingPeriod) &&
+            (!filter?.recognitionStatus ||
+              fact.recognitionStatus === filter.recognitionStatus),
         )
         .sort((a, b) => b.ingestedAt.localeCompare(a.ingestedAt));
     }

@@ -1,0 +1,226 @@
+/**
+ * Sprint 3（2026-11-21 审计）：Commercial 领域对象生命周期。
+ * Deal→Opportunity；Quote 接受后才能建合同；合同签署后才能下单/确认。
+ */
+import { describe, expect, it } from "vitest";
+import { buildApp } from "../app.js";
+import { MemoryPlatformStore } from "../platform-store.js";
+import { Store } from "../store.js";
+
+const TENANT = "00000000-0000-4000-8000-000000000001";
+const ADMIN = "00000000-0000-4000-8000-000000000001";
+
+function buildAppFor() {
+  const platformStore = new MemoryPlatformStore({
+    demoTenant: { id: TENANT, name: "Sprint 3 tenant", slug: "sprint3" },
+  });
+  return buildApp(
+    () => new Store(TENANT),
+    undefined,
+    {
+      async authenticate() {
+        return {
+          tenantId: TENANT,
+          userId: "sprint3",
+          roles: ["admin", "manager", "finance", "integration"],
+          personId: ADMIN,
+        };
+      },
+    },
+    platformStore,
+  );
+}
+
+interface InjectResult {
+  statusCode: number;
+  json(): unknown;
+}
+
+async function post(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  url: string,
+  payload: Record<string, unknown>,
+): Promise<InjectResult> {
+  return (await app.inject({
+    method: "POST",
+    url,
+    payload,
+    headers: { "content-type": "application/json" },
+  })) as unknown as InjectResult;
+}
+
+async function get(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  url: string,
+): Promise<InjectResult> {
+  return (await app.inject({ method: "GET", url })) as unknown as InjectResult;
+}
+
+function dataOf<T>(result: InjectResult): T {
+  return (result.json() as { data: T }).data;
+}
+
+describe("Sprint 3 commercial lifecycle", () => {
+  it("enforces Quote→Contract→Order gates and does not treat deals as orders", async () => {
+    const app = buildAppFor();
+    const account = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/accounts", {
+        externalAccountId: "ACC-1",
+        name: "ACME",
+      }),
+    );
+    const opportunity = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/opportunities", {
+        accountId: account.id,
+        externalOpportunityId: "hs-deal-1",
+        name: "ACME expansion",
+        currency: "USD",
+        estimatedAmount: "1000",
+      }),
+    );
+    expect(opportunity).not.toHaveProperty("orderNumber");
+
+    const quote = dataOf<{ id: string; version: number }>(
+      await post(app, "/api/v1/commercial/quotes", {
+        opportunityId: opportunity.id,
+        currency: "USD",
+        amount: "1000",
+      }),
+    );
+    expect(quote.version).toBe(1);
+
+    // 未接受报价 → 不能建合同。
+    const earlyContract = await post(app, "/api/v1/commercial/contracts", {
+      accountId: account.id,
+      opportunityId: opportunity.id,
+      quoteId: quote.id,
+      contractRef: "CT-1",
+      currency: "USD",
+      amount: "1000",
+    });
+    expect(earlyContract.statusCode).toBe(409);
+
+    const accepted = await post(
+      app,
+      `/api/v1/commercial/quotes/${quote.id}/accept`,
+      {},
+    );
+    expect(accepted.statusCode).toBe(200);
+
+    const v2 = dataOf<{ id: string; version: number; supersedesQuoteId: string }>(
+      await post(app, "/api/v1/commercial/quotes", {
+        opportunityId: opportunity.id,
+        currency: "USD",
+        amount: "1100",
+        supersedesQuoteId: quote.id,
+      }),
+    );
+    expect(v2.version).toBe(2);
+    expect(v2.supersedesQuoteId).toBe(quote.id);
+
+    const noSupersedes = await post(app, "/api/v1/commercial/quotes", {
+      opportunityId: opportunity.id,
+      currency: "USD",
+      amount: "1200",
+    });
+    expect(noSupersedes.statusCode).toBe(409);
+    expect(
+      (noSupersedes.json() as { error: { message: string } }).error.message,
+    ).toMatch(/QUOTE_VERSION_REQUIRES_SUPERSEDES/);
+
+    const contract = dataOf<{ id: string; status: string }>(
+      await post(app, "/api/v1/commercial/contracts", {
+        accountId: account.id,
+        opportunityId: opportunity.id,
+        quoteId: quote.id,
+        contractRef: "CT-1",
+        currency: "USD",
+        amount: "1000",
+      }),
+    );
+    expect(contract.status).toBe("DRAFT");
+
+    // 未签合同 → 不能下单。
+    const earlyOrder = await post(app, "/api/v1/commercial/orders", {
+      accountId: account.id,
+      contractId: contract.id,
+      orderNumber: "SO-1",
+      currency: "USD",
+      lines: [
+        {
+          kind: "PRODUCT",
+          description: "charger",
+          quantity: "1",
+          unitPrice: "1000",
+          amount: "1000",
+          currency: "USD",
+        },
+      ],
+    });
+    expect(earlyOrder.statusCode).toBe(409);
+
+    expect(
+      (
+        await post(
+          app,
+          `/api/v1/commercial/contracts/${contract.id}/sign`,
+          {},
+        )
+      ).statusCode,
+    ).toBe(200);
+
+    const order = dataOf<{ id: string; status: string; lines: unknown[] }>(
+      await post(app, "/api/v1/commercial/orders", {
+        accountId: account.id,
+        contractId: contract.id,
+        orderNumber: "SO-1",
+        currency: "USD",
+        lines: [
+          {
+            kind: "PRODUCT",
+            description: "charger",
+            quantity: "1",
+            unitPrice: "1000",
+            amount: "1000",
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    expect(order.status).toBe("DRAFT");
+    expect(order.lines).toHaveLength(1);
+
+    const confirmed = await post(
+      app,
+      `/api/v1/commercial/orders/${order.id}/confirm`,
+      {},
+    );
+    expect(confirmed.statusCode).toBe(200);
+    expect(dataOf<{ status: string }>(confirmed).status).toBe("CONFIRMED");
+
+    const orders = dataOf<Array<{ status: string }>>(
+      await get(app, `/api/v1/commercial/orders?accountId=${account.id}`),
+    );
+    expect(orders).toHaveLength(1);
+    expect(orders[0]!.status).toBe("CONFIRMED");
+  });
+
+  it("rejects duplicate account external ids and duplicate order numbers", async () => {
+    const app = buildAppFor();
+    const account = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/accounts", {
+        externalAccountId: "ACC-DUP",
+        name: "ACME",
+      }),
+    );
+    const duplicate = await post(app, "/api/v1/commercial/accounts", {
+      externalAccountId: "ACC-DUP",
+      name: "ACME 2",
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect((duplicate.json() as { error: { message: string } }).error.message).toMatch(
+      /COMMERCIAL_ACCOUNT_EXISTS/,
+    );
+    void account;
+  });
+});

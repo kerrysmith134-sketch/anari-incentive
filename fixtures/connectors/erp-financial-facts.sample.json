@@ -1,0 +1,35 @@
+{
+  "records": [
+    {
+      "fact_id": "FF-2026-0001",
+      "fact_type": "REVENUE",
+      "amount": "125000.00",
+      "currency": "USD",
+      "occurred_at": "2026-10-18T00:00:00.000Z",
+      "updated_at": "2026-10-22T10:00:00.000Z",
+      "legal_entity_id": "LE-US-01",
+      "order_id": "SO-2026-0001",
+      "contract_ref": "CT-2026-0001",
+      "instrument_type": "INVOICE",
+      "recognition_status": "POSTED",
+      "accounting_period": "2026-10",
+      "source_version": "erp-v7",
+      "fx_snapshot": {
+        "rate": "7.10",
+        "quoteCurrency": "CNY",
+        "source": "ecb",
+        "asOf": "2026-10-31T00:00:00.000Z"
+      }
+    },
+    {
+      "fact_id": "FF-2026-0002",
+      "fact_type": "REVENUE",
+      "amount": "10.00",
+      "currency": "USD",
+      "occurred_at": "2026-10-19T00:00:00.000Z",
+      "updated_at": "2026-10-22T10:05:00.000Z",
+      "recognition_status": "POSTED",
+      "instrument_type": "INVOICE"
+    }
+  ]
+}

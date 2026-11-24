@@ -10,12 +10,13 @@
  */
 import type { Pool } from "pg";
 import type {
-  ApprovalPort, AssessmentPort, BudgetPort, CommsPort, DatagovPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort
+  ApprovalPort, AssessmentPort, BudgetPort, CommercialPort, CommsPort, DatagovPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort
 } from "./store-ports.js";
 import { MemoryPlatformStoreBase, type MemoryPlatformStoreBaseShape } from "./adapters/memory/base.memory.js";
 import { MemoryApprovalMixin } from "./adapters/memory/approval.memory.js";
 import { MemoryAssessmentMixin } from "./adapters/memory/assessment.memory.js";
 import { MemoryBudgetMixin } from "./adapters/memory/budget.memory.js";
+import { MemoryCommercialMixin } from "./adapters/memory/commercial.memory.js";
 import { MemoryCommsMixin } from "./adapters/memory/comms.memory.js";
 import { MemoryDatagovMixin } from "./adapters/memory/datagov.memory.js";
 import { MemoryDeliveryMixin } from "./adapters/memory/delivery.memory.js";
@@ -31,6 +32,7 @@ import { PgPlatformStoreBase, type PgPlatformStoreBaseShape } from "./adapters/p
 import { PgApprovalMixin } from "./adapters/postgres/approval.postgres.js";
 import { PgAssessmentMixin } from "./adapters/postgres/assessment.postgres.js";
 import { PgBudgetMixin } from "./adapters/postgres/budget.postgres.js";
+import { PgCommercialMixin } from "./adapters/postgres/commercial.postgres.js";
 import { PgCommsMixin } from "./adapters/postgres/comms.postgres.js";
 import { PgDatagovMixin } from "./adapters/postgres/datagov.postgres.js";
 import { PgDeliveryMixin } from "./adapters/postgres/delivery.postgres.js";
@@ -47,6 +49,7 @@ export interface PlatformStore extends
   ApprovalPort,
   AssessmentPort,
   BudgetPort,
+  CommercialPort,
   CommsPort,
   DatagovPort,
   DeliveryPort,
@@ -64,6 +67,7 @@ type PgBaseCtor = abstract new (...args: ConstructorParameters<typeof PgPlatform
 
 export class MemoryPlatformStore
   extends MemoryTenantMixin(
+    (MemoryCommercialMixin(
     (MemorySettlementMixin(
     (MemoryPolicygovMixin(
     (MemoryModelgovMixin(
@@ -91,11 +95,13 @@ export class MemoryPlatformStore
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
+  )) as unknown as MemoryBaseCtor
   )
   implements PlatformStore {}
 
 export class PgPlatformStore
   extends PgTenantMixin(
+    (PgCommercialMixin(
     (PgSettlementMixin(
     (PgPolicygovMixin(
     (PgModelgovMixin(
@@ -110,6 +116,7 @@ export class PgPlatformStore
     (PgAssessmentMixin(
     (PgApprovalMixin(
     (PgPlatformStoreBase) as unknown as PgBaseCtor
+  )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor

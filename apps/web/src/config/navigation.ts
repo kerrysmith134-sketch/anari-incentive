@@ -104,6 +104,7 @@ export const NAV: NavGroup[] = [
     icon: "building",
     items: [
       { to: "/institutions", label: "2026 制度中心", icon: "policy" },
+      { to: "/commercial", label: "商业对象", icon: "chart", allowed: ["manager", "finance", "admin"] },
       { to: "/task-pods", label: "任务制组织", icon: "layers" },
       { to: "/policy", label: "政策", icon: "policy", allowed: ["manager", "finance", "admin"] },
       { to: "/people", label: "人员", icon: "people" },

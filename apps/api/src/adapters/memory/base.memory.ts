@@ -65,6 +65,12 @@ import type {
   FairnessCommitment,
   FinancialFact,
   AccountingPeriod,
+  OrderLine,
+  CommercialOrder,
+  Contract,
+  Quote,
+  Opportunity,
+  Account,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -217,6 +223,12 @@ export class MemoryPlatformStoreBase {
     protected readonly cashGateInputs = new Map<string, CashGateInput>();
     protected readonly financialFacts = new Map<string, FinancialFact>();
     protected readonly accountingPeriods = new Map<string, AccountingPeriod>();
+    protected readonly commercialAccounts = new Map<string, Account>();
+    protected readonly commercialOpportunities = new Map<string, Opportunity>();
+    protected readonly commercialQuotes = new Map<string, Quote>();
+    protected readonly commercialContracts = new Map<string, Contract>();
+    protected readonly commercialOrders = new Map<string, CommercialOrder>();
+    protected readonly commercialOrderLines = new Map<string, OrderLine>();
     protected readonly financialFactRevisions = new Map<
       string,
       Array<{

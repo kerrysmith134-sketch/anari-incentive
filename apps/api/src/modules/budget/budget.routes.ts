@@ -232,11 +232,21 @@ export function registerBudgetRoutes(deps: {
     const query = request.query as {
       factType?: string;
       sourceSystem?: string;
+      legalEntityId?: string;
+      accountingPeriod?: string;
+      recognitionStatus?: string;
     };
+    const recognitionStatus =
+      query.recognitionStatus === "POSTED" || query.recognitionStatus === "DRAFT"
+        ? query.recognitionStatus
+        : undefined;
     return data(
       await platformStore.listFinancialFacts(tenantOf(request), {
         factType: query.factType,
         sourceSystem: query.sourceSystem,
+        legalEntityId: query.legalEntityId,
+        accountingPeriod: query.accountingPeriod,
+        recognitionStatus,
       }),
       request,
     );

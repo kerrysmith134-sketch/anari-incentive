@@ -728,7 +728,13 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
 
     async listFinancialFacts(
       tenantId: string,
-      filter?: { factType?: string; sourceSystem?: string },
+      filter?: {
+        factType?: string;
+        sourceSystem?: string;
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        recognitionStatus?: FinancialFact["recognitionStatus"];
+      },
     ): Promise<FinancialFact[]> {
       await this.assertTenant(tenantId);
       const params: string[] = [tenantId];
@@ -740,6 +746,18 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       if (filter?.sourceSystem) {
         params.push(filter.sourceSystem);
         sql += ` AND source_system=$${params.length}`;
+      }
+      if (filter?.legalEntityId) {
+        params.push(filter.legalEntityId);
+        sql += ` AND legal_entity_id=$${params.length}`;
+      }
+      if (filter?.accountingPeriod) {
+        params.push(filter.accountingPeriod);
+        sql += ` AND accounting_period=$${params.length}`;
+      }
+      if (filter?.recognitionStatus) {
+        params.push(filter.recognitionStatus);
+        sql += ` AND recognition_status=$${params.length}`;
       }
       sql += " ORDER BY ingested_at DESC, created_at DESC";
       const { rows } = await this.tenantQuery(tenantId, sql, params);

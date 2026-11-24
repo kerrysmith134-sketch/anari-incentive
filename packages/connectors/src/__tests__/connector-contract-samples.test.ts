@@ -6,6 +6,10 @@ import { mapRecordToEvent } from "../mapping.js";
 import { FIELD_MAPPING_PRESETS } from "../presets.js";
 import { HttpJsonConnector } from "../http-json.js";
 import { parseFinancialFact } from "../sync-runner.js";
+import {
+  buildErpFinancialFactBody,
+  parseErpFinancialFact,
+} from "../erp-financial.js";
 
 const root = process.cwd();
 
@@ -189,5 +193,47 @@ describe("financial fact typed parsing", () => {
     });
     expect("error" in parsed).toBe(true);
     if ("error" in parsed) expect(parsed.error).toContain("PAYMENT requires");
+  });
+});
+
+describe("ERP financial fact contract", () => {
+  it("parses a typed POSTED ERP fact with legal entity, period and FX", () => {
+    const sample = readSample("erp-financial-facts.sample.json");
+    const record = (sample.records as Array<Record<string, unknown>>)[0]!;
+    const parsed = parseErpFinancialFact(record);
+    if ("error" in parsed) throw new Error(parsed.error);
+    expect(parsed.recognitionStatus).toBe("POSTED");
+    expect(parsed.legalEntityId).toBe("LE-US-01");
+    expect(parsed.accountingPeriod).toBe("2026-10");
+    expect(parsed.instrumentType).toBe("INVOICE");
+    expect(parsed.fxSnapshot?.quoteCurrency).toBe("CNY");
+    expect(parsed.sourceVersion).toBe("erp-v7");
+  });
+
+  it("rejects a POSTED ERP fact missing accounting semantics", () => {
+    const sample = readSample("erp-financial-facts.sample.json");
+    const record = (sample.records as Array<Record<string, unknown>>)[1]!;
+    const parsed = parseErpFinancialFact(record);
+    expect("error" in parsed).toBe(true);
+    if ("error" in parsed) expect(parsed.reason).toBe("SCHEMA_MISMATCH");
+  });
+
+  it("builds the typed financial-facts API body", () => {
+    const sample = readSample("erp-financial-facts.sample.json");
+    const record = (sample.records as Array<Record<string, unknown>>)[0]!;
+    const body = buildErpFinancialFactBody(record, { sourceSystem: "erp" });
+    if ("error" in body) throw new Error(String(body.error));
+    expect(body.sourceRecordId).toBe("FF-2026-0001");
+    expect(body.legalEntityId).toBe("LE-US-01");
+    expect(body.accountingPeriod).toBe("2026-10");
+    expect(body.recognitionStatus).toBe("POSTED");
+  });
+
+  it("ships a FINANCIAL_FACT preset for the standard ERP payload", () => {
+    const preset = FIELD_MAPPING_PRESETS.find(
+      (entry) => entry.code === "erp-financial-facts",
+    );
+    expect(preset?.targetType).toBe("FINANCIAL_FACT");
+    expect(preset?.fieldMap.legalEntityId).toBeUndefined();
   });
 });

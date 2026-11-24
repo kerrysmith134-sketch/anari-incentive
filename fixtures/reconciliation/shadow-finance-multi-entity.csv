@@ -1,0 +1,3 @@
+person_key,amount,currency,legal_entity,accounting_period
+p1,0,CNY,LE-A,2026-10
+p1,0,CNY,LE-B,2026-10

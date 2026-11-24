@@ -1058,6 +1058,75 @@ export type CreateFinancialFactBody = z.infer<
   typeof createFinancialFactSchema
 >;
 
+const commercialCurrency = z.string().length(3);
+
+export const createCommercialAccountSchema = z.object({
+  externalAccountId: z.string().min(1).optional(),
+  name: z.string().min(1),
+  ownerPersonId: uuidSchema.optional(),
+});
+export type CreateCommercialAccountBody = z.infer<
+  typeof createCommercialAccountSchema
+>;
+
+export const createCommercialOpportunitySchema = z.object({
+  accountId: uuidSchema,
+  externalOpportunityId: z.string().min(1).optional(),
+  name: z.string().min(1),
+  stage: z
+    .enum(["PROSPECT", "QUALIFIED", "PROPOSAL", "WON", "LOST"])
+    .optional(),
+  estimatedAmount: decimal.optional(),
+  currency: commercialCurrency,
+  ownerPersonId: uuidSchema.optional(),
+});
+export type CreateCommercialOpportunityBody = z.infer<
+  typeof createCommercialOpportunitySchema
+>;
+
+export const createCommercialQuoteSchema = z.object({
+  opportunityId: uuidSchema,
+  currency: commercialCurrency,
+  amount: decimal,
+  issuedAt: z.string().datetime().optional(),
+  supersedesQuoteId: uuidSchema.optional(),
+});
+export type CreateCommercialQuoteBody = z.infer<
+  typeof createCommercialQuoteSchema
+>;
+
+export const createCommercialContractSchema = z.object({
+  accountId: uuidSchema,
+  opportunityId: uuidSchema,
+  quoteId: uuidSchema,
+  contractRef: z.string().min(1),
+  currency: commercialCurrency,
+  amount: decimal,
+});
+export type CreateCommercialContractBody = z.infer<
+  typeof createCommercialContractSchema
+>;
+
+export const createCommercialOrderLineSchema = z.object({
+  kind: z.enum(["PRODUCT", "SERVICE", "DISCOUNT", "SURCHARGE"]),
+  description: z.string().min(1),
+  quantity: decimal,
+  unitPrice: decimal,
+  amount: decimal,
+  currency: commercialCurrency,
+});
+
+export const createCommercialOrderSchema = z.object({
+  accountId: uuidSchema,
+  contractId: uuidSchema,
+  orderNumber: z.string().min(1),
+  currency: commercialCurrency,
+  lines: z.array(createCommercialOrderLineSchema).min(1),
+});
+export type CreateCommercialOrderBody = z.infer<
+  typeof createCommercialOrderSchema
+>;
+
 export const closeAccountingPeriodSchema = z.object({
   legalEntityId: z.string().min(1),
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM"),
@@ -3144,6 +3213,11 @@ export const requestSchemaRegistry = {
   CreateEmploymentContract: createEmploymentContractSchema,
   CreateEvidence: createEvidenceSchema,
   CreateFinancialFact: createFinancialFactSchema,
+  CreateCommercialAccount: createCommercialAccountSchema,
+  CreateCommercialOpportunity: createCommercialOpportunitySchema,
+  CreateCommercialQuote: createCommercialQuoteSchema,
+  CreateCommercialContract: createCommercialContractSchema,
+  CreateCommercialOrder: createCommercialOrderSchema,
   CloseAccountingPeriod: closeAccountingPeriodSchema,
   ReopenAccountingPeriod: reopenAccountingPeriodSchema,
   CreatePayrollRun: createPayrollRunSchema,
