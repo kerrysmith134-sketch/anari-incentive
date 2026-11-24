@@ -71,6 +71,8 @@ export interface Contract {
   quoteId: string;
   contractRef: string;
   status: ContractStatus;
+  sourceSystem?: string;
+  externalContractId?: string;
   signedAt?: string;
   currency: string;
   amount: string;
@@ -95,6 +97,8 @@ export interface CommercialOrder {
   /** 正式订单号（ERP/OMS）；不是 CRM Deal id。 */
   orderNumber: string;
   status: OrderStatus;
+  sourceSystem?: string;
+  externalOrderId?: string;
   currency: string;
   lines: OrderLine[];
   confirmedAt?: string;

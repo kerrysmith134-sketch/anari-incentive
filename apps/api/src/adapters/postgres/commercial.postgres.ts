@@ -649,6 +649,86 @@ export function PgCommercialMixin(
       });
     }
 
+    async upsertCommercialContract(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalContractId: string;
+      externalQuoteId: string;
+      contractRef: string;
+      currency: string;
+      amount: string;
+      status?: Contract["status"];
+      signedAt?: string;
+    }): Promise<{ contract: Contract; created: boolean }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: quotes } = await client.query(
+          `SELECT * FROM commercial_quotes
+            WHERE tenant_id=$1 AND source_system=$2 AND external_quote_id=$3`,
+          [input.tenantId, input.sourceSystem, input.externalQuoteId],
+        );
+        if (!quotes[0]) notFound("CommercialQuote", input.externalQuoteId);
+        const quote = quotes[0];
+        const { rows: opportunities } = await client.query(
+          "SELECT * FROM commercial_opportunities WHERE tenant_id=$1 AND id=$2",
+          [input.tenantId, quote.opportunity_id],
+        );
+        if (!opportunities[0]) notFound("CommercialOpportunity", quote.opportunity_id);
+        const { rows: existing } = await client.query(
+          `SELECT * FROM commercial_contracts
+            WHERE tenant_id=$1 AND source_system=$2 AND external_contract_id=$3
+            FOR UPDATE`,
+          [input.tenantId, input.sourceSystem, input.externalContractId],
+        );
+        if (existing[0]) {
+          const { rows } = await client.query(
+            `UPDATE commercial_contracts
+                SET contract_ref=$3, status=COALESCE($4, status),
+                    signed_at=COALESCE($5, signed_at), amount=$6, currency=$7,
+                    updated_at=now()
+              WHERE tenant_id=$1 AND id=$2
+              RETURNING *`,
+            [
+              input.tenantId,
+              existing[0].id,
+              input.contractRef,
+              input.status ?? null,
+              input.signedAt ?? null,
+              input.amount,
+              input.currency.toUpperCase(),
+            ],
+          );
+          return { contract: this.mapContract(rows[0]), created: false };
+        }
+        if (quote.status !== "ACCEPTED") {
+          throw new ConflictError(
+            `QUOTE_NOT_ACCEPTED: quote ${quote.id} is ${quote.status}`,
+          );
+        }
+        const { rows } = await client.query(
+          `INSERT INTO commercial_contracts
+             (tenant_id, account_id, opportunity_id, quote_id, contract_ref,
+              status, signed_at, currency, amount, source_system, external_contract_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           RETURNING *`,
+          [
+            input.tenantId,
+            quote.account_id ?? opportunities[0].account_id,
+            quote.opportunity_id,
+            quote.id,
+            input.contractRef,
+            input.status ?? "DRAFT",
+            input.signedAt ??
+              (input.status === "SIGNED" ? new Date().toISOString() : null),
+            input.currency.toUpperCase(),
+            input.amount,
+            input.sourceSystem,
+            input.externalContractId,
+          ],
+        );
+        return { contract: this.mapContract(rows[0]), created: true };
+      });
+    }
+
     async listContracts(tenantId: string, accountId?: string): Promise<Contract[]> {
       const params: string[] = [tenantId];
       let sql = "SELECT * FROM commercial_contracts WHERE tenant_id=$1";
@@ -856,6 +936,112 @@ export function PgCommercialMixin(
         );
       }
       throw new ConflictError(`ORDER_NOT_CANCELLABLE: ${current[0].status}`);
+    }
+
+    async upsertCommercialOrder(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalOrderId: string;
+      externalContractId: string;
+      orderNumber: string;
+      currency: string;
+      status?: CommercialOrder["status"];
+      lines: Array<{
+        kind: CommercialOrder["lines"][number]["kind"];
+        description: string;
+        quantity: string;
+        unitPrice: string;
+        amount: string;
+        currency: string;
+      }>;
+    }): Promise<{ order: CommercialOrder; created: boolean }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: contracts } = await client.query(
+          `SELECT * FROM commercial_contracts
+            WHERE tenant_id=$1 AND source_system=$2 AND external_contract_id=$3
+            FOR UPDATE`,
+          [input.tenantId, input.sourceSystem, input.externalContractId],
+        );
+        if (!contracts[0]) notFound("CommercialContract", input.externalContractId);
+        const contract = contracts[0];
+        const { rows: existing } = await client.query(
+          `SELECT * FROM commercial_orders
+            WHERE tenant_id=$1 AND source_system=$2 AND external_order_id=$3
+            FOR UPDATE`,
+          [input.tenantId, input.sourceSystem, input.externalOrderId],
+        );
+        if (existing[0]) {
+          if (input.status) {
+            await client.query(
+              "UPDATE commercial_orders SET status=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2",
+              [input.tenantId, existing[0].id, input.status],
+            );
+          }
+          return {
+            order: await this.loadOrderWithLines(client, input.tenantId, existing[0].id),
+            created: false,
+          };
+        }
+        if (input.lines.length === 0) throw new ConflictError("ORDER_LINES_REQUIRED");
+        if (input.currency.toUpperCase() !== String(contract.currency).trim()) {
+          throw new ConflictError(
+            `ORDER_CURRENCY_MISMATCH: contract ${String(contract.currency).trim()}, order ${input.currency}`,
+          );
+        }
+        let total = 0n;
+        for (const line of input.lines) {
+          if (line.currency.toUpperCase() !== input.currency.toUpperCase()) {
+            throw new ConflictError("ORDER_LINE_CURRENCY_MISMATCH");
+          }
+          const expected = mul(parseDecimal(line.quantity), parseDecimal(line.unitPrice));
+          if (expected !== parseDecimal(line.amount)) {
+            throw new ConflictError("ORDER_LINE_AMOUNT_MISMATCH");
+          }
+          total += parseDecimal(line.amount);
+        }
+        if (total > parseDecimal(String(contract.amount))) {
+          throw new ConflictError("ORDER_EXCEEDS_CONTRACT");
+        }
+        const { rows: orders } = await client.query(
+          `INSERT INTO commercial_orders
+             (tenant_id, account_id, contract_id, order_number, status, currency,
+              confirmed_at, source_system, external_order_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING *`,
+          [
+            input.tenantId,
+            contract.account_id,
+            contract.id,
+            input.orderNumber,
+            input.status ?? "DRAFT",
+            input.currency.toUpperCase(),
+            input.status === "CONFIRMED" ? new Date().toISOString() : null,
+            input.sourceSystem,
+            input.externalOrderId,
+          ],
+        );
+        for (const line of input.lines) {
+          await client.query(
+            `INSERT INTO commercial_order_lines
+               (tenant_id, order_id, kind, description, quantity, unit_price, amount, currency)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [
+              input.tenantId,
+              orders[0].id,
+              line.kind,
+              line.description,
+              line.quantity,
+              line.unitPrice,
+              line.amount,
+              line.currency.toUpperCase(),
+            ],
+          );
+        }
+        return {
+          order: await this.loadOrderWithLines(client, input.tenantId, orders[0].id),
+          created: true,
+        };
+      });
     }
 
     async listOrders(

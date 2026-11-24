@@ -522,6 +522,17 @@ export interface CommercialPort {
   signContract(tenantId: string, contractId: string): Promise<Contract>;
   terminateContract(tenantId: string, contractId: string): Promise<Contract>;
   listContracts(tenantId: string, accountId?: string): Promise<Contract[]>;
+  upsertCommercialContract(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalContractId: string;
+    externalQuoteId: string;
+    contractRef: string;
+    currency: string;
+    amount: string;
+    status?: Contract["status"];
+    signedAt?: string;
+  }): Promise<{ contract: Contract; created: boolean }>;
   createOrder(input: {
     tenantId: string;
     accountId: string;
@@ -540,6 +551,23 @@ export interface CommercialPort {
   confirmOrder(tenantId: string, orderId: string): Promise<CommercialOrder>;
   cancelOrder(tenantId: string, orderId: string): Promise<CommercialOrder>;
   listOrders(tenantId: string, accountId?: string): Promise<CommercialOrder[]>;
+  upsertCommercialOrder(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalOrderId: string;
+    externalContractId: string;
+    orderNumber: string;
+    currency: string;
+    status?: CommercialOrder["status"];
+    lines: Array<{
+      kind: CommercialOrder["lines"][number]["kind"];
+      description: string;
+      quantity: string;
+      unitPrice: string;
+      amount: string;
+      currency: string;
+    }>;
+  }): Promise<{ order: CommercialOrder; created: boolean }>;
 }
 
 /** 告知域端口：公告/确认回执/入站消息。 */

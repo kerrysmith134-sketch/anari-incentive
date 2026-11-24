@@ -392,3 +392,84 @@ describe("Sprint 3 commercial quote import", () => {
     expect(updated.quote.status).toBe("ACCEPTED");
   });
 });
+
+describe("Sprint 3 commercial contract/order import", () => {
+  it("upserts contracts and orders by source external ids", async () => {
+    const app = buildAppFor();
+    await post(app, "/api/v1/commercial/import/opportunities", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-CO",
+      accountName: "Contract Co",
+      externalOpportunityId: "HS-DEAL-CO",
+      name: "Contract deal",
+      currency: "USD",
+    });
+    await post(app, "/api/v1/commercial/import/quotes", {
+      sourceSystem: "hubspot",
+      externalOpportunityId: "HS-DEAL-CO",
+      externalQuoteId: "HS-QUOTE-CO",
+      currency: "USD",
+      amount: "1000",
+      status: "ACCEPTED",
+    });
+    const contract1 = await post(app, "/api/v1/commercial/import/contracts", {
+      sourceSystem: "hubspot",
+      externalContractId: "HS-CT-CO",
+      externalQuoteId: "HS-QUOTE-CO",
+      contractRef: "CT-CO-1",
+      currency: "USD",
+      amount: "1000",
+      status: "SIGNED",
+    });
+    expect(contract1.statusCode).toBe(201);
+    const contract2 = await post(app, "/api/v1/commercial/import/contracts", {
+      sourceSystem: "hubspot",
+      externalContractId: "HS-CT-CO",
+      externalQuoteId: "HS-QUOTE-CO",
+      contractRef: "CT-CO-1",
+      currency: "USD",
+      amount: "1000",
+      status: "TERMINATED",
+    });
+    expect(contract2.statusCode).toBe(200);
+
+    const order1 = await post(app, "/api/v1/commercial/import/orders", {
+      sourceSystem: "hubspot",
+      externalOrderId: "HS-SO-CO",
+      externalContractId: "HS-CT-CO",
+      orderNumber: "SO-CO-1",
+      currency: "USD",
+      lines: [
+        {
+          kind: "PRODUCT",
+          description: "charger",
+          quantity: "1",
+          unitPrice: "100",
+          amount: "100",
+          currency: "USD",
+        },
+      ],
+    });
+    expect(order1.statusCode).toBe(201);
+    const order2 = await post(app, "/api/v1/commercial/import/orders", {
+      sourceSystem: "hubspot",
+      externalOrderId: "HS-SO-CO",
+      externalContractId: "HS-CT-CO",
+      orderNumber: "SO-CO-1",
+      currency: "USD",
+      status: "CANCELLED",
+      lines: [
+        {
+          kind: "PRODUCT",
+          description: "charger",
+          quantity: "1",
+          unitPrice: "100",
+          amount: "100",
+          currency: "USD",
+        },
+      ],
+    });
+    expect(order2.statusCode).toBe(200);
+    expect(dataOf<{ order: { status: string } }>(order2).order.status).toBe("CANCELLED");
+  });
+});

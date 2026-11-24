@@ -104,7 +104,7 @@
 | equity 多币种精度 | 关闭 | 回购/税费按 ISO 4217 最小单位；非 CNY 不套用人民币 5 万/50 万阈值。 |
 | Integrations 运行健康/数据质量 | 关闭 | 新增 health/data-quality tab，复用 sync-runs 与 quarantine；计数对平展示。 |
 | E2E 新流程 | 关闭 | `commercial.spec.ts`、`accounting-period-approval.spec.ts` 2 passed。 |
-| Commercial 接入 Sync Runner | 部分关闭 | Account/Opportunity/Quote 已 source-aware 导入并接入 runner；Contract/Order 外部导入仍待做。 |
+| Commercial 接入 Sync Runner | 关闭 | Account/Opportunity/Quote/Contract/Order 均 source-aware 导入并接入 runner。 |
 | Raw Ledger 不可变性 | 关闭 | 迁移 108 更新触发器，覆盖 source_version/payload_hash/resource_id/fetched_at/source_updated_at；服务端重新计算并核对 payloadHash。 |
 | Financial Fact DB/API 一致性 | 关闭 | 迁移 108 CHECK 增加 order/contract 必填；runner/parser 透传 reopeningRef；ISO 4217 改用运行时 registry。 |
 | Commercial 完整性 | 关闭 | 已接受/已拒绝 Quote 不可修订；Contract 金额/币种必须等于 Quote；Order 币种/行金额/总额校验；confirm 先锁 contract 再锁 order。 |
@@ -133,10 +133,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：134 files passed / 2 skipped；1352 tests passed / 108 skipped。
+- `npm test`：134 files passed / 2 skipped；1353 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
-- `npm run test:pg-upgrade`：89 → 109 migrations，107 tests passed。
+- `npm run test:pg-upgrade`：89 → 110 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

@@ -15,6 +15,8 @@ import {
   importCommercialAccountSchema,
   importCommercialOpportunitySchema,
   importCommercialQuoteSchema,
+  importCommercialContractSchema,
+  importCommercialOrderSchema,
 } from "@anari/contracts";
 import { data, idOf, parse, requireRoles, tenantOf } from "../../http-helpers.js";
 
@@ -152,6 +154,16 @@ export function registerCommercialRoutes(deps: {
       );
     });
 
+    app.post("/api/v1/commercial/import/contracts", async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const body = parse(importCommercialContractSchema, request.body);
+      const result = await platformStore.upsertCommercialContract({
+        tenantId: tenantOf(request),
+        ...body,
+      });
+      return reply.status(result.created ? 201 : 200).send(data(result, request));
+    });
+
     app.get("/api/v1/commercial/contracts", async (request) => {
       requireRoles(request, "manager", "finance", "integration");
       const query = request.query as { accountId?: string };
@@ -197,6 +209,16 @@ export function registerCommercialRoutes(deps: {
         await platformStore.terminateContract(tenantOf(request), idOf(request)),
         request,
       );
+    });
+
+    app.post("/api/v1/commercial/import/orders", async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const body = parse(importCommercialOrderSchema, request.body);
+      const result = await platformStore.upsertCommercialOrder({
+        tenantId: tenantOf(request),
+        ...body,
+      });
+      return reply.status(result.created ? 201 : 200).send(data(result, request));
     });
 
     app.get("/api/v1/commercial/orders", async (request) => {

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T20:35:19.250Z",
+  "generatedAt": "2026-11-24T20:42:15.152Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -545,6 +545,11 @@
       "file": "109_commercial_quote_import.sql",
       "bytes": 453,
       "sha256": "6f45588ac380f6531ea6f28f11c61a2fb0e34443ff9de2e7bc321fd8de5c0719"
+    },
+    {
+      "file": "110_commercial_contract_order_import.sql",
+      "bytes": 876,
+      "sha256": "d5bff96ed3634158f63e0465d8a4fd4aca14424c32b1a9b29dcd562b29840ca0"
     }
   ]
 }

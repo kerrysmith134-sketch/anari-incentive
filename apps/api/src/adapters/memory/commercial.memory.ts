@@ -469,6 +469,62 @@ export function MemoryCommercialMixin(
       return contract;
     }
 
+    async upsertCommercialContract(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalContractId: string;
+      externalQuoteId: string;
+      contractRef: string;
+      currency: string;
+      amount: string;
+      status?: Contract["status"];
+      signedAt?: string;
+    }): Promise<{ contract: Contract; created: boolean }> {
+      const quote = [...this.commercialQuotes.values()].find(
+        (item) =>
+          item.tenantId === input.tenantId &&
+          item.sourceSystem === input.sourceSystem &&
+          item.externalQuoteId === input.externalQuoteId,
+      );
+      if (!quote) notFound("CommercialQuote", input.externalQuoteId);
+      const opportunity = this.findOpportunity(input.tenantId, quote.opportunityId);
+      const existing = [...this.commercialContracts.values()].find(
+        (contract) =>
+          contract.tenantId === input.tenantId &&
+          contract.sourceSystem === input.sourceSystem &&
+          contract.externalContractId === input.externalContractId,
+      );
+      if (existing) {
+        existing.status = input.status ?? existing.status;
+        existing.signedAt = input.signedAt ?? existing.signedAt;
+        existing.amount = formatDecimal(money(input.amount));
+        existing.currency = input.currency.toUpperCase();
+        existing.contractRef = input.contractRef;
+        return { contract: existing, created: false };
+      }
+      if (quote.status !== "ACCEPTED") {
+        throw new ConflictError(
+          `QUOTE_NOT_ACCEPTED: quote ${quote.id} is ${quote.status}`,
+        );
+      }
+      const contract: Contract = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        accountId: opportunity.accountId,
+        opportunityId: opportunity.id,
+        quoteId: quote.id,
+        contractRef: input.contractRef,
+        status: input.status ?? "DRAFT",
+        signedAt: input.signedAt ?? (input.status === "SIGNED" ? now() : undefined),
+        currency: input.currency.toUpperCase(),
+        amount: formatDecimal(money(input.amount)),
+        sourceSystem: input.sourceSystem,
+        externalContractId: input.externalContractId,
+      };
+      this.commercialContracts.set(contract.id, contract);
+      return { contract, created: true };
+    }
+
     async listContracts(tenantId: string, accountId?: string): Promise<Contract[]> {
       return [...this.commercialContracts.values()]
         .filter(
@@ -611,6 +667,88 @@ export function MemoryCommercialMixin(
       }
       order.status = "CANCELLED";
       return order;
+    }
+
+    async upsertCommercialOrder(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalOrderId: string;
+      externalContractId: string;
+      orderNumber: string;
+      currency: string;
+      status?: CommercialOrder["status"];
+      lines: Array<{
+        kind: CommercialOrder["lines"][number]["kind"];
+        description: string;
+        quantity: string;
+        unitPrice: string;
+        amount: string;
+        currency: string;
+      }>;
+    }): Promise<{ order: CommercialOrder; created: boolean }> {
+      const contract = [...this.commercialContracts.values()].find(
+        (item) =>
+          item.tenantId === input.tenantId &&
+          item.sourceSystem === input.sourceSystem &&
+          item.externalContractId === input.externalContractId,
+      );
+      if (!contract) notFound("CommercialContract", input.externalContractId);
+      const existing = [...this.commercialOrders.values()].find(
+        (order) =>
+          order.tenantId === input.tenantId &&
+          order.sourceSystem === input.sourceSystem &&
+          order.externalOrderId === input.externalOrderId,
+      );
+      if (existing) {
+        if (input.status) existing.status = input.status;
+        return { order: existing, created: false };
+      }
+      if (input.lines.length === 0) throw new ConflictError("ORDER_LINES_REQUIRED");
+      if (input.currency.toUpperCase() !== contract.currency) {
+        throw new ConflictError(
+          `ORDER_CURRENCY_MISMATCH: contract ${contract.currency}, order ${input.currency}`,
+        );
+      }
+      let total = 0n;
+      for (const line of input.lines) {
+        if (line.currency.toUpperCase() !== input.currency.toUpperCase()) {
+          throw new ConflictError("ORDER_LINE_CURRENCY_MISMATCH");
+        }
+        const expected = mul(parseDecimal(line.quantity), parseDecimal(line.unitPrice));
+        if (expected !== parseDecimal(line.amount)) {
+          throw new ConflictError("ORDER_LINE_AMOUNT_MISMATCH");
+        }
+        total += parseDecimal(line.amount);
+      }
+      if (total > parseDecimal(contract.amount)) {
+        throw new ConflictError("ORDER_EXCEEDS_CONTRACT");
+      }
+      const order: CommercialOrder = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        accountId: contract.accountId,
+        contractId: contract.id,
+        orderNumber: input.orderNumber,
+        status: input.status ?? "DRAFT",
+        currency: input.currency.toUpperCase(),
+        lines: input.lines.map((line) => ({
+          id: randomUUID(),
+          orderId: "",
+          kind: line.kind,
+          description: line.description,
+          quantity: formatDecimal(money(line.quantity)),
+          unitPrice: formatDecimal(money(line.unitPrice)),
+          amount: formatDecimal(money(line.amount)),
+          currency: line.currency.toUpperCase(),
+        })),
+        sourceSystem: input.sourceSystem,
+        externalOrderId: input.externalOrderId,
+        confirmedAt: input.status === "CONFIRMED" ? now() : undefined,
+      };
+      for (const line of order.lines) line.orderId = order.id;
+      this.commercialOrders.set(order.id, order);
+      for (const line of order.lines) this.commercialOrderLines.set(line.id, line);
+      return { order, created: true };
     }
 
     async listOrders(

@@ -4068,6 +4068,34 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/commercial/import/contracts:
+    post:
+      tags: [Commercial]
+      summary: Source-aware upsert of a commercial contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCommercialContract"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/commercial/contracts:
     get:
       tags: [Commercial]
@@ -4146,6 +4174,34 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/import/orders:
+    post:
+      tags: [Commercial]
+      summary: Source-aware upsert of a commercial order with lines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCommercialOrder"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/v1/commercial/orders:
     get:
@@ -13439,6 +13495,49 @@ components:
           format: uuid
         reopeningRef: { type: string }
         reason: { type: string, minLength: 3 }
+
+    ImportCommercialContract:
+      type: object
+      required: [sourceSystem, externalContractId, externalQuoteId, contractRef, currency, amount]
+      properties:
+        sourceSystem: { type: string }
+        externalContractId: { type: string }
+        externalQuoteId: { type: string }
+        contractRef: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: string }
+        status:
+          type: string
+          enum: [DRAFT, SIGNED, TERMINATED]
+        signedAt: { type: string, format: date-time }
+
+    ImportCommercialOrder:
+      type: object
+      required: [sourceSystem, externalOrderId, externalContractId, orderNumber, currency, lines]
+      properties:
+        sourceSystem: { type: string }
+        externalOrderId: { type: string }
+        externalContractId: { type: string }
+        orderNumber: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        status:
+          type: string
+          enum: [DRAFT, CONFIRMED, CANCELLED]
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [kind, description, quantity, unitPrice, amount, currency]
+            properties:
+              kind:
+                type: string
+                enum: [PRODUCT, SERVICE, DISCOUNT, SURCHARGE]
+              description: { type: string }
+              quantity: { type: string }
+              unitPrice: { type: string }
+              amount: { type: string }
+              currency: { type: string }
 
     ImportCommercialQuote:
       type: object

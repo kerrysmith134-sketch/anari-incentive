@@ -3137,3 +3137,41 @@ export const importCommercialQuoteSchema = z.object({
 export type ImportCommercialQuoteBody = z.infer<
   typeof importCommercialQuoteSchema
 >;
+
+export const importCommercialContractSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalContractId: z.string().min(1),
+  externalQuoteId: z.string().min(1),
+  contractRef: z.string().min(1),
+  currency: z.string().length(3),
+  amount: decimal,
+  status: z.enum(["DRAFT", "SIGNED", "TERMINATED"]).optional(),
+  signedAt: z.string().datetime().optional(),
+});
+export type ImportCommercialContractBody = z.infer<
+  typeof importCommercialContractSchema
+>;
+
+export const importCommercialOrderSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalOrderId: z.string().min(1),
+  externalContractId: z.string().min(1),
+  orderNumber: z.string().min(1),
+  currency: z.string().length(3),
+  status: z.enum(["DRAFT", "CONFIRMED", "CANCELLED"]).optional(),
+  lines: z
+    .array(
+      z.object({
+        kind: z.enum(["PRODUCT", "SERVICE", "DISCOUNT", "SURCHARGE"]),
+        description: z.string().min(1),
+        quantity: decimal,
+        unitPrice: decimal,
+        amount: decimal,
+        currency: z.string().length(3),
+      }),
+    )
+    .min(1),
+});
+export type ImportCommercialOrderBody = z.infer<
+  typeof importCommercialOrderSchema
+>;
