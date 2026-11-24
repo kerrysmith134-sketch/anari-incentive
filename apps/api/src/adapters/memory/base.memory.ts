@@ -64,6 +64,7 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  AccountingPeriod,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -215,6 +216,7 @@ export class MemoryPlatformStoreBase {
     protected readonly budgetAllocations = new Map<string, BudgetAllocation>();
     protected readonly cashGateInputs = new Map<string, CashGateInput>();
     protected readonly financialFacts = new Map<string, FinancialFact>();
+    protected readonly accountingPeriods = new Map<string, AccountingPeriod>();
     protected readonly financialFactRevisions = new Map<
       string,
       Array<{
@@ -227,6 +229,16 @@ export class MemoryPlatformStoreBase {
         sourceUpdatedAt?: string;
         payload: Record<string, unknown>;
         createdAt: string;
+        legalEntityId?: string;
+        orderId?: string;
+        contractRef?: string;
+        instrumentType?: string;
+        recognitionStatus?: string;
+        accountingPeriod?: string;
+        fxSnapshot?: FinancialFact["fxSnapshot"];
+        sourceVersion?: string;
+        reversalOf?: string;
+        reopeningRef?: string;
       }>
     >();
     protected readonly ruleChangeOrders = new Map<string, RuleChangeOrder>();

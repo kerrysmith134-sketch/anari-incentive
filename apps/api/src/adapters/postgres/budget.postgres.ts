@@ -48,6 +48,7 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  AccountingPeriod,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -485,9 +486,92 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       qualityStatus: FinancialFact["qualityStatus"];
       sourceUpdatedAt?: string;
       payload: Record<string, unknown>;
+      legalEntityId?: string;
+      orderId?: string;
+      contractRef?: string;
+      instrumentType?: FinancialFact["instrumentType"];
+      recognitionStatus?: FinancialFact["recognitionStatus"];
+      accountingPeriod?: string;
+      fxSnapshot?: FinancialFact["fxSnapshot"];
+      sourceVersion?: string;
+      reversalOf?: string;
+      reopeningRef?: string;
     }): Promise<FinancialFact> {
+      const recognitionStatus = input.recognitionStatus ?? "DRAFT";
+      if (
+        recognitionStatus === "POSTED" &&
+        (!input.legalEntityId ||
+          !input.accountingPeriod ||
+          !input.instrumentType ||
+          !input.sourceVersion)
+      ) {
+        throw new ConflictError(
+          "POSTED_FACT_REQUIRED_FIELDS: POSTED requires legalEntityId, accountingPeriod, instrumentType and sourceVersion",
+        );
+      }
+      if (recognitionStatus === "POSTED" && !input.orderId && !input.contractRef) {
+        throw new ConflictError(
+          "FACT_NOT_TRACEABLE: POSTED facts require orderId or contractRef",
+        );
+      }
       try {
         return await this.transactionFor(input.tenantId, async (client) => {
+          // Sprint 5：POSTED 事实必须落入一个未关闭的会计期间；关闭期间
+          // 仅允许带有匹配 reopeningRef 的重开凭证写入。
+          if (recognitionStatus === "POSTED") {
+            if (!input.legalEntityId || !input.accountingPeriod) {
+              throw new ConflictError(
+                "PERIOD_REQUIRED: POSTED financial facts require legalEntityId and accountingPeriod",
+              );
+            }
+            const { rows: periods } = await client.query(
+              `SELECT * FROM accounting_periods
+                WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+                FOR UPDATE`,
+              [input.tenantId, input.legalEntityId, input.accountingPeriod],
+            );
+            let period = periods[0];
+            if (!period) {
+              // 首次入账自动开期（OPEN），之后由财务显式 close/reopen。
+              const inserted = await client.query(
+                `INSERT INTO accounting_periods
+                   (tenant_id, legal_entity_id, period, status)
+                 VALUES ($1,$2,$3,'OPEN')
+                 ON CONFLICT (tenant_id, legal_entity_id, period) DO NOTHING
+                 RETURNING *`,
+                [input.tenantId, input.legalEntityId, input.accountingPeriod],
+              );
+              period = inserted.rows[0];
+              if (!period) {
+                const again = await client.query(
+                  `SELECT * FROM accounting_periods
+                    WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+                    FOR UPDATE`,
+                  [input.tenantId, input.legalEntityId, input.accountingPeriod],
+                );
+                period = again.rows[0];
+              }
+            }
+            if (period?.status === "CLOSED") {
+              throw new ConflictError(
+                `PERIOD_CLOSED: ${input.legalEntityId}/${input.accountingPeriod} is closed`,
+              );
+            }
+            if (
+              period?.reopening_ref &&
+              input.reopeningRef !== period.reopening_ref
+            ) {
+              throw new ConflictError(
+                `REOPENING_REF_REQUIRED: period ${input.legalEntityId}/${input.accountingPeriod} ` +
+                  `was reopened as ${period.reopening_ref}; POSTED fact must carry the same reopeningRef`,
+              );
+            }
+          } else if (input.reopeningRef) {
+            throw new ConflictError(
+              "REOPENING_REF_NOT_ALLOWED: reopeningRef is only valid for POSTED facts",
+            );
+          }
+
           // INT-208（Sprint 2.1 财务红线）：迟到旧快照不得覆盖新快照。
           const { rows: current } = await client.query(
             `SELECT * FROM financial_facts
@@ -497,6 +581,34 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
             [input.tenantId, input.sourceSystem, input.sourceRecordId, input.factType],
           );
           const existing = current[0];
+          if (existing) {
+            if (
+              existing.recognition_status === "POSTED" &&
+              recognitionStatus === "DRAFT"
+            ) {
+              throw new ConflictError(
+                `RECOGNITION_STATUS_REGRESSION: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} is already POSTED; a DRAFT snapshot cannot un-post it`,
+              );
+            }
+            if (
+              existing.legal_entity_id &&
+              input.legalEntityId &&
+              existing.legal_entity_id !== input.legalEntityId
+            ) {
+              throw new ConflictError(
+                `LEGAL_ENTITY_MISMATCH: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} belongs to ${existing.legal_entity_id}, not ${input.legalEntityId}`,
+              );
+            }
+            if (
+              existing.accounting_period &&
+              input.accountingPeriod &&
+              existing.accounting_period !== input.accountingPeriod
+            ) {
+              throw new ConflictError(
+                `ACCOUNTING_PERIOD_MISMATCH: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} belongs to ${existing.accounting_period}, not ${input.accountingPeriod}`,
+              );
+            }
+          }
           if (
             existing &&
             input.sourceUpdatedAt &&
@@ -508,7 +620,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
             );
           }
           if (existing) {
-            // 旧值先写入 append-only 修订账本（迁移 101）。
+            // 旧值先写入 append-only 修订账本（迁移 101/105）。
             const { rows: revRows } = await client.query(
               `SELECT COALESCE(MAX(revision), 0) + 1 AS next
                  FROM financial_fact_revisions
@@ -519,8 +631,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
               `INSERT INTO financial_fact_revisions
                  (tenant_id, fact_id, revision, amount, currency,
                   period_start, period_end, quality_status,
-                  source_updated_at, payload)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+                  source_updated_at, payload,
+                  legal_entity_id, order_id, contract_ref, instrument_type,
+                  recognition_status, accounting_period, fx_snapshot,
+                  source_version, reversal_of, reopening_ref)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
+                       $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20)`,
               [
                 input.tenantId,
                 existing.id,
@@ -532,6 +648,16 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                 existing.quality_status,
                 existing.source_updated_at,
                 JSON.stringify(existing.payload ?? {}),
+                existing.legal_entity_id ?? null,
+                existing.order_id ?? null,
+                existing.contract_ref ?? null,
+                existing.instrument_type ?? null,
+                existing.recognition_status ?? "DRAFT",
+                existing.accounting_period ?? null,
+                existing.fx_snapshot ? JSON.stringify(existing.fx_snapshot) : null,
+                existing.source_version ?? null,
+                existing.reversal_of ?? null,
+                existing.reopening_ref ?? null,
               ],
             );
           }
@@ -539,8 +665,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
             `INSERT INTO financial_facts
               (id, tenant_id, source_system, source_record_id, fact_type,
                period_start, period_end, amount, currency, quality_status,
-               source_updated_at, payload)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+               source_updated_at, payload,
+               legal_entity_id, order_id, contract_ref, instrument_type,
+               recognition_status, accounting_period, fx_snapshot,
+               source_version, reversal_of, reopening_ref)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
+                    $13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$22)
             ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
             DO UPDATE SET period_start=EXCLUDED.period_start,
                           period_end=EXCLUDED.period_end,
@@ -549,7 +679,17 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                           quality_status=EXCLUDED.quality_status,
                           source_updated_at=EXCLUDED.source_updated_at,
                           ingested_at=now(),
-                          payload=EXCLUDED.payload
+                          payload=EXCLUDED.payload,
+                          legal_entity_id=EXCLUDED.legal_entity_id,
+                          order_id=EXCLUDED.order_id,
+                          contract_ref=EXCLUDED.contract_ref,
+                          instrument_type=EXCLUDED.instrument_type,
+                          recognition_status=EXCLUDED.recognition_status,
+                          accounting_period=EXCLUDED.accounting_period,
+                          fx_snapshot=EXCLUDED.fx_snapshot,
+                          source_version=EXCLUDED.source_version,
+                          reversal_of=EXCLUDED.reversal_of,
+                          reopening_ref=EXCLUDED.reopening_ref
             RETURNING *`,
             [
               existing?.id ?? randomUUID(),
@@ -563,7 +703,17 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
               input.currency,
               input.qualityStatus,
               input.sourceUpdatedAt ?? null,
-              input.payload,
+              JSON.stringify(input.payload ?? {}),
+              input.legalEntityId ?? null,
+              input.orderId ?? null,
+              input.contractRef ?? null,
+              input.instrumentType ?? null,
+              recognitionStatus,
+              input.accountingPeriod ?? null,
+              input.fxSnapshot ? JSON.stringify(input.fxSnapshot) : null,
+              input.sourceVersion ?? null,
+              input.reversalOf ?? null,
+              input.reopeningRef ?? null,
             ],
           );
           return this.mapFinancialFact(rows[0]);
@@ -575,7 +725,7 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         throw error;
       }
     }
-    
+
     async listFinancialFacts(
       tenantId: string,
       filter?: { factType?: string; sourceSystem?: string },
@@ -594,6 +744,122 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       sql += " ORDER BY ingested_at DESC, created_at DESC";
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapFinancialFact(row));
+    }
+
+    async listAccountingPeriods(
+      tenantId: string,
+      filter?: { legalEntityId?: string; period?: string },
+    ): Promise<AccountingPeriod[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM accounting_periods WHERE tenant_id=$1";
+      if (filter?.legalEntityId) {
+        params.push(filter.legalEntityId);
+        sql += ` AND legal_entity_id=$${params.length}`;
+      }
+      if (filter?.period) {
+        params.push(filter.period);
+        sql += ` AND period=$${params.length}`;
+      }
+      sql += " ORDER BY period DESC, legal_entity_id ASC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) => this.mapAccountingPeriod(row));
+    }
+
+    async getAccountingPeriod(
+      tenantId: string,
+      legalEntityId: string,
+      period: string,
+    ): Promise<AccountingPeriod | null> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM accounting_periods
+          WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3`,
+        [tenantId, legalEntityId, period],
+      );
+      return rows[0] ? this.mapAccountingPeriod(rows[0]) : null;
+    }
+
+    async closeAccountingPeriod(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      actorPersonId: string;
+      reason?: string;
+    }): Promise<AccountingPeriod> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE accounting_periods
+            SET status='CLOSED', closed_at=now(), closed_by=$4,
+                close_reason=$5, updated_at=now()
+          WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+            AND status='OPEN'
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.legalEntityId,
+          input.period,
+          input.actorPersonId,
+          input.reason ?? null,
+        ],
+      );
+      if (rows[0]) return this.mapAccountingPeriod(rows[0]);
+      // 空期间也允许关闭：不存在时直接落一条 CLOSED（已关闭则幂等冲突）。
+      const { rows: inserted } = await this.tenantQuery(
+        input.tenantId,
+        `INSERT INTO accounting_periods
+           (tenant_id, legal_entity_id, period, status,
+            closed_at, closed_by, close_reason)
+         VALUES ($1,$2,$3,'CLOSED',now(),$4,$5)
+         ON CONFLICT (tenant_id, legal_entity_id, period) DO NOTHING
+         RETURNING *`,
+        [
+          input.tenantId,
+          input.legalEntityId,
+          input.period,
+          input.actorPersonId,
+          input.reason ?? null,
+        ],
+      );
+      if (!inserted[0]) {
+        throw new ConflictError(
+          `PERIOD_NOT_OPEN: ${input.legalEntityId}/${input.period} is already closed`,
+        );
+      }
+      return this.mapAccountingPeriod(inserted[0]);
+    }
+
+    async reopenAccountingPeriod(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      actorPersonId: string;
+      reopeningRef: string;
+      reason: string;
+    }): Promise<AccountingPeriod> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE accounting_periods
+            SET status='OPEN', reopened_at=now(), reopened_by=$4,
+                reopening_ref=$5, reopen_reason=$6, updated_at=now()
+          WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+            AND status='CLOSED'
+          RETURNING *`,
+        [
+          input.tenantId,
+          input.legalEntityId,
+          input.period,
+          input.actorPersonId,
+          input.reopeningRef,
+          input.reason,
+        ],
+      );
+      if (!rows[0]) {
+        throw new ConflictError(
+          `PERIOD_NOT_CLOSED: ${input.legalEntityId}/${input.period} is missing or not closed`,
+        );
+      }
+      return this.mapAccountingPeriod(rows[0]);
     }
   };
 }

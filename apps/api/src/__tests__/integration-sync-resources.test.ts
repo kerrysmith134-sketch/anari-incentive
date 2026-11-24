@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { MemoryPlatformStore } from "../platform-store.js";
 import { Store } from "../store.js";
-import { runSyncCycle, type SyncRequestFn } from "@anari/connectors";
+import { runSyncCycle, SyncRequestError, type SyncRequestFn } from "@anari/connectors";
 
 const TENANT_A = "00000000-0000-4000-8000-000000000001";
 const TENANT_B = "00000000-0000-4000-8000-000000000009";
@@ -55,9 +55,13 @@ function injectRequestFactory(app: Awaited<ReturnType<typeof buildApp>>): SyncRe
         : {}),
     });
     const payload = res.payload.toString();
-    const parsed = payload ? (JSON.parse(payload) as { data?: T; error?: { message?: string } }) : {};
+    const parsed = payload ? (JSON.parse(payload) as { data?: T; error?: { message?: string; code?: string } }) : {};
     if (res.statusCode >= 400) {
-      throw new Error(parsed.error?.message ?? `HTTP ${res.statusCode}`);
+      throw new SyncRequestError(
+        parsed.error?.message ?? `HTTP ${res.statusCode}`,
+        res.statusCode,
+        parsed.error?.code,
+      );
     }
     return parsed.data as T;
   };
@@ -94,6 +98,7 @@ async function seedConnectionMappingSchedule(
           subjectId: "subject_id",
           evidenceType: "evidence_type",
           occurredAt: "occurred_at",
+          sourceUpdatedAt: "updated_at",
         },
         config: { allowUuidPassthrough: true },
         version: 1,
@@ -203,9 +208,19 @@ describe("NP-001: sync-resources / checkpoint / quarantine 端点", () => {
       `/api/v1/sync-resources/${resource.id}/checkpoint`,
     );
     expect(fresh.cursor).toBeNull();
+    // INT-205：只有租约持有人可以推进 checkpoint。
+    const lease = await inject<{ fencingToken: number }>(
+      `/api/v1/sync-resources/${resource.id}/claim-lease`,
+      { method: "POST", body: JSON.stringify({ leaseOwner: "cp-test", leaseSeconds: 300 }) },
+    );
     await inject(`/api/v1/sync-resources/${resource.id}/checkpoint`, {
       method: "PUT",
-      body: JSON.stringify({ cursor: "cursor-42", lastRunId: "00000000-0000-4000-8000-0000000000cc" }),
+      body: JSON.stringify({
+        cursor: "cursor-42",
+        lastRunId: "00000000-0000-4000-8000-0000000000cc",
+        leaseOwner: "cp-test",
+        fencingToken: lease.fencingToken,
+      }),
     });
     const saved = await inject<{ cursor: string | null; lastRunId: string | null }>(
       `/api/v1/sync-resources/${resource.id}/checkpoint`,
@@ -456,5 +471,157 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
     expect(retry.schedules[0]!.counters.recordsUpserted).toBe(1);
     const facts = await inject<Array<{ sourceRecordId: string }>>("/api/v1/financial-facts");
     expect(facts.filter((f) => f.sourceRecordId === "FA-FAIL")).toHaveLength(1);
+  });
+
+  it("INT-210：未知 409（期间关闭/状态冲突）不得被当作幂等成功", async () => {
+    const app = buildAppFor(TENANT_A);
+    const inject = injectRequestFactory(app);
+    const seed = await seedConnectionMappingSchedule(
+      app,
+      "https://provider.example/api/orders3",
+      "FINANCIAL_FACT",
+    );
+    const providerFetch = stubProviderFetch([
+      {
+        records: [
+          {
+            record_id: "FA-409",
+            event_type: "updated",
+            subject_type: "ORDER",
+            subject_id: "00000000-0000-4000-8000-0000000000e5",
+            evidence_type: "REVENUE",
+            occurred_at: "2026-10-17T00:00:00.000Z",
+            amount: "10.00",
+            currency: "CNY",
+          },
+        ],
+      },
+    ]);
+    const conflictRequest: SyncRequestFn = async (path, init) => {
+      if (path === "/api/v1/financial-facts" && (init?.method ?? "GET") === "POST") {
+        throw new SyncRequestError(
+          "PERIOD_CLOSED: accounting period 2026-10 is locked",
+          409,
+          "PERIOD_CLOSED",
+        );
+      }
+      return inject(path, init);
+    };
+    const summary = await runSyncCycle({
+      request: conflictRequest,
+      limit: 10,
+      maxPages: 1,
+      claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
+      providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
+    });
+    expect(summary.schedules[0]!.status).toBe("FAILED");
+    expect(summary.schedules[0]!.counters.recordsFailed).toBe(1);
+    expect(summary.schedules[0]!.counters.recordsDuplicate).toBe(0);
+    void seed;
+  });
+
+  it("INT-214：OAuth 401 → invalidate + 重新取 token 重试一次", async () => {
+    const app = buildAppFor(TENANT_A);
+    const inject = injectRequestFactory(app);
+    await seedConnectionMappingSchedule(
+      app,
+      "https://provider.example/api/oauth",
+      "EVIDENCE",
+    );
+    let calls = 0;
+    let tokenVersion = 1;
+    const authorizations: string[] = [];
+    const providerFetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      calls += 1;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      authorizations.push(headers.authorization ?? "");
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({}),
+          headers: new Headers(),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          records: [
+            {
+              record_id: "OAUTH-1",
+              event_type: "updated",
+              subject_type: "PERSON",
+              subject_id: ADMIN,
+              evidence_type: "ACTIVITY",
+              occurred_at: "2026-10-01T00:00:00.000Z",
+            },
+          ],
+        }),
+        headers: new Headers(),
+      } as unknown as Response;
+    });
+    const oauthTokenResolver = () => ({
+      async getToken() {
+        return `token-${tokenVersion}`;
+      },
+      invalidate() {
+        tokenVersion += 1;
+      },
+    });
+    const summary = await runSyncCycle({
+      request: inject,
+      limit: 10,
+      maxPages: 1,
+      claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
+      providerFetchImpl: providerFetch as unknown as typeof fetch,
+      oauthTokenResolver,
+    });
+    expect(summary.schedules[0]!.status).toBe("SUCCEEDED");
+    expect(calls).toBe(2);
+    expect(tokenVersion).toBe(2);
+    expect(authorizations[0]).toBe("Bearer token-1");
+    expect(authorizations[1]).toBe("Bearer token-2");
+  });
+
+  it("INT-206：增量水位使用 sourceUpdatedAt，而不是 occurredAt", async () => {
+    const app = buildAppFor(TENANT_A);
+    const inject = injectRequestFactory(app);
+    const seed = await seedConnectionMappingSchedule(
+      app,
+      "https://provider.example/api/deals-watermark",
+      "EVIDENCE",
+    );
+    const providerFetch = stubProviderFetch([
+      {
+        records: [
+          {
+            record_id: "WM-1",
+            event_type: "updated",
+            subject_type: "PERSON",
+            subject_id: ADMIN,
+            evidence_type: "ACTIVITY",
+            occurred_at: "2026-10-01T00:00:00.000Z",
+            updated_at: "2026-10-20T12:00:00.000Z",
+          },
+        ],
+      },
+    ]);
+    await runSyncCycle({
+      request: inject,
+      limit: 10,
+      maxPages: 1,
+      claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
+      providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
+    });
+    const resources = await inject<Array<{ id: string }>>(
+      `/api/v1/sync-resources?connectionId=${seed.connection.id}`,
+    );
+    const checkpoint = await inject<{ watermark: string | null }>(
+      `/api/v1/sync-resources/${resources[0]!.id}/checkpoint`,
+    );
+    expect(checkpoint.watermark).toBe("2026-10-20T12:00:00.000Z");
   });
 });

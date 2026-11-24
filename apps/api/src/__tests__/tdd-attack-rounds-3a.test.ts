@@ -78,7 +78,11 @@ describe("R01-R10: store 层语义", () => {
       app.inject({
         method: "PUT",
         url: "/api/v1/sync-resources/00000000-0000-4000-8000-0000000000e1/checkpoint",
-        payload: JSON.stringify({ cursor: "c1" }),
+        payload: JSON.stringify({
+          cursor: "c1",
+          leaseOwner: "r01-test",
+          fencingToken: 0,
+        }),
         headers: tenantHeaders(),
       });
     const res = await inject();
@@ -163,7 +167,7 @@ describe("R01-R10: store 层语义", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("R06 同一原始记录二次落地 → 覆盖密文且重置 replayed 标记（同 id）", async () => {
+  it("R06 原始记录版本化：同内容幂等、更正内容独立成行、历史不可改写", async () => {
     const app = buildAppFor(TENANT);
     const post = async (stage: string) =>
       app.inject({
@@ -189,9 +193,12 @@ describe("R01-R10: store 层语义", () => {
       headers: tenantHeaders(),
     });
     expect(replay1.statusCode).toBe(200);
-    // 供应商侧记录被更正后重新落地：同键覆盖，replay 标记应允许再次重放。
+    // 同内容再次落地：幂等返回既有行（不新增版本）。
+    const duplicate = JSON.parse((await post("v1")).payload) as { data: { id: string } };
+    expect(duplicate.data.id).toBe(first.data.id);
+    // 供应商侧记录被更正：新 sourceVersion 独立成行，旧行保留。
     const second = JSON.parse((await post("v2")).payload) as { data: { id: string } };
-    expect(second.data.id).toBe(first.data.id);
+    expect(second.data.id).not.toBe(first.data.id);
     const list = await app.inject({
       method: "GET",
       url: "/api/v1/raw-source-records?sourceSystem=tdd3",

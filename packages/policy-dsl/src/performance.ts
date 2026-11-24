@@ -28,7 +28,16 @@ import {
   sum,
 } from "./decimal.js";
 import { sha256 } from "./hash.js";
+import {
+  PERFORMANCE_CYCLE_CAP_APPROVAL,
+  PERFORMANCE_CYCLE_CAPS,
+} from "./policy-caps.js";
 
+/**
+ * 周期上限统一由 `policy-caps.ts` 提供（唯一来源），此处仅保持既有导出面兼容。
+ * 数值与依据说明见 `policy-caps.ts` 与 `docs/acceptance/policy-caps.md`。
+ */
+export { PERFORMANCE_CYCLE_CAP_APPROVAL, PERFORMANCE_CYCLE_CAPS };
 
 /**
  * M-001：任务按期有效闭环率 = 按期验收通过任务权重和 ÷ 应完成任务权重和。
@@ -74,12 +83,6 @@ export function calculateTaskClosureRate(
         : undefined,
   };
 }
-
-export const PERFORMANCE_CYCLE_CAPS: Record<PerformancePeriod, string> = {
-  MONTHLY: "110",
-  QUARTERLY: "150",
-  ANNUAL: "105",
-};
 
 /**
  * 018 A.1 / 第十三条：同一岗位同一周期指标权重合计必须为 100%，

@@ -1,0 +1,13 @@
+{
+  "records": [
+    {
+      "order_id": "SO-2026-0001",
+      "event_type": "order.confirmed",
+      "occurred_at": "2026-10-02T00:00:00.000Z",
+      "updated_at": "2026-10-22T11:22:33.000Z",
+      "currency": "USD",
+      "amount": "88000"
+    }
+  ],
+  "next_cursor": "erp-cursor-2"
+}

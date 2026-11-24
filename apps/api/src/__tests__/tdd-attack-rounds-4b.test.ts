@@ -171,14 +171,12 @@ describe("R53-R54: runner 语义（fail-closed 与隔离分级）", () => {
 });
 
 describe("R57-R64: DSL 边界（回归锁定）", () => {
+  // 只放“其余用例未显式给出”的必填字段；显式字段由各用例自己提供，
+  // 避免对象展开覆盖（TS2783）与缺字段（TS2739）。
   const METRIC_BASE = {
-    applicableRoles: ["SALES"],
-    sourceFields: ["x"],
-    calculationRule: "linear",
-    ownerRole: "MANAGER",
-    evidenceRule: "e",
-    applicabilityRule: "always",
-    dataSource: "QA",
+    exceptionRule: "none",
+    approvalRule: "auto",
+    version: 1,
   };
 
   it("R57 marginPercent 恰好等于档位下限 → 命中该档（>= 语义）", () => {
@@ -212,6 +210,9 @@ describe("R57-R64: DSL 边界（回归锁定）", () => {
           applicableRoles: ["SALES"], weight: "100",
           metricType: "POSITIVE_LINEAR", target: "50",
           maxScore: "120",
+          sourceFields: ["x"], calculationRule: "linear",
+          ownerRole: "MANAGER", evidenceRule: "e", applicabilityRule: "always",
+          dataSource: "QA",
           ...METRIC_BASE,
         },
       ],

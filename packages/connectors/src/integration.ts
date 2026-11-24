@@ -51,6 +51,7 @@ export function buildHttpJsonConnectorConfig(
     subjectId: mapping.fieldMap.subjectId as string,
     evidenceType: mapping.fieldMap.evidenceType as string,
     occurredAt: mapping.fieldMap.occurredAt,
+    sourceUpdatedAt: mapping.fieldMap.sourceUpdatedAt,
     sourceEventVersion: mapping.fieldMap.sourceEventVersion,
   };
   const headers =
@@ -124,6 +125,12 @@ export function buildHttpJsonConnectorConfig(
   }
   const cursorBodyKey = text(merged.cursorBodyKey);
   if (cursorBodyKey) config.cursorBodyKey = cursorBodyKey;
+  // INT-206：增量拉取参数必须真正进入 connector 配置，否则 updatedSince
+  // 永远发不出去（runner 传了也会被连接器忽略）。
+  const updatedSinceParam = text(merged.updatedSinceParam);
+  if (updatedSinceParam) config.updatedSinceParam = updatedSinceParam;
+  const updatedSinceBodyKey = text(merged.updatedSinceBodyKey);
+  if (updatedSinceBodyKey) config.updatedSinceBodyKey = updatedSinceBodyKey;
   if (
     Array.isArray(merged.egressAllowlist) &&
     merged.egressAllowlist.every((item) => typeof item === "string" && item.trim())

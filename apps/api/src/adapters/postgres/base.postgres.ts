@@ -64,6 +64,7 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  AccountingPeriod,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -130,7 +131,7 @@ import type {
 import { adverseActionTransitions, assertTransition } from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
 import type { PlatformStore } from "../../platform-store.js";
-import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
+import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, optionalCount, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
 
 export class PgPlatformStoreBase {
 
@@ -1316,6 +1317,35 @@ export class PgPlatformStoreBase {
       ingestedAt: iso(row.ingested_at) ?? new Date().toISOString(),
       payload: row.payload ?? {},
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      legalEntityId: row.legal_entity_id ?? undefined,
+      orderId: row.order_id ?? undefined,
+      contractRef: row.contract_ref ?? undefined,
+      instrumentType: row.instrument_type ?? undefined,
+      recognitionStatus: row.recognition_status ?? "DRAFT",
+      accountingPeriod: row.accounting_period ?? undefined,
+      fxSnapshot: row.fx_snapshot ?? undefined,
+      sourceVersion: row.source_version ?? undefined,
+      reversalOf: row.reversal_of ?? undefined,
+      reopeningRef: row.reopening_ref ?? undefined,
+    };
+  }
+
+  protected mapAccountingPeriod(row: QueryResultRow): AccountingPeriod {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      legalEntityId: row.legal_entity_id,
+      period: row.period,
+      status: row.status,
+      closedAt: iso(row.closed_at),
+      closedBy: row.closed_by ?? null,
+      closeReason: row.close_reason ?? null,
+      reopenedAt: iso(row.reopened_at),
+      reopenedBy: row.reopened_by ?? null,
+      reopeningRef: row.reopening_ref ?? null,
+      reopenReason: row.reopen_reason ?? null,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
     };
   }
   
@@ -1929,15 +1959,14 @@ export class PgPlatformStoreBase {
       cursorAfter: row.cursor_after ?? undefined,
       recordsSeen: Number(row.records_seen),
       recordsUpserted: Number(row.records_upserted),
-      recordsFetched: row.records_fetched === null || row.records_fetched === undefined
-        ? undefined
-        : Number(row.records_fetched),
-      recordsQuarantined: row.records_quarantined === null || row.records_quarantined === undefined
-        ? undefined
-        : Number(row.records_quarantined),
-      recordsFailed: row.records_failed === null || row.records_failed === undefined
-        ? undefined
-        : Number(row.records_failed),
+      recordsFetched: optionalCount(row.records_fetched),
+      recordsRawPersisted: optionalCount(row.records_raw_persisted),
+      recordsCreated: optionalCount(row.records_created),
+      recordsUpdated: optionalCount(row.records_updated),
+      recordsDuplicate: optionalCount(row.records_duplicate),
+      recordsInvalid: optionalCount(row.records_invalid),
+      recordsQuarantined: optionalCount(row.records_quarantined),
+      recordsFailed: optionalCount(row.records_failed),
       errorSummary: row.error_summary ?? undefined,
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
@@ -1955,6 +1984,10 @@ export class PgPlatformStoreBase {
       mappingId: row.mapping_id ?? undefined,
       scheduleId: row.schedule_id ?? undefined,
       status: row.status,
+      intervalMinutes:
+        row.interval_minutes === null || row.interval_minutes === undefined
+          ? null
+          : Number(row.interval_minutes),
       leaseOwner: row.lease_owner ?? null,
       leaseUntil: iso(row.lease_until),
       fencingToken: Number(row.fencing_token ?? 0),

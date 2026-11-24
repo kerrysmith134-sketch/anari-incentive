@@ -1,6 +1,7 @@
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import {
   add,
+  assertRange,
   div,
   formatDecimal,
   min,
@@ -14,9 +15,12 @@ import {
   ENGINE_VERSION,
   type OrderContributionResult,
 } from "./evaluator.js";
+import { currencyMinorUnits } from "./currency.js";
 import { sha256 } from "./hash.js";
 import { PolicyGateError } from "./errors.js";
 
+const ZERO = parseDecimal("0");
+const ONE = parseDecimal("1");
 
 export interface ChargingProjectResult extends OrderContributionResult {
   cashFactor: string;
@@ -48,7 +52,34 @@ export function calculateCashWeightedRetention(
     );
   }
   const grossProfit = parseDecimal(input.order.grossProfit);
-  if (grossProfit < 0n) throw new Error("Gross profit cannot be negative");
+  assertRange("grossProfit", grossProfit, { min: ZERO });
+
+  // 2026-11-21 审计：现金加权模型的边界在入口 fail-closed 校验，不静默 clamp。
+  // 任何越界输入都必须在产生金额与 resultHash 之前失败。
+  const contractAmount = parseDecimal(
+    input.order.contractAmount ?? input.order.grossProfit,
+  );
+  assertRange("contractAmount", contractAmount, {
+    min: ZERO,
+    minExclusive: true,
+  });
+  const cashCollected = parseDecimal(
+    input.order.cashCollected ??
+      input.order.contractAmount ??
+      input.order.grossProfit,
+  );
+  assertRange("cashCollected", cashCollected, { min: ZERO });
+  const poolRate = parseDecimal(policy.poolRate);
+  assertRange("poolRate", poolRate, { min: ZERO });
+  const poolCap = parseDecimal(policy.poolCap);
+  assertRange("poolCap", poolCap, { min: ZERO });
+  const cashWeight = parseDecimal(policy.cashCollectionWeight ?? "0");
+  assertRange("cashCollectionWeight", cashWeight, { min: ZERO, max: ONE });
+  const retentionRate = parseDecimal(policy.retentionHoldbackRate ?? "0");
+  assertRange("retentionHoldbackRate", retentionRate, {
+    min: ZERO,
+    max: ONE,
+  });
 
   const blockers: string[] = [];
   if (
@@ -65,38 +96,19 @@ export function calculateCashWeightedRetention(
   }
   if (blockers.length > 0) throw new PolicyGateError(blockers);
 
-  const contractAmount = parseDecimal(
-    input.order.contractAmount ?? input.order.grossProfit,
-  );
-  const cashCollected = parseDecimal(
-    input.order.cashCollected ??
-      input.order.contractAmount ??
-      input.order.grossProfit,
-  );
-  const cashFactor =
-    contractAmount > 0n ? min(parseDecimal("1"), div(cashCollected, contractAmount)) : parseDecimal("1");
+  const cashFactor = min(ONE, div(cashCollected, contractAmount));
 
-  const basePool = min(
-    mul(grossProfit, parseDecimal(policy.poolRate)),
-    (() => {
-      const capValue = parseDecimal(policy.poolCap);
-      if (parseDecimal(policy.poolRate) < 0n || capValue < 0n) {
-        throw new Error("poolRate and poolCap cannot be negative");
-      }
-      return capValue;
-    })(),
-  );
-  const cashWeight = parseDecimal(policy.cashCollectionWeight ?? "0");
+  const basePool = min(mul(grossProfit, poolRate), poolCap);
   const cashAdjustedPool = mul(
     basePool,
-    add(sub(parseDecimal("1"), cashWeight), mul(cashWeight, cashFactor)),
+    add(sub(ONE, cashWeight), mul(cashWeight, cashFactor)),
   );
-  const retentionRate = parseDecimal(policy.retentionHoldbackRate ?? "0");
   const retentionHeld = mul(cashAdjustedPool, retentionRate);
   const payablePool = sub(cashAdjustedPool, retentionHeld);
 
-  const payableRounded = roundTo(payablePool, 2, policy.rounding);
-  const retentionRounded = roundTo(retentionHeld, 2, policy.rounding);
+  const minorUnits = currencyMinorUnits(policy.currency);
+  const payableRounded = roundTo(payablePool, minorUnits, policy.rounding);
+  const retentionRounded = roundTo(retentionHeld, minorUnits, policy.rounding);
   const lines = allocatePool(policy, input, payableRounded, {
     incentiveType: policy.incentiveType ?? "CONTRIBUTION",
     baseAmount: grossProfit,

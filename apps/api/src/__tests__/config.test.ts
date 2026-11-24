@@ -4,14 +4,31 @@ import {
   validateRuntimeConfig,
 } from "../config.js";
 
+const SIGNING_SECRET = "test-webhook-signing-secret-0123456789abcdef";
+const RAW_PAYLOAD_KEY = "test-webhook-raw-encryption-key-0123456789abcdef";
+
 const baseEnv = (): NodeJS.ProcessEnv => ({
   NODE_ENV: "development",
   AUTH_MODE: "dev",
   STORE: "memory",
+  WEBHOOK_SIGNING_SECRET: SIGNING_SECRET,
+  WEBHOOK_RAW_KEY: RAW_PAYLOAD_KEY,
+});
+
+/** A production environment that passes every existing gate. */
+const productionEnv = (): NodeJS.ProcessEnv => ({
+  ...baseEnv(),
+  NODE_ENV: "production",
+  AUTH_MODE: "oidc",
+  OIDC_ISSUER: "https://issuer",
+  OIDC_JWKS_URL: "https://issuer/jwks",
+  STORE: "postgres",
+  DATABASE_URL: "postgres://x",
+  RATE_LIMIT_PER_MINUTE: "120",
 });
 
 describe("validateRuntimeConfig", () => {
-  it("accepts the development defaults", () => {
+  it("accepts a complete development configuration", () => {
     expect(validateRuntimeConfig(baseEnv())).toEqual({
       fatal: [],
       warnings: [],
@@ -98,5 +115,141 @@ describe("validateRuntimeConfig", () => {
     expect(() =>
       assertRuntimeConfig({ ...baseEnv(), NODE_ENV: "production" }),
     ).toThrow(/unsafe configuration/);
+  });
+
+  describe("integration webhook keys", () => {
+    it("accepts a complete production configuration", () => {
+      const issues = validateRuntimeConfig(productionEnv());
+      expect(issues.fatal).toEqual([]);
+      expect(issues.warnings).toEqual([]);
+    });
+
+    it("rejects a missing WEBHOOK_SIGNING_SECRET in production", () => {
+      const env = productionEnv();
+      delete env.WEBHOOK_SIGNING_SECRET;
+      const issues = validateRuntimeConfig(env);
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("WEBHOOK_SIGNING_SECRET is required"),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects a missing WEBHOOK_RAW_KEY in production", () => {
+      const env = productionEnv();
+      delete env.WEBHOOK_RAW_KEY;
+      const issues = validateRuntimeConfig(env);
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("WEBHOOK_RAW_KEY is required"),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects SESSION_SECRET as a fallback for the webhook keys in production", () => {
+      const env = productionEnv();
+      delete env.WEBHOOK_SIGNING_SECRET;
+      delete env.WEBHOOK_RAW_KEY;
+      env.SESSION_SECRET = "session-secret-0123456789abcdefghijklmnop";
+      const issues = validateRuntimeConfig(env);
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("WEBHOOK_SIGNING_SECRET is required"),
+        ),
+      ).toBe(true);
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("WEBHOOK_RAW_KEY is required"),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects identical signing and raw payload keys in production", () => {
+      const issues = validateRuntimeConfig({
+        ...productionEnv(),
+        WEBHOOK_RAW_KEY: SIGNING_SECRET,
+      });
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("must be different values"),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects a short WEBHOOK_SIGNING_SECRET in production", () => {
+      const issues = validateRuntimeConfig({
+        ...productionEnv(),
+        WEBHOOK_SIGNING_SECRET: "a".repeat(31),
+      });
+      expect(
+        issues.fatal.some(
+          (problem) =>
+            problem.includes("WEBHOOK_SIGNING_SECRET") &&
+            problem.includes("at least 32 characters"),
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects a short WEBHOOK_RAW_KEY in production", () => {
+      const issues = validateRuntimeConfig({
+        ...productionEnv(),
+        WEBHOOK_RAW_KEY: "b".repeat(31),
+      });
+      expect(
+        issues.fatal.some(
+          (problem) =>
+            problem.includes("WEBHOOK_RAW_KEY") &&
+            problem.includes("at least 32 characters"),
+        ),
+      ).toBe(true);
+    });
+
+    it("accepts exactly 32-character distinct keys in production", () => {
+      const issues = validateRuntimeConfig({
+        ...productionEnv(),
+        WEBHOOK_SIGNING_SECRET: "a".repeat(32),
+        WEBHOOK_RAW_KEY: "b".repeat(32),
+      });
+      expect(issues.fatal).toEqual([]);
+    });
+
+    it("warns but does not block when the keys are missing outside production", () => {
+      const env = baseEnv();
+      delete env.WEBHOOK_SIGNING_SECRET;
+      delete env.WEBHOOK_RAW_KEY;
+      const issues = validateRuntimeConfig(env);
+      expect(issues.fatal).toEqual([]);
+      expect(issues.warnings).toHaveLength(2);
+      expect(
+        issues.warnings.some((warning) =>
+          warning.includes("WEBHOOK_SIGNING_SECRET is unset"),
+        ),
+      ).toBe(true);
+      expect(
+        issues.warnings.some((warning) =>
+          warning.includes("WEBHOOK_RAW_KEY is unset"),
+        ),
+      ).toBe(true);
+    });
+
+    it("accepts a KMS/Vault keyring file as the production key source", () => {
+      const env = productionEnv();
+      delete env.WEBHOOK_SIGNING_SECRET;
+      delete env.WEBHOOK_RAW_KEY;
+      env.WEBHOOK_KEYRING_FILE = "/run/secrets/webhook-keyring.json";
+      expect(validateRuntimeConfig(env).fatal).toEqual([]);
+    });
+
+    it("still rejects identical keys outside production", () => {
+      const issues = validateRuntimeConfig({
+        ...baseEnv(),
+        WEBHOOK_RAW_KEY: SIGNING_SECRET,
+      });
+      expect(
+        issues.fatal.some((problem) =>
+          problem.includes("must be different values"),
+        ),
+      ).toBe(true);
+    });
   });
 });

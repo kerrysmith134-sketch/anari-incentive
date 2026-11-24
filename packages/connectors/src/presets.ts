@@ -28,10 +28,13 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
     fieldMap: {
       sourceRecordId: "id",
       eventType: "properties.dealstage",
-      subjectType: "=ORDER",
+      // 审计：CRM Deal ≠ 正式订单。Deal 先映射为 OPPORTUNITY 证据；
+      // 只有经 Quote→Contract→Order 流程确认后才能投影为 ORDER。
+      subjectType: "=OPPORTUNITY",
       subjectId: "id",
       evidenceType: "=CRM_DEAL",
       occurredAt: "properties.closedate",
+      sourceUpdatedAt: "properties.hs_lastmodifieddate",
     },
     config: {
       recordsPath: "results",
@@ -54,6 +57,7 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
       subjectId: "fields.subject_id",
       evidenceType: "=FEISHU_RECORD",
       occurredAt: "fields.occurred_at",
+      sourceUpdatedAt: "fields.updated_at",
     },
     config: {
       recordsPath: "data.items",
@@ -76,12 +80,15 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
       subjectId: "order_id",
       evidenceType: "=ERP_ORDER",
       occurredAt: "occurred_at",
+      sourceUpdatedAt: "updated_at",
     },
     config: {
       recordsPath: "records",
       nextCursorPath: "next_cursor",
       cursorParam: "cursor",
       pageSizeParam: "page_size",
+      // 增量拉取以来源系统更新时间过滤，而不是业务发生时间。
+      updatedSinceParam: "updated_since",
     },
   },
 ];

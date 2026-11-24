@@ -12,6 +12,77 @@ export const FACTOR = 10n ** SCALE;
 
 export type RoundingMode = "HALF_UP" | "HALF_EVEN" | "DOWN";
 
+/**
+ * 2026-11-21 审计：此前 `parseDecimal` 对超过 6 位的小数静默截断
+ * （如 1.0000009 → 1.000000），金额精度被悄悄丢弃。
+ * 现在超精度输入 fail-closed 拒绝；仅“末尾补零”不受影响
+ * （DB 的 numeric(20,8) 可能返回 0.50000000，这类值没有精度损失）。
+ */
+export class DecimalPrecisionError extends Error {
+  readonly code = "DECIMAL_PRECISION_EXCEEDED";
+  constructor(
+    readonly input: string,
+    readonly maxDecimals: number = Number(SCALE),
+  ) {
+    super(
+      `DECIMAL_PRECISION_EXCEEDED: ${input} has more than ${maxDecimals} significant decimal places`,
+    );
+    this.name = "DecimalPrecisionError";
+  }
+}
+
+/**
+ * 策略/资金输入的取值范围错误（fail-closed，不静默 clamp）。
+ * 由计算入口在产生任何金额之前抛出。
+ */
+export class PolicyRangeError extends Error {
+  readonly code = "POLICY_RANGE_VIOLATION";
+  constructor(
+    readonly field: string,
+    readonly reason: string,
+  ) {
+    super(`${field} ${reason}`);
+    this.name = "PolicyRangeError";
+  }
+}
+
+export interface RangeBounds {
+  min?: bigint;
+  max?: bigint;
+  /** true 时下界为严格大于（例如合同金额必须 > 0）。 */
+  minExclusive?: boolean;
+}
+
+/**
+ * 断言一个 1e6 标定的数值落在策略允许范围内；越界抛 PolicyRangeError。
+ * 合法边界（如权重 0 与 1）必须显式允许，不做静默修正。
+ */
+export function assertRange(
+  field: string,
+  value: bigint,
+  bounds: RangeBounds,
+): void {
+  if (bounds.min !== undefined) {
+    const violated = bounds.minExclusive
+      ? value <= bounds.min
+      : value < bounds.min;
+    if (violated) {
+      throw new PolicyRangeError(
+        field,
+        `must be ${bounds.minExclusive ? ">" : ">="} ${formatDecimal(
+          bounds.min,
+        )} (got ${formatDecimal(value)})`,
+      );
+    }
+  }
+  if (bounds.max !== undefined && value > bounds.max) {
+    throw new PolicyRangeError(
+      field,
+      `must be <= ${formatDecimal(bounds.max)} (got ${formatDecimal(value)})`,
+    );
+  }
+}
+
 export function parseDecimal(input: string): bigint {
   const trimmed = input.trim();
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
@@ -20,7 +91,12 @@ export function parseDecimal(input: string): bigint {
   const negative = trimmed.startsWith("-");
   const unsigned = negative ? trimmed.slice(1) : trimmed;
   const [whole, fraction = ""] = unsigned.split(".");
-  const padded = (fraction + "000000").slice(0, 6);
+  // 只计算有效小数位（去掉末尾 0），避免把 DB 的零填充误判为超精度。
+  const significantFraction = fraction.replace(/0+$/, "");
+  if (significantFraction.length > Number(SCALE)) {
+    throw new DecimalPrecisionError(input);
+  }
+  const padded = significantFraction.padEnd(Number(SCALE), "0");
   const value = BigInt(whole + padded);
   return negative ? -value : value;
 }

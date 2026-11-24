@@ -48,6 +48,7 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  AccountingPeriod,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -424,8 +425,77 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       qualityStatus: FinancialFact["qualityStatus"];
       sourceUpdatedAt?: string;
       payload: Record<string, unknown>;
+      legalEntityId?: string;
+      orderId?: string;
+      contractRef?: string;
+      instrumentType?: FinancialFact["instrumentType"];
+      recognitionStatus?: FinancialFact["recognitionStatus"];
+      accountingPeriod?: string;
+      fxSnapshot?: FinancialFact["fxSnapshot"];
+      sourceVersion?: string;
+      reversalOf?: string;
+      reopeningRef?: string;
     }): Promise<FinancialFact> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+      const recognitionStatus = input.recognitionStatus ?? "DRAFT";
+      if (
+        recognitionStatus === "POSTED" &&
+        (!input.legalEntityId ||
+          !input.accountingPeriod ||
+          !input.instrumentType ||
+          !input.sourceVersion)
+      ) {
+        throw new ConflictError(
+          "POSTED_FACT_REQUIRED_FIELDS: POSTED requires legalEntityId, accountingPeriod, instrumentType and sourceVersion",
+        );
+      }
+      if (recognitionStatus === "POSTED" && !input.orderId && !input.contractRef) {
+        throw new ConflictError(
+          "FACT_NOT_TRACEABLE: POSTED facts require orderId or contractRef",
+        );
+      }
+      if (recognitionStatus === "POSTED") {
+        if (!input.legalEntityId || !input.accountingPeriod) {
+          throw new ConflictError(
+            "PERIOD_REQUIRED: POSTED financial facts require legalEntityId and accountingPeriod",
+          );
+        }
+        const periodKey = [
+          input.tenantId,
+          input.legalEntityId,
+          input.accountingPeriod,
+        ].join(":");
+        let period = this.accountingPeriods.get(periodKey);
+        if (!period) {
+          const timestamp = now();
+          period = {
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            legalEntityId: input.legalEntityId,
+            period: input.accountingPeriod,
+            status: "OPEN",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+          this.accountingPeriods.set(periodKey, period);
+        }
+        if (period.status === "CLOSED") {
+          throw new ConflictError(
+            `PERIOD_CLOSED: ${input.legalEntityId}/${input.accountingPeriod} is closed`,
+          );
+        }
+        if (period.reopeningRef && input.reopeningRef !== period.reopeningRef) {
+          throw new ConflictError(
+            `REOPENING_REF_REQUIRED: period ${input.legalEntityId}/${input.accountingPeriod} ` +
+              `was reopened as ${period.reopeningRef}; POSTED fact must carry the same reopeningRef`,
+          );
+        }
+      } else if (input.reopeningRef) {
+        throw new ConflictError(
+          "REOPENING_REF_NOT_ALLOWED: reopeningRef is only valid for POSTED facts",
+        );
+      }
+
       const key = [
         input.tenantId,
         input.sourceSystem,
@@ -433,6 +503,34 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
         input.factType,
       ].join(":");
       const existing = this.financialFacts.get(key);
+      if (existing) {
+        if (
+          existing.recognitionStatus === "POSTED" &&
+          recognitionStatus === "DRAFT"
+        ) {
+          throw new ConflictError(
+            `RECOGNITION_STATUS_REGRESSION: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} is already POSTED; a DRAFT snapshot cannot un-post it`,
+          );
+        }
+        if (
+          existing.legalEntityId &&
+          input.legalEntityId &&
+          existing.legalEntityId !== input.legalEntityId
+        ) {
+          throw new ConflictError(
+            `LEGAL_ENTITY_MISMATCH: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} belongs to ${existing.legalEntityId}, not ${input.legalEntityId}`,
+          );
+        }
+        if (
+          existing.accountingPeriod &&
+          input.accountingPeriod &&
+          existing.accountingPeriod !== input.accountingPeriod
+        ) {
+          throw new ConflictError(
+            `ACCOUNTING_PERIOD_MISMATCH: ${input.sourceSystem}/${input.sourceRecordId}/${input.factType} belongs to ${existing.accountingPeriod}, not ${input.accountingPeriod}`,
+          );
+        }
+      }
       // INT-208（Sprint 2.1 财务红线）：迟到的旧快照不得覆盖新快照——
       // 同键且两侧均携带 sourceUpdatedAt 时，旧时间戳 → 409 STALE_FINANCIAL_FACT。
       if (
@@ -445,7 +543,7 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           `STALE_FINANCIAL_FACT: incoming snapshot (${input.sourceUpdatedAt}) is older than current (${existing.sourceUpdatedAt}) for ${input.sourceSystem}/${input.sourceRecordId}/${input.factType}`,
         );
       }
-      // 旧值进修订账本（append-only 语义：Memory 用数组模拟 101 表）。
+      // 旧值进修订账本（append-only 语义：Memory 用数组模拟 101/105 表）。
       if (existing) {
         const revisions = this.financialFactRevisions.get(existing.id) ?? [];
         revisions.push({
@@ -458,6 +556,16 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           sourceUpdatedAt: existing.sourceUpdatedAt,
           payload: existing.payload,
           createdAt: now(),
+          legalEntityId: existing.legalEntityId,
+          orderId: existing.orderId,
+          contractRef: existing.contractRef,
+          instrumentType: existing.instrumentType,
+          recognitionStatus: existing.recognitionStatus,
+          accountingPeriod: existing.accountingPeriod,
+          fxSnapshot: existing.fxSnapshot,
+          sourceVersion: existing.sourceVersion,
+          reversalOf: existing.reversalOf,
+          reopeningRef: existing.reopeningRef,
         });
         this.financialFactRevisions.set(existing.id, revisions);
       }
@@ -471,6 +579,7 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
         amount: formatDecimal(money(input.amount)),
         currency: input.currency,
         qualityStatus: input.qualityStatus,
+        recognitionStatus,
         ingestedAt: timestamp,
         payload: input.payload,
         createdAt: timestamp,
@@ -483,6 +592,16 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       fact.sourceUpdatedAt = input.sourceUpdatedAt;
       fact.ingestedAt = timestamp;
       fact.payload = input.payload;
+      fact.legalEntityId = input.legalEntityId;
+      fact.orderId = input.orderId;
+      fact.contractRef = input.contractRef;
+      fact.instrumentType = input.instrumentType;
+      fact.recognitionStatus = recognitionStatus;
+      fact.accountingPeriod = input.accountingPeriod;
+      fact.fxSnapshot = input.fxSnapshot;
+      fact.sourceVersion = input.sourceVersion;
+      fact.reversalOf = input.reversalOf;
+      fact.reopeningRef = input.reopeningRef;
       this.financialFacts.set(key, fact);
       return fact;
     }
@@ -501,6 +620,99 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
               fact.sourceSystem === filter.sourceSystem),
         )
         .sort((a, b) => b.ingestedAt.localeCompare(a.ingestedAt));
+    }
+
+    async listAccountingPeriods(
+      tenantId: string,
+      filter?: { legalEntityId?: string; period?: string },
+    ): Promise<AccountingPeriod[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.accountingPeriods.values()]
+        .filter(
+          (period) =>
+            period.tenantId === tenantId &&
+            (!filter?.legalEntityId ||
+              period.legalEntityId === filter.legalEntityId) &&
+            (!filter?.period || period.period === filter.period),
+        )
+        .sort(
+          (a, b) =>
+            b.period.localeCompare(a.period) ||
+            a.legalEntityId.localeCompare(b.legalEntityId),
+        );
+    }
+
+    async getAccountingPeriod(
+      tenantId: string,
+      legalEntityId: string,
+      period: string,
+    ): Promise<AccountingPeriod | null> {
+      const key = [tenantId, legalEntityId, period].join(":");
+      const found = this.accountingPeriods.get(key);
+      return found && found.tenantId === tenantId ? found : null;
+    }
+
+    async closeAccountingPeriod(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      actorPersonId: string;
+      reason?: string;
+    }): Promise<AccountingPeriod> {
+      const key = [input.tenantId, input.legalEntityId, input.period].join(":");
+      let found = this.accountingPeriods.get(key);
+      if (!found) {
+        const timestamp = now();
+        found = {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          legalEntityId: input.legalEntityId,
+          period: input.period,
+          status: "CLOSED",
+          closedAt: timestamp,
+          closedBy: input.actorPersonId,
+          closeReason: input.reason ?? null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        this.accountingPeriods.set(key, found);
+        return found;
+      }
+      if (found.status !== "OPEN") {
+        throw new ConflictError(
+          `PERIOD_NOT_OPEN: ${input.legalEntityId}/${input.period} is already closed`,
+        );
+      }
+      found.status = "CLOSED";
+      found.closedAt = now();
+      found.closedBy = input.actorPersonId;
+      found.closeReason = input.reason ?? null;
+      found.updatedAt = now();
+      return found;
+    }
+
+    async reopenAccountingPeriod(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      actorPersonId: string;
+      reopeningRef: string;
+      reason: string;
+    }): Promise<AccountingPeriod> {
+      const key = [input.tenantId, input.legalEntityId, input.period].join(":");
+      const found = this.accountingPeriods.get(key);
+      if (!found || found.status !== "CLOSED") {
+        throw new ConflictError(
+          `PERIOD_NOT_CLOSED: ${input.legalEntityId}/${input.period} is missing or not closed`,
+        );
+      }
+      found.status = "OPEN";
+      found.reopenedAt = now();
+      found.reopenedBy = input.actorPersonId;
+      found.reopeningRef = input.reopeningRef;
+      found.reopenReason = input.reason;
+      found.updatedAt = now();
+      return found;
     }
   };
 }

@@ -585,6 +585,11 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       recordsSeen: number;
       recordsUpserted: number;
       recordsFetched?: number;
+      recordsRawPersisted?: number;
+      recordsCreated?: number;
+      recordsUpdated?: number;
+      recordsDuplicate?: number;
+      recordsInvalid?: number;
       recordsQuarantined?: number;
       recordsFailed?: number;
       cursorAfter?: Record<string, unknown>;
@@ -605,9 +610,12 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
         const { rows: updated } = await client.query(
           `UPDATE sync_runs
               SET status=$3, records_seen=$4, records_upserted=$5,
-                  records_fetched=$6, records_quarantined=$7, records_failed=$8,
-                  cursor_after=COALESCE($9, cursor_after),
-                  error_summary=$10, finished_at=now()
+                  records_fetched=$6, records_raw_persisted=$7,
+                  records_created=$8, records_updated=$9,
+                  records_duplicate=$10, records_invalid=$11,
+                  records_quarantined=$12, records_failed=$13,
+                  cursor_after=COALESCE($14, cursor_after),
+                  error_summary=$15, finished_at=now()
             WHERE tenant_id=$1 AND id=$2
             RETURNING *`,
           [
@@ -617,6 +625,11 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
             input.recordsSeen,
             input.recordsUpserted,
             input.recordsFetched ?? null,
+            input.recordsRawPersisted ?? null,
+            input.recordsCreated ?? null,
+            input.recordsUpdated ?? null,
+            input.recordsDuplicate ?? null,
+            input.recordsInvalid ?? null,
             input.recordsQuarantined ?? null,
             input.recordsFailed ?? null,
             input.cursorAfter ?? null,
@@ -642,6 +655,7 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       resourceKey: string;
       mappingId?: string;
       scheduleId?: string;
+      intervalMinutes?: number;
     }): Promise<SyncResource> {
       await this.getIntegrationConnection(input.tenantId, input.connectionId);
       const { rows: existing } = await this.tenantQuery(
@@ -658,8 +672,8 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       const inserted = await this.tenantQuery(
         input.tenantId,
         `INSERT INTO sync_resources
-           (tenant_id, connection_id, resource_key, mapping_id, schedule_id)
-         VALUES ($1, $2, $3, $4, $5)
+           (tenant_id, connection_id, resource_key, mapping_id, schedule_id, interval_minutes)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
         [
           input.tenantId,
@@ -667,9 +681,23 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
           input.resourceKey,
           input.mappingId ?? null,
           input.scheduleId ?? null,
+          input.intervalMinutes ?? null,
         ],
       );
       return this.mapSyncResource(inserted.rows[0]);
+    }
+
+    async getSyncResource(
+      tenantId: string,
+      resourceId: string,
+    ): Promise<SyncResource> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM sync_resources WHERE tenant_id=$1 AND id=$2",
+        [tenantId, resourceId],
+      );
+      if (!rows[0]) notFound("SyncResource", resourceId);
+      return this.mapSyncResource(rows[0]);
     }
 
     async listSyncResources(
@@ -713,29 +741,63 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       watermark?: string | null;
       lastRunId?: string | null;
       overlapSeconds?: number;
+      leaseOwner: string;
+      fencingToken: number;
     }): Promise<SyncCheckpoint> {
-      const { rows } = await this.tenantQuery(
-        input.tenantId,
-        `INSERT INTO sync_checkpoints
-           (tenant_id, resource_id, cursor, watermark, last_run_id, overlap_seconds)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (tenant_id, resource_id) DO UPDATE
-           SET cursor = COALESCE($3, sync_checkpoints.cursor),
-               watermark = COALESCE($4, sync_checkpoints.watermark),
-               last_run_id = COALESCE($5, sync_checkpoints.last_run_id),
-               overlap_seconds = COALESCE($6, sync_checkpoints.overlap_seconds),
-               updated_at = now()
-         RETURNING *`,
-        [
-          input.tenantId,
-          input.resourceId,
-          input.cursor ?? null,
-          input.watermark ?? null,
-          input.lastRunId ?? null,
-          input.overlapSeconds ?? null,
-        ],
-      );
-      return this.mapSyncCheckpoint(rows[0]);
+      return this.transactionFor(input.tenantId, async (client) => {
+        // INT-205/210：在同一事务内验证当前租约持有人 + fencing token +
+        // 租约未过期。旧 worker 在租约过期后恢复执行时必须被拒绝，
+        // 不允许推进 checkpoint。
+        const { rows: resources } = await client.query(
+          `SELECT lease_owner, fencing_token, lease_until,
+                  (lease_until IS NOT NULL AND lease_until > now()) AS lease_active
+             FROM sync_resources
+            WHERE tenant_id=$1 AND id=$2
+            FOR UPDATE`,
+          [input.tenantId, input.resourceId],
+        );
+        if (!resources[0]) notFound("SyncResource", input.resourceId);
+        const lease = resources[0];
+        if (
+          lease.lease_owner !== input.leaseOwner ||
+          Number(lease.fencing_token) !== input.fencingToken ||
+          lease.lease_active !== true
+        ) {
+          throw new ConflictError(
+            `RESOURCE_LEASE_STALE: checkpoint write rejected for ${input.resourceId} ` +
+              `(owner=${String(lease.lease_owner)}, token=${String(lease.fencing_token)}, ` +
+              `active=${String(lease.lease_active)})`,
+          );
+        }
+        // 三态游标：未提供（保留）/ 显式 null（清空）/ 新值（更新）。
+        const cursorProvided = input.cursor !== undefined;
+        const watermarkProvided = input.watermark !== undefined;
+        const lastRunProvided = input.lastRunId !== undefined;
+        const { rows } = await client.query(
+          `INSERT INTO sync_checkpoints
+             (tenant_id, resource_id, cursor, watermark, last_run_id, overlap_seconds)
+           VALUES ($1, $2, $3::text, $4::timestamptz, $5::uuid, COALESCE($6, 0))
+           ON CONFLICT (tenant_id, resource_id) DO UPDATE
+             SET cursor = CASE WHEN $7 THEN $3::text ELSE sync_checkpoints.cursor END,
+                 watermark = CASE WHEN $8 THEN $4::timestamptz ELSE sync_checkpoints.watermark END,
+                 last_run_id = CASE WHEN $9 THEN $5::uuid ELSE sync_checkpoints.last_run_id END,
+                 overlap_seconds = COALESCE($6, sync_checkpoints.overlap_seconds),
+                 updated_at = now()
+           RETURNING *`,
+          [
+            input.tenantId,
+            input.resourceId,
+            input.cursor ?? null,
+            input.watermark ?? null,
+            input.lastRunId ?? null,
+            input.overlapSeconds ?? null,
+            cursorProvided,
+            watermarkProvided,
+            lastRunProvided,
+          ],
+        );
+        return this.mapSyncCheckpoint(rows[0]);
+      });
     }
 
     async recordQuarantineRecord(input: {
@@ -939,35 +1001,67 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       return this.mapWebhook(rows[0]);
     }
 
-    // NP-020：原始落地（PG——append-only 由迁移 099 触发器强制）。
+    // NP-020 / INT-202：原始落地（PG——append-only 由迁移 099 触发器强制）。
+    // 版本键必须与迁移 100 的 UNIQUE 完全一致（四列）；冲突时 DO NOTHING，
+    // 绝不 UPDATE 历史原始记录（否则违反 099 的不可变触发器）。
     async appendRawSourceRecord(input: {
       tenantId: string;
       sourceSystem: string;
       externalRecordId: string;
       payloadEncrypted: string;
+      payloadHash?: string;
+      sourceVersion?: string;
       mappingVersion?: number;
       retentionClass?: "DEFAULT" | "PII" | "FINANCIAL";
+      resourceId?: string;
+      sourceUpdatedAt?: string;
     }): Promise<RawSourceRecord> {
+      const sourceVersion = input.sourceVersion ?? "1";
+      const payloadHash = input.payloadHash ?? "";
       const { rows } = await this.tenantQuery(
         input.tenantId,
         `INSERT INTO raw_source_records
-           (tenant_id, source_system, external_record_id, payload_encrypted, mapping_version, retention_class)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (tenant_id, source_system, external_record_id) DO UPDATE
-           SET payload_encrypted = EXCLUDED.payload_encrypted,
-               mapping_version = EXCLUDED.mapping_version,
-               replayed_at = NULL
+           (tenant_id, source_system, external_record_id, payload_encrypted,
+            payload_hash, source_version, mapping_version, retention_class,
+            resource_id, source_updated_at, fetched_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+         ON CONFLICT (tenant_id, source_system, external_record_id, source_version)
+         DO NOTHING
          RETURNING *`,
         [
           input.tenantId,
           input.sourceSystem,
           input.externalRecordId,
           input.payloadEncrypted,
+          payloadHash,
+          sourceVersion,
           input.mappingVersion ?? 1,
           input.retentionClass ?? "DEFAULT",
+          input.resourceId ?? null,
+          input.sourceUpdatedAt ?? null,
         ],
       );
-      return this.mapRawSourceRecord(rows[0]);
+      if (rows[0]) return this.mapRawSourceRecord(rows[0]);
+      // 幂等命中：返回既有版本（绝不覆盖）。
+      const existing = await this.tenantQuery(
+        input.tenantId,
+        `SELECT * FROM raw_source_records
+          WHERE tenant_id=$1 AND source_system=$2
+            AND external_record_id=$3 AND source_version=$4`,
+        [
+          input.tenantId,
+          input.sourceSystem,
+          input.externalRecordId,
+          sourceVersion,
+        ],
+      );
+      if (!existing.rows[0]) {
+        // 并发窗口内被删除/不可见——显式失败，不静默制造空记录。
+        throw new ConflictError(
+          `RAW_SOURCE_VERSION_VANISHED: ${input.sourceSystem}/${input.externalRecordId}/${sourceVersion}`,
+        );
+      }
+      return this.mapRawSourceRecord(existing.rows[0]);
     }
 
     async listRawSourceRecords(
@@ -1073,6 +1167,44 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
           `RESOURCE_LEASE_STALE: fencing token mismatch on ${input.resourceId}`,
         );
       }
+    }
+
+    // INT-205：心跳续约——同一事务内校验 owner + token + 未过期，
+    // 不递增 token（续约不是重新夺租）。
+    async renewResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      fencingToken: number;
+      leaseSeconds: number;
+    }): Promise<{ fencingToken: number; leaseUntil: string }> {
+      const { rows } = await this.tenantQuery(
+        input.tenantId,
+        `UPDATE sync_resources
+            SET lease_until = now() + ($5 * interval '1 second'),
+                updated_at = now()
+          WHERE tenant_id=$1 AND id=$2
+            AND lease_owner=$3 AND fencing_token=$4
+            AND lease_until > now()
+          RETURNING fencing_token, lease_until`,
+        [
+          input.tenantId,
+          input.resourceId,
+          input.leaseOwner,
+          input.fencingToken,
+          input.leaseSeconds,
+        ],
+      );
+      if (!rows[0]) {
+        throw new ConflictError(
+          `RESOURCE_LEASE_STALE: cannot renew ${input.resourceId} ` +
+            `(owner=${input.leaseOwner}, token=${input.fencingToken})`,
+        );
+      }
+      return {
+        fencingToken: Number(rows[0].fencing_token),
+        leaseUntil: new Date(rows[0].lease_until).toISOString(),
+      };
     }
 
     // NP-027：身份生命周期。

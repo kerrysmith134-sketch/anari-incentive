@@ -1,6 +1,27 @@
 import { add, formatDecimal, parseDecimal, sha256, sub } from "@anari/policy-dsl";
 
-export interface ShadowSettlementLine {
+/**
+ * Optional reconciliation dimensions. Only non-empty values participate in the
+ * aggregation key, so legacy lines without any of these fields keep the
+ * historical `personKey|currency` grouping (and therefore a stable reportHash).
+ */
+export const SHADOW_SETTLEMENT_DIMENSIONS = [
+  "legalEntity",
+  "accountingPeriod",
+  "orderId",
+  "contractRef",
+  "payoutBatch",
+  "incentiveType",
+] as const;
+
+export type ShadowSettlementDimension =
+  (typeof SHADOW_SETTLEMENT_DIMENSIONS)[number];
+
+export type ShadowSettlementDimensions = Partial<
+  Record<ShadowSettlementDimension, string>
+>;
+
+export interface ShadowSettlementLine extends ShadowSettlementDimensions {
   /** Stable identity shared by the engine and the finance export. */
   personKey: string;
   amount: string;
@@ -13,7 +34,7 @@ export type ShadowSettlementStatus =
   | "MISSING_IN_FINANCE"
   | "MISSING_IN_ENGINE";
 
-export interface ShadowSettlementRow {
+export interface ShadowSettlementRow extends ShadowSettlementDimensions {
   personKey: string;
   currency: string;
   engine: string | null;
@@ -41,26 +62,73 @@ export interface ShadowSettlementReport {
   reportHash: string;
 }
 
+interface AggregatedLine {
+  personKey: string;
+  currency: string;
+  amount: bigint;
+  dimensions: ShadowSettlementDimensions;
+}
+
+function normalizeDimensionValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function dimensionsOf(
+  line: ShadowSettlementLine,
+): ShadowSettlementDimensions {
+  const dimensions: ShadowSettlementDimensions = {};
+  for (const field of SHADOW_SETTLEMENT_DIMENSIONS) {
+    const value = normalizeDimensionValue(line[field]);
+    if (value) dimensions[field] = value;
+  }
+  return dimensions;
+}
+
 function keyOf(line: ShadowSettlementLine): string {
-  return `${line.personKey.trim()}|${line.currency.trim().toUpperCase()}`;
+  const base = `${line.personKey.trim()}|${line.currency.trim().toUpperCase()}`;
+  const dimensionParts = SHADOW_SETTLEMENT_DIMENSIONS.flatMap((field) => {
+    const value = normalizeDimensionValue(line[field]);
+    return value ? [`${field}=${value}`] : [];
+  });
+  // Unit separator avoids collisions with values that contain "|". Legacy
+  // lines with no dimensions keep exactly the historical key.
+  return dimensionParts.length > 0
+    ? `${base}\u001f${dimensionParts.join("\u001f")}`
+    : base;
 }
 
 function aggregate(
   lines: readonly ShadowSettlementLine[],
-): Map<string, ShadowSettlementLine> {
-  const aggregated = new Map<string, ShadowSettlementLine>();
+): Map<string, AggregatedLine> {
+  const aggregated = new Map<string, AggregatedLine>();
   for (const line of lines) {
     const key = keyOf(line);
     const current = aggregated.get(key);
+    if (current) {
+      current.amount = add(current.amount, parseDecimal(line.amount));
+      continue;
+    }
     aggregated.set(key, {
       personKey: line.personKey.trim(),
       currency: line.currency.trim().toUpperCase(),
-      amount: formatDecimal(
-        add(parseDecimal(current?.amount ?? "0"), parseDecimal(line.amount)),
-      ),
+      amount: parseDecimal(line.amount),
+      dimensions: dimensionsOf(line),
     });
   }
   return aggregated;
+}
+
+/**
+ * Only emit dimension fields that were actually present, so legacy rows keep
+ * their exact historical shape (and reportHash).
+ */
+function dimensionFields(
+  line: AggregatedLine | undefined,
+): ShadowSettlementDimensions {
+  return line ? { ...line.dimensions } : {};
 }
 
 /**
@@ -68,7 +136,10 @@ function aggregate(
  *
  * The caller runs this in shadow mode before go-live: any variance, missing
  * person or currency mismatch must be explained before finance uses the
- * engine output. Tolerance is absolute per aggregated person+currency line.
+ * engine output. Tolerance is absolute per aggregated reconciliation line
+ * (person + currency + any supplied dimensions). Lines that differ in
+ * legalEntity / accountingPeriod / orderId / contractRef / payoutBatch /
+ * incentiveType are never netted against each other.
  */
 export function compareShadowSettlement(
   engineLines: readonly ShadowSettlementLine[],
@@ -98,16 +169,17 @@ export function compareShadowSettlement(
   for (const key of keys) {
     const expected = engine.get(key);
     const actual = finance.get(key);
-    const engineAmount = expected?.amount ?? null;
-    const financeAmount = actual?.amount ?? null;
-    if (engineAmount !== null) engineTotal = add(engineTotal, parseDecimal(engineAmount));
-    if (financeAmount !== null) financeTotal = add(financeTotal, parseDecimal(financeAmount));
+    const engineValue = expected?.amount ?? null;
+    const financeValue = actual?.amount ?? null;
+    const engineAmount =
+      engineValue === null ? null : formatDecimal(engineValue);
+    const financeAmount =
+      financeValue === null ? null : formatDecimal(financeValue);
+    if (engineValue !== null) engineTotal = add(engineTotal, engineValue);
+    if (financeValue !== null) financeTotal = add(financeTotal, financeValue);
 
-    if (engineAmount !== null && financeAmount !== null) {
-      const variance = sub(
-        parseDecimal(financeAmount),
-        parseDecimal(engineAmount),
-      );
+    if (engineValue !== null && financeValue !== null) {
+      const variance = sub(financeValue, engineValue);
       varianceTotal = add(varianceTotal, variance);
       const within = variance <= toleranceValue && variance >= -toleranceValue;
       const status: ShadowSettlementStatus = within ? "MATCH" : "VARIANCE";
@@ -120,27 +192,29 @@ export function compareShadowSettlement(
         finance: financeAmount,
         variance: formatDecimal(variance),
         status,
+        ...dimensionFields(expected ?? actual),
       });
       continue;
     }
 
-    if (engineAmount !== null) {
+    if (engineValue !== null) {
       counts.missingInFinance += 1;
-      varianceTotal = sub(varianceTotal, parseDecimal(engineAmount));
+      varianceTotal = sub(varianceTotal, engineValue);
       rows.push({
         personKey: expected?.personKey ?? key,
         currency: expected?.currency ?? "",
         engine: engineAmount,
         finance: null,
-        variance: formatDecimal(-parseDecimal(engineAmount)),
+        variance: formatDecimal(-engineValue),
         status: "MISSING_IN_FINANCE",
+        ...dimensionFields(expected),
       });
       continue;
     }
 
-    if (financeAmount !== null) {
+    if (financeValue !== null) {
       counts.missingInEngine += 1;
-      varianceTotal = add(varianceTotal, parseDecimal(financeAmount));
+      varianceTotal = add(varianceTotal, financeValue);
       rows.push({
         personKey: actual?.personKey ?? key,
         currency: actual?.currency ?? "",
@@ -148,6 +222,7 @@ export function compareShadowSettlement(
         finance: financeAmount,
         variance: financeAmount,
         status: "MISSING_IN_ENGINE",
+        ...dimensionFields(actual),
       });
     }
   }

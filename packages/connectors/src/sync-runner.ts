@@ -22,6 +22,12 @@ export type SyncRequestFn = <T>(
   init?: { method?: string; body?: string },
 ) => Promise<T>;
 
+/** OAuth token source contract used by the sync runner (shared with oauth.ts). */
+export interface OAuthTokenSourceLike {
+  getToken(): Promise<string>;
+  invalidate?(): void;
+}
+
 interface SyncSchedule {
   id: string;
   connectionId: string;
@@ -57,12 +63,38 @@ interface QuarantineInput {
   payload?: Record<string, unknown>;
 }
 
-/** NP-016：精确计数——与逐条结果对账。 */
+/**
+ * NP-016 / INT-211：精确计数——与逐条结果对账。
+ *
+ * `recordsInvalid` 是 `recordsQuarantined` 的子集（契约校验失败），不参与
+ * fetched = created + updated + duplicate + quarantined + failed 的求和。
+ * `recordsUpserted` 为兼容字段，等于 created + updated（不含重复/隔离/失败）。
+ */
 export interface SyncCounters {
   recordsFetched: number;
+  recordsRawPersisted: number;
+  recordsCreated: number;
+  recordsUpdated: number;
+  recordsDuplicate: number;
+  recordsInvalid: number;
   recordsUpserted: number;
   recordsQuarantined: number;
   recordsFailed: number;
+}
+
+/**
+ * INT-210：runner 请求错误——携带 HTTP 状态与结构化错误码。
+ * 只有已知的幂等重复码才能被解释为 DUPLICATE；其它 409 必须失败。
+ */
+export class SyncRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "SyncRequestError";
+  }
 }
 
 export interface SyncCycleSummary {
@@ -143,9 +175,40 @@ export function routeTarget(targetType: string | undefined): {
 }
 
 /** NP-004：财务事实类型化校验——金额/币种必须来自 payload 且格式合法。 */
+export interface ParsedFinancialFact {
+  amount: string;
+  currency: string;
+  factType: string;
+  legalEntityId?: string;
+  orderId?: string;
+  contractRef?: string;
+  instrumentType?: "INVOICE" | "CREDIT_NOTE" | "PAYMENT" | "COST" | "REFUND";
+  recognitionStatus: "DRAFT" | "POSTED";
+  accountingPeriod?: string;
+  fxSnapshot?: {
+    rate: string;
+    quoteCurrency: string;
+    source: string;
+    asOf: string;
+  };
+  sourceVersion?: string;
+  reversalOf?: string;
+}
+
+const INSTRUMENT_TYPES = new Set([
+  "INVOICE",
+  "CREDIT_NOTE",
+  "PAYMENT",
+  "COST",
+  "REFUND",
+]);
+
+const ACCOUNTING_PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Sprint 5：财务事实类型化——金额/币种之外，POSTED 必须带齐会计语义。 */
 export function parseFinancialFact(
   event: Record<string, unknown>,
-): { amount: string; currency: string; factType: string } | { error: string; reason: string } {
+): ParsedFinancialFact | { error: string; reason: string } {
   const factType = String(event.evidenceType ?? "").toUpperCase();
   if (!FINANCIAL_FACT_TYPES.has(factType)) {
     return {
@@ -168,13 +231,140 @@ export function parseFinancialFact(
       reason: "INVALID_CURRENCY",
     };
   }
-  return { amount: amountRaw, currency: currencyRaw, factType };
+
+  const recognitionRaw = String(payload.recognitionStatus ?? "DRAFT")
+    .trim()
+    .toUpperCase();
+  if (recognitionRaw !== "DRAFT" && recognitionRaw !== "POSTED") {
+    return {
+      error: `financial fact ${event.sourceRecordId}: invalid recognitionStatus ${recognitionRaw}`,
+      reason: "SCHEMA_MISMATCH",
+    };
+  }
+  const recognitionStatus = recognitionRaw as "DRAFT" | "POSTED";
+
+  const instrumentRaw = String(payload.instrumentType ?? "").trim().toUpperCase();
+  if (instrumentRaw && !INSTRUMENT_TYPES.has(instrumentRaw)) {
+    return {
+      error: `financial fact ${event.sourceRecordId}: invalid instrumentType ${instrumentRaw}`,
+      reason: "SCHEMA_MISMATCH",
+    };
+  }
+  const instrumentType = instrumentRaw
+    ? (instrumentRaw as ParsedFinancialFact["instrumentType"])
+    : undefined;
+
+  const legalEntityId = textValue(payload.legalEntityId);
+  const orderId = textValue(payload.orderId);
+  const contractRef = textValue(payload.contractRef);
+  const accountingPeriod = textValue(payload.accountingPeriod);
+  const sourceVersion =
+    textValue(payload.sourceVersion) ?? textValue(event.sourceEventVersion);
+  const reversalOf = textValue(payload.reversalOf);
+
+  if (accountingPeriod && !ACCOUNTING_PERIOD_PATTERN.test(accountingPeriod)) {
+    return {
+      error: `financial fact ${event.sourceRecordId}: accountingPeriod must be YYYY-MM`,
+      reason: "SCHEMA_MISMATCH",
+    };
+  }
+  if (instrumentType === "PAYMENT" && !orderId && !contractRef) {
+    return {
+      error: `financial fact ${event.sourceRecordId}: PAYMENT requires orderId or contractRef`,
+      reason: "SCHEMA_MISMATCH",
+    };
+  }
+
+  let fxSnapshot: ParsedFinancialFact["fxSnapshot"];
+  if (payload.fxSnapshot && typeof payload.fxSnapshot === "object") {
+    const fx = payload.fxSnapshot as Record<string, unknown>;
+    const rate = String(fx.rate ?? "").trim();
+    const quoteCurrency = String(fx.quoteCurrency ?? "").trim().toUpperCase();
+    const source = String(fx.source ?? "").trim();
+    const asOf = String(fx.asOf ?? "").trim();
+    if (
+      !DECIMAL_PATTERN.test(rate) ||
+      !CURRENCY_PATTERN.test(quoteCurrency) ||
+      !source ||
+      !/^\d{4}-\d{2}-\d{2}T/.test(asOf)
+    ) {
+      return {
+        error: `financial fact ${event.sourceRecordId}: invalid fxSnapshot`,
+        reason: "SCHEMA_MISMATCH",
+      };
+    }
+    fxSnapshot = { rate, quoteCurrency, source, asOf };
+  }
+
+  if (recognitionStatus === "POSTED") {
+    if (!legalEntityId || !accountingPeriod || !instrumentType || !sourceVersion) {
+      return {
+        error:
+          `financial fact ${event.sourceRecordId}: POSTED requires ` +
+          "legalEntityId, accountingPeriod, instrumentType, sourceVersion",
+        reason: "SCHEMA_MISMATCH",
+      };
+    }
+  }
+
+  return {
+    amount: amountRaw,
+    currency: currencyRaw,
+    factType,
+    legalEntityId,
+    orderId,
+    contractRef,
+    instrumentType,
+    recognitionStatus,
+    accountingPeriod,
+    fxSnapshot,
+    sourceVersion,
+    reversalOf,
+  };
+}
+
+function textValue(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text === "" ? undefined : text;
+}
+
+/** 只有这些结构化错误码能被解释为“幂等重复”（成功）。 */
+const DUPLICATE_CODES = new Set([
+  "DUPLICATE_SOURCE_VERSION",
+  "DUPLICATE_EVIDENCE",
+  "DUPLICATE_FINANCIAL_FACT",
+  "IDEMPOTENT_REPLAY",
+  "STALE_FINANCIAL_FACT",
+]);
+
+/** 已知幂等重复的 message 前缀（旧 endpoint 仅返回 CONFLICT + message）。 */
+const DUPLICATE_MESSAGE_PREFIXES = [
+  "DUPLICATE_SOURCE_VERSION:",
+  "DUPLICATE_EVIDENCE:",
+  "DUPLICATE_FINANCIAL_FACT:",
+  "IDEMPOTENT_REPLAY:",
+  "STALE_FINANCIAL_FACT:",
+];
+
+function errorStatus(error: unknown): number | undefined {
+  if (typeof (error as { status?: unknown }).status === "number") {
+    return (error as { status: number }).status;
+  }
+  const match = /HTTP (\d{3})/.exec(
+    error instanceof Error ? error.message : String(error),
+  );
+  return match ? Number(match[1]) : undefined;
+}
+
+function errorCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
 }
 
 /**
- * 幂等投影：仅当错误明确是目标端唯一键冲突（HTTP 409 / duplicate key /
- * UNIQUE constraint）才视为 DUPLICATE。收紧匹配（Sprint 2.1）：宽松的
- * "already" 前缀会把非幂等冲突隐藏为成功。
+ * 幂等投影：仅当返回结构化幂等码（或旧接口的已知重复 message 前缀）时
+ * 视为 DUPLICATE。其它 409（期间关闭/身份冲突/乐观锁/资源版本冲突）必须
+ * 抛出，不能被误判为“已经同步成功”。
  */
 async function writeTargetIdempotent(
   request: SyncRequestFn,
@@ -186,20 +376,54 @@ async function writeTargetIdempotent(
     return "CREATED";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (
-      /HTTP 409/.test(message) ||
-      /duplicate key/i.test(message) ||
-      /UNIQUE constraint/i.test(message) ||
-      /_pkey|_key/.test(message) && /duplicate/i.test(message)
-    ) {
+    const code = errorCode(error);
+    if (code && DUPLICATE_CODES.has(code)) return "DUPLICATE";
+    if (DUPLICATE_MESSAGE_PREFIXES.some((prefix) => message.startsWith(prefix))) {
       return "DUPLICATE";
     }
-    // INT-208：迟到的旧财务快照 → 跳过（不覆盖新数据），非失败。
-    if (/STALE_FINANCIAL_FACT/.test(message)) {
-      return "DUPLICATE";
+    if (errorStatus(error) === 409) {
+      throw new Error(
+        `SYNC_CONFLICT_UNCLASSIFIED: ${message} ` +
+          `(409 without an idempotency code is not a successful sync)`,
+      );
     }
     throw error;
   }
+}
+
+/** 财务事实期间：优先 accountingPeriod（YYYY-MM），否则业务发生日期。 */
+function financialPeriod(
+  event: Record<string, unknown>,
+  occurredAt: string,
+): { periodStart?: string; periodEnd?: string } {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const period = String(payload.accountingPeriod ?? "").trim();
+  const month = /^(\d{4})-(\d{2})$/.exec(period);
+  if (month) {
+    const year = Number(month[1]);
+    const monthIndex = Number(month[2]);
+    if (monthIndex >= 1 && monthIndex <= 12) {
+      const first = new Date(Date.UTC(year, monthIndex - 1, 1));
+      const last = new Date(Date.UTC(year, monthIndex, 0));
+      return {
+        periodStart: first.toISOString().slice(0, 10),
+        periodEnd: last.toISOString().slice(0, 10),
+      };
+    }
+  }
+  const start = String(payload.periodStart ?? "").slice(0, 10);
+  const end = String(payload.periodEnd ?? "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(start) || /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    return {
+      periodStart: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : undefined,
+      periodEnd: /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : undefined,
+    };
+  }
+  const date = occurredAt.slice(0, 10);
+  return {
+    periodStart: date || undefined,
+    periodEnd: date || undefined,
+  };
 }
 
 async function recordQuarantine(
@@ -230,6 +454,11 @@ export async function runSyncCycle(deps: {
   providerFetchImpl?: typeof fetch;
   /** INT-201：凭据解析（credentialRef → 真实凭据）。缺省读 SECRETS_JSON/SECRETS_FILE。 */
   credentialRefResolver?: (credentialRef: string) => string | undefined;
+  /**
+   * INT-214：OAuth token source（client-credentials / refresh-token）。
+   * 给了它就不再用静态 Bearer；401 时 invalidate + 重试一次。
+   */
+  oauthTokenResolver?: (credentialRef: string) => OAuthTokenSourceLike | undefined;
 }): Promise<SyncCycleSummary> {
   const { request } = deps;
   const effectiveMaxPages = Math.max(1, deps.maxPages ?? 5);
@@ -242,14 +471,23 @@ export async function runSyncCycle(deps: {
   for (const schedule of claimed) {
     const counters: SyncCounters = {
       recordsFetched: 0,
+      recordsRawPersisted: 0,
+      recordsCreated: 0,
+      recordsUpdated: 0,
+      recordsDuplicate: 0,
+      recordsInvalid: 0,
       recordsUpserted: 0,
       recordsQuarantined: 0,
       recordsFailed: 0,
     };
     /** INT-205：已领取租约（fencing token），循环结束或失败时统一释放。 */
     const claimedLeases: Array<{ resourceId: string; fencingToken: number }> = [];
-    /** INT-204：本次运行已投影的 canonical 哈希（raw 版本化 + 目标唯一键双保险）。 */
-    const projectedHashes = new Set<string>();
+    /**
+     * INT-204：本次运行已投影的键。必须包含业务身份（租户由 resource 隐式
+     * 隔离、来源、资源、外部记录、来源版本、映射版本、目标类型）——只用
+     * payloadHash 会把两个内容相同但业务上不同的记录误判为重复。
+     */
+    const projectedKeys = new Set<string>();
     let run: SyncRun | undefined;
     try {
       run = await request<SyncRun>(
@@ -275,27 +513,38 @@ export async function runSyncCycle(deps: {
         resource: SyncResource;
         mapping: Mapping;
         config: NonNullable<ReturnType<typeof buildHttpJsonConnectorConfig>>;
+        oauthSource?: OAuthTokenSourceLike;
       }> = [];
       for (const mapping of httpMappings) {
         const config = buildHttpJsonConnectorConfig(connection, mapping);
-        if (!config) continue;
+        if (!config) {
+          // INT-211：映射不可用是配置错误，必须让 run FAILED——绝不能
+          // 静默跳过、让排期看起来成功但实际没有同步。
+          throw new Error(
+            `MAPPING_CONFIG_INVALID: mapping ${mapping.id} ` +
+              `is missing url or required fieldMap columns (sourceRecordId/eventType/subjectType/subjectId/evidenceType)`,
+          );
+        }
         if (deps.providerFetchImpl) config.fetchImpl = deps.providerFetchImpl;
-        // INT-201：凭据链——脱敏后的连接配置不含真实凭据；经 SecretProvider
-        // 解析 credentialRef 并注入认证头。解析失败 → run FAILED（绝不发送
-        // [REDACTED] 占位请求）。
+        // INT-201/214：凭据链——OAuth token source 优先；否则静态凭据。
+        // 解析失败 → run FAILED（绝不发送 [REDACTED] 占位请求）。
+        let oauthSource: OAuthTokenSourceLike | undefined;
         if (connection.credentialRef) {
-          const secret =
-            deps.credentialRefResolver?.(connection.credentialRef) ??
-            resolveSecretFromEnv(connection.credentialRef);
-          if (!secret) {
-            throw new Error(
-              `SECRET_RESOLUTION_FAILED: credentialRef ${connection.credentialRef} is not resolvable — refusing to call the provider without credentials`,
-            );
+          oauthSource = deps.oauthTokenResolver?.(connection.credentialRef);
+          if (!oauthSource) {
+            const secret =
+              deps.credentialRefResolver?.(connection.credentialRef) ??
+              resolveSecretFromEnv(connection.credentialRef);
+            if (!secret) {
+              throw new Error(
+                `SECRET_RESOLUTION_FAILED: credentialRef ${connection.credentialRef} is not resolvable — refusing to call the provider without credentials`,
+              );
+            }
+            config.headers = {
+              ...(config.headers ?? {}),
+              authorization: secret.startsWith("Bearer ") ? secret : `Bearer ${secret}`,
+            };
           }
-          config.headers = {
-            ...(config.headers ?? {}),
-            authorization: secret.startsWith("Bearer ") ? secret : `Bearer ${secret}`,
-          };
         }
         // 每个 mapping 的 resourceKey 用 mapping.id 确保独立调度。
         let resource: SyncResource | undefined;
@@ -321,10 +570,10 @@ export async function runSyncCycle(deps: {
           if (match) resource = { id: match.id, resourceKey: mapping.id, mappingId: match.mappingId };
         }
         if (!resource) continue;
-        resources.push({ resource, mapping, config });
+        resources.push({ resource, mapping, config, oauthSource });
       }
 
-      for (const { resource, mapping, config } of resources) {
+      for (const { resource, mapping, config, oauthSource } of resources) {
         let resourceOverlapSeconds = 0;
         // INT-205：资源级租约——worker 实际使用 API 租约与 fencing token。
         const lease = await request<{ fencingToken: number; leaseUntil: string }>(
@@ -353,8 +602,8 @@ export async function runSyncCycle(deps: {
               new Date(cp.watermark).getTime() - overlapMs,
             ).toISOString();
           }
-          // P1 Resource Scheduler（简版）：资源级调度间隔覆盖——距上次同步
-          // 不足 override 间隔 → 释放租约并跳过该资源（连接级排期仍驱动轮询）。
+          // INT-212：资源级最小调度间隔——距上次同步不足间隔则释放租约并
+          // 跳过该资源（连接级排期继续驱动轮询）。
           const overrideMinutes = cp.intervalOverrideMinutes;
           if (overrideMinutes && cp.updatedAt) {
             const elapsedMinutes =
@@ -377,46 +626,173 @@ export async function runSyncCycle(deps: {
               continue;
             }
           }
-        } catch {
-          /* 首次运行无 checkpoint */
+        } catch (error) {
+          // 只有“资源/检查点不存在”可以按首次运行处理；网络/5xx 必须失败，
+          // 否则会从第一页重新拉取并制造重复投影。
+          if (errorStatus(error) !== 404) throw error;
         }
+        // INT-205：长同步心跳——每 5 分钟续约一次；续约失败（租约被抢/过期）
+        // 立即抛出，停止当前同步，而不是继续写一个已经失效的 checkpoint。
+        let leaseRenewedAt = Date.now();
         for (let page = 0; page < effectiveMaxPages; page += 1) {
-          const result = await connector.pull(cursor, updatedSince);
+          if (Date.now() - leaseRenewedAt > 5 * 60_000) {
+            const renewed = await request<{
+              fencingToken: number;
+              leaseUntil: string;
+            }>(`/api/v1/sync-resources/${resource.id}/renew-lease`, {
+              method: "POST",
+              body: JSON.stringify({
+                leaseOwner: run!.id,
+                fencingToken: lease.fencingToken,
+                leaseSeconds: 900,
+              }),
+            });
+            lease.fencingToken = renewed.fencingToken;
+            leaseRenewedAt = Date.now();
+          }
+          const pullPage = async () => {
+            if (oauthSource) {
+              const token = await oauthSource.getToken();
+              config.headers = {
+                ...(config.headers ?? {}),
+                authorization: token.startsWith("Bearer ")
+                  ? token
+                  : `Bearer ${token}`,
+              };
+            }
+            return connector.pull(cursor, updatedSince);
+          };
+          let result: Awaited<ReturnType<HttpJsonConnector["pull"]>>;
+          try {
+            result = await pullPage();
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            // 401 视为 token 过期：invalidate 后重试一次；仍失败则 run FAILED。
+            if (oauthSource && /failed: 401\b/.test(message)) {
+              oauthSource.invalidate?.();
+              result = await pullPage();
+            } else {
+              throw error;
+            }
+          }
           counters.recordsFetched += result.events.length;
-          // INT-206：页内最大 occurredAt 作为增量 watermark（checkpoint 观测基准）。
+          // INT-206：页内最大 sourceUpdatedAt（无则退回 occurredAt）作为增量
+          // watermark。用业务发生时间做水位会漏掉“旧单据后来被修改”。
           let pageWatermark: string | null = null;
           // NP-003：本页全部目标写入成功后才推进 checkpoint；
           // 任一写入失败抛出 → run FAILED → checkpoint 停留上一页（可重放、不丢数据）。
           for (const rawEvent of result.events) {
             const event = rawEvent as unknown as Record<string, unknown>;
-            const occurredAt =
-              typeof event.occurredAt === "string" && event.occurredAt
-                ? event.occurredAt
-                : undefined;
-            if (occurredAt && (!pageWatermark || occurredAt > pageWatermark)) {
-              pageWatermark = occurredAt;
+            const watermarkCandidate =
+              (typeof event.sourceUpdatedAt === "string" && event.sourceUpdatedAt) ||
+              (typeof event.occurredAt === "string" && event.occurredAt) ||
+              undefined;
+            if (
+              watermarkCandidate &&
+              (!pageWatermark || watermarkCandidate > pageWatermark)
+            ) {
+              pageWatermark = watermarkCandidate;
             }
             // INT-203：先规范化为 Canonical Business Event（fail-closed）。
-            const canonical: CanonicalBusinessEvent = canonicalize(event, {
-              sourceSystem: mapping.sourceSystem,
-              mappingVersion: mapping.version ?? 1,
-            });
-            // INT-202：raw-first——先加密落地原始记录（版本化、带内容哈希），
-            // 落地失败抛出 → 整页失败，checkpoint 不推进（重放不丢数据）。
-            await writeTargetIdempotent(request, "/api/v1/raw-source-records", JSON.stringify({
-              sourceSystem: mapping.sourceSystem,
-              externalRecordId: canonical.externalObjectId !== canonical.eventType ? String(event.sourceRecordId ?? canonical.externalObjectId) : canonical.externalObjectId,
-              payload: event.payload ?? {},
-              payloadHash: canonical.payloadHash,
-              sourceVersion: canonical.sourceVersion,
-              mappingVersion: canonical.mappingVersion,
-            }));
-            // INT-204：投影幂等——同 canonical 哈希本运行内不重复投影。
-            const projectionKey = `${canonical.payloadHash}:${canonical.mappingVersion}`;
-            if (projectedHashes.has(projectionKey)) {
+            let canonical: CanonicalBusinessEvent;
+            try {
+              canonical = canonicalize(event, {
+                sourceSystem: mapping.sourceSystem,
+                mappingVersion: mapping.version ?? 1,
+              });
+            } catch (error) {
+              // 契约失败是“坏记录”，不是整页故障：隔离并继续，指标可追溯。
+              counters.recordsInvalid += 1;
+              counters.recordsQuarantined += 1;
+              await recordQuarantine(request, {
+                sourceSystem: mapping.sourceSystem,
+                externalRecordId: String(event.sourceRecordId ?? ""),
+                reason: "SCHEMA_MISMATCH",
+                payload: {
+                  raw: event.payload ?? event,
+                  detail: error instanceof Error ? error.message : String(error),
+                },
+              });
               continue;
             }
-            projectedHashes.add(projectionKey);
+            const externalRecordId = String(
+              event.sourceRecordId ?? canonical.externalObjectId,
+            );
+            const retentionClass =
+              mapping.targetType === "FINANCIAL_FACT"
+                ? "FINANCIAL"
+                : mapping.sourceSystem === "feishu" ||
+                    mapping.sourceSystem === "hr"
+                  ? "PII"
+                  : "DEFAULT";
+            // INT-202：raw-first——先落地原始记录（版本化、带内容哈希），
+            // 落地失败抛出 → 整页失败，checkpoint 不推进（重放不丢数据）。
+            let rawRecord: {
+              id: string;
+              payloadHash?: string;
+              sourceVersion?: string;
+            };
+            try {
+              rawRecord = await request(
+                "/api/v1/raw-source-records",
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    sourceSystem: mapping.sourceSystem,
+                    externalRecordId,
+                    payload: event.payload ?? {},
+                    payloadHash: canonical.payloadHash,
+                    sourceVersion: canonical.sourceVersion,
+                    mappingVersion: canonical.mappingVersion,
+                    retentionClass,
+                    resourceId: resource.id,
+                    sourceUpdatedAt: canonical.sourceUpdatedAt,
+                  }),
+                },
+              );
+            } catch (error) {
+              counters.recordsFailed += 1;
+              throw error;
+            }
+            counters.recordsRawPersisted += 1;
+            // 同一 sourceVersion 命中既有记录但内容哈希不同 → 来源版本冲突，
+            // 不得用旧快照投影新内容，也不得覆盖历史。
+            if (
+              rawRecord.payloadHash &&
+              rawRecord.payloadHash !== canonical.payloadHash
+            ) {
+              counters.recordsInvalid += 1;
+              counters.recordsQuarantined += 1;
+              await recordQuarantine(request, {
+                sourceSystem: mapping.sourceSystem,
+                externalRecordId,
+                reason: "OTHER",
+                payload: {
+                  raw: event.payload ?? event,
+                  detail:
+                    `SOURCE_VERSION_CONFLICT: sourceVersion ${canonical.sourceVersion} ` +
+                    `already stored with payloadHash ${rawRecord.payloadHash}; ` +
+                    `incoming ${canonical.payloadHash}`,
+                },
+              });
+              continue;
+            }
+            // INT-204：投影幂等键包含完整业务身份，避免“内容相同 = 重复”。
+            const projectionKey = [
+              mapping.sourceSystem,
+              resource.id,
+              externalRecordId,
+              canonical.externalObjectId,
+              canonical.sourceVersion,
+              canonical.mappingVersion,
+              mapping.targetType ?? "UNKNOWN",
+            ].join("|");
+            if (projectedKeys.has(projectionKey)) {
+              counters.recordsDuplicate += 1;
+              continue;
+            }
+            projectedKeys.add(projectionKey);
             const routing = routeTarget(mapping.targetType);
             try {
               if (routing.route === "EVIDENCE") {
@@ -432,7 +808,7 @@ export async function runSyncCycle(deps: {
                 if ("error" in subject) {
                   await recordQuarantine(request, {
                     sourceSystem: mapping.sourceSystem,
-                    externalRecordId: String(event.sourceRecordId ?? ""),
+                    externalRecordId,
                     reason: "UNRESOLVED_IDENTITY",
                     payload: {
                       raw: event.payload ?? event,
@@ -443,22 +819,31 @@ export async function runSyncCycle(deps: {
                   continue;
                 }
                 const resolvedEvent = { ...rawEvent, subjectId: subject.subjectId } as typeof rawEvent;
-                await writeTargetIdempotent(
-                  request,
-                  "/api/v1/ingestion/events:batch",
-                  JSON.stringify({
+                // ingestion batch 内部按 (source, sourceRecordId, eventVersion)
+                // 幂等——返回 accepted/duplicates 才是真实结果，不能一律记 created。
+                const ingested = await request<{
+                  accepted?: number;
+                  duplicates?: number;
+                }>("/api/v1/ingestion/events:batch", {
+                  method: "POST",
+                  body: JSON.stringify({
                     sourceSystem: mapping.sourceSystem,
                     events: [resolvedEvent],
                   }),
-                );
-                counters.recordsUpserted += 1;
+                });
+                if ((ingested.duplicates ?? 0) > 0 && (ingested.accepted ?? 0) === 0) {
+                  counters.recordsDuplicate += 1;
+                } else {
+                  counters.recordsCreated += 1;
+                  counters.recordsUpserted += 1;
+                }
               } else if (routing.route === "FINANCIAL_FACT") {
                 // NP-004：金额/币种类型化；校验失败 → 隔离（不吞错、不写 0）。
                 const parsed = parseFinancialFact(event);
                 if ("error" in parsed) {
                   await recordQuarantine(request, {
                     sourceSystem: mapping.sourceSystem,
-                    externalRecordId: String(event.sourceRecordId ?? ""),
+                    externalRecordId,
                     reason: parsed.reason,
                     payload: { raw: event.payload ?? event, detail: parsed.error },
                   });
@@ -467,26 +852,42 @@ export async function runSyncCycle(deps: {
                 }
                 const occurredAt =
                   typeof event.occurredAt === "string" ? event.occurredAt : "";
-                await writeTargetIdempotent(
+                const period = financialPeriod(event, occurredAt);
+                const outcome = await writeTargetIdempotent(
                   request,
                   "/api/v1/financial-facts",
                   JSON.stringify({
                     sourceSystem: mapping.sourceSystem,
                     sourceRecordId: event.sourceRecordId,
                     factType: parsed.factType,
-                    periodStart: occurredAt.slice(0, 10) || undefined,
-                    periodEnd: occurredAt.slice(0, 10) || undefined,
+                    periodStart: period.periodStart,
+                    periodEnd: period.periodEnd,
                     amount: parsed.amount,
                     currency: parsed.currency,
                     qualityStatus: "UNVERIFIED",
+                    sourceUpdatedAt: canonical.sourceUpdatedAt,
+                    legalEntityId: parsed.legalEntityId,
+                    orderId: parsed.orderId,
+                    contractRef: parsed.contractRef,
+                    instrumentType: parsed.instrumentType,
+                    recognitionStatus: parsed.recognitionStatus,
+                    accountingPeriod: parsed.accountingPeriod,
+                    fxSnapshot: parsed.fxSnapshot,
+                    sourceVersion: parsed.sourceVersion ?? canonical.sourceVersion,
+                    reversalOf: parsed.reversalOf,
                     payload: event.payload,
                   }),
                 );
-                counters.recordsUpserted += 1;
+                if (outcome === "DUPLICATE") {
+                  counters.recordsDuplicate += 1;
+                } else {
+                  counters.recordsCreated += 1;
+                  counters.recordsUpserted += 1;
+                }
               } else {
                 await recordQuarantine(request, {
                   sourceSystem: mapping.sourceSystem,
-                  externalRecordId: String(event.sourceRecordId ?? ""),
+                  externalRecordId,
                   reason: routing.reason ?? "SCHEMA_MISMATCH",
                   payload: {
                     raw: event.payload ?? event,
@@ -502,14 +903,20 @@ export async function runSyncCycle(deps: {
             }
           }
           // 本页全部写入成功 → 推进 checkpoint（NP-003）+ watermark（INT-206）。
+          // watermark 缺省表示保留旧值；只有本页确实观测到时间戳才更新，
+          // 不能因为“本页没有时间字段”而清空之前的增量水位。
+          const checkpointBody: Record<string, unknown> = {
+            cursor: result.nextCursor,
+            lastRunId: run.id,
+            overlapSeconds: resourceOverlapSeconds,
+            // INT-205：只有当前租约持有人可以推进游标。
+            leaseOwner: run.id,
+            fencingToken: lease.fencingToken,
+          };
+          if (pageWatermark !== null) checkpointBody.watermark = pageWatermark;
           await request(`/api/v1/sync-resources/${resource.id}/checkpoint`, {
             method: "PUT",
-            body: JSON.stringify({
-              cursor: result.nextCursor,
-              lastRunId: run.id,
-              watermark: pageWatermark,
-              overlapSeconds: resourceOverlapSeconds,
-            }),
+            body: JSON.stringify(checkpointBody),
           });
           cursor = result.nextCursor;
           if (!cursor) break;
@@ -532,6 +939,11 @@ export async function runSyncCycle(deps: {
           recordsSeen: counters.recordsFetched,
           recordsUpserted: counters.recordsUpserted,
           recordsFetched: counters.recordsFetched,
+          recordsRawPersisted: counters.recordsRawPersisted,
+          recordsCreated: counters.recordsCreated,
+          recordsUpdated: counters.recordsUpdated,
+          recordsDuplicate: counters.recordsDuplicate,
+          recordsInvalid: counters.recordsInvalid,
           recordsQuarantined: counters.recordsQuarantined,
           recordsFailed: counters.recordsFailed,
         }),
@@ -562,6 +974,11 @@ export async function runSyncCycle(deps: {
             recordsSeen: counters.recordsFetched,
             recordsUpserted: counters.recordsUpserted,
             recordsFetched: counters.recordsFetched,
+            recordsRawPersisted: counters.recordsRawPersisted,
+            recordsCreated: counters.recordsCreated,
+            recordsUpdated: counters.recordsUpdated,
+            recordsDuplicate: counters.recordsDuplicate,
+            recordsInvalid: counters.recordsInvalid,
             recordsQuarantined: counters.recordsQuarantined,
             recordsFailed: counters.recordsFailed,
             errorSummary: message.slice(0, 500),

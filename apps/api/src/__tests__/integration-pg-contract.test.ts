@@ -153,11 +153,20 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       connectionId,
       status: "QUEUED",
     });
+    // INT-205：checkpoint 写入必须持有资源租约。
+    const lease = await store.claimResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "pg-checkpoint-test",
+      leaseSeconds: 300,
+    });
     const saved = await store.saveSyncCheckpoint({
       tenantId: CONTRACT_TENANT_ID,
       resourceId: resource.id,
       cursor: "cursor-7",
       lastRunId: run.id,
+      leaseOwner: "pg-checkpoint-test",
+      fencingToken: lease.fencingToken,
     });
     expect(saved.cursor).toBe("cursor-7");
     expect(saved.lastRunId).toBe(run.id);
@@ -169,9 +178,32 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       resourceId: resource.id,
       cursor: "cursor-8",
       lastRunId: run.id,
+      leaseOwner: "pg-checkpoint-test",
+      fencingToken: lease.fencingToken,
     });
     const updated = await store.getSyncCheckpoint(CONTRACT_TENANT_ID, resource.id);
     expect(updated?.cursor).toBe("cursor-8");
+    // INT-210：显式 null 清空游标（而不是 COALESCE 保留旧值）。
+    await store.saveSyncCheckpoint({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      cursor: null,
+      leaseOwner: "pg-checkpoint-test",
+      fencingToken: lease.fencingToken,
+    });
+    expect(
+      (await store.getSyncCheckpoint(CONTRACT_TENANT_ID, resource.id))?.cursor,
+    ).toBeNull();
+    // 旧 fencing token → 拒绝推进。
+    await expect(
+      store.saveSyncCheckpoint({
+        tenantId: CONTRACT_TENANT_ID,
+        resourceId: resource.id,
+        cursor: "stale",
+        leaseOwner: "pg-checkpoint-test",
+        fencingToken: lease.fencingToken - 1,
+      }),
+    ).rejects.toThrow(/RESOURCE_LEASE_STALE/);
   });
 
   it("Quarantine：写入/幂等 upsert/未解决过滤", async () => {
@@ -301,11 +333,45 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       sourceSystem: "np033-system",
       externalRecordId: "RAW-1",
       payloadEncrypted: "v1:aa:bb:cc",
+      payloadHash: "hash-v1",
+      sourceVersion: "v1",
       mappingVersion: 2,
       retentionClass: "FINANCIAL",
     });
     expect(record.payloadEncrypted).toBe("v1:aa:bb:cc");
     expect(record.retentionClass).toBe("FINANCIAL");
+    expect(record.sourceVersion).toBe("v1");
+    expect(record.payloadHash).toBe("hash-v1");
+    // 同版本重复写入：幂等返回既有行（四列唯一键 + DO NOTHING，不触发 42P10）。
+    const duplicate = await store.appendRawSourceRecord({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalRecordId: "RAW-1",
+      payloadEncrypted: "v1:CHANGED",
+      payloadHash: "hash-should-not-overwrite",
+      sourceVersion: "v1",
+    });
+    expect(duplicate.id).toBe(record.id);
+    expect(duplicate.payloadEncrypted).toBe("v1:aa:bb:cc");
+    // 新版本：独立成行，历史版本永远保留。
+    const next = await store.appendRawSourceRecord({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "np033-system",
+      externalRecordId: "RAW-1",
+      payloadEncrypted: "v1:dd:ee:ff",
+      payloadHash: "hash-v2",
+      sourceVersion: "v2",
+    });
+    expect(next.id).not.toBe(record.id);
+    expect(next.sourceVersion).toBe("v2");
+    const rawCount = await withTenantContext(async (client) => {
+      const { rows: rawRows } = await client.query(
+        "SELECT count(*)::int AS count FROM raw_source_records WHERE tenant_id=$1 AND source_system=$2 AND external_record_id=$3",
+        [CONTRACT_TENANT_ID, "np033-system", "RAW-1"],
+      );
+      return rawRows[0]?.count as number;
+    });
+    expect(rawCount).toBe(2);
     const fetched = await store.getRawSourceRecord(CONTRACT_TENANT_ID, record.id);
     expect(fetched.mappingVersion).toBe(2);
     const marked = await store.markRawSourceRecordReplayed(CONTRACT_TENANT_ID, record.id);
@@ -332,6 +398,85 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
     ).rejects.toThrow(/IMMUTABLE/);
   });
 
+  it("Sprint 5 财务事实：POSTED 强类型 + 会计期间关闭/重开凭证", async () => {
+    const store = new PgPlatformStore(pool);
+    const legalEntityId = `LE-TEST-${randomUUID().slice(0, 8)}`;
+    const accountingPeriod = "2026-10";
+    const base = {
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "sprint5-erp",
+      factType: "REVENUE",
+      amount: "100.00",
+      currency: "USD",
+      qualityStatus: "UNVERIFIED" as const,
+      legalEntityId,
+      accountingPeriod,
+      instrumentType: "INVOICE" as const,
+      orderId: "SO-PG-1",
+      recognitionStatus: "POSTED" as const,
+      sourceVersion: "v1",
+      payload: {},
+    };
+    const first = await store.createFinancialFact({
+      ...base,
+      sourceRecordId: "FACT-1",
+    });
+    expect(first.recognitionStatus).toBe("POSTED");
+    expect(first.legalEntityId).toBe(legalEntityId);
+    expect(first.accountingPeriod).toBe(accountingPeriod);
+    expect(first.instrumentType).toBe("INVOICE");
+
+    const closed = await store.closeAccountingPeriod({
+      tenantId: CONTRACT_TENANT_ID,
+      legalEntityId,
+      period: accountingPeriod,
+      actorPersonId: CONTRACT_TENANT_ID,
+      reason: "month-end close",
+    });
+    expect(closed.status).toBe("CLOSED");
+
+    await expect(
+      store.createFinancialFact({ ...base, sourceRecordId: "FACT-2" }),
+    ).rejects.toThrow(/PERIOD_CLOSED/);
+
+    const reopened = await store.reopenAccountingPeriod({
+      tenantId: CONTRACT_TENANT_ID,
+      legalEntityId,
+      period: accountingPeriod,
+      actorPersonId: CONTRACT_TENANT_ID,
+      reopeningRef: "REOPEN-2026-10-A",
+      reason: "late invoice",
+    });
+    expect(reopened.status).toBe("OPEN");
+    expect(reopened.reopeningRef).toBe("REOPEN-2026-10-A");
+
+    await expect(
+      store.createFinancialFact({ ...base, sourceRecordId: "FACT-3" }),
+    ).rejects.toThrow(/REOPENING_REF_REQUIRED/);
+
+    const posted = await store.createFinancialFact({
+      ...base,
+      sourceRecordId: "FACT-4",
+      reopeningRef: "REOPEN-2026-10-A",
+    });
+    expect(posted.reopeningRef).toBe("REOPEN-2026-10-A");
+
+    // POSTED 缺会计语义：应用层 fail-closed（不是静默 DRAFT）。
+    await expect(
+      store.createFinancialFact({
+        tenantId: CONTRACT_TENANT_ID,
+        sourceSystem: "sprint5-erp",
+        sourceRecordId: "FACT-5",
+        factType: "REVENUE",
+        amount: "1.00",
+        currency: "USD",
+        qualityStatus: "UNVERIFIED",
+        recognitionStatus: "POSTED",
+        payload: {},
+      }),
+    ).rejects.toThrow(/POSTED_FACT_REQUIRED_FIELDS/);
+  });
+
   it("NP-021 资源级租约：token 递增/持有期内 409/stale fencing 拒绝", async () => {
     const store = new PgPlatformStore(pool);
     const { connectionId } = await seedConnection(store);
@@ -347,6 +492,27 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       leaseSeconds: 300,
     });
     expect(first.fencingToken).toBeGreaterThanOrEqual(1);
+    // INT-205：心跳续约不递增 token；错误 token 不能续约。
+    const renewed = await store.renewResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "worker-a",
+      fencingToken: first.fencingToken,
+      leaseSeconds: 600,
+    });
+    expect(renewed.fencingToken).toBe(first.fencingToken);
+    expect(new Date(renewed.leaseUntil).getTime()).toBeGreaterThan(
+      new Date(first.leaseUntil).getTime(),
+    );
+    await expect(
+      store.renewResourceSyncLease({
+        tenantId: CONTRACT_TENANT_ID,
+        resourceId: resource.id,
+        leaseOwner: "worker-b",
+        fencingToken: first.fencingToken,
+        leaseSeconds: 600,
+      }),
+    ).rejects.toThrow(/RESOURCE_LEASE_STALE/);
     await expect(
       store.claimResourceSyncLease({
         tenantId: CONTRACT_TENANT_ID,
@@ -485,10 +651,18 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
         resourceKey: "mapping-a",
       }),
     ).rejects.toThrow(/SYNC_RESOURCE_EXISTS/);
+    const memoryLease = await memory.claimResourceSyncLease({
+      tenantId: CONTRACT_TENANT_ID,
+      resourceId: resource.id,
+      leaseOwner: "memory-checkpoint-test",
+      leaseSeconds: 300,
+    });
     await memory.saveSyncCheckpoint({
       tenantId: CONTRACT_TENANT_ID,
       resourceId: resource.id,
       cursor: "cursor-7",
+      leaseOwner: "memory-checkpoint-test",
+      fencingToken: memoryLease.fencingToken,
     });
     expect(
       (await memory.getSyncCheckpoint(CONTRACT_TENANT_ID, resource.id))?.cursor,

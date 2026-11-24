@@ -65,6 +65,11 @@ export class ClientCredentialsTokenSource {
     return this.pending;
   }
 
+  /** Drops the cached token so the next call performs a fresh grant. */
+  invalidate(): void {
+    this.token = undefined;
+  }
+
   private now(): number {
     return this.config.now ? this.config.now() : Date.now();
   }
@@ -156,6 +161,11 @@ export class RefreshTokenSource {
       this.pending = undefined;
     });
     return this.pending;
+  }
+
+  /** Drops the cached access token; the refresh token is preserved. */
+  invalidate(): void {
+    this.token = undefined;
   }
 
   private now(): number {

@@ -18,6 +18,10 @@ export interface CanonicalBusinessEvent {
   externalObjectId: string;
   eventType: string;
   occurredAt?: string;
+  /** 来源系统最后更新时间（增量水位依据；与 occurredAt 分离）。 */
+  sourceUpdatedAt?: string;
+  /** 本系统获取时间（服务端运行时刻）。 */
+  fetchedAt: string;
   /** 来源事件版本；缺省为 payloadHash（内容即版本）。 */
   sourceVersion: string;
   mappingVersion: number;
@@ -50,6 +54,7 @@ export interface CanonicalRecordInput {
   subjectType?: unknown;
   subjectId?: unknown;
   evidenceType?: unknown;
+  sourceUpdatedAt?: unknown;
   payload?: unknown;
 }
 
@@ -72,6 +77,11 @@ export function canonicalize(record: CanonicalRecordInput, ctx: CanonicalContext
     externalObjectId: text(record.subjectId, "subjectId"),
     eventType: text(record.eventType, "eventType"),
     occurredAt: typeof record.occurredAt === "string" && record.occurredAt ? record.occurredAt : undefined,
+    sourceUpdatedAt:
+      typeof record.sourceUpdatedAt === "string" && record.sourceUpdatedAt
+        ? record.sourceUpdatedAt
+        : undefined,
+    fetchedAt: new Date().toISOString(),
     sourceVersion,
     mappingVersion: ctx.mappingVersion,
     payloadHash,

@@ -7,7 +7,11 @@
  *         便取形式全部拦截；allowlist 语义不变。
  */
 import { describe, expect, it, vi } from "vitest";
-import { assertEgressAllowed, HttpJsonConnector } from "../index.js";
+import {
+  assertEgressAllowed,
+  assertEgressIpAllowed,
+  HttpJsonConnector,
+} from "../index.js";
 
 function makeConnector(
   url: string,
@@ -157,5 +161,66 @@ describe("NP-017: 限流/退避/超时", () => {
       timeoutMs: 80,
     });
     await expect(connector.pull(null)).rejects.toThrow(/TIMEOUT|abort/i);
+  });
+});
+
+describe("NP-018 后续：DNS 解析后单 IP 校验（assertEgressIpAllowed）", () => {
+  it("公网 IPv4/IPv6 通过", () => {
+    expect(() => assertEgressIpAllowed("93.184.216.34")).not.toThrow();
+    expect(() => assertEgressIpAllowed("1.1.1.1")).not.toThrow();
+    expect(() =>
+      assertEgressIpAllowed("2606:4700:4700::1111", "provider.example"),
+    ).not.toThrow();
+    expect(() => assertEgressIpAllowed("[2606:4700:4700::1111]")).not.toThrow();
+  });
+
+  const blockedIps: Array<[string, string]> = [
+    ["IPv4 回环", "127.0.0.1"],
+    ["IPv4 私网 10/8", "10.1.2.3"],
+    ["IPv4 私网 172.16/12", "172.16.0.1"],
+    ["IPv4 私网 192.168/16", "192.168.1.1"],
+    ["云元数据链路本地", "169.254.169.254"],
+    ["CGNAT", "100.64.0.1"],
+    ["this-network", "0.0.0.0"],
+    ["组播", "224.0.0.1"],
+    ["benchmark", "198.18.0.1"],
+    ["TEST-NET-1", "192.0.2.1"],
+    ["IPv6 回环", "::1"],
+    ["IPv6 未指定", "::"],
+    ["IPv6 ULA", "fc00::1"],
+    ["IPv6 链路本地", "fe80::1%en0"],
+    ["IPv6 文档段", "2001:db8::1"],
+    ["IPv6 组播", "ff02::1"],
+    ["IPv4-mapped 回环", "::ffff:127.0.0.1"],
+    ["IPv4-mapped 元数据", "::ffff:169.254.169.254"],
+    ["NAT64 映射私网", "64:ff9b::10.0.0.1"],
+    ["十进制 IPv4", "2130706433"],
+    ["八进制 IPv4", "0177.0.0.1"],
+    ["十六进制 IPv4", "0x7f.0.0.1"],
+  ];
+
+  for (const [name, address] of blockedIps) {
+    it(`拦截 ${name} (${address})`, () => {
+      expect(() => assertEgressIpAllowed(address)).toThrow(/EGRESS_PRIVATE_IP_BLOCKED/);
+    });
+  }
+
+  it("错误信息保留 host 上下文（便于诊断，不泄露其他内容）", () => {
+    expect(() => assertEgressIpAllowed("10.0.0.1", "provider.example")).toThrow(
+      /10\.0\.0\.1 \(provider\.example\)/,
+    );
+  });
+
+  it("非法/空地址 fail closed 为 EGRESS_IP_BLOCKED", () => {
+    for (const address of ["", "   ", "not-an-ip", "999.1.1.1", "example.com"]) {
+      expect(() => assertEgressIpAllowed(address)).toThrow(/EGRESS_IP_BLOCKED/);
+    }
+  });
+
+  it("现有 assertEgressAllowed 行为不受重构影响（字面量仍拦截）", () => {
+    expect(() => assertEgressAllowed(new URL("http://[::1]/api"))).toThrow(
+      /EGRESS_PRIVATE_IP_BLOCKED/,
+    );
+    expect(() => assertEgressAllowed(new URL("https://provider.example/api"))).not.toThrow();
   });
 });

@@ -15,6 +15,7 @@ import {
   sum,
 } from "./decimal.js";
 import { sha256 } from "./hash.js";
+import { currencyMinorUnits, currencyStep } from "./currency.js";
 
 /**
  * NP-014（2026-11-21 审计）：引擎语义版本——任何算法行为变化（校验不变量、
@@ -22,7 +23,6 @@ import { sha256 } from "./hash.js";
  * 2.0.0 = 引入金额域不变量（负值/重复 fail-closed）与锚点单调校验。
  */
 export const ENGINE_VERSION = "policy-dsl/2.0.0";
-const CENT = 10_000n; // 0.01 at 1e6 scale
 
 export interface OrderContributionResult {
   lines: CalculationLine[];
@@ -104,12 +104,15 @@ export function allocatePool(
   const { total, parsed } = normalizeWeights(input.participants);
   const incentiveType = options.incentiveType ?? policy.incentiveType ?? "CONTRIBUTION";
   const baseAmount = options.baseAmount ?? parseDecimal(input.order.grossProfit);
+  // 2026-11-21 审计：最小单位由 ISO 4217 币种决定，JPY 0 位、KWD 3 位。
+  const minorUnits = currencyMinorUnits(policy.currency);
+  const step = currencyStep(policy.currency);
 
   const participants: AllocatableParticipant[] = parsed.map((item) => {
     const normalized = div(item.weight, total);
     const raw = div(mul(poolRounded, item.weight), total);
     // Floor first; leftover cents are distributed deterministically below.
-    const rounded = roundTo(raw, 2, "DOWN");
+    const rounded = roundTo(raw, minorUnits, "DOWN");
     return {
       personId: item.source.personId,
       workPackageId: item.source.workPackageId,
@@ -118,7 +121,7 @@ export function allocatePool(
       normalized,
       raw,
       rounded,
-      remainder: raw % CENT,
+      remainder: raw % step,
     };
   });
 
@@ -126,7 +129,7 @@ export function allocatePool(
   let remainder = poolRounded - allocated;
 
   if (remainder !== 0n) {
-    const step = remainder > 0n ? CENT : -CENT;
+    const roundingStep = remainder > 0n ? step : -step;
     const order = [...participants].sort((a, b) => {
       if (a.remainder !== b.remainder) {
         return Number(b.remainder - a.remainder);
@@ -136,11 +139,11 @@ export function allocatePool(
     let remaining = remainder;
     for (const participant of order) {
       if (remaining === 0n) break;
-      const next = participant.rounded + step;
+      const next = participant.rounded + roundingStep;
       if (next < 0n) continue;
       participant.rounded = next;
       participant.remainder = 0n;
-      remaining -= step;
+      remaining -= roundingStep;
     }
     if (remaining !== 0n) {
       throw new Error("Unable to allocate rounding remainder without a negative line");
@@ -213,7 +216,11 @@ export function calculateOrderContribution(
   }
   const pool = min(mul(grossProfit, rateValue), capValue);
   // 舍入向上不得越过 cap：以 cap 的向下 2 位为硬上限。
-  const poolRounded = min(roundTo(pool, 2, policy.rounding), roundTo(capValue, 2, "DOWN"));
+  const minorUnits = currencyMinorUnits(policy.currency);
+  const poolRounded = min(
+    roundTo(pool, minorUnits, policy.rounding),
+    roundTo(capValue, minorUnits, "DOWN"),
+  );
   const lines = allocatePool(policy, input, poolRounded, {
     baseAmount: grossProfit,
     trace: { pool: formatDecimal(pool) },

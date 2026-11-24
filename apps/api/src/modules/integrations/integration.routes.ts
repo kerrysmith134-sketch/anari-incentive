@@ -17,19 +17,20 @@ import {
   externalObjectUnlinkSchema,
   finishSyncRunSchema,
   releaseResourceLeaseSchema,
+  renewResourceLeaseSchema,
   replayRawSourceRecordSchema,
   setIntegrationConnectionStatusSchema,
   setSyncScheduleEnabledSchema,
   upsertExternalObjectSchema,
   upsertSyncCheckpointSchema,
 } from "@anari/contracts";
+import { createHash, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
-  createHash,
-  createHmac,
-  randomBytes,
-  createCipheriv,
-  createDecipheriv,
-} from "node:crypto";
+  createIntegrationCrypto,
+  RawPayloadDecryptError,
+} from "../../integration-crypto.js";
+import { outboundJsonFetch, redactSample } from "../../outbound-http.js";
 
 /** 重放/证据转投所需的最小 store 面。 */
 interface IngestionStoreLike {
@@ -91,7 +92,12 @@ interface IngestionStoreLike {
 
 /** NP-010：provider 探针（可注入以便测试；默认实现真实 fetch）。 */
 export interface IntegrationProviderProbe {
-  (input: { url: string; headers: Record<string, string> }): Promise<{
+  (input: {
+    url: string;
+    headers: Record<string, string>;
+    /** 连接级 host allowlist（统一出站层逐跳校验）。 */
+    allowlist?: string[];
+  }): Promise<{
     ok: boolean;
     status?: number;
     detail?: string;
@@ -117,7 +123,7 @@ import {
   idOf,
   paramOf,
 } from "../../http-helpers.js";
-import { sha256 } from "@anari/policy-dsl";
+import { canonicalJson, sha256 } from "@anari/policy-dsl";
 import { ConflictError } from "../../store.js";
 
 /** 与 app.ts 中的 BadRequestError 同语义（协议层 400）。 */
@@ -160,6 +166,53 @@ export function registerIntegrationRoutes(deps: {
 }): FastifyPluginAsync {
   const { platformStore, storeFor, countEvent, integrationProbe, webhookSigningSecret, webhookRawEncryptionKey } = deps;
 
+  /**
+   * P0（2026-11-21 审计）：webhook 签名密钥与原始数据加密密钥完全分离。
+   * 生产缺失/过短/相同 → 启动期 fail-closed（integration-crypto 抛错），
+   * 绝不回退 SESSION_SECRET 或公开 dev 默认值。
+   */
+  const integrationCrypto = createIntegrationCrypto({
+    signingSecret: webhookSigningSecret,
+    rawEncryptionKey: webhookRawEncryptionKey,
+  });
+
+  /**
+   * P0（2026-11-21 审计）：所有 provider 诊断请求必须经过统一的出站安全层
+   * （egress + DNS 解析校验 + IP pin + 逐跳重定向校验）。禁止直接 fetch。
+   */
+  const defaultIntegrationProbe: IntegrationProviderProbe = async (input) => {
+    try {
+      const response = await outboundJsonFetch({
+        url: input.url,
+        headers: input.headers,
+        timeoutMs: 10_000,
+        allowlist: input.allowlist,
+      });
+      const payload = response.json as
+        | { records?: unknown[]; data?: { items?: unknown[] } }
+        | undefined;
+      const records =
+        payload && typeof payload === "object"
+          ? (payload.records ?? payload.data?.items ?? undefined)
+          : undefined;
+      return {
+        ok: response.ok,
+        status: response.status,
+        detail: response.ok ? undefined : `provider returned ${response.status}`,
+        // 诊断样本只用于字段发现：值级脱敏，字段名保留。
+        sample: Array.isArray(records) ? redactSample(records[0]) : undefined,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        detail:
+          error instanceof Error
+            ? error.message
+            : "provider unreachable",
+      };
+    }
+  };
+
   // ------------------------------------------------------------------
   // NP-005（2026-11-21 审计）：凭据脱敏——任何连接/映射配置响应中的
   // 敏感键（Authorization/API key/secret/token/password）替换为 [REDACTED]。
@@ -187,7 +240,8 @@ export function registerIntegrationRoutes(deps: {
     return { ...connection, config: redactConfig(connection.config) as T["config"] };
   }
 
-  // NP-010：服务端凭据解析（引用 → 值）。来自 SECRETS_JSON / SECRETS_FILE。
+  // NP-010：服务端凭据解析（引用 → 值）。SECRETS_JSON 与 SECRETS_FILE 同源，
+  // 与 worker 的 SecretResolver 保持一致（审计 P1：只读 SECRETS_JSON）。
   function resolveSecret(credentialRef: string): string | undefined {
     const inline = process.env.SECRETS_JSON;
     if (inline) {
@@ -198,59 +252,60 @@ export function registerIntegrationRoutes(deps: {
         /* 配置错误按缺失处理 */
       }
     }
+    const filePath = process.env.SECRETS_FILE;
+    if (filePath) {
+      try {
+        const map = JSON.parse(readFileSync(filePath, "utf8")) as Record<
+          string,
+          string
+        >;
+        if (typeof map[credentialRef] === "string") return map[credentialRef];
+      } catch {
+        /* 配置错误按缺失处理 */
+      }
+    }
     return undefined;
   }
 
-  // NP-009：签名密钥由服务端密钥 + routing key 派生——无需存储即可校验。
-  function signingKeyFor(routingKey: string): string {
-    const serverSecret =
-      webhookSigningSecret ??
-      process.env.WEBHOOK_SIGNING_SECRET ??
-      process.env.SESSION_SECRET ??
-      "dev-integration-webhook-secret";
-    return createHmac("sha256", serverSecret).update(routingKey).digest("hex");
-  }
+  // NP-009：签名密钥由独立服务端密钥 + routing key 派生。
+  const signingKeyFor = (routingKey: string): string =>
+    integrationCrypto.signingKeyFor(routingKey);
+  const encryptRawPayload = (text: string): string =>
+    integrationCrypto.encryptRawPayload(text);
 
-  function encryptRawPayload(text: string): string {
-    const keySource =
-      webhookRawEncryptionKey ??
-      process.env.WEBHOOK_RAW_KEY ??
-      process.env.SESSION_SECRET ??
-      "dev-integration-webhook-raw";
-    const key = createHash("sha256").update(keySource).digest();
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", key, iv);
-    const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return `v1:${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
+  /** 解密失败必须显式失败（422 + 稳定错误码），不能静默返回 {}。 */
+  class RawPayloadUnavailableError extends Error {
+    readonly statusCode = 422;
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message);
+    }
   }
 
   function decryptRawPayload(stored: string): string {
-    const [version, ivHex, tagHex, dataHex] = stored.split(":");
-    if (version !== "v1" || !ivHex || !tagHex || !dataHex) return "";
-    const keySource =
-      webhookRawEncryptionKey ??
-      process.env.WEBHOOK_RAW_KEY ??
-      process.env.SESSION_SECRET ??
-      "dev-integration-webhook-raw";
-    const key = createHash("sha256").update(keySource).digest();
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
-    decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(dataHex, "hex")),
-      decipher.final(),
-    ]).toString("utf8");
-  }
-  function rawPayloadOf(payloadEncrypted: string): Record<string, unknown> {
     try {
-      const text = decryptRawPayload(payloadEncrypted);
-      const parsed = JSON.parse(text) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    } catch {
-      return {};
+      return integrationCrypto.decryptRawPayload(stored);
+    } catch (error) {
+      if (error instanceof RawPayloadDecryptError) {
+        countEvent("integration_raw_payload_decrypt_failed");
+        throw new RawPayloadUnavailableError(error.code, error.message);
+      }
+      throw error;
     }
+  }
+
+  function rawPayloadOf(payloadEncrypted: string): Record<string, unknown> {
+    const text = decryptRawPayload(payloadEncrypted);
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new RawPayloadUnavailableError(
+        "RAW_PAYLOAD_FORMAT_INVALID",
+        "raw payload is not a JSON object",
+      );
+    }
+    return parsed as Record<string, unknown>;
   }
 
 
@@ -333,7 +388,7 @@ export function registerIntegrationRoutes(deps: {
           ? "必需键齐全"
           : `缺少键：${missing.join(", ") || "url"}`,
     });
-    // NP-010：provider 真实探测（注入探针可测；默认 fetch 实现）。
+    // NP-010：provider 真实探测（注入探针可测；默认走统一出站安全层）。
     let sample: unknown;
     if (url) {
       const secret = connection.credentialRef
@@ -343,49 +398,25 @@ export function registerIntegrationRoutes(deps: {
         typeof config.probePath === "string" && config.probePath
           ? config.probePath
           : "";
-      const probe =
-        integrationProbe ??
-        (async (input: { url: string; headers: Record<string, string> }) => {
-          try {
-            const response = await fetch(input.url, {
-              headers: input.headers,
-              signal: AbortSignal.timeout(10_000),
-              redirect: "manual",
-            });
-            const payload = (await response.json().catch(() => undefined)) as
-              | { records?: unknown[]; data?: { items?: unknown[] } }
-              | undefined;
-            const records =
-              payload && typeof payload === "object"
-                ? (payload.records ??
-                  payload.data?.items ??
-                  undefined)
-                : undefined;
-            return {
-              ok: response.ok,
-              status: response.status,
-              detail: response.ok ? undefined : `provider returned ${response.status}`,
-              sample: Array.isArray(records) ? records[0] : undefined,
-            };
-          } catch (error) {
-            return {
-              ok: false,
-              detail: error instanceof Error ? error.message : "provider unreachable",
-            };
-          }
-        });
+      const probe = integrationProbe ?? defaultIntegrationProbe;
       const result = await probe({
         url: `${url.replace(/\/$/, "")}${probePath}`,
         headers: secret
           ? { authorization: `Bearer ${secret}`, accept: "application/json" }
           : { accept: "application/json" },
+        allowlist: Array.isArray(config.egressAllowlist)
+          ? (config.egressAllowlist as string[])
+          : undefined,
       });
       checks.push({
         name: "provider 探测",
         ok: result.ok,
         detail: result.detail,
       });
-      if (result.ok) sample = result.sample;
+      // 注入探针同样要脱敏，不能只依赖默认实现。
+      if (result.ok && result.sample !== undefined) {
+        sample = redactSample(result.sample);
+      }
     }
     const ok = checks.every((check) => check.ok);
     countEvent("integration_connection_tested");
@@ -423,31 +454,7 @@ export function registerIntegrationRoutes(deps: {
       typeof body.recordsPath === "string" && body.recordsPath
         ? body.recordsPath
         : "records";
-    const probe =
-      integrationProbe ??
-      (async (input: { url: string; headers: Record<string, string> }) => {
-        try {
-          const response = await fetch(input.url, {
-            headers: input.headers,
-            signal: AbortSignal.timeout(10_000),
-            redirect: "manual",
-          });
-          const payload = (await response.json().catch(() => undefined)) as unknown;
-          const records = payload && typeof payload === "object"
-            ? (payload as { records?: unknown[] }).records ?? undefined
-            : undefined;
-          return {
-            ok: response.ok,
-            detail: response.ok ? undefined : `provider returned ${response.status}`,
-            sample: Array.isArray(records) ? records[0] : undefined,
-          };
-        } catch (error) {
-          return {
-            ok: false,
-            detail: error instanceof Error ? error.message : "provider unreachable",
-          };
-        }
-      });
+    const probe = integrationProbe ?? defaultIntegrationProbe;
     let sample: Record<string, unknown> | undefined;
     let ok = false;
     let probeDetail: string | undefined;
@@ -457,11 +464,15 @@ export function registerIntegrationRoutes(deps: {
         headers: secret
           ? { authorization: `Bearer ${secret}`, accept: "application/json" }
           : { accept: "application/json" },
+        allowlist: Array.isArray(config.egressAllowlist)
+          ? (config.egressAllowlist as string[])
+          : undefined,
       });
       ok = result.ok;
       probeDetail = result.detail;
       if (result.ok && result.sample && typeof result.sample === "object") {
-        sample = result.sample as Record<string, unknown>;
+        // 字段级脱敏：保留字段名/类型用于映射，值不回显 PII/token。
+        sample = redactSample(result.sample) as Record<string, unknown>;
       }
     }
     // Drift 检测：ACTIVE mapping 的 fieldMap 源路径（非 =常量）与样本顶层字段对比。
@@ -494,7 +505,9 @@ export function registerIntegrationRoutes(deps: {
                   : undefined,
               sample,
             );
-          if (value !== undefined) mappedPreview[column] = String(value);
+          if (value !== undefined) {
+            mappedPreview[column] = String(redactSample(value));
+          }
         }
         // 样本中出现但任何 mapping 未引用的顶层字段 → drift 提示
         for (const key of sampleKeys) {
@@ -834,13 +847,22 @@ export function registerIntegrationRoutes(deps: {
   app.post("/api/v1/raw-source-records", async (request, reply) => {
     requireRoles(request, "admin", "integration");
     const body = parse(createRawSourceRecordSchema, request.body);
+    const payload = body.payload ?? {};
+    // INT-202：版本键必须由同一稳定哈希派生——缺省时服务端计算，绝不写空串。
+    const payloadHash =
+      body.payloadHash ??
+      createHash("sha256").update(canonicalJson(payload)).digest("hex");
     const record = await platformStore.appendRawSourceRecord({
       tenantId: tenantOf(request),
       sourceSystem: body.sourceSystem,
       externalRecordId: body.externalRecordId,
-      payloadEncrypted: encryptRawPayload(JSON.stringify(body.payload ?? {})),
+      payloadEncrypted: encryptRawPayload(JSON.stringify(payload)),
+      payloadHash,
+      sourceVersion: body.sourceVersion ?? payloadHash,
       mappingVersion: body.mappingVersion,
       retentionClass: body.retentionClass,
+      resourceId: body.resourceId,
+      sourceUpdatedAt: body.sourceUpdatedAt,
     });
     countEvent("raw_source_record_appended");
     return reply.status(201).send(
@@ -938,13 +960,8 @@ export function registerIntegrationRoutes(deps: {
         request,
       );
     }
-    const rawText = decryptRawPayload(record.payloadEncrypted);
-    let payload: Record<string, unknown> = {};
-    try {
-      payload = JSON.parse(rawText) as Record<string, unknown>;
-    } catch {
-      payload = {};
-    }
+    // 解密/解析失败 → 422 显式失败（不得以空 payload 继续投影）。
+    const payload = rawPayloadOf(record.payloadEncrypted);
     if (body.mappingId) {
       // INT-209（Sprint 2.1 P1）：基于 Mapping 版本的重放——服务端读映射、
       // 应用 fieldMap（含 =常量与转换）并按其 targetType 投影；审计可追溯。
@@ -1002,6 +1019,16 @@ export function registerIntegrationRoutes(deps: {
           amount: parsed.amount,
           currency: parsed.currency,
           qualityStatus: "UNVERIFIED",
+          sourceUpdatedAt: event.sourceUpdatedAt,
+          legalEntityId: parsed.legalEntityId,
+          orderId: parsed.orderId,
+          contractRef: parsed.contractRef,
+          instrumentType: parsed.instrumentType,
+          recognitionStatus: parsed.recognitionStatus,
+          accountingPeriod: parsed.accountingPeriod,
+          fxSnapshot: parsed.fxSnapshot,
+          sourceVersion: parsed.sourceVersion,
+          reversalOf: parsed.reversalOf,
           payload: event.payload ?? {},
         });
       } else {
@@ -1083,6 +1110,21 @@ export function registerIntegrationRoutes(deps: {
     return data({ released: true }, request);
   });
 
+  // INT-205：长同步心跳续约——owner+token 匹配且未过期才延长。
+  app.post("/api/v1/sync-resources/:id/renew-lease", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(renewResourceLeaseSchema, request.body);
+    const lease = await platformStore.renewResourceSyncLease({
+      tenantId: tenantOf(request),
+      resourceId: idOf(request),
+      leaseOwner: body.leaseOwner,
+      fencingToken: body.fencingToken,
+      leaseSeconds: body.leaseSeconds,
+    });
+    countEvent("resource_lease_renewed");
+    return data(lease, request);
+  });
+
   // ------------------------------------------------------------------
   // NP-009：webhook 不透明路由键（签发时一次性返回派生签名密钥）。
   // ------------------------------------------------------------------
@@ -1121,6 +1163,7 @@ export function registerIntegrationRoutes(deps: {
       resourceKey: body.resourceKey,
       mappingId: body.mappingId,
       scheduleId: body.scheduleId,
+      intervalMinutes: body.intervalMinutes,
     });
     return reply.status(201).send(data(resource, request));
   });
@@ -1140,16 +1183,24 @@ export function registerIntegrationRoutes(deps: {
       tenantOf(request),
       idOf(request),
     );
+    // INT-212：资源级最小调度间隔随 checkpoint 返回（runner 节流依据）。
+    const resource = await platformStore.getSyncResource(
+      tenantOf(request),
+      idOf(request),
+    );
     // 首次运行无 checkpoint → 返回空游标默认值（runner 语义）。
     return data(
-      checkpoint ?? {
-        id: null,
-        resourceId: idOf(request),
-        cursor: null,
-        watermark: null,
-        overlapSeconds: 0,
-        lastRunId: null,
-        updatedAt: null,
+      {
+        ...(checkpoint ?? {
+          id: null,
+          resourceId: idOf(request),
+          cursor: null,
+          watermark: null,
+          overlapSeconds: 0,
+          lastRunId: null,
+          updatedAt: null,
+        }),
+        intervalOverrideMinutes: resource.intervalMinutes ?? undefined,
       },
       request,
     );
@@ -1158,14 +1209,18 @@ export function registerIntegrationRoutes(deps: {
   app.put("/api/v1/sync-resources/:id/checkpoint", async (request) => {
     requireRoles(request, "admin", "integration");
     const body = parse(upsertSyncCheckpointSchema, request.body);
+    // INT-210：区分“字段未提供”与“显式 null”——前者保留旧值，后者清空。
+    const rawBody = (request.body ?? {}) as Record<string, unknown>;
     return data(
       await platformStore.saveSyncCheckpoint({
         tenantId: tenantOf(request),
         resourceId: idOf(request),
-        cursor: body.cursor ?? null,
-        watermark: body.watermark ?? null,
-        lastRunId: body.lastRunId ?? null,
+        cursor: "cursor" in rawBody ? (body.cursor ?? null) : undefined,
+        watermark: "watermark" in rawBody ? (body.watermark ?? null) : undefined,
+        lastRunId: "lastRunId" in rawBody ? (body.lastRunId ?? null) : undefined,
         overlapSeconds: body.overlapSeconds,
+        leaseOwner: body.leaseOwner,
+        fencingToken: body.fencingToken,
       }),
       request,
     );
@@ -1239,6 +1294,11 @@ export function registerIntegrationRoutes(deps: {
         recordsSeen: body.recordsSeen ?? 0,
         recordsUpserted: body.recordsUpserted ?? 0,
         recordsFetched: body.recordsFetched,
+        recordsRawPersisted: body.recordsRawPersisted,
+        recordsCreated: body.recordsCreated,
+        recordsUpdated: body.recordsUpdated,
+        recordsDuplicate: body.recordsDuplicate,
+        recordsInvalid: body.recordsInvalid,
         recordsQuarantined: body.recordsQuarantined,
         recordsFailed: body.recordsFailed,
         cursorAfter: body.cursorAfter,
@@ -1262,18 +1322,24 @@ export function registerIntegrationRoutes(deps: {
       (request as FastifyRequest & { rawBody?: Buffer }).rawBody ??
       Buffer.alloc(0);
     const rawText = raw.toString("utf8");
-    const expected = createHmac("sha256", signingKeyFor(routingKey))
-      .update(rawText)
-      .digest("hex");
+    // INT-213：轮换窗口内同时接受旧/新签名密钥派生的签名。
+    const expectedSignatures = integrationCrypto
+      .signatureKeysFor(routingKey)
+      .map((secret) =>
+        createHmac("sha256", secret).update(rawText).digest("hex"),
+      );
     const provided = String(request.headers["x-signature-256"] ?? "").replace(
       /^sha256=/,
       "",
     );
-    if (
-      !provided ||
-      provided.length !== expected.length ||
-      !timingSafeEqualStr(provided, expected)
-    ) {
+    const matched =
+      provided.length > 0 &&
+      expectedSignatures.some(
+        (expected) =>
+          provided.length === expected.length &&
+          timingSafeEqualStr(provided, expected),
+      );
+    if (!matched) {
       countEvent("integration_webhook_rejected");
       return reply.status(401).send({
         ...errorBody("WEBHOOK_SIGNATURE_INVALID", "signature mismatch"),

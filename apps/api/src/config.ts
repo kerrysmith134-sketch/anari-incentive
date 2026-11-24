@@ -8,6 +8,8 @@
  * All rules are pure functions of the environment so they can be unit tested.
  */
 
+import { MIN_INTEGRATION_KEY_LENGTH } from "./integration-crypto.js";
+
 export interface RuntimeConfigIssues {
   /** Problems that must abort startup. */
   fatal: string[];
@@ -17,6 +19,9 @@ export interface RuntimeConfigIssues {
 
 const truthy = (value: string | undefined): boolean =>
   value === "1" || value?.toLowerCase() === "true";
+
+const hasText = (value: string | undefined): value is string =>
+  typeof value === "string" && value.trim().length > 0;
 
 export function validateRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -66,6 +71,71 @@ export function validateRuntimeConfig(
 
   if (usePostgres && !env.DATABASE_URL) {
     fatal.push("STORE=postgres requires DATABASE_URL");
+  }
+
+  // NP-009 / 2026-11-21 audit: webhook signatures and raw-payload encryption
+  // must never fall back to SESSION_SECRET or a public development default in
+  // production, and the two keys must not be the same value.
+  const signingSecret = env.WEBHOOK_SIGNING_SECRET;
+  const rawPayloadKey = env.WEBHOOK_RAW_KEY;
+  // KMS/Vault sidecars may project a keyring file instead of env vars.
+  const keyringFile = hasText(env.WEBHOOK_KEYRING_FILE);
+  const hasSigningSecret = hasText(signingSecret) || keyringFile;
+  const hasRawPayloadKey = hasText(rawPayloadKey) || keyringFile;
+
+  if (production) {
+    if (!hasSigningSecret) {
+      fatal.push(
+        "WEBHOOK_SIGNING_SECRET is required in production; set a dedicated " +
+          `secret of at least ${MIN_INTEGRATION_KEY_LENGTH} characters ` +
+          "(never reuse SESSION_SECRET)",
+      );
+    } else if (signingSecret && signingSecret.length < MIN_INTEGRATION_KEY_LENGTH) {
+      fatal.push(
+        `WEBHOOK_SIGNING_SECRET must be at least ${MIN_INTEGRATION_KEY_LENGTH} ` +
+          `characters in production (got ${signingSecret.length}); use a ` +
+          "high-entropy random secret",
+      );
+    }
+
+    if (!hasRawPayloadKey) {
+      fatal.push(
+        "WEBHOOK_RAW_KEY is required in production; set a dedicated " +
+          `encryption key of at least ${MIN_INTEGRATION_KEY_LENGTH} characters ` +
+          "(independent from WEBHOOK_SIGNING_SECRET)",
+      );
+    } else if (rawPayloadKey && rawPayloadKey.length < MIN_INTEGRATION_KEY_LENGTH) {
+      fatal.push(
+        `WEBHOOK_RAW_KEY must be at least ${MIN_INTEGRATION_KEY_LENGTH} ` +
+          `characters in production (got ${rawPayloadKey.length}); use a ` +
+          "high-entropy random key",
+      );
+    }
+  } else {
+    if (!hasSigningSecret) {
+      warnings.push(
+        "WEBHOOK_SIGNING_SECRET is unset; using the development webhook " +
+          "signing default (never use this default in production)",
+      );
+    }
+    if (!hasRawPayloadKey) {
+      warnings.push(
+        "WEBHOOK_RAW_KEY is unset; using the development raw payload " +
+          "encryption default (never use this default in production)",
+      );
+    }
+  }
+
+  if (
+    hasText(signingSecret) &&
+    hasText(rawPayloadKey) &&
+    signingSecret === rawPayloadKey
+  ) {
+    fatal.push(
+      "WEBHOOK_SIGNING_SECRET and WEBHOOK_RAW_KEY must be different values; " +
+        "the webhook signing secret must never double as the raw payload " +
+        "encryption key",
+    );
   }
 
   return { fatal, warnings };

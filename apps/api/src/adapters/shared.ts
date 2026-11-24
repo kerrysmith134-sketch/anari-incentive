@@ -206,6 +206,11 @@ export function iso(value: Date | string | null): string | undefined {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/** NULL/undefined 计数列 → undefined（区别于真实的 0）。 */
+export function optionalCount(value: unknown): number | undefined {
+  return value === null || value === undefined ? undefined : Number(value);
+}
+
 export function isoDate(value: Date | string | null): string | undefined {
   if (!value) return undefined;
   if (typeof value === "string") return value.slice(0, 10);

@@ -8,6 +8,7 @@
  * 方法签名与拆分前逐字一致（从原 interface 体平移）。
  */
 import type {
+  AccountingPeriod,
   Acceptance,
   AdverseActionCase,
   AiScoreProposal,
@@ -360,11 +361,46 @@ export interface BudgetPort {
     qualityStatus: FinancialFact["qualityStatus"];
     sourceUpdatedAt?: string;
     payload: Record<string, unknown>;
+    legalEntityId?: string;
+    orderId?: string;
+    contractRef?: string;
+    instrumentType?: FinancialFact["instrumentType"];
+    recognitionStatus?: FinancialFact["recognitionStatus"];
+    accountingPeriod?: string;
+    fxSnapshot?: FinancialFact["fxSnapshot"];
+    sourceVersion?: string;
+    reversalOf?: string;
+    reopeningRef?: string;
   }): Promise<FinancialFact>;
   listFinancialFacts(
     tenantId: string,
     filter?: { factType?: string; sourceSystem?: string },
   ): Promise<FinancialFact[]>;
+  // 2026-11-21 审计 Sprint 5：会计期间关闭/重开（POSTED 事实前置门禁）。
+  listAccountingPeriods(
+    tenantId: string,
+    filter?: { legalEntityId?: string; period?: string },
+  ): Promise<AccountingPeriod[]>;
+  getAccountingPeriod(
+    tenantId: string,
+    legalEntityId: string,
+    period: string,
+  ): Promise<AccountingPeriod | null>;
+  closeAccountingPeriod(input: {
+    tenantId: string;
+    legalEntityId: string;
+    period: string;
+    actorPersonId: string;
+    reason?: string;
+  }): Promise<AccountingPeriod>;
+  reopenAccountingPeriod(input: {
+    tenantId: string;
+    legalEntityId: string;
+    period: string;
+    actorPersonId: string;
+    reopeningRef: string;
+    reason: string;
+  }): Promise<AccountingPeriod>;
 }
 
 /** 告知域端口：公告/确认回执/入站消息。 */
@@ -991,8 +1027,13 @@ export interface IntegrationPort {
     status: string;
     recordsSeen: number;
     recordsUpserted: number;
-    /** NP-016：精确计数（可选——旧 runner 不传时保持 undefined）。 */
+    /** NP-016 / INT-211：精确计数（可选——旧 runner 不传时保持 undefined）。 */
     recordsFetched?: number;
+    recordsRawPersisted?: number;
+    recordsCreated?: number;
+    recordsUpdated?: number;
+    recordsDuplicate?: number;
+    recordsInvalid?: number;
     recordsQuarantined?: number;
     recordsFailed?: number;
     cursorAfter?: Record<string, unknown>;
@@ -1032,11 +1073,16 @@ export interface IntegrationPort {
     resourceKey: string;
     mappingId?: string;
     scheduleId?: string;
+    intervalMinutes?: number;
   }): Promise<SyncResource>;
   listSyncResources(
     tenantId: string,
     connectionId?: string,
   ): Promise<SyncResource[]>;
+  getSyncResource(
+    tenantId: string,
+    resourceId: string,
+  ): Promise<SyncResource>;
   getSyncCheckpoint(
     tenantId: string,
     resourceId: string,
@@ -1044,11 +1090,15 @@ export interface IntegrationPort {
   saveSyncCheckpoint(input: {
     tenantId: string;
     resourceId: string;
+    /** 缺省 = 保留旧值；null = 清空；字符串 = 更新。 */
     cursor?: string | null;
     watermark?: string | null;
     lastRunId?: string | null;
     /** INT-206：边界防丢重叠窗口（秒）。 */
     overlapSeconds?: number;
+    /** INT-205/210：只有当前租约持有人可以推进游标（fencing）。 */
+    leaseOwner: string;
+    fencingToken: number;
   }): Promise<SyncCheckpoint>;
   recordQuarantineRecord(input: {
     tenantId: string;
@@ -1144,6 +1194,14 @@ export interface IntegrationPort {
     leaseOwner: string;
     fencingToken: number;
   }): Promise<void>;
+  /** INT-205：心跳续约——owner+token 匹配且未过期时延长租期，不递增 token。 */
+  renewResourceSyncLease(input: {
+    tenantId: string;
+    resourceId: string;
+    leaseOwner: string;
+    fencingToken: number;
+    leaseSeconds: number;
+  }): Promise<{ fencingToken: number; leaseUntil: string }>;
   // NP-027：身份生命周期。
   unlinkExternalObject(input: {
     tenantId: string;

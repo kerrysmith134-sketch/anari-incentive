@@ -358,7 +358,14 @@ describe("NP-002/003/004/005：裁决身份、盲审掩码、chat 出境门禁",
       demoTenant: { id: TENANT, name: "Tenant", slug: "t1" },
     });
     const previous = process.env.NODE_ENV;
+    const previousSigning = process.env.WEBHOOK_SIGNING_SECRET;
+    const previousRaw = process.env.WEBHOOK_RAW_KEY;
     process.env.NODE_ENV = "production";
+    // P0 密钥分离：生产 buildApp 需要独立的签名/加密密钥（否则 fail-closed）。
+    process.env.WEBHOOK_SIGNING_SECRET =
+      "test-production-webhook-signing-secret-0123456789";
+    process.env.WEBHOOK_RAW_KEY =
+      "test-production-webhook-raw-key-0123456789abcdef";
     try {
       const app = buildApp(
         () => new Store(TENANT),
@@ -385,6 +392,10 @@ describe("NP-002/003/004/005：裁决身份、盲审掩码、chat 出境门禁",
       );
     } finally {
       process.env.NODE_ENV = previous;
+      if (previousSigning === undefined) delete process.env.WEBHOOK_SIGNING_SECRET;
+      else process.env.WEBHOOK_SIGNING_SECRET = previousSigning;
+      if (previousRaw === undefined) delete process.env.WEBHOOK_RAW_KEY;
+      else process.env.WEBHOOK_RAW_KEY = previousRaw;
     }
   });
 });

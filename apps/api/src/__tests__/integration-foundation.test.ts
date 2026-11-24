@@ -17,6 +17,7 @@ import {
   HttpJsonConnector,
   FIELD_MAPPING_PRESETS,
   runSyncCycle,
+  SyncRequestError,
   type SyncRequestFn,
 } from "@anari/connectors";
 
@@ -63,9 +64,13 @@ function injectRequestFactory(app: Awaited<ReturnType<typeof buildApp>>): SyncRe
         : {}),
     });
     const payload = res.payload.toString();
-    const parsed = payload ? (JSON.parse(payload) as { data?: T; error?: { message?: string } }) : {};
+    const parsed = payload ? (JSON.parse(payload) as { data?: T; error?: { message?: string; code?: string } }) : {};
     if (res.statusCode >= 400) {
-      throw new Error(parsed.error?.message ?? `HTTP ${res.statusCode}`);
+      throw new SyncRequestError(
+        parsed.error?.message ?? `HTTP ${res.statusCode}`,
+        res.statusCode,
+        parsed.error?.code,
+      );
     }
     return parsed.data as T;
   };

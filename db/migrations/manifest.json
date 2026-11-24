@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-21T21:27:35.635Z",
+  "generatedAt": "2026-11-24T13:40:46.608Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -505,6 +505,26 @@
       "file": "101_financial_fact_revisions.sql",
       "bytes": 2295,
       "sha256": "f25025dc8e6cd66ea822c8d4f1215b5e11e16beec1a1d393837985d8093a76cd"
+    },
+    {
+      "file": "102_sync_integrity_metrics.sql",
+      "bytes": 872,
+      "sha256": "0f7def002ce9737397f4a3780d7b966ea84993defdf81aae358d4eb24954c3b4"
+    },
+    {
+      "file": "103_raw_source_legacy_unique_fixup.sql",
+      "bytes": 2033,
+      "sha256": "8bbccce5e2130d694e5bbc8109f31e79272bbbe600b8d09c82904fe51cdcb9db"
+    },
+    {
+      "file": "104_sync_resource_interval.sql",
+      "bytes": 652,
+      "sha256": "b9ee2a740a31c84517520647b7cade16e09f1399cce6d6ed107b0f50ed4a5c53"
+    },
+    {
+      "file": "105_financial_fact_typing.sql",
+      "bytes": 4565,
+      "sha256": "be7a9f5dd14060278764e3bc2d972594a95d0866901f826811d930f2eddffa3a"
     }
   ]
 }

@@ -1,0 +1,43 @@
+{
+  "$comment": "机器可读政策基线：绩效周期上限。唯一实现来源为 packages/policy-dsl/src/policy-caps.ts；任何数值变更必须同时更新本文件、docs/acceptance/policy-caps.md 与制度矩阵，并通过政策验收测试 policy-caps.acceptance.test.ts。",
+  "policyFamily": "017/018 绩效管理",
+  "unit": "S/100",
+  "approvedSource": "docs/POLICY_CAPABILITY_MATRIX_2026.md",
+  "approvedClauses": ["第三条", "B.4/B.5"],
+  "caps": {
+    "MONTHLY": {
+      "score": "110",
+      "multiplier": "1.10"
+    },
+    "QUARTERLY": {
+      "score": "150",
+      "multiplier": "1.50"
+    },
+    "ANNUAL": {
+      "score": "105",
+      "multiplier": "1.05"
+    }
+  },
+  "pendingConflicts": [
+    {
+      "id": "CAP-AUDIT-2026-11-21",
+      "raisedBy": "2026-11-21 外部审计",
+      "proposal": {
+        "MONTHLY": {
+          "score": "110",
+          "multiplier": "1.10"
+        },
+        "QUARTERLY": {
+          "score": "130",
+          "multiplier": "1.30"
+        },
+        "ANNUAL": {
+          "score": "150",
+          "multiplier": "1.50"
+        }
+      },
+      "status": "PENDING_BUSINESS_WRITTEN_CONFIRMATION",
+      "notAppliedReason": "审计口径（季度 130 / 年度 150）与仓库现行制度矩阵及实现（季度 150 / 年度 105）冲突，尚无业务书面确认；在书面确认前不得由代码、基线或文档单方面变更。"
+    }
+  ]
+}

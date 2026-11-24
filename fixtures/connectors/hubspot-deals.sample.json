@@ -1,0 +1,15 @@
+{
+  "results": [
+    {
+      "id": "123456789",
+      "properties": {
+        "dealstage": "contractsent",
+        "closedate": "2026-10-12T08:00:00.000Z",
+        "hs_lastmodifieddate": "2026-10-20T09:30:00.000Z",
+        "amount": "120000",
+        "dealname": "[sanitized]"
+      }
+    }
+  ],
+  "paging": { "next": { "after": "cursor-2" } }
+}

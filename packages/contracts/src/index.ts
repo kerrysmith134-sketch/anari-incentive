@@ -961,28 +961,122 @@ export type CreateCashGateInputBody = z.infer<
   typeof createCashGateInputSchema
 >;
 
-export const createFinancialFactSchema = z.object({
-  sourceSystem: z.string().min(1),
-  sourceRecordId: z.string().min(1),
-  factType: z.string().min(1),
-  periodStart: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
-    .optional(),
-  periodEnd: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
-    .optional(),
-  amount: decimal,
-  currency: z.string().length(3),
-  qualityStatus: z
-    .enum(["VALID", "MISSING", "STALE", "CONFLICTED", "UNVERIFIED", "INVALID"])
-    .default("UNVERIFIED"),
-  sourceUpdatedAt: z.string().datetime().optional(),
-  payload: z.record(z.unknown()).default({}),
+export const financialInstrumentTypeSchema = z.enum([
+  "INVOICE",
+  "CREDIT_NOTE",
+  "PAYMENT",
+  "COST",
+  "REFUND",
+]);
+export type FinancialInstrumentTypeBody = z.infer<
+  typeof financialInstrumentTypeSchema
+>;
+
+export const financialRecognitionStatusSchema = z.enum(["DRAFT", "POSTED"]);
+export type FinancialRecognitionStatusBody = z.infer<
+  typeof financialRecognitionStatusSchema
+>;
+
+export const fxSnapshotSchema = z.object({
+  rate: decimal,
+  quoteCurrency: z.string().length(3),
+  source: z.string().min(1),
+  asOf: z.string().datetime(),
 });
+export type FxSnapshotBody = z.infer<typeof fxSnapshotSchema>;
+
+/**
+ * 2026-11-21 审计 Sprint 5：Financial Fact 不再是“金额 + payload”。
+ *
+ * 兼容策略：DRAFT（未确认）事实可以只带金额/币种；POSTED（已入账）事实
+ * 必须带 Legal Entity、会计期间、Instrument、来源版本，并由数据库 CHECK
+ * 二次兜底。收入确认状态与现金收款状态分离（instrumentType=PAYMENT 才表示
+ * 现金事实；INVOICE/CREDIT_NOTE 不等于收入确认）。
+ */
+export const createFinancialFactSchema = z
+  .object({
+    sourceSystem: z.string().min(1),
+    sourceRecordId: z.string().min(1),
+    factType: z.string().min(1),
+    periodStart: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
+      .optional(),
+    periodEnd: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)")
+      .optional(),
+    amount: decimal,
+    currency: z.string().length(3),
+    qualityStatus: z
+      .enum(["VALID", "MISSING", "STALE", "CONFLICTED", "UNVERIFIED", "INVALID"])
+      .default("UNVERIFIED"),
+    sourceUpdatedAt: z.string().datetime().optional(),
+    payload: z.record(z.unknown()).default({}),
+    /** 会计语义（POSTED 时必填）。 */
+    legalEntityId: z.string().min(1).optional(),
+    orderId: z.string().min(1).optional(),
+    contractRef: z.string().min(1).optional(),
+    instrumentType: financialInstrumentTypeSchema.optional(),
+    recognitionStatus: financialRecognitionStatusSchema.default("DRAFT"),
+    accountingPeriod: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM")
+      .optional(),
+    fxSnapshot: fxSnapshotSchema.optional(),
+    sourceVersion: z.string().min(1).max(256).optional(),
+    reversalOf: z.string().min(1).optional(),
+    reopeningRef: z.string().min(1).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.recognitionStatus !== "POSTED") return;
+    for (const field of [
+      "legalEntityId",
+      "accountingPeriod",
+      "instrumentType",
+      "sourceVersion",
+    ] as const) {
+      if (!value[field]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is required when recognitionStatus=POSTED`,
+        });
+      }
+    }
+    // 所有 POSTED 事实都必须能追溯到订单或合同；否则无法对账到业务贡献。
+    if (!value.orderId && !value.contractRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orderId"],
+        message:
+          "POSTED facts require orderId or contractRef for business traceability",
+      });
+    }
+  });
 export type CreateFinancialFactBody = z.infer<
   typeof createFinancialFactSchema
+>;
+
+export const closeAccountingPeriodSchema = z.object({
+  legalEntityId: z.string().min(1),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM"),
+  actorPersonId: uuidSchema,
+  reason: z.string().min(3).optional(),
+});
+export type CloseAccountingPeriodBody = z.infer<
+  typeof closeAccountingPeriodSchema
+>;
+
+export const reopenAccountingPeriodSchema = z.object({
+  legalEntityId: z.string().min(1),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM"),
+  actorPersonId: uuidSchema,
+  reopeningRef: z.string().min(1),
+  reason: z.string().min(3),
+});
+export type ReopenAccountingPeriodBody = z.infer<
+  typeof reopenAccountingPeriodSchema
 >;
 
 export const createRuleChangeOrderSchema = z.object({
@@ -1378,9 +1472,15 @@ export type CreateSyncRunBody = z.infer<typeof createSyncRunSchema>;
 export const finishSyncRunSchema = z.object({
   status: z.string().min(1),
   recordsSeen: z.number().int().min(0).default(0),
+  /** 兼容字段：created + updated（不含幂等重复/隔离/失败）。 */
   recordsUpserted: z.number().int().min(0).default(0),
-  /** NP-016：精确计数——与逐条结果对账。 */
+  /** NP-016 / INT-211：精确计数——与逐条结果对账。 */
   recordsFetched: z.number().int().min(0).optional(),
+  recordsRawPersisted: z.number().int().min(0).optional(),
+  recordsCreated: z.number().int().min(0).optional(),
+  recordsUpdated: z.number().int().min(0).optional(),
+  recordsDuplicate: z.number().int().min(0).optional(),
+  recordsInvalid: z.number().int().min(0).optional(),
   recordsQuarantined: z.number().int().min(0).optional(),
   recordsFailed: z.number().int().min(0).optional(),
   cursorAfter: z.record(z.unknown()).optional(),
@@ -1396,15 +1496,24 @@ export const createSyncResourceSchema = z.object({
   resourceKey: z.string().min(1),
   mappingId: uuidSchema.optional(),
   scheduleId: uuidSchema.optional(),
+  /** INT-212：资源级最小调度间隔（分钟）；缺省沿用连接级排期。 */
+  intervalMinutes: z.number().int().min(1).max(10080).optional(),
 });
 export type CreateSyncResourceBody = z.infer<typeof createSyncResourceSchema>;
 
 export const upsertSyncCheckpointSchema = z.object({
+  /**
+   * 游标语义（INT-210）：字段缺省 = 保留旧值；显式 null = 清空；
+   * 字符串 = 更新。服务端据此区分“未提供”与“明确清空”。
+   */
   cursor: z.string().nullable().optional(),
   watermark: z.string().datetime().nullable().optional(),
   lastRunId: uuidSchema.nullable().optional(),
   /** INT-206：边界防丢重叠窗口（秒）；沿用 checkpoint 既有值。 */
   overlapSeconds: z.number().int().min(0).max(86400).optional(),
+  /** INT-205：只有当前租约持有人可以推进游标（fencing）。 */
+  leaseOwner: z.string().min(1),
+  fencingToken: z.number().int().min(0),
 });
 export type UpsertSyncCheckpointBody = z.infer<
   typeof upsertSyncCheckpointSchema
@@ -1444,13 +1553,28 @@ export const externalObjectMergeSchema = z.object({
 });
 export type ExternalObjectMergeBody = z.infer<typeof externalObjectMergeSchema>;
 
-/** NP-020：原始落地契约。 */
+/**
+ * NP-020 / INT-202：原始落地契约（版本化、append-only）。
+ *
+ * - `sourceVersion` 与 `payloadHash` 必须贯穿 runner → API → adapter：
+ *   同一来源记录的不同版本独立成行，同版本重复写入幂等返回既有行。
+ * - `fetchedAt` 由服务端生成（不信任客户端时钟）；`sourceUpdatedAt` 是
+ *   来源系统的最后更新时间，与业务发生时间 `occurredAt` 严格区分。
+ */
 export const createRawSourceRecordSchema = z.object({
   sourceSystem: z.string().min(1),
   externalRecordId: z.string().min(1),
   payload: z.record(z.unknown()).default({}),
+  /** 稳定内容哈希；缺省时由服务端对 payload 计算（sha256）。 */
+  payloadHash: z.string().min(1).max(128).optional(),
+  /** 来源版本；缺省时使用 payloadHash（内容即版本）。 */
+  sourceVersion: z.string().min(1).max(256).optional(),
   mappingVersion: z.number().int().positive().optional(),
   retentionClass: z.enum(["DEFAULT", "PII", "FINANCIAL"]).optional(),
+  /** 来源资源（同步流）；用于按资源追溯原始记录。 */
+  resourceId: uuidSchema.optional(),
+  /** 来源系统最后更新时间（与 occurredAt 不同）。 */
+  sourceUpdatedAt: z.string().datetime().optional(),
 });
 export type CreateRawSourceRecordBody = z.infer<
   typeof createRawSourceRecordSchema
@@ -1504,6 +1628,16 @@ export const releaseResourceLeaseSchema = z.object({
 });
 export type ReleaseResourceLeaseBody = z.infer<
   typeof releaseResourceLeaseSchema
+>;
+
+/** INT-205：长同步的心跳续约（owner + token 必须匹配，不递增 token）。 */
+export const renewResourceLeaseSchema = z.object({
+  leaseOwner: z.string().min(1),
+  fencingToken: z.number().int().min(0),
+  leaseSeconds: z.number().int().min(1).max(3600),
+});
+export type RenewResourceLeaseBody = z.infer<
+  typeof renewResourceLeaseSchema
 >;
 
 export const quarantineReasons = [
@@ -2631,6 +2765,8 @@ export const ingestionEventSchema = z.object({
   sourceEventVersion: z.string().min(1).optional(),
   eventType: z.string().min(1),
   occurredAt: z.string().datetime().optional(),
+  /** 来源系统最后更新时间（增量水位依据；与 occurredAt 分离）。 */
+  sourceUpdatedAt: z.string().datetime().optional(),
   subjectType: z.string().min(1),
   subjectId: uuidSchema,
   evidenceType: z.string().min(1),
@@ -3007,6 +3143,9 @@ export const requestSchemaRegistry = {
   CreateDsar: createDsarSchema,
   CreateEmploymentContract: createEmploymentContractSchema,
   CreateEvidence: createEvidenceSchema,
+  CreateFinancialFact: createFinancialFactSchema,
+  CloseAccountingPeriod: closeAccountingPeriodSchema,
+  ReopenAccountingPeriod: reopenAccountingPeriodSchema,
   CreatePayrollRun: createPayrollRunSchema,
   CreateRetentionPolicy: createRetentionPolicySchema,
   CreateSettlementBatch: createSettlementBatchSchema,

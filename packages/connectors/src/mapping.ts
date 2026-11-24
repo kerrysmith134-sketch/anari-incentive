@@ -14,6 +14,8 @@ export interface ColumnMapping {
   subjectId: string;
   evidenceType: string;
   occurredAt?: string;
+  /** 来源系统最后更新时间（增量水位依据；与 occurredAt 分离）。 */
+  sourceUpdatedAt?: string;
   sourceEventVersion?: string;
   /** 可选常量：优先于字段路径。 */
   constants?: Record<string, string>;
@@ -102,6 +104,7 @@ export function mapRecordToEvent(
       }),
     eventType: required(columns.eventType, "eventType"),
     occurredAt: text(columns.occurredAt),
+    sourceUpdatedAt: text(columns.sourceUpdatedAt),
     subjectType: required(columns.subjectType, "subjectType"),
     subjectId: required(columns.subjectId, "subjectId"),
     evidenceType: required(columns.evidenceType, "evidenceType"),

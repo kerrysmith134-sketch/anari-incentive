@@ -535,6 +535,11 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       recordsSeen: number;
       recordsUpserted: number;
       recordsFetched?: number;
+      recordsRawPersisted?: number;
+      recordsCreated?: number;
+      recordsUpdated?: number;
+      recordsDuplicate?: number;
+      recordsInvalid?: number;
       recordsQuarantined?: number;
       recordsFailed?: number;
       cursorAfter?: Record<string, unknown>;
@@ -552,6 +557,11 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       run.recordsSeen = input.recordsSeen;
       run.recordsUpserted = input.recordsUpserted;
       run.recordsFetched = input.recordsFetched;
+      run.recordsRawPersisted = input.recordsRawPersisted;
+      run.recordsCreated = input.recordsCreated;
+      run.recordsUpdated = input.recordsUpdated;
+      run.recordsDuplicate = input.recordsDuplicate;
+      run.recordsInvalid = input.recordsInvalid;
       run.recordsQuarantined = input.recordsQuarantined;
       run.recordsFailed = input.recordsFailed;
       run.cursorAfter = input.cursorAfter;
@@ -574,6 +584,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       resourceKey: string;
       mappingId?: string;
       scheduleId?: string;
+      intervalMinutes?: number;
     }): Promise<SyncResource> {
       await this.getIntegrationConnection(input.tenantId, input.connectionId);
       const duplicate = [...this.syncResources.values()].find(
@@ -596,6 +607,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         mappingId: input.mappingId,
         scheduleId: input.scheduleId,
         status: "ACTIVE",
+        intervalMinutes: input.intervalMinutes ?? null,
         leaseOwner: null,
         leaseUntil: null,
         fencingToken: 0,
@@ -618,6 +630,17 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
             (!connectionId || resource.connectionId === connectionId),
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    }
+
+    async getSyncResource(
+      tenantId: string,
+      resourceId: string,
+    ): Promise<SyncResource> {
+      const resource = this.syncResources.get(resourceId);
+      if (!resource || resource.tenantId !== tenantId) {
+        notFound("SyncResource", resourceId);
+      }
+      return resource;
     }
 
     async getSyncCheckpoint(
@@ -644,10 +667,26 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       watermark?: string | null;
       lastRunId?: string | null;
       overlapSeconds?: number;
+      leaseOwner: string;
+      fencingToken: number;
     }): Promise<SyncCheckpoint> {
       const resource = this.syncResources.get(input.resourceId);
       if (!resource || resource.tenantId !== input.tenantId) {
         notFound("SyncResource", input.resourceId);
+      }
+      // INT-205/210：与 PostgreSQL 同语义——旧持有者/过期租约不得推进游标。
+      const leaseActive =
+        Boolean(resource.leaseUntil) &&
+        Date.parse(resource.leaseUntil!) > Date.now();
+      if (
+        resource.leaseOwner !== input.leaseOwner ||
+        resource.fencingToken !== input.fencingToken ||
+        !leaseActive
+      ) {
+        throw new ConflictError(
+          `RESOURCE_LEASE_STALE: checkpoint write rejected for ${input.resourceId} ` +
+            `(owner=${resource.leaseOwner ?? "none"}, token=${resource.fencingToken}, active=${leaseActive})`,
+        );
       }
       const timestamp = now();
       const existing = [...this.syncCheckpoints.values()].find(
@@ -655,10 +694,17 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
           checkpoint.tenantId === input.tenantId &&
           checkpoint.resourceId === input.resourceId,
       );
+      // 三态：undefined 保留、null 清空、字符串更新。
+      const nextCursor =
+        input.cursor === undefined ? (existing?.cursor ?? null) : input.cursor;
+      const nextWatermark =
+        input.watermark === undefined ? (existing?.watermark ?? null) : input.watermark;
+      const nextLastRunId =
+        input.lastRunId === undefined ? (existing?.lastRunId ?? null) : input.lastRunId;
       if (existing) {
-        existing.cursor = input.cursor ?? existing.cursor;
-        existing.watermark = input.watermark ?? existing.watermark;
-        existing.lastRunId = input.lastRunId ?? existing.lastRunId;
+        existing.cursor = nextCursor;
+        existing.watermark = nextWatermark;
+        existing.lastRunId = nextLastRunId;
         existing.overlapSeconds = input.overlapSeconds ?? existing.overlapSeconds;
         existing.updatedAt = timestamp;
         return existing;
@@ -667,10 +713,10 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         id: randomUUID(),
         tenantId: input.tenantId,
         resourceId: input.resourceId,
-        cursor: input.cursor ?? null,
-        watermark: input.watermark ?? null,
+        cursor: nextCursor,
+        watermark: nextWatermark,
         overlapSeconds: input.overlapSeconds ?? 0,
-        lastRunId: input.lastRunId ?? null,
+        lastRunId: nextLastRunId,
         updatedAt: timestamp,
       };
       this.syncCheckpoints.set(checkpoint.id, checkpoint);
@@ -901,7 +947,9 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
     }): Promise<RawSourceRecord> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
       const timestamp = now();
-      const sourceVersion = input.sourceVersion ?? "1";
+      // 与 PostgreSQL adapter / 迁移 100 完全同语义：内容哈希即缺省版本。
+      const payloadHash = input.payloadHash ?? "";
+      const sourceVersion = input.sourceVersion ?? (payloadHash || "1");
       // INT-202：同 (tenant, system, recordId, sourceVersion) 幂等返回既有；
       // 新版本独立成行（append-only，禁止覆盖旧版本）。
       const existing = [...this.rawSourceRecords.values()].find(
@@ -918,7 +966,7 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         sourceSystem: input.sourceSystem,
         externalRecordId: input.externalRecordId,
         payloadEncrypted: input.payloadEncrypted,
-        payloadHash: input.payloadHash ?? "",
+        payloadHash,
         sourceVersion,
         mappingVersion: input.mappingVersion ?? 1,
         retentionClass: input.retentionClass ?? "DEFAULT",
@@ -1011,6 +1059,40 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
       resource.leaseOwner = null;
       resource.leaseUntil = null;
       resource.updatedAt = now();
+    }
+
+    async renewResourceSyncLease(input: {
+      tenantId: string;
+      resourceId: string;
+      leaseOwner: string;
+      fencingToken: number;
+      leaseSeconds: number;
+    }): Promise<{ fencingToken: number; leaseUntil: string }> {
+      const resource = this.syncResources.get(input.resourceId);
+      if (!resource || resource.tenantId !== input.tenantId) {
+        notFound("SyncResource", input.resourceId);
+      }
+      const leaseActive =
+        Boolean(resource.leaseUntil) &&
+        Date.parse(resource.leaseUntil!) > Date.now();
+      if (
+        resource.leaseOwner !== input.leaseOwner ||
+        resource.fencingToken !== input.fencingToken ||
+        !leaseActive
+      ) {
+        throw new ConflictError(
+          `RESOURCE_LEASE_STALE: cannot renew ${resource.id} ` +
+            `(owner=${resource.leaseOwner ?? "none"}, token=${resource.fencingToken})`,
+        );
+      }
+      resource.leaseUntil = new Date(
+        Date.now() + input.leaseSeconds * 1000,
+      ).toISOString();
+      resource.updatedAt = now();
+      return {
+        fencingToken: resource.fencingToken,
+        leaseUntil: resource.leaseUntil,
+      };
     }
 
     // NP-027：身份生命周期。

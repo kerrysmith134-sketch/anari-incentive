@@ -51,6 +51,16 @@
         "requirements"
       ]
     },
+    "CloseAccountingPeriod": {
+      "required": [
+        "actorPersonId",
+        "legalEntityId",
+        "period"
+      ],
+      "optional": [
+        "reason"
+      ]
+    },
     "CreateAiScoreProposal": {
       "required": [
         "cycleId",
@@ -212,6 +222,32 @@
         "sourceUri",
         "submittedBy",
         "supersedesId"
+      ]
+    },
+    "CreateFinancialFact": {
+      "required": [
+        "amount",
+        "currency",
+        "factType",
+        "sourceRecordId",
+        "sourceSystem"
+      ],
+      "optional": [
+        "accountingPeriod",
+        "contractRef",
+        "fxSnapshot",
+        "instrumentType",
+        "legalEntityId",
+        "orderId",
+        "payload",
+        "periodEnd",
+        "periodStart",
+        "qualityStatus",
+        "recognitionStatus",
+        "reopeningRef",
+        "reversalOf",
+        "sourceUpdatedAt",
+        "sourceVersion"
       ]
     },
     "CreatePayrollRun": {
@@ -423,6 +459,16 @@
         "expiresAt",
         "recordedBy"
       ]
+    },
+    "ReopenAccountingPeriod": {
+      "required": [
+        "actorPersonId",
+        "legalEntityId",
+        "period",
+        "reason",
+        "reopeningRef"
+      ],
+      "optional": []
     },
     "ResolveAppeal": {
       "required": [

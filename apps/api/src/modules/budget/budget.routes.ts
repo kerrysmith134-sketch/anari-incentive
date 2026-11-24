@@ -5,9 +5,11 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { BudgetPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
+  closeAccountingPeriodSchema,
   createCashGateInputSchema,
   createDiscretionaryPoolReviewSchema,
   createFinancialFactSchema,
+  reopenAccountingPeriodSchema,
 } from "@anari/contracts";
 import {
   data,
@@ -131,10 +133,98 @@ export function registerBudgetRoutes(deps: {
           qualityStatus: body.qualityStatus ?? "UNVERIFIED",
           sourceUpdatedAt: body.sourceUpdatedAt,
           payload: body.payload ?? {},
+          legalEntityId: body.legalEntityId,
+          orderId: body.orderId,
+          contractRef: body.contractRef,
+          instrumentType: body.instrumentType,
+          recognitionStatus: body.recognitionStatus,
+          accountingPeriod: body.accountingPeriod,
+          fxSnapshot: body.fxSnapshot,
+          sourceVersion: body.sourceVersion,
+          reversalOf: body.reversalOf,
+          reopeningRef: body.reopeningRef,
         }),
         request,
       ),
     );
+  });
+
+  // ------------------------------------------------------------------
+  // Sprint 5（2026-11-21 审计）：会计期间关闭/重开。
+  // 关闭后 POSTED 财务事实写入被拒绝；重开必须带凭证号，且后续 POSTED
+  // 事实必须携带同一 reopeningRef。
+  // ------------------------------------------------------------------
+  app.get("/api/v1/accounting-periods", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    const query = request.query as { legalEntityId?: string; period?: string };
+    return data(
+      await platformStore.listAccountingPeriods(tenantOf(request), {
+        legalEntityId: query.legalEntityId,
+        period: query.period,
+      }),
+      request,
+    );
+  });
+
+  app.post("/api/v1/accounting-periods/close", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = parse(closeAccountingPeriodSchema, request.body);
+    const actor = requireActorRequired(
+      request,
+      body.actorPersonId,
+      "close accounting period",
+    );
+    const closed = await platformStore.closeAccountingPeriod({
+      tenantId: tenantOf(request),
+      legalEntityId: body.legalEntityId,
+      period: body.period,
+      actorPersonId: actor,
+      reason: body.reason,
+    });
+    try {
+      await storeFor(request).recordAuditEvent?.({
+        actorType: "USER",
+        actorId: actor,
+        action: "ACCOUNTING_PERIOD_CLOSED",
+        objectType: "ACCOUNTING_PERIOD",
+        objectId: `${body.legalEntityId}/${body.period}`,
+        reason: body.reason,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    return data(closed, request);
+  });
+
+  app.post("/api/v1/accounting-periods/reopen", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = parse(reopenAccountingPeriodSchema, request.body);
+    const actor = requireActorRequired(
+      request,
+      body.actorPersonId,
+      "reopen accounting period",
+    );
+    const reopened = await platformStore.reopenAccountingPeriod({
+      tenantId: tenantOf(request),
+      legalEntityId: body.legalEntityId,
+      period: body.period,
+      actorPersonId: actor,
+      reopeningRef: body.reopeningRef,
+      reason: body.reason,
+    });
+    try {
+      await storeFor(request).recordAuditEvent?.({
+        actorType: "USER",
+        actorId: actor,
+        action: "ACCOUNTING_PERIOD_REOPENED",
+        objectType: "ACCOUNTING_PERIOD",
+        objectId: `${body.legalEntityId}/${body.period}`,
+        reason: `${body.reopeningRef}: ${body.reason}`,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    return data(reopened, request);
   });
 
   app.get("/api/v1/financial-facts", async (request) => {

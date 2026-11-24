@@ -890,6 +890,34 @@ export interface CashGateInput {
   createdAt: string;
 }
 
+export type FinancialInstrumentType =
+  | "INVOICE"
+  | "CREDIT_NOTE"
+  | "PAYMENT"
+  | "COST"
+  | "REFUND";
+
+export type FinancialRecognitionStatus = "DRAFT" | "POSTED";
+
+/** 会计期间（按法人隔离；CLOSED 期间拒绝新的 POSTED 事实）。 */
+export interface AccountingPeriod {
+  id: UUID;
+  tenantId: UUID;
+  legalEntityId: string;
+  /** YYYY-MM */
+  period: string;
+  status: "OPEN" | "CLOSED";
+  closedAt?: string;
+  closedBy?: UUID | null;
+  closeReason?: string | null;
+  reopenedAt?: string;
+  reopenedBy?: UUID | null;
+  reopeningRef?: string | null;
+  reopenReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FinancialFact {
   id: UUID;
   tenantId: UUID;
@@ -905,6 +933,23 @@ export interface FinancialFact {
   ingestedAt: string;
   payload: Record<string, unknown>;
   createdAt: string;
+  /** 会计语义（2026-11-21 审计）：POSTED 时必填。 */
+  legalEntityId?: string;
+  orderId?: string;
+  contractRef?: string;
+  instrumentType?: FinancialInstrumentType;
+  recognitionStatus: FinancialRecognitionStatus;
+  /** YYYY-MM */
+  accountingPeriod?: string;
+  fxSnapshot?: {
+    rate: DecimalString;
+    quoteCurrency: string;
+    source: string;
+    asOf: string;
+  };
+  sourceVersion?: string;
+  reversalOf?: string;
+  reopeningRef?: string;
 }
 
 export type RuleChangeStatus = "DRAFT" | "APPROVED" | "PUBLICIZED" | "REJECTED";
@@ -1562,8 +1607,13 @@ export interface SyncRun {
   cursorAfter?: Record<string, unknown>;
   recordsSeen: number;
   recordsUpserted: number;
-  /** NP-016：精确计数——拉取/隔离/失败与 upserted 对账。 */
+  /** NP-016 / INT-211：精确计数——拉取/原始落地/新增/更新/重复/隔离/失败对账。 */
   recordsFetched?: number;
+  recordsRawPersisted?: number;
+  recordsCreated?: number;
+  recordsUpdated?: number;
+  recordsDuplicate?: number;
+  recordsInvalid?: number;
   recordsQuarantined?: number;
   recordsFailed?: number;
   errorSummary?: string;
@@ -1592,6 +1642,8 @@ export interface SyncResource {
   mappingId?: UUID;
   scheduleId?: UUID;
   status: "ACTIVE" | "PAUSED" | "RETIRED";
+  /** INT-212：资源级最小调度间隔（分钟）；缺省沿用连接级排期。 */
+  intervalMinutes?: number | null;
   /** NP-021：资源级租约（一个资源同一时刻只有一个 worker 持有）。 */
   leaseOwner?: string | null;
   leaseUntil?: string | null;
@@ -2063,6 +2115,8 @@ export interface IngestionEvent {
   sourceEventVersion?: string;
   eventType: string;
   occurredAt?: string;
+  /** 来源系统最后更新时间（增量水位依据；与业务发生时间分离）。 */
+  sourceUpdatedAt?: string;
   subjectType: string;
   subjectId: string;
   evidenceType: string;

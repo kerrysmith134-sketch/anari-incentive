@@ -3686,6 +3686,80 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/accounting-periods:
+    get:
+      tags: [Budget]
+      summary: List accounting periods by legal entity
+      parameters:
+        - name: legalEntityId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+      responses:
+        "200":
+          description: Accounting periods
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/accounting-periods/close:
+    post:
+      tags: [Budget]
+      summary: Close an accounting period (POSTED facts are rejected afterwards)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseAccountingPeriod"
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/accounting-periods/reopen:
+    post:
+      tags: [Budget]
+      summary: Reopen a closed accounting period with an auditable reopening reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReopenAccountingPeriod"
+      responses:
+        "200":
+          description: Reopened
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/rule-change-orders:
     get:
       tags: [Policy]
@@ -6997,6 +7071,30 @@ paths:
       responses:
         "200":
           description: Released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/sync-resources/{id}/renew-lease:
+    post:
+      tags: [Ingestion]
+      summary: Renew the resource lease heartbeat (owner + fencing token must match)
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenewResourceLease"
+      responses:
+        "200":
+          description: Lease renewed (fencing token unchanged)
           content:
             application/json:
               schema:
@@ -12769,6 +12867,63 @@ components:
         payload:
           type: object
           additionalProperties: true
+        legalEntityId:
+          type: string
+        orderId:
+          type: string
+        contractRef:
+          type: string
+        instrumentType:
+          type: string
+          enum: [INVOICE, CREDIT_NOTE, PAYMENT, COST, REFUND]
+        recognitionStatus:
+          type: string
+          enum: [DRAFT, POSTED]
+          default: DRAFT
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        fxSnapshot:
+          type: object
+          required: [rate, quoteCurrency, source, asOf]
+          properties:
+            rate: { type: string }
+            quoteCurrency: { type: string, minLength: 3, maxLength: 3 }
+            source: { type: string }
+            asOf: { type: string, format: date-time }
+        sourceVersion:
+          type: string
+        reversalOf:
+          type: string
+        reopeningRef:
+          type: string
+
+    CloseAccountingPeriod:
+      type: object
+      required: [legalEntityId, period, actorPersonId]
+      properties:
+        legalEntityId: { type: string }
+        period:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        actorPersonId:
+          type: string
+          format: uuid
+        reason: { type: string, minLength: 3 }
+
+    ReopenAccountingPeriod:
+      type: object
+      required: [legalEntityId, period, actorPersonId, reopeningRef, reason]
+      properties:
+        legalEntityId: { type: string }
+        period:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        actorPersonId:
+          type: string
+          format: uuid
+        reopeningRef: { type: string }
+        reason: { type: string, minLength: 3 }
 
     CreateRuleChangeOrder:
       type: object
@@ -13793,6 +13948,14 @@ components:
         leaseOwner: { type: string }
         fencingToken: { type: integer, minimum: 1 }
 
+    RenewResourceLease:
+      type: object
+      required: [leaseOwner, fencingToken, leaseSeconds]
+      properties:
+        leaseOwner: { type: string }
+        fencingToken: { type: integer, minimum: 1 }
+        leaseSeconds: { type: integer, minimum: 1, maximum: 3600 }
+
     CreateSyncResource:
       type: object
       required: [connectionId, resourceKey]
@@ -13808,9 +13971,14 @@ components:
         scheduleId:
           type: string
           format: uuid
+        intervalMinutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
 
     UpsertSyncCheckpoint:
       type: object
+      required: [leaseOwner, fencingToken]
       properties:
         cursor:
           type: [string, "null"]
@@ -13820,6 +13988,15 @@ components:
         lastRunId:
           type: [string, "null"]
           format: uuid
+        overlapSeconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        leaseOwner:
+          type: string
+        fencingToken:
+          type: integer
+          minimum: 0
 
     CreateQuarantineRecord:
       type: object

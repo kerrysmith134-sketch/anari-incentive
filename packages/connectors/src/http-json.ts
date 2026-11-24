@@ -248,6 +248,42 @@ export function assertEgressAllowed(
 }
 
 /**
+ * NP-018 后续（2026-11-21 审计 P0 SSRF / DNS Rebinding）：
+ * 对**已解析**的单个 IPv4/IPv6 地址应用与 `assertEgressAllowed` 相同的规则。
+ *
+ * `assertEgressAllowed` 只能检查 URL 字面量；域名在 DNS 解析后可能指向私网。
+ * 出站 HTTP 层必须在建立连接前对每条 A/AAAA 记录调用本函数，并把校验过的
+ * 地址 pin 给 `lookup`，否则解析与连接之间存在 rebinding 窗口。
+ *
+ * - 私网/回环/链路本地/CGNAT/元数据/组播/保留/文档段 → `EGRESS_PRIVATE_IP_BLOCKED`
+ * - 无法解析为 IP（非法输入）→ `EGRESS_IP_BLOCKED`（fail closed）
+ *
+ * 复用 `parseIpv4Loose` / `parseIpv6Loose` / `isBlockedIpv4`，避免第二套规则漂移。
+ */
+export function assertEgressIpAllowed(address: string, host?: string): void {
+  const label = host ? `${address} (${host})` : address;
+  const text = typeof address === "string" ? address.trim() : "";
+  if (!text) {
+    throw new Error(`EGRESS_IP_BLOCKED: empty address${host ? ` for ${host}` : ""}`);
+  }
+  const normalized = text.replace(/^\[|\]$/g, "");
+  const ipv4 = parseIpv4Loose(normalized);
+  if (ipv4) {
+    if (isBlockedIpv4(ipv4[0]!, ipv4[1]!, ipv4[2]!)) {
+      throw new Error(`EGRESS_PRIVATE_IP_BLOCKED: ${label}`);
+    }
+    return;
+  }
+  const ipv6 = parseIpv6Loose(normalized);
+  if (!ipv6) {
+    throw new Error(`EGRESS_IP_BLOCKED: not an IP address: ${label}`);
+  }
+  if (ipv6.blocked) {
+    throw new Error(`EGRESS_PRIVATE_IP_BLOCKED: ${label}`);
+  }
+}
+
+/**
  * Generic REST/JSON adapter for CRM, ERP and ticketing systems.
  *
  * The endpoint contract is intentionally simple: return an array (or an
