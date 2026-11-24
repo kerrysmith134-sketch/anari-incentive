@@ -499,6 +499,17 @@ export interface CommercialPort {
   listQuotes(tenantId: string, opportunityId?: string): Promise<Quote[]>;
   acceptQuote(tenantId: string, quoteId: string): Promise<Quote>;
   voidQuote(tenantId: string, quoteId: string): Promise<Quote>;
+  upsertCommercialQuote(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalOpportunityId: string;
+    externalQuoteId: string;
+    currency: string;
+    amount: string;
+    status?: Quote["status"];
+    issuedAt?: string;
+    acceptedAt?: string;
+  }): Promise<{ quote: Quote; created: boolean }>;
   createContract(input: {
     tenantId: string;
     accountId: string;

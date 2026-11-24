@@ -59,6 +59,8 @@ export interface Quote {
   issuedAt?: string;
   acceptedAt?: string;
   supersedesQuoteId?: string;
+  sourceSystem?: string;
+  externalQuoteId?: string;
 }
 
 export interface Contract {

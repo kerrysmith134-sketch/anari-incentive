@@ -3963,6 +3963,34 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/commercial/import/quotes:
+    post:
+      tags: [Commercial]
+      summary: Source-aware upsert of a commercial quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCommercialQuote"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/commercial/quotes:
     get:
       tags: [Commercial]
@@ -13411,6 +13439,21 @@ components:
           format: uuid
         reopeningRef: { type: string }
         reason: { type: string, minLength: 3 }
+
+    ImportCommercialQuote:
+      type: object
+      required: [sourceSystem, externalOpportunityId, externalQuoteId, currency, amount]
+      properties:
+        sourceSystem: { type: string }
+        externalOpportunityId: { type: string }
+        externalQuoteId: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: string }
+        status:
+          type: string
+          enum: [DRAFT, ISSUED, ACCEPTED, REJECTED, EXPIRED]
+        issuedAt: { type: string, format: date-time }
+        acceptedAt: { type: string, format: date-time }
 
     ImportCommercialAccount:
       type: object

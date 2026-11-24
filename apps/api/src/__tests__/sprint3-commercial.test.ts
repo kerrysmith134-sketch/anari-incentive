@@ -356,3 +356,39 @@ describe("Sprint 3 commercial source-aware import", () => {
     expect(updated.opportunity.name).toBe("Deal one updated");
   });
 });
+
+describe("Sprint 3 commercial quote import", () => {
+  it("upserts quotes by source external ids", async () => {
+    const app = buildAppFor();
+    await post(app, "/api/v1/commercial/import/opportunities", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-Q",
+      accountName: "Quote Co",
+      externalOpportunityId: "HS-DEAL-Q",
+      name: "Quote deal",
+      currency: "USD",
+    });
+    const first = await post(app, "/api/v1/commercial/import/quotes", {
+      sourceSystem: "hubspot",
+      externalOpportunityId: "HS-DEAL-Q",
+      externalQuoteId: "HS-QUOTE-Q",
+      currency: "USD",
+      amount: "1000",
+      status: "ISSUED",
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await post(app, "/api/v1/commercial/import/quotes", {
+      sourceSystem: "hubspot",
+      externalOpportunityId: "HS-DEAL-Q",
+      externalQuoteId: "HS-QUOTE-Q",
+      currency: "USD",
+      amount: "1100",
+      status: "ACCEPTED",
+    });
+    expect(second.statusCode).toBe(200);
+    const updated = dataOf<{ created: boolean; quote: { amount: string; status: string } }>(second);
+    expect(updated.created).toBe(false);
+    expect(updated.quote.amount).toBe("1100");
+    expect(updated.quote.status).toBe("ACCEPTED");
+  });
+});

@@ -3123,3 +3123,17 @@ export type DecideAccountingPeriodChangeBody = z.infer<
 >;
 
 export * from "./billing.js";
+
+export const importCommercialQuoteSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalOpportunityId: z.string().min(1),
+  externalQuoteId: z.string().min(1),
+  currency: z.string().length(3),
+  amount: decimal,
+  status: z.enum(["DRAFT", "ISSUED", "ACCEPTED", "REJECTED", "EXPIRED"]).optional(),
+  issuedAt: z.string().datetime().optional(),
+  acceptedAt: z.string().datetime().optional(),
+});
+export type ImportCommercialQuoteBody = z.infer<
+  typeof importCommercialQuoteSchema
+>;

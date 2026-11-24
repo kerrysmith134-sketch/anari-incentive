@@ -14,6 +14,7 @@ import {
   createCommercialQuoteSchema,
   importCommercialAccountSchema,
   importCommercialOpportunitySchema,
+  importCommercialQuoteSchema,
 } from "@anari/contracts";
 import { data, idOf, parse, requireRoles, tenantOf } from "../../http-helpers.js";
 
@@ -93,6 +94,16 @@ export function registerCommercialRoutes(deps: {
           request,
         ),
       );
+    });
+
+    app.post("/api/v1/commercial/import/quotes", async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const body = parse(importCommercialQuoteSchema, request.body);
+      const result = await platformStore.upsertCommercialQuote({
+        tenantId: tenantOf(request),
+        ...body,
+      });
+      return reply.status(result.created ? 201 : 200).send(data(result, request));
     });
 
     app.get("/api/v1/commercial/quotes", async (request) => {

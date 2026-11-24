@@ -285,6 +285,62 @@ export function MemoryCommercialMixin(
       return quote;
     }
 
+    async upsertCommercialQuote(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalOpportunityId: string;
+      externalQuoteId: string;
+      currency: string;
+      amount: string;
+      status?: Quote["status"];
+      issuedAt?: string;
+      acceptedAt?: string;
+    }): Promise<{ quote: Quote; created: boolean }> {
+      const opportunity = [...this.commercialOpportunities.values()].find(
+        (item) =>
+          item.tenantId === input.tenantId &&
+          item.sourceSystem === input.sourceSystem &&
+          item.externalOpportunityId === input.externalOpportunityId,
+      );
+      if (!opportunity) notFound("CommercialOpportunity", input.externalOpportunityId);
+      const existing = [...this.commercialQuotes.values()].find(
+        (quote) =>
+          quote.tenantId === input.tenantId &&
+          quote.sourceSystem === input.sourceSystem &&
+          quote.externalQuoteId === input.externalQuoteId,
+      );
+      if (existing) {
+        existing.amount = formatDecimal(money(input.amount));
+        existing.currency = input.currency.toUpperCase();
+        if (input.status) existing.status = input.status;
+        if (input.issuedAt) existing.issuedAt = input.issuedAt;
+        if (input.acceptedAt) existing.acceptedAt = input.acceptedAt;
+        return { quote: existing, created: false };
+      }
+      const version =
+        Math.max(
+          0,
+          ...[...this.commercialQuotes.values()]
+            .filter((quote) => quote.opportunityId === opportunity.id)
+            .map((quote) => quote.version),
+        ) + 1;
+      const quote: Quote = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        opportunityId: opportunity.id,
+        version,
+        status: input.status ?? "DRAFT",
+        currency: input.currency.toUpperCase(),
+        amount: formatDecimal(money(input.amount)),
+        issuedAt: input.issuedAt,
+        acceptedAt: input.acceptedAt,
+        sourceSystem: input.sourceSystem,
+        externalQuoteId: input.externalQuoteId,
+      };
+      this.commercialQuotes.set(quote.id, quote);
+      return { quote, created: true };
+    }
+
     async listQuotes(tenantId: string, opportunityId?: string): Promise<Quote[]> {
       return [...this.commercialQuotes.values()]
         .filter(

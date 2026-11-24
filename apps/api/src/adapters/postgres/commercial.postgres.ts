@@ -400,6 +400,81 @@ export function PgCommercialMixin(
       });
     }
 
+    async upsertCommercialQuote(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalOpportunityId: string;
+      externalQuoteId: string;
+      currency: string;
+      amount: string;
+      status?: Quote["status"];
+      issuedAt?: string;
+      acceptedAt?: string;
+    }): Promise<{ quote: Quote; created: boolean }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: opportunities } = await client.query(
+          `SELECT * FROM commercial_opportunities
+            WHERE tenant_id=$1 AND source_system=$2 AND external_opportunity_id=$3`,
+          [input.tenantId, input.sourceSystem, input.externalOpportunityId],
+        );
+        if (!opportunities[0]) {
+          notFound("CommercialOpportunity", input.externalOpportunityId);
+        }
+        const { rows: existing } = await client.query(
+          `SELECT * FROM commercial_quotes
+            WHERE tenant_id=$1 AND source_system=$2 AND external_quote_id=$3
+            FOR UPDATE`,
+          [input.tenantId, input.sourceSystem, input.externalQuoteId],
+        );
+        if (existing[0]) {
+          const { rows } = await client.query(
+            `UPDATE commercial_quotes
+                SET amount=$3, currency=$4,
+                    status=COALESCE($5, status),
+                    issued_at=COALESCE($6, issued_at),
+                    accepted_at=COALESCE($7, accepted_at),
+                    updated_at=now()
+              WHERE tenant_id=$1 AND id=$2
+              RETURNING *`,
+            [
+              input.tenantId,
+              existing[0].id,
+              input.amount,
+              input.currency.toUpperCase(),
+              input.status ?? null,
+              input.issuedAt ?? null,
+              input.acceptedAt ?? null,
+            ],
+          );
+          return { quote: this.mapQuote(rows[0]), created: false };
+        }
+        const { rows: versions } = await client.query(
+          "SELECT COALESCE(MAX(version),0) + 1 AS next FROM commercial_quotes WHERE tenant_id=$1 AND opportunity_id=$2",
+          [input.tenantId, opportunities[0].id],
+        );
+        const { rows } = await client.query(
+          `INSERT INTO commercial_quotes
+             (tenant_id, opportunity_id, version, status, currency, amount,
+              issued_at, accepted_at, source_system, external_quote_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           RETURNING *`,
+          [
+            input.tenantId,
+            opportunities[0].id,
+            Number(versions[0].next),
+            input.status ?? "DRAFT",
+            input.currency.toUpperCase(),
+            input.amount,
+            input.issuedAt ?? null,
+            input.acceptedAt ?? null,
+            input.sourceSystem,
+            input.externalQuoteId,
+          ],
+        );
+        return { quote: this.mapQuote(rows[0]), created: true };
+      });
+    }
+
     async listQuotes(tenantId: string, opportunityId?: string): Promise<Quote[]> {
       const params: string[] = [tenantId];
       let sql = "SELECT * FROM commercial_quotes WHERE tenant_id=$1";

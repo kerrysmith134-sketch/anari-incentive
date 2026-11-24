@@ -168,6 +168,7 @@ export function routeTarget(targetType: string | undefined): {
     | "FINANCIAL_FACT"
     | "COMMERCIAL_ACCOUNT"
     | "COMMERCIAL_OPPORTUNITY"
+    | "COMMERCIAL_QUOTE"
     | "QUARANTINE";
   reason?: string;
 } {
@@ -178,6 +179,9 @@ export function routeTarget(targetType: string | undefined): {
   }
   if (targetType === "COMMERCIAL_OPPORTUNITY") {
     return { route: "COMMERCIAL_OPPORTUNITY" };
+  }
+  if (targetType === "COMMERCIAL_QUOTE") {
+    return { route: "COMMERCIAL_QUOTE" };
   }
   return {
     route: "QUARANTINE",
@@ -893,6 +897,53 @@ export async function runSyncCycle(deps: {
                       currency,
                       stage: payload.stage,
                       estimatedAmount: payload.estimatedAmount,
+                    }),
+                  },
+                );
+                if (result.created) counters.recordsCreated += 1;
+                else counters.recordsUpdated += 1;
+                counters.recordsUpserted += 1;
+                continue;
+              }
+              if (routing.route === "COMMERCIAL_QUOTE") {
+                const payload = (event.payload ?? {}) as Record<string, unknown>;
+                const externalOpportunityId = String(
+                  payload.externalOpportunityId ?? "",
+                ).trim();
+                const externalQuoteId = String(
+                  payload.externalQuoteId ?? event.sourceRecordId ?? "",
+                ).trim();
+                const currency = String(payload.currency ?? "").trim().toUpperCase();
+                const amount = String(payload.amount ?? "").trim();
+                if (
+                  !externalOpportunityId ||
+                  !externalQuoteId ||
+                  !/^[A-Z]{3}$/.test(currency) ||
+                  !/^-?\d+(\.\d{1,6})?$/.test(amount)
+                ) {
+                  counters.recordsInvalid += 1;
+                  counters.recordsQuarantined += 1;
+                  await recordQuarantine(request, {
+                    sourceSystem: mapping.sourceSystem,
+                    externalRecordId,
+                    reason: "SCHEMA_MISMATCH",
+                    payload: { raw: payload, detail: "commercial quote requires externalOpportunityId, externalQuoteId, currency, amount" },
+                  });
+                  continue;
+                }
+                const result = await request<{ created: boolean }>(
+                  "/api/v1/commercial/import/quotes",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      sourceSystem: mapping.sourceSystem,
+                      externalOpportunityId,
+                      externalQuoteId,
+                      currency,
+                      amount,
+                      status: payload.status,
+                      issuedAt: payload.issuedAt,
+                      acceptedAt: payload.acceptedAt,
                     }),
                   },
                 );
