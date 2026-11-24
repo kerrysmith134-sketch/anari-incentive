@@ -111,6 +111,14 @@ export function registerCommercialRoutes(deps: {
       );
     });
 
+    app.post("/api/v1/commercial/quotes/:id/void", async (request) => {
+      requireRoles(request, "admin", "manager");
+      return data(
+        await platformStore.voidQuote(tenantOf(request), idOf(request)),
+        request,
+      );
+    });
+
     app.get("/api/v1/commercial/contracts", async (request) => {
       requireRoles(request, "manager", "finance", "integration");
       const query = request.query as { accountId?: string };
@@ -150,6 +158,14 @@ export function registerCommercialRoutes(deps: {
       );
     });
 
+    app.post("/api/v1/commercial/contracts/:id/terminate", async (request) => {
+      requireRoles(request, "admin", "finance");
+      return data(
+        await platformStore.terminateContract(tenantOf(request), idOf(request)),
+        request,
+      );
+    });
+
     app.get("/api/v1/commercial/orders", async (request) => {
       requireRoles(request, "manager", "finance", "integration");
       const query = request.query as { accountId?: string };
@@ -174,6 +190,14 @@ export function registerCommercialRoutes(deps: {
           }),
           request,
         ),
+      );
+    });
+
+    app.post("/api/v1/commercial/orders/:id/cancel", async (request) => {
+      requireRoles(request, "admin", "manager");
+      return data(
+        await platformStore.cancelOrder(tenantOf(request), idOf(request)),
+        request,
       );
     });
 

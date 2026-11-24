@@ -2,6 +2,8 @@ import type {
   CapTableSnapshotInput,
   CapTableSnapshotResult,
   EquityPositionLevel,
+  EquityTaxInput,
+  EquityTaxResult,
   FinancingStage,
   GrantCalculationInput,
   GrantCalculationResult,
@@ -11,6 +13,7 @@ import type {
   VestingScheduleInput,
   VestingScheduleResult,
 } from "@anari/domain";
+import { DEFAULT_CURRENCY, normalizeCurrency, roundToCurrency } from "./currency.js";
 import {
   div,
   formatDecimal,
@@ -260,8 +263,17 @@ export function calculateVestingSchedule(
 /**
  * 第22-25条：回购情形矩阵、公允价值三级确定、20% 流动性折扣、
  * 非过错最低 5 万元、超 50 万元可分期、年度回购总额 50 万元上限。
+ *
+ * 金额精度按 `input.currency` 的 ISO 4217 最小单位舍入（不传默认 CNY）：
+ * CNY/USD 2 位、JPY 0 位、KWD 3 位。5 万元/50 万元是人民币制度阈值，
+ * 仅在 CNY 下适用；非 CNY 币种没有汇率来源，不做换算也不套用人民币数字。
  */
+const CNY_MINIMUM_REPURCHASE_PRICE = parseDecimal("50000");
+const CNY_ANNUAL_REPURCHASE_CAP = parseDecimal("500000");
+
 export function calculateRepurchase(input: RepurchaseInput): RepurchaseResult {
+  const currency = normalizeCurrency(input.currency ?? DEFAULT_CURRENCY);
+  const isCny = currency === "CNY";
   const shares = parseDecimal(input.shares ?? "1");
   let fairUnit = ZERO;
   let note: string | undefined;
@@ -331,17 +343,27 @@ export function calculateRepurchase(input: RepurchaseInput): RepurchaseResult {
   let minimumPriceApplied = false;
   const inMinimumHolding =
     input.scenario === "VOLUNTARY" && input.holdingMonths < 12;
-  if (input.scenario !== "FAULT" && !inMinimumHolding && price > 0n && price < parseDecimal("50000")) {
-    price = parseDecimal("50000");
+  const belowCnyFloor =
+    input.scenario !== "FAULT" &&
+    !inMinimumHolding &&
+    price > 0n &&
+    price < CNY_MINIMUM_REPURCHASE_PRICE;
+  if (isCny && belowCnyFloor) {
+    price = CNY_MINIMUM_REPURCHASE_PRICE;
     minimumPriceApplied = true;
     note = `${note ?? ""}；非过错回购价不低于人民币 5 万元`;
+  } else if (!isCny && belowCnyFloor) {
+    // 人民币制度阈值不适用于其他币种：既不换算也不静默套用 5 万。
+    const statutoryNote =
+      "最低回购价 5 万元为人民币制度阈值，非 CNY 币种未做汇率换算";
+    note = note ? `${note}；${statutoryNote}` : statutoryNote;
   }
-  const annualCapApplied = price > parseDecimal("500000");
-  const installmentAllowed = price > parseDecimal("500000");
+  const annualCapApplied = isCny && price > CNY_ANNUAL_REPURCHASE_CAP;
+  const installmentAllowed = isCny && price > CNY_ANNUAL_REPURCHASE_CAP;
   return {
     scenario: input.scenario,
     fairValuePerUnit: formatDecimal(roundTo(fairUnit, 4, "HALF_UP")),
-    repurchasePrice: formatDecimal(roundTo(price, 2, "HALF_UP")),
+    repurchasePrice: formatDecimal(roundToCurrency(price, currency, "HALF_UP")),
     noticeDeadlineDays,
     completionDeadlineDays,
     liquidityDiscountApplied: Boolean(input.latestFinancingPrice) && !input.valuationDeviationOver50Percent,
@@ -353,20 +375,8 @@ export function calculateRepurchase(input: RepurchaseInput): RepurchaseResult {
 }
 
 /** 第29-33条：递延纳税备案与否的税务测算。 */
-export function calculateEquityTax(input: {
-  deferredFiling: boolean;
-  strikePrice: string;
-  fairValuePerUnit: string;
-  units: string;
-  salePricePerUnit?: string;
-  wageTaxRatePercent?: string;
-}): {
-  deferredFiling: boolean;
-  taxableBase: string;
-  taxRatePercent: string;
-  taxAmount: string;
-  note: string;
-} {
+export function calculateEquityTax(input: EquityTaxInput): EquityTaxResult {
+  const currency = normalizeCurrency(input.currency ?? DEFAULT_CURRENCY);
   const units = parseDecimal(input.units);
   const strike = parseDecimal(input.strikePrice);
   if (input.deferredFiling) {
@@ -375,10 +385,10 @@ export function calculateEquityTax(input: {
     const rate = parseDecimal("20");
     return {
       deferredFiling: true,
-      taxableBase: formatDecimal(roundTo(base, 2, "HALF_UP")),
+      taxableBase: formatDecimal(roundToCurrency(base, currency, "HALF_UP")),
       taxRatePercent: formatDecimal(rate),
       taxAmount: formatDecimal(
-        roundTo(div(mul(base, rate), HUNDRED), 2, "HALF_UP"),
+        roundToCurrency(div(mul(base, rate), HUNDRED), currency, "HALF_UP"),
       ),
       note: "已办理递延纳税备案：行权暂不纳税，转让/回购时按财产转让所得 20% 计税",
     };
@@ -388,10 +398,10 @@ export function calculateEquityTax(input: {
   const rate = parseDecimal(input.wageTaxRatePercent ?? "20");
   return {
     deferredFiling: false,
-    taxableBase: formatDecimal(roundTo(base, 2, "HALF_UP")),
+    taxableBase: formatDecimal(roundToCurrency(base, currency, "HALF_UP")),
     taxRatePercent: formatDecimal(rate),
     taxAmount: formatDecimal(
-      roundTo(div(mul(base, rate), HUNDRED), 2, "HALF_UP"),
+      roundToCurrency(div(mul(base, rate), HUNDRED), currency, "HALF_UP"),
     ),
     note: "未办理递延纳税备案：行权价低于公允价值的差额按工资薪金所得计税（3%-45% 超额累进，按传入税率测算）",
   };

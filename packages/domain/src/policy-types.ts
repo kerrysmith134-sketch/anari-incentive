@@ -614,6 +614,11 @@ export interface RepurchaseInput {
   appraisalValue?: DecimalString;
   /** 融资估值偏离实际经营是否超过 50%。 */
   valuationDeviationOver50Percent?: boolean;
+  /**
+   * 金额币种（ISO 4217 alpha-3）。决定 2 位小数舍入还是该币种最小单位
+   * （JPY 0 位、KWD 3 位）；不传默认 CNY。
+   */
+  currency?: string;
 }
 
 export interface RepurchaseResult {
@@ -662,6 +667,11 @@ export interface EquityTaxInput {
   salePricePerUnit?: DecimalString;
   /** 未备案时按工资薪金所得适用税率；默认 20%。 */
   wageTaxRatePercent?: DecimalString;
+  /**
+   * 金额币种（ISO 4217 alpha-3）。taxableBase/taxAmount 按该币种最小单位
+   * 舍入；不传默认 CNY。
+   */
+  currency?: string;
 }
 
 export interface EquityTaxResult {

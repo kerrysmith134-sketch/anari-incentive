@@ -3966,6 +3966,24 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/commercial/quotes/{id}/void:
+    post:
+      tags: [Commercial]
+      summary: Void a draft/issued quote
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Voided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/commercial/contracts:
     get:
       tags: [Commercial]
@@ -4027,6 +4045,24 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/commercial/contracts/{id}/terminate:
+    post:
+      tags: [Commercial]
+      summary: Terminate a signed contract without confirmed orders
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/commercial/orders:
     get:
       tags: [Commercial]
@@ -4065,6 +4101,24 @@ paths:
                 $ref: "#/components/schemas/DataEnvelope"
         "400":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/commercial/orders/{id}/cancel:
+    post:
+      tags: [Commercial]
+      summary: Cancel a draft order
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":

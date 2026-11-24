@@ -16,6 +16,7 @@ import { Link } from "react-router-dom";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
 import { formatMoney, microsToDecimal, sumMoney } from "../lib/format.js";
 import { WaterfallChart } from "../components/charts.js";
+import { AccountingPeriodPanel } from "../components/finance/AccountingPeriodPanel.js";
 import { api, ApiError } from "../lib/api.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { useToast } from "../contexts/ToastContext.js";
@@ -274,6 +275,8 @@ export function FinanceCenterPage() {
         title="财务中心"
         description="利润池/预算与来源事实、政策版本、计算运行、引用对账、阻断项与 cap——财务视角单页聚合。差异行可下钻并生成带审计的调整分录；锁账/结算/导出留在结算与薪酬模块的审批路径。"
       />
+
+      <AccountingPeriodPanel />
       {error ? (
         <InfoNotice tone="warning">
           数据加载失败：{(error as Error).message}

@@ -10,6 +10,8 @@
  * fail-closed，避免把任意文本当成币种。
  */
 
+import { divRound, type RoundingMode } from "./decimal.js";
+
 /** 0 位小数的常见 ISO 4217 币种。 */
 const ZERO_DECIMAL = new Set([
   "BIF",
@@ -44,16 +46,25 @@ const THREE_DECIMAL = new Set([
 
 export type CurrencyMinorUnits = 0 | 2 | 3;
 
+/** 政策/输入未显式给出币种时的制度默认币种。 */
+export const DEFAULT_CURRENCY = "CNY";
+
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
-/** 返回币种最小单位的小数位数；非法代码 fail-closed。 */
-export function currencyMinorUnits(currency: string): CurrencyMinorUnits {
+/** 规范化并校验 ISO 4217 alpha-3 代码；非法代码 fail-closed。 */
+export function normalizeCurrency(currency: string): string {
   const code = currency?.trim().toUpperCase();
   if (!CURRENCY_PATTERN.test(code)) {
     throw new Error(
       `INVALID_CURRENCY: ${JSON.stringify(currency)} is not an ISO 4217 alpha-3 code`,
     );
   }
+  return code;
+}
+
+/** 返回币种最小单位的小数位数；非法代码 fail-closed。 */
+export function currencyMinorUnits(currency: string): CurrencyMinorUnits {
+  const code = normalizeCurrency(currency);
   if (ZERO_DECIMAL.has(code)) return 0;
   if (THREE_DECIMAL.has(code)) return 3;
   return 2;
@@ -65,6 +76,22 @@ export function currencyMinorUnits(currency: string): CurrencyMinorUnits {
  */
 export function currencyStep(currency: string): bigint {
   return 10n ** BigInt(6 - currencyMinorUnits(currency));
+}
+
+/**
+ * 把 1e6 标定金额舍入到该币种的最小可支付单位，返回值仍是 1e6 标定。
+ *
+ * 等价于 `roundTo(value, currencyMinorUnits(currency), mode)`，但把“按币种
+ * 舍入”收在一处，避免各模块各自硬编码 2 位小数。CNY/USD → 0.01，
+ * JPY → 1 元，KWD → 0.001；非法币种 fail-closed。
+ */
+export function roundToCurrency(
+  value: bigint,
+  currency: string,
+  mode: RoundingMode = "HALF_UP",
+): bigint {
+  const step = currencyStep(currency);
+  return divRound(value, step, mode) * step;
 }
 
 /** 按币种最小单位格式化为普通十进制字符串（去掉多余尾零）。 */

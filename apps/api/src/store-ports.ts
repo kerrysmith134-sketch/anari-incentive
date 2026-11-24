@@ -475,6 +475,7 @@ export interface CommercialPort {
   }): Promise<Quote>;
   listQuotes(tenantId: string, opportunityId?: string): Promise<Quote[]>;
   acceptQuote(tenantId: string, quoteId: string): Promise<Quote>;
+  voidQuote(tenantId: string, quoteId: string): Promise<Quote>;
   createContract(input: {
     tenantId: string;
     accountId: string;
@@ -485,6 +486,7 @@ export interface CommercialPort {
     amount: string;
   }): Promise<Contract>;
   signContract(tenantId: string, contractId: string): Promise<Contract>;
+  terminateContract(tenantId: string, contractId: string): Promise<Contract>;
   listContracts(tenantId: string, accountId?: string): Promise<Contract[]>;
   createOrder(input: {
     tenantId: string;
@@ -502,6 +504,7 @@ export interface CommercialPort {
     }>;
   }): Promise<CommercialOrder>;
   confirmOrder(tenantId: string, orderId: string): Promise<CommercialOrder>;
+  cancelOrder(tenantId: string, orderId: string): Promise<CommercialOrder>;
   listOrders(tenantId: string, accountId?: string): Promise<CommercialOrder[]>;
 }
 

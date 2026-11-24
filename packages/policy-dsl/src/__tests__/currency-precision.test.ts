@@ -3,7 +3,9 @@ import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import {
   calculateBusinessUnitCommission,
   calculateDbcp,
+  calculateEquityTax,
   calculateOrderContribution,
+  calculateRepurchase,
   currencyMinorUnits,
   currencyStep,
   formatCurrencyAmount,
@@ -128,5 +130,139 @@ describe("incentive modules use input currency", () => {
       managementProvisionRatePercent: "0",
     });
     expect(dbcp.grossProfit).toBe("100.44");
+  });
+});
+
+describe("equity repurchase uses the policy currency minor units", () => {
+  const base = {
+    scenario: "INVOLUNTARY" as const,
+    holdingMonths: 24,
+    costAmount: "0",
+    shares: "9",
+  };
+
+  it("rounds JPY repurchase to whole yen (HALF_UP) and does not apply the CNY floor", () => {
+    // 1234.567 × 0.8 × 9 = 8888.8824 → 8889 日元
+    const result = calculateRepurchase({
+      ...base,
+      latestFinancingPrice: "1234.567",
+      currency: "JPY",
+    });
+    expect(result.fairValuePerUnit).toBe("987.6536");
+    expect(result.repurchasePrice).toBe("8889");
+    expect(result.repurchasePrice).not.toContain(".");
+    // 5 万元人民币最低回购价是 CNY 制度阈值，不套用到 JPY。
+    expect(result.minimumPriceApplied).toBe(false);
+    expect(result.note).toContain("非 CNY 币种未做汇率换算");
+  });
+
+  it("does not apply the CNY 50万 annual cap to non-CNY amounts", () => {
+    // 100000 × 0.8 × 10 = 800000（若按 CNY 阈值会被判为可分期）
+    const result = calculateRepurchase({
+      scenario: "INVOLUNTARY",
+      holdingMonths: 24,
+      costAmount: "0",
+      shares: "10",
+      latestFinancingPrice: "100000",
+      currency: "JPY",
+    });
+    expect(result.repurchasePrice).toBe("800000");
+    expect(result.annualCapApplied).toBe(false);
+    expect(result.installmentAllowed).toBe(false);
+  });
+
+  it("rounds KWD repurchase to 0.001", () => {
+    // 1.234 × 0.8 × 3 = 2.9616 → 2.962 KWD
+    const result = calculateRepurchase({
+      ...base,
+      shares: "3",
+      latestFinancingPrice: "1.234",
+      currency: "KWD",
+    });
+    expect(result.repurchasePrice).toBe("2.962");
+    expect(result.minimumPriceApplied).toBe(false);
+  });
+
+  it("keeps the CNY 5万 floor and two-decimal precision by default", () => {
+    const result = calculateRepurchase({
+      scenario: "INVOLUNTARY",
+      holdingMonths: 24,
+      costAmount: "0",
+      shares: "10000",
+      latestFinancingPrice: "0.2",
+    });
+    expect(result.repurchasePrice).toBe("50000");
+    expect(result.minimumPriceApplied).toBe(true);
+    const explicit = calculateRepurchase({
+      scenario: "INVOLUNTARY",
+      holdingMonths: 24,
+      costAmount: "0",
+      shares: "10000",
+      latestFinancingPrice: "0.2",
+      currency: "CNY",
+    });
+    expect(explicit.repurchasePrice).toBe("50000");
+    expect(explicit.minimumPriceApplied).toBe(true);
+  });
+
+  it("rejects non-ISO currency codes fail-closed", () => {
+    expect(() =>
+      calculateRepurchase({ ...base, latestFinancingPrice: "1", currency: "RMB1" }),
+    ).toThrow(/INVALID_CURRENCY/);
+  });
+});
+
+describe("equity tax uses the policy currency minor units", () => {
+  it("rounds JPY taxableBase and taxAmount to whole yen", () => {
+    // (150.4 - 100) × 3 = 151.2 → 151 日元；20% = 30.24 → 30 日元
+    const result = calculateEquityTax({
+      deferredFiling: false,
+      strikePrice: "100",
+      fairValuePerUnit: "150.4",
+      units: "3",
+      wageTaxRatePercent: "20",
+      currency: "JPY",
+    });
+    expect(result.taxableBase).toBe("151");
+    expect(result.taxAmount).toBe("30");
+  });
+
+  it("rounds JPY half yen up and never emits fractional yen", () => {
+    // (0.5 - 0) × 1 = 0.5 → 1 日元
+    const result = calculateEquityTax({
+      deferredFiling: false,
+      strikePrice: "0",
+      fairValuePerUnit: "0.5",
+      units: "1",
+      currency: "JPY",
+    });
+    expect(result.taxableBase).toBe("1");
+    expect(result.taxableBase).not.toContain(".");
+  });
+
+  it("rounds KWD deferred taxableBase and taxAmount to 0.001", () => {
+    // (1.234567 - 1) × 1000 = 234.567 → 234.567 KWD；20% = 46.9134 → 46.913
+    const result = calculateEquityTax({
+      deferredFiling: true,
+      strikePrice: "1",
+      fairValuePerUnit: "1.5",
+      salePricePerUnit: "1.234567",
+      units: "1000",
+      currency: "KWD",
+    });
+    expect(result.taxableBase).toBe("234.567");
+    expect(result.taxAmount).toBe("46.913");
+  });
+
+  it("keeps the CNY two-decimal tax behavior by default", () => {
+    const result = calculateEquityTax({
+      deferredFiling: false,
+      strikePrice: "1",
+      fairValuePerUnit: "5",
+      units: "1000",
+      wageTaxRatePercent: "20",
+    });
+    expect(result.taxableBase).toBe("4000");
+    expect(result.taxAmount).toBe("800");
   });
 });

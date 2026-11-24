@@ -407,16 +407,28 @@ export function CommercialPage() {
                       <td><Badge status={quote.status} /></td>
                       <td>
                         {quote.status === "DRAFT" || quote.status === "ISSUED" ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={busy}
-                            onClick={() =>
-                              action(`/api/v1/commercial/quotes/${quote.id}/accept`)
-                            }
-                          >
-                            接受
-                          </Button>
+                          <div className="row-actions">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                action(`/api/v1/commercial/quotes/${quote.id}/accept`)
+                              }
+                            >
+                              接受
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() =>
+                                action(`/api/v1/commercial/quotes/${quote.id}/void`)
+                              }
+                            >
+                              作废
+                            </Button>
+                          </div>
                         ) : (
                           <span className="muted">—</span>
                         )}
@@ -465,6 +477,22 @@ export function CommercialPage() {
                           >
                             签署
                           </Button>
+                        ) : contract.status === "SIGNED" ? (
+                          <div className="row-actions">
+                            <span className="muted">
+                              {contract.signedAt ? formatDateTime(contract.signedAt) : "—"}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() =>
+                                action(`/api/v1/commercial/contracts/${contract.id}/terminate`)
+                              }
+                            >
+                              终止
+                            </Button>
+                          </div>
                         ) : (
                           <span className="muted">
                             {contract.signedAt
@@ -512,16 +540,28 @@ export function CommercialPage() {
                       <td><Badge status={order.status} /></td>
                       <td>
                         {order.status === "DRAFT" ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={busy}
-                            onClick={() =>
-                              action(`/api/v1/commercial/orders/${order.id}/confirm`)
-                            }
-                          >
-                            确认
-                          </Button>
+                          <div className="row-actions">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                action(`/api/v1/commercial/orders/${order.id}/confirm`)
+                              }
+                            >
+                              确认
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() =>
+                                action(`/api/v1/commercial/orders/${order.id}/cancel`)
+                              }
+                            >
+                              取消
+                            </Button>
+                          </div>
                         ) : (
                           <span className="muted">
                             {order.confirmedAt

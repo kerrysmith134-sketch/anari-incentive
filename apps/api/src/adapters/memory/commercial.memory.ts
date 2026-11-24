@@ -222,6 +222,16 @@ export function MemoryCommercialMixin(
       return quote;
     }
 
+    async voidQuote(tenantId: string, quoteId: string): Promise<Quote> {
+      const quote = this.findQuote(tenantId, quoteId);
+      if (quote.status === "REJECTED") return quote;
+      if (quote.status !== "DRAFT" && quote.status !== "ISSUED") {
+        throw new ConflictError(`QUOTE_NOT_VOIDABLE: ${quote.status}`);
+      }
+      quote.status = "REJECTED";
+      return quote;
+    }
+
     async createContract(input: {
       tenantId: string;
       accountId: string;
@@ -281,6 +291,27 @@ export function MemoryCommercialMixin(
       }
       contract.status = "SIGNED";
       contract.signedAt = now();
+      return contract;
+    }
+
+    async terminateContract(tenantId: string, contractId: string): Promise<Contract> {
+      const contract = this.findContract(tenantId, contractId);
+      if (contract.status === "TERMINATED") return contract;
+      if (contract.status !== "SIGNED") {
+        throw new ConflictError(`CONTRACT_NOT_TERMINABLE: ${contract.status}`);
+      }
+      const confirmed = [...this.commercialOrders.values()].some(
+        (order) =>
+          order.tenantId === tenantId &&
+          order.contractId === contractId &&
+          order.status === "CONFIRMED",
+      );
+      if (confirmed) {
+        throw new ConflictError(
+          "CONTRACT_HAS_CONFIRMED_ORDER: cancel the order before terminating",
+        );
+      }
+      contract.status = "TERMINATED";
       return contract;
     }
 
@@ -372,6 +403,20 @@ export function MemoryCommercialMixin(
       }
       order.status = "CONFIRMED";
       order.confirmedAt = now();
+      return order;
+    }
+
+    async cancelOrder(
+      tenantId: string,
+      orderId: string,
+    ): Promise<CommercialOrder> {
+      const order = this.commercialOrders.get(orderId);
+      if (!order || order.tenantId !== tenantId) notFound("CommercialOrder", orderId);
+      if (order.status === "CANCELLED") return order;
+      if (order.status !== "DRAFT") {
+        throw new ConflictError(`ORDER_NOT_CANCELLABLE: ${order.status}`);
+      }
+      order.status = "CANCELLED";
       return order;
     }
 

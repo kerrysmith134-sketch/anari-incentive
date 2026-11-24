@@ -95,10 +95,15 @@
 | Commercial 工作台 UI | 关闭 | 新增 `/commercial` 页面：客户/机会/报价/合同/订单列表与生命周期操作（接受报价、签合同、确认订单）。 |
 | 多法人 shadow settlement 负例 | 关闭（算法/CLI） | `scripts/shadow-settlement.ts` 读取法人/期间/订单/批次维度；新增负例 fixture + 测试证明跨法人金额不会被净额抵消。真实脱敏数据周期仍未跑。 |
 | 同步连接器统一出站 | 关闭 | `pinnedFetch` 成为 `HttpJsonConnector` 默认 transport；真实同步拉取也做 URL+DNS 全量校验/IP pin，测试仍可注入 `fetchImpl`。 |
-| 会计期间双人审批 | 关闭 | 迁移 107 + `change-requests`：请求人创建 PENDING，另一人 approve 后执行；同一人自批 409 `APPROVAL_SEPARATION_REQUIRED`。 |
+| 会计期间双人审批 | 关闭 | 迁移 107 + `change-requests` + Finance Center 审批工作台：请求人创建 PENDING，另一人 approve 后执行；同一人自批 409。 |
 | Keyring 热加载 | 关闭 | `POST /api/v1/integration-keys/reload` 重新读取 KMS/Vault/文件 keyring，无需重启；新增热加载测试。 |
 | 其他金额模块币种精度 | 关闭（policy-dsl） | `incentive.ts` 的 DBCP/提成/内部拆分/奖金等与 `tiered-team.ts` 按输入/政策币种最小单位舍入；equity/payroll 仍按 CNY 制度口径。 |
 | 多法人多币种影子结算 | 关闭（pilot） | 新增 USD/EUR/JPY 三币种、四法人 pilot fixture 与 CLI 测试；真实脱敏数据周期仍需业务提供。 |
+| Accounting Period 审批 UI | 关闭 | Finance Center 新增期间审批工作台：状态列表、发起关/开、批准/驳回。 |
+| Commercial 生命周期收口 | 关闭 | 报价作废、合同终止、订单取消 API + UI + 测试。 |
+| equity 多币种精度 | 关闭 | 回购/税费按 ISO 4217 最小单位；非 CNY 不套用人民币 5 万/50 万阈值。 |
+| Integrations 运行健康/数据质量 | 关闭 | 新增 health/data-quality tab，复用 sync-runs 与 quarantine；计数对平展示。 |
+| E2E 新流程 | 关闭 | `commercial.spec.ts`、`accounting-period-approval.spec.ts` 2 passed。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -109,9 +114,9 @@
 | PingCode / Ticketing / Commercial 原生连接器 | Commercial 领域实体/API/UI 已落；PingCode/Ticketing/HubSpot 原生 adapter 仍缺真实 API 契约与样本 |
 | 真实多法人/多币种影子结算 | pilot fixture/CLI 已通过；真实脱敏数据影子周期未跑 |
 | HSM / KMS | keyring 文件 + 热加载 + KMS rotate 回调；**HSM/PKCS#11 明确不在范围内**，不引入厂商 SDK |
-| Accounting Period 双人审批 | 已实现请求/批准分离；仍需 UI 与审批人目录配置 |
+| Accounting Period 双人审批 | 请求/批准分离 + Finance Center 工作台已完成；审批人目录/通知仍未接 |
 | 大文件拆分 | 关闭：`app.ts` 2,659 → 2,182；`contracts/index.ts` 3,369 → 3,086；`store.ts` 2,985 → 14（11 个领域 mixin）；`pg-store.ts` 4,836 → 25（18 层继承链）；`PolicyPage.tsx` 3,425 → 1,124（17 文件/22 组件）；`AiPage.tsx` 2,838 → 186（9 组件）。行为保持，全量/PG/构建通过 |
-| Integrations UI 工作台 IA | 已拆分组件并加摘要，但 Mapping Studio / Sync Monitor / Data Quality 的深度工作台尚未重构 |
+| Integrations UI 工作台 IA | 已加运行健康/数据质量 tab；Mapping Studio 深层交互仍未重构 |
 
 ## 3. 验证命令与结果
 
@@ -124,7 +129,7 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：134 files passed / 2 skipped；1337 tests passed / 108 skipped。
+- `npm test`：134 files passed / 2 skipped；1347 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 121 tests passed（迁移 102–107；含 Commercial、Financial Fact、期间双人审批）。
 - `npm run test:pg-upgrade`：89 → 107 migrations，107 tests passed。

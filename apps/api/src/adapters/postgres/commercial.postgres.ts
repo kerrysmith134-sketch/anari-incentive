@@ -285,6 +285,26 @@ export function PgCommercialMixin(
       throw new ConflictError(`QUOTE_NOT_ACCEPTABLE: ${current[0].status}`);
     }
 
+    async voidQuote(tenantId: string, quoteId: string): Promise<Quote> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `UPDATE commercial_quotes
+            SET status='REJECTED', updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND status IN ('DRAFT','ISSUED')
+          RETURNING *`,
+        [tenantId, quoteId],
+      );
+      if (rows[0]) return this.mapQuote(rows[0]);
+      const { rows: current } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM commercial_quotes WHERE tenant_id=$1 AND id=$2",
+        [tenantId, quoteId],
+      );
+      if (!current[0]) notFound("CommercialQuote", quoteId);
+      if (current[0].status === "REJECTED") return this.mapQuote(current[0]);
+      throw new ConflictError(`QUOTE_NOT_VOIDABLE: ${current[0].status}`);
+    }
+
     async createContract(input: {
       tenantId: string;
       accountId: string;
@@ -363,6 +383,36 @@ export function PgCommercialMixin(
       if (!current[0]) notFound("CommercialContract", contractId);
       if (current[0].status === "SIGNED") return this.mapContract(current[0]);
       throw new ConflictError(`CONTRACT_NOT_SIGNABLE: ${current[0].status}`);
+    }
+
+    async terminateContract(tenantId: string, contractId: string): Promise<Contract> {
+      return this.transactionFor(tenantId, async (client) => {
+        const { rows: contracts } = await client.query(
+          "SELECT * FROM commercial_contracts WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenantId, contractId],
+        );
+        if (!contracts[0]) notFound("CommercialContract", contractId);
+        if (contracts[0].status === "TERMINATED") {
+          return this.mapContract(contracts[0]);
+        }
+        if (contracts[0].status !== "SIGNED") {
+          throw new ConflictError(`CONTRACT_NOT_TERMINABLE: ${contracts[0].status}`);
+        }
+        const { rows: confirmed } = await client.query(
+          "SELECT 1 FROM commercial_orders WHERE tenant_id=$1 AND contract_id=$2 AND status='CONFIRMED' LIMIT 1",
+          [tenantId, contractId],
+        );
+        if (confirmed[0]) {
+          throw new ConflictError(
+            "CONTRACT_HAS_CONFIRMED_ORDER: cancel the order before terminating",
+          );
+        }
+        const { rows } = await client.query(
+          "UPDATE commercial_contracts SET status='TERMINATED', updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",
+          [tenantId, contractId],
+        );
+        return this.mapContract(rows[0]);
+      });
     }
 
     async listContracts(tenantId: string, accountId?: string): Promise<Contract[]> {
@@ -494,6 +544,39 @@ export function PgCommercialMixin(
         );
         return this.loadOrderWithLines(client, tenantId, orderId);
       });
+    }
+
+    async cancelOrder(
+      tenantId: string,
+      orderId: string,
+    ): Promise<CommercialOrder> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `UPDATE commercial_orders
+            SET status='CANCELLED', updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND status='DRAFT'
+          RETURNING *`,
+        [tenantId, orderId],
+      );
+      if (rows[0]) return this.loadOrderWithLines(
+        { query: (sql, params) => this.tenantQuery(tenantId, sql, params) },
+        tenantId,
+        orderId,
+      );
+      const { rows: current } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM commercial_orders WHERE tenant_id=$1 AND id=$2",
+        [tenantId, orderId],
+      );
+      if (!current[0]) notFound("CommercialOrder", orderId);
+      if (current[0].status === "CANCELLED") {
+        return this.loadOrderWithLines(
+          { query: (sql, params) => this.tenantQuery(tenantId, sql, params) },
+          tenantId,
+          orderId,
+        );
+      }
+      throw new ConflictError(`ORDER_NOT_CANCELLABLE: ${current[0].status}`);
     }
 
     async listOrders(

@@ -224,3 +224,81 @@ describe("Sprint 3 commercial lifecycle", () => {
     void account;
   });
 });
+
+describe("Sprint 3 commercial lifecycle close-out", () => {
+  it("voids quotes, cancels draft orders and terminates signed contracts", async () => {
+    const app = buildAppFor();
+    const account = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/accounts", { name: "Closeout Co" }),
+    );
+    const opportunity = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/opportunities", {
+        accountId: account.id,
+        name: "Closeout opp",
+        currency: "USD",
+      }),
+    );
+    const quote = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/quotes", {
+        opportunityId: opportunity.id,
+        currency: "USD",
+        amount: "100",
+      }),
+    );
+    expect(
+      (
+        await post(app, `/api/v1/commercial/quotes/${quote.id}/void`, {})
+      ).statusCode,
+    ).toBe(200);
+
+    const accepted = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/quotes", {
+        opportunityId: opportunity.id,
+        currency: "USD",
+        amount: "100",
+        supersedesQuoteId: quote.id,
+      }),
+    );
+    await post(app, `/api/v1/commercial/quotes/${accepted.id}/accept`, {});
+    const contract = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/contracts", {
+        accountId: account.id,
+        opportunityId: opportunity.id,
+        quoteId: accepted.id,
+        contractRef: "CT-CLOSE-1",
+        currency: "USD",
+        amount: "100",
+      }),
+    );
+    await post(app, `/api/v1/commercial/contracts/${contract.id}/sign`, {});
+    const order = dataOf<{ id: string }>(
+      await post(app, "/api/v1/commercial/orders", {
+        accountId: account.id,
+        contractId: contract.id,
+        orderNumber: "SO-CLOSE-1",
+        currency: "USD",
+        lines: [
+          {
+            kind: "PRODUCT",
+            description: "charger",
+            quantity: "1",
+            unitPrice: "100",
+            amount: "100",
+            currency: "USD",
+          },
+        ],
+      }),
+    );
+    const cancel = await post(app, `/api/v1/commercial/orders/${order.id}/cancel`, {});
+    expect(cancel.statusCode).toBe(200);
+    expect(dataOf<{ status: string }>(cancel).status).toBe("CANCELLED");
+
+    const terminate = await post(
+      app,
+      `/api/v1/commercial/contracts/${contract.id}/terminate`,
+      {},
+    );
+    expect(terminate.statusCode).toBe(200);
+    expect(dataOf<{ status: string }>(terminate).status).toBe("TERMINATED");
+  });
+});

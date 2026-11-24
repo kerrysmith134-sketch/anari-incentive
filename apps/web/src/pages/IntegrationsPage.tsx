@@ -43,6 +43,11 @@ import { RunsSection } from "../components/integrations/RunsSection.js";
 import { IdentitiesSection } from "../components/integrations/IdentitiesSection.js";
 import { FeishuSyncPanel } from "../components/integrations/FeishuSyncPanel.js";
 import { IntegrationSummary } from "../components/integrations/IntegrationSummary.js";
+import {
+  DataQualitySection,
+  type QuarantineRecordView,
+} from "../components/integrations/DataQualitySection.js";
+import { HealthSection } from "../components/integrations/HealthSection.js";
 
 export function IntegrationsPage() {
   const { session } = useAuth();
@@ -86,6 +91,20 @@ export function IntegrationsPage() {
     selected ? `/api/v1/integration-connections/${selected.id}/sync-runs` : null,
     selected?.id,
   );
+  const quarantine = useApiQuery<QuarantineRecordView[]>(
+    selected ? "/api/v1/ingestion-quarantine?unresolved=1" : null,
+    selected?.id,
+  );
+
+  /**
+   * 进入健康/数据质量标签页时主动刷新，避免在「运营」处置隔离记录后
+   * 回到数据质量仍显示旧数量。
+   */
+  function changeDetailTab(next: string) {
+    setDetailTab(next);
+    if (next === "health") syncRuns.reload();
+    if (next === "data-quality") quarantine.reload();
+  }
 
   function openCreate() {
     setCreateOpen(true);
@@ -291,11 +310,19 @@ export function IntegrationsPage() {
                       label: "同步运行",
                       count: syncRuns.data?.length ?? 0,
                     },
+                    { id: "health", label: "运行健康" },
+                    {
+                      id: "data-quality",
+                      label: "数据质量",
+                      count: quarantine.data
+                        ? quarantine.data.length
+                        : undefined,
+                    },
                     { id: "identities", label: "身份映射" },
                     { id: "ops", label: "运营" },
                   ]}
                   active={detailTab}
-                  onChange={setDetailTab}
+                  onChange={changeDetailTab}
                   label="连接详情"
                 />
                 {testResult ? (
@@ -354,6 +381,30 @@ export function IntegrationsPage() {
                       reload={syncRuns.reload}
                       onQueue={() => void queueSync(selected)}
                       busy={statusBusy}
+                    />
+                  ) : null}
+                  {detailTab === "health" ? (
+                    <HealthSection
+                      runs={syncRuns.data ?? []}
+                      loading={syncRuns.loading}
+                      error={
+                        syncRuns.error instanceof Error ? syncRuns.error : undefined
+                      }
+                      reload={syncRuns.reload}
+                      onOpenRuns={() => setDetailTab("runs")}
+                    />
+                  ) : null}
+                  {detailTab === "data-quality" ? (
+                    <DataQualitySection
+                      records={quarantine.data ?? []}
+                      loading={quarantine.loading}
+                      error={
+                        quarantine.error instanceof Error
+                          ? quarantine.error
+                          : undefined
+                      }
+                      reload={quarantine.reload}
+                      onOpenOps={() => setDetailTab("ops")}
                     />
                   ) : null}
                   {detailTab === "identities" ? (
