@@ -1,6 +1,7 @@
 import type { IngestionEvent } from "@anari/domain";
 import { mapRecordToEvent, type ColumnMapping } from "./mapping.js";
 import type { Connector, ConnectorPullResult } from "./types.js";
+import { pinnedFetch } from "./outbound-http.js";
 
 export interface HttpJsonConnectorConfig {
   sourceSystem: string;
@@ -301,7 +302,7 @@ export class HttpJsonConnector implements Connector {
     cursor: string | null,
     updatedSince?: string,
   ): Promise<ConnectorPullResult> {
-    const fetchImpl = this.config.fetchImpl ?? fetch;
+    const fetchImpl = this.config.fetchImpl ?? (pinnedFetch as typeof fetch);
     const url = new URL(this.config.url);
     assertEgressAllowed(url, this.config.egressAllowlist);
     if (cursor && this.config.cursorParam) {

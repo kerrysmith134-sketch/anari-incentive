@@ -49,6 +49,7 @@ import type {
   FairnessCommitment,
   FinancialFact,
   AccountingPeriod,
+  AccountingPeriodChangeRequest,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -796,6 +797,200 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         [tenantId, legalEntityId, period],
       );
       return rows[0] ? this.mapAccountingPeriod(rows[0]) : null;
+    }
+
+    async createAccountingPeriodChangeRequest(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      action: "CLOSE" | "REOPEN";
+      requestedBy: string;
+      reason?: string;
+      reopeningRef?: string;
+    }): Promise<AccountingPeriodChangeRequest> {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period)) {
+        throw new ConflictError("INVALID_ACCOUNTING_PERIOD");
+      }
+      if (input.action === "REOPEN" && !input.reopeningRef) {
+        throw new ConflictError("REOPENING_REF_REQUIRED");
+      }
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: periods } = await client.query(
+          `SELECT * FROM accounting_periods
+            WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+            FOR UPDATE`,
+          [input.tenantId, input.legalEntityId, input.period],
+        );
+        const current = periods[0];
+        if (input.action === "CLOSE" && current?.status === "CLOSED") {
+          throw new ConflictError("PERIOD_ALREADY_CLOSED");
+        }
+        if (input.action === "REOPEN" && current?.status !== "CLOSED") {
+          throw new ConflictError("PERIOD_NOT_CLOSED");
+        }
+        const { rows: pending } = await client.query(
+          `SELECT * FROM accounting_period_change_requests
+            WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+              AND action=$4 AND status='PENDING'
+            FOR UPDATE`,
+          [input.tenantId, input.legalEntityId, input.period, input.action],
+        );
+        if (pending[0]) return this.mapAccountingPeriodChangeRequest(pending[0]);
+        const { rows } = await client.query(
+          `INSERT INTO accounting_period_change_requests
+             (tenant_id, legal_entity_id, period, action, requested_by,
+              reason, reopening_ref)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [
+            input.tenantId,
+            input.legalEntityId,
+            input.period,
+            input.action,
+            input.requestedBy,
+            input.reason ?? null,
+            input.reopeningRef ?? null,
+          ],
+        );
+        return this.mapAccountingPeriodChangeRequest(rows[0]);
+      });
+    }
+
+    async listAccountingPeriodChangeRequests(
+      tenantId: string,
+      filter?: {
+        legalEntityId?: string;
+        period?: string;
+        status?: AccountingPeriodChangeRequest["status"];
+      },
+    ): Promise<AccountingPeriodChangeRequest[]> {
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM accounting_period_change_requests WHERE tenant_id=$1";
+      if (filter?.legalEntityId) {
+        params.push(filter.legalEntityId);
+        sql += ` AND legal_entity_id=$${params.length}`;
+      }
+      if (filter?.period) {
+        params.push(filter.period);
+        sql += ` AND period=$${params.length}`;
+      }
+      if (filter?.status) {
+        params.push(filter.status);
+        sql += ` AND status=$${params.length}`;
+      }
+      sql += " ORDER BY requested_at DESC";
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      return rows.map((row: QueryResultRow) =>
+        this.mapAccountingPeriodChangeRequest(row),
+      );
+    }
+
+    async decideAccountingPeriodChange(input: {
+      tenantId: string;
+      requestId: string;
+      approverPersonId: string;
+      decision: "APPROVE" | "REJECT";
+      note?: string;
+    }): Promise<{
+      request: AccountingPeriodChangeRequest;
+      period?: AccountingPeriod;
+    }> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows } = await client.query(
+          `SELECT * FROM accounting_period_change_requests
+            WHERE tenant_id=$1 AND id=$2
+            FOR UPDATE`,
+          [input.tenantId, input.requestId],
+        );
+        if (!rows[0]) notFound("AccountingPeriodChangeRequest", input.requestId);
+        const row = rows[0];
+        if (row.status !== "PENDING") {
+          throw new ConflictError(`APPROVAL_NOT_PENDING: ${row.status}`);
+        }
+        if (row.requested_by === input.approverPersonId) {
+          throw new ConflictError(
+            "APPROVAL_SEPARATION_REQUIRED: requester and approver must be different people",
+          );
+        }
+        let period: AccountingPeriod | undefined;
+        if (input.decision === "APPROVE") {
+          if (row.action === "CLOSE") {
+            const { rows: updated } = await client.query(
+              `UPDATE accounting_periods
+                  SET status='CLOSED', closed_at=now(), closed_by=$4,
+                      close_reason=$5, updated_at=now()
+                WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+                  AND status='OPEN'
+                RETURNING *`,
+              [
+                input.tenantId,
+                row.legal_entity_id,
+                row.period,
+                input.approverPersonId,
+                row.reason,
+              ],
+            );
+            if (updated[0]) {
+              period = this.mapAccountingPeriod(updated[0]);
+            } else {
+              const { rows: inserted } = await client.query(
+                `INSERT INTO accounting_periods
+                   (tenant_id, legal_entity_id, period, status,
+                    closed_at, closed_by, close_reason)
+                 VALUES ($1,$2,$3,'CLOSED',now(),$4,$5)
+                 ON CONFLICT (tenant_id, legal_entity_id, period) DO NOTHING
+                 RETURNING *`,
+                [
+                  input.tenantId,
+                  row.legal_entity_id,
+                  row.period,
+                  input.approverPersonId,
+                  row.reason,
+                ],
+              );
+              if (!inserted[0]) throw new ConflictError("PERIOD_ALREADY_CLOSED");
+              period = this.mapAccountingPeriod(inserted[0]);
+            }
+          } else {
+            const { rows: updated } = await client.query(
+              `UPDATE accounting_periods
+                  SET status='OPEN', reopened_at=now(), reopened_by=$4,
+                      reopening_ref=$5, reopen_reason=$6, updated_at=now()
+                WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+                  AND status='CLOSED'
+                RETURNING *`,
+              [
+                input.tenantId,
+                row.legal_entity_id,
+                row.period,
+                input.approverPersonId,
+                row.reopening_ref,
+                row.reason,
+              ],
+            );
+            if (!updated[0]) throw new ConflictError("PERIOD_NOT_CLOSED");
+            period = this.mapAccountingPeriod(updated[0]);
+          }
+        }
+        const { rows: decided } = await client.query(
+          `UPDATE accounting_period_change_requests
+              SET status=$3, decided_by=$4, decided_at=now(),
+                  decision_note=$5, updated_at=now()
+            WHERE tenant_id=$1 AND id=$2
+            RETURNING *`,
+          [
+            input.tenantId,
+            input.requestId,
+            input.decision === "APPROVE" ? "APPROVED" : "REJECTED",
+            input.approverPersonId,
+            input.note ?? null,
+          ],
+        );
+        return {
+          request: this.mapAccountingPeriodChangeRequest(decided[0]),
+          period,
+        };
+      });
     }
 
     async closeAccountingPeriod(input: {

@@ -518,6 +518,43 @@ describe("key rotation keyring / dual-signature window", () => {
     expect(keys.signingKeys.v2).toBe("rotated-signing-key-0123456789abcdef");
   });
 
+  it("hot-reloads the keyring and switches the active key", () => {
+    const dir = mkdtempSync(join(tmpdir(), "webhook-reload-"));
+    const file = join(dir, "keyring.json");
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "production",
+      WEBHOOK_KEYRING_FILE: file,
+      WEBHOOK_KEY_ID: "2026-10",
+    };
+    writeFileSync(
+      file,
+      JSON.stringify({
+        rawKeys: { "2026-10": OLD_RAW },
+        signingKeys: { "2026-10": OLD_SIGNING },
+      }),
+    );
+    const crypto = createIntegrationCrypto({ env, nodeEnv: "production" });
+    const oldCiphertext = crypto.encryptRawPayload("old");
+    expect(crypto.keyId).toBe("2026-10");
+
+    writeFileSync(
+      file,
+      JSON.stringify({
+        rawKeys: { "2026-10": OLD_RAW, "2026-11": NEW_RAW },
+        signingKeys: {
+          "2026-10": OLD_SIGNING,
+          "2026-11": NEW_SIGNING,
+        },
+      }),
+    );
+    env.WEBHOOK_KEY_ID = "2026-11";
+    crypto.reload();
+    expect(crypto.keyId).toBe("2026-11");
+    expect(crypto.keyIds.sort()).toEqual(["2026-10", "2026-11"]);
+    expect(crypto.decryptRawPayload(oldCiphertext)).toBe("old");
+    expect(crypto.encryptRawPayload("new").startsWith("v2:2026-11:")).toBe(true);
+  });
+
   it("rejects reusing a raw key as a signing key anywhere in the keyrings", () => {
     expectKeyConfigError(
       () =>

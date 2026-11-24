@@ -8,15 +8,22 @@ import { Store } from "../store.js";
 
 const TENANT = "00000000-0000-4000-8000-000000000001";
 const ADMIN = "00000000-0000-4000-8000-000000000001";
+const APPROVER = "00000000-0000-4000-8000-000000000002";
 
-function buildAppFor() {
-  const platformStore = new MemoryPlatformStore({
+function createStore() {
+  return new MemoryPlatformStore({
     demoTenant: {
       id: TENANT,
       name: "Sprint 5 tenant",
       slug: "sprint5",
     },
   });
+}
+
+function buildAppFor(
+  platformStore = createStore(),
+  personId = ADMIN,
+) {
   return buildApp(
     () => new Store(TENANT),
     undefined,
@@ -24,9 +31,9 @@ function buildAppFor() {
       async authenticate() {
         return {
           tenantId: TENANT,
-          userId: "sprint5",
+          userId: personId,
           roles: ["admin", "finance", "integration"],
-          personId: ADMIN,
+          personId,
         };
       },
     },
@@ -92,7 +99,8 @@ describe("Sprint 5 financial integrity", () => {
   });
 
   it("enforces close -> reopen -> reopeningRef on POSTED facts", async () => {
-    const app = buildAppFor();
+    const platformStore = createStore();
+    const app = buildAppFor(platformStore);
     const first = await post(app, "/api/v1/financial-facts", postedFact("F-1"));
     expect(first.statusCode).toBe(201);
 
@@ -102,10 +110,29 @@ describe("Sprint 5 financial integrity", () => {
       actorPersonId: ADMIN,
       reason: "month-end close",
     });
-    expect(close.statusCode).toBe(200);
-    expect((close.json() as { data: { status: string } }).data.status).toBe(
-      "CLOSED",
+    expect(close.statusCode).toBe(202);
+    const changeRequest = (close.json() as { data: { id: string; status: string } }).data;
+    expect(changeRequest.status).toBe("PENDING");
+
+    // 同一人不能自批。
+    const selfApprove = await post(
+      app,
+      `/api/v1/accounting-periods/change-requests/${changeRequest.id}/decide`,
+      { decision: "APPROVE", approverPersonId: ADMIN },
     );
+    expect(selfApprove.statusCode).toBe(409);
+
+    const approverApp = buildAppFor(platformStore, APPROVER);
+    const approve = await post(
+      approverApp,
+      `/api/v1/accounting-periods/change-requests/${changeRequest.id}/decide`,
+      { decision: "APPROVE", approverPersonId: APPROVER, note: "approved" },
+    );
+    expect(approve.statusCode).toBe(200);
+    expect(
+      (approve.json() as { data: { request: { status: string }; period: { status: string } } }).data
+        .period.status,
+    ).toBe("CLOSED");
 
     const blocked = await post(
       app,
@@ -124,7 +151,14 @@ describe("Sprint 5 financial integrity", () => {
       reopeningRef: "REOPEN-S5-A",
       reason: "late invoice",
     });
-    expect(reopen.statusCode).toBe(200);
+    expect(reopen.statusCode).toBe(202);
+    const reopenRequest = (reopen.json() as { data: { id: string } }).data;
+    const reopenApprove = await post(
+      approverApp,
+      `/api/v1/accounting-periods/change-requests/${reopenRequest.id}/decide`,
+      { decision: "APPROVE", approverPersonId: APPROVER, note: "approved" },
+    );
+    expect(reopenApprove.statusCode).toBe(200);
 
     const noRef = await post(
       app,
@@ -147,6 +181,21 @@ describe("Sprint 5 financial integrity", () => {
     expect(saved.instrumentType).toBe("INVOICE");
     expect(saved.recognitionStatus).toBe("POSTED");
 
+    const filtered = (await app.inject({
+      method: "GET",
+      url: `/api/v1/financial-facts?legalEntityId=${LEGAL_ENTITY}&accountingPeriod=${PERIOD}&recognitionStatus=POSTED`,
+    })) as unknown as InjectResult;
+    expect(filtered.statusCode).toBe(200);
+    const facts = (filtered.json() as { data: Array<{ legalEntityId: string; recognitionStatus: string }> }).data;
+    expect(facts.length).toBeGreaterThanOrEqual(1);
+    expect(
+      facts.every(
+        (fact) =>
+          fact.legalEntityId === LEGAL_ENTITY &&
+          fact.recognitionStatus === "POSTED",
+      ),
+    ).toBe(true);
+
     const periods = (await app.inject({
       method: "GET",
       url: `/api/v1/accounting-periods?legalEntityId=${LEGAL_ENTITY}`,
@@ -157,18 +206,28 @@ describe("Sprint 5 financial integrity", () => {
     expect(rows[0]!.status).toBe("OPEN");
   });
 
-  it("can close an empty accounting period without any prior fact", async () => {
-    const app = buildAppFor();
+  it("can close an empty accounting period via the approval flow", async () => {
+    const platformStore = createStore();
+    const app = buildAppFor(platformStore);
     const close = await post(app, "/api/v1/accounting-periods/close", {
       legalEntityId: "LE-EMPTY",
       period: "2026-09",
       actorPersonId: ADMIN,
       reason: "no activity",
     });
-    expect(close.statusCode).toBe(200);
-    expect((close.json() as { data: { status: string } }).data.status).toBe(
-      "CLOSED",
+    expect(close.statusCode).toBe(202);
+    const request = (close.json() as { data: { id: string } }).data;
+    const approverApp = buildAppFor(platformStore, APPROVER);
+    const approve = await post(
+      approverApp,
+      `/api/v1/accounting-periods/change-requests/${request.id}/decide`,
+      { decision: "APPROVE", approverPersonId: APPROVER, note: "approved" },
     );
+    expect(approve.statusCode).toBe(200);
+    expect(
+      (approve.json() as { data: { period: { status: string } } }).data.period
+        .status,
+    ).toBe("CLOSED");
   });
 
   it("does not allow a DRAFT snapshot to un-post a POSTED fact", async () => {

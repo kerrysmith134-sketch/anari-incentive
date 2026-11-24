@@ -65,6 +65,7 @@ import type {
   FairnessCommitment,
   FinancialFact,
   AccountingPeriod,
+  AccountingPeriodChangeRequest,
   OrderLine,
   CommercialOrder,
   Contract,
@@ -223,6 +224,10 @@ export class MemoryPlatformStoreBase {
     protected readonly cashGateInputs = new Map<string, CashGateInput>();
     protected readonly financialFacts = new Map<string, FinancialFact>();
     protected readonly accountingPeriods = new Map<string, AccountingPeriod>();
+    protected readonly accountingPeriodChangeRequests = new Map<
+      string,
+      AccountingPeriodChangeRequest
+    >();
     protected readonly commercialAccounts = new Map<string, Account>();
     protected readonly commercialOpportunities = new Map<string, Opportunity>();
     protected readonly commercialQuotes = new Map<string, Quote>();

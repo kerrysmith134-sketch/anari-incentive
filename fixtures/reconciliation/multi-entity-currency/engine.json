@@ -1,0 +1,6 @@
+[
+  { "personKey": "p1", "amount": "100", "currency": "USD", "legalEntity": "LE-US", "accountingPeriod": "2026-10", "orderId": "SO-1" },
+  { "personKey": "p2", "amount": "50", "currency": "USD", "legalEntity": "LE-US", "accountingPeriod": "2026-10", "orderId": "SO-2" },
+  { "personKey": "p1", "amount": "80", "currency": "EUR", "legalEntity": "LE-EU", "accountingPeriod": "2026-10", "orderId": "SO-3" },
+  { "personKey": "p3", "amount": "12000", "currency": "JPY", "legalEntity": "LE-JP", "accountingPeriod": "2026-10", "orderId": "SO-4" }
+]

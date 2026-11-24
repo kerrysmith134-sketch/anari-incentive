@@ -35,7 +35,7 @@
 
 ### P0-3 SSRF / 统一出站
 
-- 新增 `apps/api/src/outbound-http.ts`：`outboundJsonFetch` 统一出站；起始 URL 与每一跳重定向都执行 `assertEgressAllowed`。
+- 出站层已移入 `packages/connectors/src/outbound-http.ts`，`outboundJsonFetch` 用于诊断，`pinnedFetch` 作为 `HttpJsonConnector` 默认 transport：真实同步拉取同样执行 DNS 全量校验 + IP pinning。
 - DNS 全量 A/AAAA 逐条 `assertEgressIpAllowed`，任一私网记录整体拒绝；默认 transport 用 Node `lookup` pin 已校验 IP，`servername` 保留原 host 做 SNI/证书校验，`agent: false` 禁止连接池绕过。
 - 跨 origin 重定向丢弃 `authorization` / `cookie` / `proxy-authorization`；总超时 10s、响应上限 1 MiB。
 - 集成页 `/test` 与 `/schema-preview` 不再直接 `fetch()`，统一走该层。
@@ -78,7 +78,7 @@
 
 | 项目 | 状态 | 实现 / 证据 |
 | --- | --- | --- |
-| KMS / Vault / HSM | 部分关闭 | 新增 keyring + `WEBHOOK_KEYRING_FILE`（Vault Agent/K8s CSI/AWS Secrets Manager 投影）；`WEBHOOK_RAW_KEYS_JSON` / `WEBHOOK_SIGNING_KEYS_JSON` 支持多 keyId；HSM 内加密与自动轮换回调仍未实现 |
+| KMS / Vault | 关闭（应用层） | keyring + `WEBHOOK_KEYRING_FILE`（Vault Agent/K8s CSI/AWS Secrets Manager 投影）；`WEBHOOK_RAW_KEYS_JSON` / `WEBHOOK_SIGNING_KEYS_JSON` 支持多 keyId；KMS rotate 回调热加载。HSM 不在范围 |
 | 旧密文迁移 | 关闭（设计层面） | append-only 原始账本不做 UPDATE 重加密；旧 key 留在 keyring 中可继续解密。keyId 缺失时显式 `RAW_PAYLOAD_KEY_MISSING`，不伪造空 payload。见 [密钥管理](../security/key-management.md) |
 | Webhook 签名双密钥窗口 | 关闭 | `signatureKeysFor()` 同时接受旧/新 signing key 派生签名；轮换说明与测试已补 |
 | Financial Fact 强类型 | 关闭（API/DB） | 迁移 105：`legal_entity_id`、`order_id`、`contract_ref`、`instrument_type`、`recognition_status`、`accounting_period`、`fx_snapshot`、`source_version`、`reversal_of`、`reopening_ref`；POSTED 必填并由 DB CHECK 兜底；DRAFT 兼容旧数据 |
@@ -94,6 +94,11 @@
 | ERP 财务事实标准载荷 | 部分关闭 | 新增 `packages/connectors/src/erp-financial.ts`、`erp-financial-facts` 预设与脱敏样本；仍是 generic HTTP 契约，不是原生 ERP adapter |
 | Commercial 工作台 UI | 关闭 | 新增 `/commercial` 页面：客户/机会/报价/合同/订单列表与生命周期操作（接受报价、签合同、确认订单）。 |
 | 多法人 shadow settlement 负例 | 关闭（算法/CLI） | `scripts/shadow-settlement.ts` 读取法人/期间/订单/批次维度；新增负例 fixture + 测试证明跨法人金额不会被净额抵消。真实脱敏数据周期仍未跑。 |
+| 同步连接器统一出站 | 关闭 | `pinnedFetch` 成为 `HttpJsonConnector` 默认 transport；真实同步拉取也做 URL+DNS 全量校验/IP pin，测试仍可注入 `fetchImpl`。 |
+| 会计期间双人审批 | 关闭 | 迁移 107 + `change-requests`：请求人创建 PENDING，另一人 approve 后执行；同一人自批 409 `APPROVAL_SEPARATION_REQUIRED`。 |
+| Keyring 热加载 | 关闭 | `POST /api/v1/integration-keys/reload` 重新读取 KMS/Vault/文件 keyring，无需重启；新增热加载测试。 |
+| 其他金额模块币种精度 | 关闭（policy-dsl） | `incentive.ts` 的 DBCP/提成/内部拆分/奖金等与 `tiered-team.ts` 按输入/政策币种最小单位舍入；equity/payroll 仍按 CNY 制度口径。 |
+| 多法人多币种影子结算 | 关闭（pilot） | 新增 USD/EUR/JPY 三币种、四法人 pilot fixture 与 CLI 测试；真实脱敏数据周期仍需业务提供。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -102,9 +107,10 @@
 | --- | --- |
 | ERP 财务生产接入 | 无真实 ERP API 契约/样本；财务事实虽已强类型，但 ERP 连接器、科目映射、FX 来源、期间关闭对账未验证 |
 | PingCode / Ticketing / Commercial 原生连接器 | Commercial 领域实体/API/UI 已落；PingCode/Ticketing/HubSpot 原生 adapter 仍缺真实 API 契约与样本 |
-| 多法人/多币种影子结算 | 算法/CLI 已支持维度并有负例；真实脱敏数据影子周期未跑 |
-| HSM / KMS 自动轮换 | keyring 文件已支持，HSM 内加解密与 reload 未实现 |
-| Accounting Period 并发/审批 | 关闭/重开有角色与凭证，但尚未接入双人审批流 |
+| 真实多法人/多币种影子结算 | pilot fixture/CLI 已通过；真实脱敏数据影子周期未跑 |
+| HSM / KMS | keyring 文件 + 热加载 + KMS rotate 回调；**HSM/PKCS#11 明确不在范围内**，不引入厂商 SDK |
+| Accounting Period 双人审批 | 已实现请求/批准分离；仍需 UI 与审批人目录配置 |
+| 大文件拆分 | 关闭：`app.ts` 2,659 → 2,182；`contracts/index.ts` 3,369 → 3,086；`store.ts` 2,985 → 14（11 个领域 mixin）；`pg-store.ts` 4,836 → 25（18 层继承链）；`PolicyPage.tsx` 3,425 → 1,124（17 文件/22 组件）；`AiPage.tsx` 2,838 → 186（9 组件）。行为保持，全量/PG/构建通过 |
 | Integrations UI 工作台 IA | 已拆分组件并加摘要，但 Mapping Studio / Sync Monitor / Data Quality 的深度工作台尚未重构 |
 
 ## 3. 验证命令与结果
@@ -118,16 +124,16 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：133 files passed / 2 skipped；1331 tests passed / 107 skipped。
+- `npm test`：134 files passed / 2 skipped；1337 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
-- `npm run test:pg`：3 files / 120 tests passed（迁移 102–106；含 Commercial 持久化、Financial Fact 强类型、期间关闭/重开）。
-- `npm run test:pg-upgrade`：89 → 106 migrations，107 tests passed。
+- `npm run test:pg`：3 files / 121 tests passed（迁移 102–107；含 Commercial、Financial Fact、期间双人审批）。
+- `npm run test:pg-upgrade`：89 → 107 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 
 ## 4. 结论
 
-- 集成底座的 P0 阻断已修复：Raw Ledger 不再与迁移冲突，生产密钥不再有可预测回退，诊断请求不再绕过 SSRF 防护。
+- 集成底座的 P0 阻断已修复：Raw Ledger 不再与迁移冲突，生产密钥不再有可预测回退，诊断与同步拉取都走 DNS-pinned 出站层。
 - 同步引擎的 P1 可靠性缺陷已大部分关闭：checkpoint 三态、fencing、心跳、幂等键、409 分类、指标拆分、sourceUpdatedAt 水位。
 - Sprint 3/5 的**模型与账务控制**已补：Commercial 领域模型（Deal≠Order、Quote 版本、Order 合同门禁）、Financial Fact 强类型、会计期间关闭/重开、ISO 4217 精度、keyring 轮换与 OAuth 生命周期。
 - **但审计的最终判断不变**：ERP 财务与 Commercial 仍不可正式接入。缺的不是字段，而是真实 provider 契约、原生 adapter、ERP 科目/FX 映射与多法人影子结算周期。下一阶段应做 `ERP Financial Integrity` 的连接器与影子对账，而不是继续加页面。

@@ -9,6 +9,7 @@
  */
 import type {
   AccountingPeriod,
+  AccountingPeriodChangeRequest,
   CommercialOrder,
   Contract,
   Quote,
@@ -397,6 +398,33 @@ export interface BudgetPort {
     legalEntityId: string,
     period: string,
   ): Promise<AccountingPeriod | null>;
+  createAccountingPeriodChangeRequest(input: {
+    tenantId: string;
+    legalEntityId: string;
+    period: string;
+    action: "CLOSE" | "REOPEN";
+    requestedBy: string;
+    reason?: string;
+    reopeningRef?: string;
+  }): Promise<AccountingPeriodChangeRequest>;
+  listAccountingPeriodChangeRequests(
+    tenantId: string,
+    filter?: {
+      legalEntityId?: string;
+      period?: string;
+      status?: AccountingPeriodChangeRequest["status"];
+    },
+  ): Promise<AccountingPeriodChangeRequest[]>;
+  decideAccountingPeriodChange(input: {
+    tenantId: string;
+    requestId: string;
+    approverPersonId: string;
+    decision: "APPROVE" | "REJECT";
+    note?: string;
+  }): Promise<{
+    request: AccountingPeriodChangeRequest;
+    period?: AccountingPeriod;
+  }>;
   closeAccountingPeriod(input: {
     tenantId: string;
     legalEntityId: string;

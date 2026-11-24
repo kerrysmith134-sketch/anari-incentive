@@ -49,6 +49,7 @@ import type {
   FairnessCommitment,
   FinancialFact,
   AccountingPeriod,
+  AccountingPeriodChangeRequest,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -662,6 +663,130 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       const key = [tenantId, legalEntityId, period].join(":");
       const found = this.accountingPeriods.get(key);
       return found && found.tenantId === tenantId ? found : null;
+    }
+
+    async createAccountingPeriodChangeRequest(input: {
+      tenantId: string;
+      legalEntityId: string;
+      period: string;
+      action: "CLOSE" | "REOPEN";
+      requestedBy: string;
+      reason?: string;
+      reopeningRef?: string;
+    }): Promise<AccountingPeriodChangeRequest> {
+      if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period)) {
+        throw new ConflictError("INVALID_ACCOUNTING_PERIOD");
+      }
+      if (input.action === "REOPEN" && !input.reopeningRef) {
+        throw new ConflictError("REOPENING_REF_REQUIRED");
+      }
+      const key = [input.tenantId, input.legalEntityId, input.period].join(":");
+      const current = this.accountingPeriods.get(key);
+      if (input.action === "CLOSE" && current?.status === "CLOSED") {
+        throw new ConflictError("PERIOD_ALREADY_CLOSED");
+      }
+      if (input.action === "REOPEN" && current?.status !== "CLOSED") {
+        throw new ConflictError("PERIOD_NOT_CLOSED");
+      }
+      const duplicate = [...this.accountingPeriodChangeRequests.values()].find(
+        (request) =>
+          request.tenantId === input.tenantId &&
+          request.legalEntityId === input.legalEntityId &&
+          request.period === input.period &&
+          request.action === input.action &&
+          request.status === "PENDING",
+      );
+      if (duplicate) return duplicate;
+      const timestamp = now();
+      const request: AccountingPeriodChangeRequest = {
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        legalEntityId: input.legalEntityId,
+        period: input.period,
+        action: input.action,
+        status: "PENDING",
+        requestedBy: input.requestedBy,
+        requestedAt: timestamp,
+        reason: input.reason ?? null,
+        reopeningRef: input.reopeningRef ?? null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      this.accountingPeriodChangeRequests.set(request.id, request);
+      return request;
+    }
+
+    async listAccountingPeriodChangeRequests(
+      tenantId: string,
+      filter?: {
+        legalEntityId?: string;
+        period?: string;
+        status?: AccountingPeriodChangeRequest["status"];
+      },
+    ): Promise<AccountingPeriodChangeRequest[]> {
+      return [...this.accountingPeriodChangeRequests.values()]
+        .filter(
+          (request) =>
+            request.tenantId === tenantId &&
+            (!filter?.legalEntityId ||
+              request.legalEntityId === filter.legalEntityId) &&
+            (!filter?.period || request.period === filter.period) &&
+            (!filter?.status || request.status === filter.status),
+        )
+        .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+    }
+
+    async decideAccountingPeriodChange(input: {
+      tenantId: string;
+      requestId: string;
+      approverPersonId: string;
+      decision: "APPROVE" | "REJECT";
+      note?: string;
+    }): Promise<{
+      request: AccountingPeriodChangeRequest;
+      period?: AccountingPeriod;
+    }> {
+      const request = this.accountingPeriodChangeRequests.get(input.requestId);
+      if (!request || request.tenantId !== input.tenantId) {
+        notFound("AccountingPeriodChangeRequest", input.requestId);
+      }
+      if (request.status !== "PENDING") {
+        throw new ConflictError(`APPROVAL_NOT_PENDING: ${request.status}`);
+      }
+      if (request.requestedBy === input.approverPersonId) {
+        throw new ConflictError(
+          "APPROVAL_SEPARATION_REQUIRED: requester and approver must be different people",
+        );
+      }
+      let period: AccountingPeriod | undefined;
+      if (input.decision === "APPROVE") {
+        period =
+          request.action === "CLOSE"
+            ? await this.closeAccountingPeriod({
+                tenantId: request.tenantId,
+                legalEntityId: request.legalEntityId,
+                period: request.period,
+                actorPersonId: input.approverPersonId,
+                reason: request.reason ?? undefined,
+              })
+            : await this.reopenAccountingPeriod({
+                tenantId: request.tenantId,
+                legalEntityId: request.legalEntityId,
+                period: request.period,
+                actorPersonId: input.approverPersonId,
+                reopeningRef: request.reopeningRef ?? "",
+                reason: request.reason ?? "reopened",
+              });
+        request.status = "APPROVED";
+      } else {
+        request.status = "REJECTED";
+      }
+      request.decidedBy = input.approverPersonId;
+      request.decidedAt = now();
+      request.decisionNote = input.note ?? null;
+      request.updatedAt = now();
+      return { request, period };
     }
 
     async closeAccountingPeriod(input: {

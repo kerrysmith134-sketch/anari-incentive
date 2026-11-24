@@ -1,4 +1,5 @@
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
+import { currencyMinorUnits } from "./currency.js";
 import {
   div,
   formatDecimal,
@@ -70,7 +71,11 @@ export function calculateTiered(
   const capValue = parseDecimal(policy.poolCap);
   if (capValue < 0n) throw new Error("poolCap cannot be negative");
   const capped = min(commission, capValue);
-  const poolRounded = roundTo(capped, 2, policy.rounding);
+  const poolRounded = roundTo(
+    capped,
+    currencyMinorUnits(policy.currency),
+    policy.rounding,
+  );
   const lines: CalculationLine[] = allocatePool(policy, input, poolRounded, {
     baseAmount: grossProfit,
     trace: {
@@ -128,7 +133,11 @@ export function calculateTeamPool(
       return capValue;
     })(),
   );
-  const poolRounded = roundTo(pool, 2, policy.rounding);
+  const poolRounded = roundTo(
+    pool,
+    currencyMinorUnits(policy.currency),
+    policy.rounding,
+  );
 
   const roleWeights = policy.roleWeights ?? {};
   const FACTOR = 1_000_000n;

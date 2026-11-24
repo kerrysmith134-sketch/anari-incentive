@@ -7,6 +7,7 @@ import type { IncentiveStore } from "../../store-interface.js";
 import {
   closeAccountingPeriodSchema,
   createCashGateInputSchema,
+  decideAccountingPeriodChangeSchema,
   createDiscretionaryPoolReviewSchema,
   createFinancialFactSchema,
   reopenAccountingPeriodSchema,
@@ -166,65 +167,102 @@ export function registerBudgetRoutes(deps: {
     );
   });
 
-  app.post("/api/v1/accounting-periods/close", async (request) => {
+  app.post("/api/v1/accounting-periods/close", async (request, reply) => {
     requireRoles(request, "finance", "admin");
     const body = parse(closeAccountingPeriodSchema, request.body);
     const actor = requireActorRequired(
       request,
       body.actorPersonId,
-      "close accounting period",
+      "request accounting period close",
     );
-    const closed = await platformStore.closeAccountingPeriod({
+    const change = await platformStore.createAccountingPeriodChangeRequest({
       tenantId: tenantOf(request),
       legalEntityId: body.legalEntityId,
       period: body.period,
-      actorPersonId: actor,
+      action: "CLOSE",
+      requestedBy: actor,
       reason: body.reason,
     });
-    try {
-      await storeFor(request).recordAuditEvent?.({
-        actorType: "USER",
-        actorId: actor,
-        action: "ACCOUNTING_PERIOD_CLOSED",
-        objectType: "ACCOUNTING_PERIOD",
-        objectId: `${body.legalEntityId}/${body.period}`,
-        reason: body.reason,
-      });
-    } catch {
-      /* audit is best-effort */
-    }
-    return data(closed, request);
+    return reply.status(202).send(data(change, request));
   });
 
-  app.post("/api/v1/accounting-periods/reopen", async (request) => {
+  app.post("/api/v1/accounting-periods/reopen", async (request, reply) => {
     requireRoles(request, "finance", "admin");
     const body = parse(reopenAccountingPeriodSchema, request.body);
     const actor = requireActorRequired(
       request,
       body.actorPersonId,
-      "reopen accounting period",
+      "request accounting period reopen",
     );
-    const reopened = await platformStore.reopenAccountingPeriod({
+    const change = await platformStore.createAccountingPeriodChangeRequest({
       tenantId: tenantOf(request),
       legalEntityId: body.legalEntityId,
       period: body.period,
-      actorPersonId: actor,
-      reopeningRef: body.reopeningRef,
+      action: "REOPEN",
+      requestedBy: actor,
       reason: body.reason,
+      reopeningRef: body.reopeningRef,
     });
-    try {
-      await storeFor(request).recordAuditEvent?.({
-        actorType: "USER",
-        actorId: actor,
-        action: "ACCOUNTING_PERIOD_REOPENED",
-        objectType: "ACCOUNTING_PERIOD",
-        objectId: `${body.legalEntityId}/${body.period}`,
-        reason: `${body.reopeningRef}: ${body.reason}`,
+    return reply.status(202).send(data(change, request));
+  });
+
+  app.get("/api/v1/accounting-periods/change-requests", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    const query = request.query as {
+      legalEntityId?: string;
+      period?: string;
+      status?: string;
+    };
+    const status =
+      query.status === "PENDING" ||
+      query.status === "APPROVED" ||
+      query.status === "REJECTED"
+        ? query.status
+        : undefined;
+    return data(
+      await platformStore.listAccountingPeriodChangeRequests(
+        tenantOf(request),
+        {
+          legalEntityId: query.legalEntityId,
+          period: query.period,
+          status,
+        },
+      ),
+      request,
+    );
+  });
+
+  app.post("/api/v1/accounting-periods/change-requests/:id/decide", async (request) => {
+      requireRoles(request, "finance", "admin");
+      const body = parse(decideAccountingPeriodChangeSchema, request.body);
+      const approver = requireActorRequired(
+        request,
+        body.approverPersonId,
+        "decide accounting period change",
+      );
+      const result = await platformStore.decideAccountingPeriodChange({
+        tenantId: tenantOf(request),
+        requestId: idOf(request),
+        approverPersonId: approver,
+        decision: body.decision,
+        note: body.note,
       });
-    } catch {
-      /* audit is best-effort */
-    }
-    return data(reopened, request);
+      try {
+        await storeFor(request).recordAuditEvent?.({
+          actorType: "USER",
+          actorId: approver,
+          action:
+            body.decision === "APPROVE"
+              ? `ACCOUNTING_PERIOD_${result.request.action}ED`
+              : "ACCOUNTING_PERIOD_CHANGE_REJECTED",
+          objectType: "ACCOUNTING_PERIOD_CHANGE_REQUEST",
+          objectId: result.request.id,
+          reason: `${result.request.legalEntityId}/${result.request.period}: ${body.note ?? ""}`,
+        });
+      } catch {
+        /* audit is best-effort */
+      }
+      return data(result, request);
   });
 
   app.get("/api/v1/financial-facts", async (request) => {

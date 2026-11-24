@@ -164,6 +164,8 @@ export interface IntegrationCrypto {
    * the new key becomes active.
    */
   signatureKeysFor(routingKey: string): string[];
+  /** Re-reads the keyring file / env and swaps keys atomically. */
+  reload(): void;
   readonly keyId: string;
   readonly keyIds: string[];
   readonly usedDevDefaults: boolean;
@@ -516,16 +518,22 @@ function parseKeyring(
 export function createIntegrationCrypto(
   options: IntegrationCryptoOptions = {},
 ): IntegrationCrypto {
-  const keys = resolveIntegrationKeys(options);
+  let keys = resolveIntegrationKeys(options);
+  let rawKeys: Record<string, Buffer> = {};
+  let activeRawKey: Buffer = Buffer.alloc(32);
+  let keyId = keys.keyId;
 
-  // AES-256-GCM requires exactly 32 bytes. Hash arbitrary-length key material
-  // (including the >= 32 char production requirement) to 32 bytes.
-  const rawKeys: Record<string, Buffer> = {};
-  for (const [keyId, value] of Object.entries(keys.rawKeys)) {
-    rawKeys[keyId] = createHash("sha256").update(value, "utf8").digest();
-  }
-  const activeRawKey = rawKeys[keys.keyId]!;
-  const keyId = keys.keyId;
+  const apply = (next: ResolvedIntegrationKeys): void => {
+    const nextKeys: Record<string, Buffer> = {};
+    for (const [id, value] of Object.entries(next.rawKeys)) {
+      nextKeys[id] = createHash("sha256").update(value, "utf8").digest();
+    }
+    keys = next;
+    rawKeys = nextKeys;
+    activeRawKey = rawKeys[next.keyId]!;
+    keyId = next.keyId;
+  };
+  apply(keys);
 
   const signatureKeysFor = (routingKey: string): string[] => {
     if (typeof routingKey !== "string") {
@@ -546,9 +554,19 @@ export function createIntegrationCrypto(
   };
 
   return {
-    keyId,
-    keyIds: Object.keys(rawKeys),
-    usedDevDefaults: keys.usedDevDefaults,
+    get keyId() {
+      return keyId;
+    },
+    get keyIds() {
+      return Object.keys(rawKeys);
+    },
+    get usedDevDefaults() {
+      return keys.usedDevDefaults;
+    },
+
+    reload(): void {
+      apply(resolveIntegrationKeys(options));
+    },
 
     signatureKeysFor,
 
@@ -606,8 +624,6 @@ export function createIntegrationCrypto(
         }
       }
 
-      // Legacy v1 has no keyId: try the active key first, then every keyring
-      // entry so a rotation does not make historical rows unreadable.
       let lastError: unknown;
       const candidates: Array<[string, Buffer]> = [
         [keyId, activeRawKey],

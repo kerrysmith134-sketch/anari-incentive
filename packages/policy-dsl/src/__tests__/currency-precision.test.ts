@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CalculationInput, PolicyDefinition } from "@anari/domain";
 import {
+  calculateBusinessUnitCommission,
+  calculateDbcp,
   calculateOrderContribution,
   currencyMinorUnits,
   currencyStep,
@@ -91,5 +93,40 @@ describe("ISO 4217 currency precision", () => {
     for (const line of result.lines) {
       expect(line.roundedAmount).not.toContain(".");
     }
+  });
+});
+
+describe("incentive modules use input currency", () => {
+  it("rounds DBCP and commission to JPY whole yen", () => {
+    const dbcp = calculateDbcp({
+      grossProfit: "100.4",
+      businessExpenses: "0",
+      laborAndTravel: "0",
+      allocatedBusinessUnitExpenses: "0",
+      allocatedBackendPayroll: "0",
+      managementProvisionRatePercent: "0",
+      currency: "JPY",
+    });
+    expect(dbcp.grossProfit).toBe("100");
+    expect(dbcp.dbcp).toBe("100");
+
+    const commission = calculateBusinessUnitCommission({
+      dbcp: "160",
+      netCollection: "1000",
+      currency: "JPY",
+    });
+    expect(commission.commission).not.toContain(".");
+  });
+
+  it("keeps CNY two-decimal behavior by default", () => {
+    const dbcp = calculateDbcp({
+      grossProfit: "100.44",
+      businessExpenses: "0",
+      laborAndTravel: "0",
+      allocatedBusinessUnitExpenses: "0",
+      allocatedBackendPayroll: "0",
+      managementProvisionRatePercent: "0",
+    });
+    expect(dbcp.grossProfit).toBe("100.44");
   });
 });

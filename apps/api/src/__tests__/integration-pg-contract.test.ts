@@ -460,6 +460,56 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
     expect(orders.map((entry) => entry.orderNumber)).toContain(`SO-${suffix}`);
   });
 
+  it("Sprint 5 会计期间双人审批：请求人不能自批，批准后执行关闭/重开", async () => {
+    const store = new PgPlatformStore(pool);
+    const legalEntityId = `LE-APPROVAL-${randomUUID().slice(0, 8)}`;
+    const period = "2026-11";
+    const request = await store.createAccountingPeriodChangeRequest({
+      tenantId: CONTRACT_TENANT_ID,
+      legalEntityId,
+      period,
+      action: "CLOSE",
+      requestedBy: CONTRACT_TENANT_ID,
+      reason: "month end",
+    });
+    expect(request.status).toBe("PENDING");
+    await expect(
+      store.decideAccountingPeriodChange({
+        tenantId: CONTRACT_TENANT_ID,
+        requestId: request.id,
+        approverPersonId: CONTRACT_TENANT_ID,
+        decision: "APPROVE",
+      }),
+    ).rejects.toThrow(/APPROVAL_SEPARATION_REQUIRED/);
+    const decided = await store.decideAccountingPeriodChange({
+      tenantId: CONTRACT_TENANT_ID,
+      requestId: request.id,
+      approverPersonId: randomUUID(),
+      decision: "APPROVE",
+      note: "approved",
+    });
+    expect(decided.request.status).toBe("APPROVED");
+    expect(decided.period?.status).toBe("CLOSED");
+
+    const reopen = await store.createAccountingPeriodChangeRequest({
+      tenantId: CONTRACT_TENANT_ID,
+      legalEntityId,
+      period,
+      action: "REOPEN",
+      requestedBy: CONTRACT_TENANT_ID,
+      reopeningRef: "REOPEN-APPROVAL-1",
+      reason: "late invoice",
+    });
+    const reopened = await store.decideAccountingPeriodChange({
+      tenantId: CONTRACT_TENANT_ID,
+      requestId: reopen.id,
+      approverPersonId: randomUUID(),
+      decision: "APPROVE",
+    });
+    expect(reopened.period?.status).toBe("OPEN");
+    expect(reopened.period?.reopeningRef).toBe("REOPEN-APPROVAL-1");
+  });
+
   it("Sprint 5 财务事实：POSTED 强类型 + 会计期间关闭/重开凭证", async () => {
     const store = new PgPlatformStore(pool);
     const legalEntityId = `LE-TEST-${randomUUID().slice(0, 8)}`;

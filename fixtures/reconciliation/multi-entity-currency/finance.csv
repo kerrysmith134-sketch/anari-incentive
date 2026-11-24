@@ -1,0 +1,5 @@
+person_key,amount,currency,legal_entity,accounting_period,order_id
+p1,100,USD,LE-US,2026-10,SO-1
+p2,50,USD,LE-US,2026-10,SO-2
+p1,80,EUR,LE-EU,2026-10,SO-3
+p3,12000,JPY,LE-JP,2026-10,SO-4

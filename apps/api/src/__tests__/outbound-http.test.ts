@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   outboundJsonFetch,
+  pinnedFetch,
   redactSample,
   type OutboundAddress,
   type OutboundHttpResponse,
@@ -597,5 +598,22 @@ describe("redactSample：PII/密钥脱敏", () => {
   it("从非零 depth 开始调用时沿用剩余深度", () => {
     const nested = { child: { child: { leaf: 1 } } };
     expect(redactSample(nested, 6)).toBe("[TRUNCATED]");
+  });
+});
+
+describe("pinnedFetch (sync connector default transport)", () => {
+  it("rejects private/loopback URLs before any connection", async () => {
+    await expect(pinnedFetch("https://127.0.0.1/internal")).rejects.toThrow(
+      /EGRESS_/,
+    );
+    await expect(pinnedFetch("http://169.254.169.254/latest/meta-data")).rejects.toThrow(
+      /EGRESS_/,
+    );
+  });
+
+  it("rejects URL-embedded credentials", async () => {
+    await expect(
+      pinnedFetch("https://user:pass@provider.example/api"),
+    ).rejects.toThrow(/OUTBOUND_URL_CREDENTIALS_BLOCKED/);
   });
 });

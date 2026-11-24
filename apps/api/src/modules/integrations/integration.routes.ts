@@ -310,6 +310,54 @@ export function registerIntegrationRoutes(deps: {
 
 
   return async (app: FastifyInstance) => {
+  // INT-217：KMS 主动轮换回调（无员工会话；共享 token + 常数时间比较）。
+  app.post("/api/v1/integration-keys/rotate", async (request, reply) => {
+    const expected = process.env.WEBHOOK_ROTATION_CALLBACK_TOKEN;
+    if (!expected || expected.length < 32) {
+      return reply.status(404).send(
+        errorBody(
+          "ROTATION_CALLBACK_DISABLED",
+          "WEBHOOK_ROTATION_CALLBACK_TOKEN is not configured",
+        ),
+      );
+    }
+    const provided = String(request.headers["x-rotation-token"] ?? "");
+    if (
+      provided.length !== expected.length ||
+      !timingSafeEqualStr(provided, expected)
+    ) {
+      countEvent("integration_rotation_callback_rejected");
+      return reply.status(401).send(
+        errorBody("ROTATION_TOKEN_INVALID", "invalid rotation token"),
+      );
+    }
+    integrationCrypto.reload();
+    countEvent("integration_keys_rotated_by_callback");
+    return data(
+      {
+        keyId: integrationCrypto.keyId,
+        keyIds: integrationCrypto.keyIds,
+        rotatedAt: new Date().toISOString(),
+      },
+      request,
+    );
+  });
+
+  // INT-216：KMS/Vault/文件 keyring 热加载（无需重启 API）。
+  app.post("/api/v1/integration-keys/reload", async (request) => {
+    requireRoles(request, "admin");
+    integrationCrypto.reload();
+    countEvent("integration_keys_reloaded");
+    return data(
+      {
+        keyId: integrationCrypto.keyId,
+        keyIds: integrationCrypto.keyIds,
+        reloadedAt: new Date().toISOString(),
+      },
+      request,
+    );
+  });
+
   app.post("/api/v1/integration-connections", async (request, reply) => {
     requireRoles(request, "admin");
     const body = parse(createIntegrationConnectionSchema, request.body);

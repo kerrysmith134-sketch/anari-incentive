@@ -918,6 +918,26 @@ export interface AccountingPeriod {
   updatedAt: string;
 }
 
+/** 会计期间变更请求（双人审批；请求人/审批人不得同一人）。 */
+export interface AccountingPeriodChangeRequest {
+  id: UUID;
+  tenantId: UUID;
+  legalEntityId: string;
+  /** YYYY-MM */
+  period: string;
+  action: "CLOSE" | "REOPEN";
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requestedBy: UUID;
+  requestedAt: string;
+  reason?: string | null;
+  reopeningRef?: string | null;
+  decidedBy?: UUID | null;
+  decidedAt?: string | null;
+  decisionNote?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FinancialFact {
   id: UUID;
   tenantId: UUID;

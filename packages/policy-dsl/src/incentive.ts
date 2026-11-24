@@ -17,6 +17,7 @@ import type {
   TechCenterPoolInput,
   TechCenterPoolResult,
 } from "@anari/domain";
+import { currencyMinorUnits } from "./currency.js";
 import {
   div,
   formatDecimal,
@@ -67,6 +68,8 @@ const clamp = (value: bigint, lower: bigint, upper: bigint): bigint =>
 
 /** 016 第六条：业务中心可分配贡献利润（DBCP）。 */
 export function calculateDbcp(input: DbcpStatementInput): DbcpStatementResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   const grossProfit = parseDecimal(input.grossProfit);
   const base = requireNonNegative(
     "管理计提基数",
@@ -81,10 +84,10 @@ export function calculateDbcp(input: DbcpStatementInput): DbcpStatementResult {
     requireNonNegative("分摊后台人力成本", input.allocatedBackendPayroll) +
     provision;
   return {
-    grossProfit: formatDecimal(roundTo(grossProfit, 2, "HALF_UP")),
-    totalDeductions: formatDecimal(roundTo(deductions, 2, "HALF_UP")),
-    managementProvision: formatDecimal(roundTo(provision, 2, "HALF_UP")),
-    dbcp: formatDecimal(roundTo(grossProfit - deductions, 2, "HALF_UP")),
+    grossProfit: formatDecimal(roundTo(grossProfit, minorUnits, "HALF_UP")),
+    totalDeductions: formatDecimal(roundTo(deductions, minorUnits, "HALF_UP")),
+    managementProvision: formatDecimal(roundTo(provision, minorUnits, "HALF_UP")),
+    dbcp: formatDecimal(roundTo(grossProfit - deductions, minorUnits, "HALF_UP")),
   };
 }
 
@@ -103,6 +106,8 @@ const DEFAULT_MARGIN_BANDS = [
 export function calculateBusinessUnitCommission(
   input: BusinessUnitCommissionInput,
 ): BusinessUnitCommissionResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   const dbcp = parseDecimal(input.dbcp);
   const netCollection = requireNonNegative("净回款", input.netCollection);
   const rawBands = (input.bands ?? DEFAULT_MARGIN_BANDS).map((band) => ({
@@ -147,7 +152,7 @@ export function calculateBusinessUnitCommission(
   return {
     marginPercent: formatDecimal(roundTo(margin, 4, "HALF_UP")),
     bandRatePercent: formatDecimal(rate),
-    commission: formatDecimal(roundTo(commission, 2, "HALF_UP")),
+    commission: formatDecimal(roundTo(commission, minorUnits, "HALF_UP")),
     eligible: rate > 0n,
     reason: rate === 0n ? "可分配利润率低于 8%" : undefined,
   };
@@ -160,6 +165,8 @@ export function calculateBusinessUnitCommission(
 export function calculateExecutiveSupplement(
   input: ExecutiveSupplementInput,
 ): ExecutiveSupplementResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   const score = parseDecimal(input.managementScore);
   let managementK = ZERO;
   if (score >= HUNDRED) managementK = parseDecimal("1");
@@ -171,8 +178,8 @@ export function calculateExecutiveSupplement(
   const supplement = max(ZERO, gross - parseDecimal(input.marketingReward));
   return {
     managementK: formatDecimal(roundTo(managementK, 4, "HALF_UP")),
-    grossSupplement: formatDecimal(roundTo(gross, 2, "HALF_UP")),
-    supplement: formatDecimal(roundTo(supplement, 2, "HALF_UP")),
+    grossSupplement: formatDecimal(roundTo(gross, minorUnits, "HALF_UP")),
+    supplement: formatDecimal(roundTo(supplement, minorUnits, "HALF_UP")),
   };
 }
 
@@ -183,6 +190,8 @@ export function calculateExecutiveSupplement(
 export function calculateInternalSplit(
   input: InternalSplitInput,
 ): InternalSplitResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   const pool = requireNonNegative("提成池", input.commissionPool);
   const marketing = requireNonNegative("营销奖励", input.marketingReward);
   const supplement = requireNonNegative("管理补差", input.executiveSupplement);
@@ -259,9 +268,9 @@ export function calculateInternalSplit(
   }
   const unallocated = remaining - allocated;
   return {
-    remainingPool: formatDecimal(roundTo(remaining, 2, "HALF_UP")),
-    allocated: formatDecimal(roundTo(allocated, 2, "HALF_UP")),
-    unallocated: formatDecimal(roundTo(unallocated, 2, "HALF_UP")),
+    remainingPool: formatDecimal(roundTo(remaining, minorUnits, "HALF_UP")),
+    allocated: formatDecimal(roundTo(allocated, minorUnits, "HALF_UP")),
+    unallocated: formatDecimal(roundTo(unallocated, minorUnits, "HALF_UP")),
     allocations: allocations.map((entry) => ({
       personId: entry.personId,
       amount: formatDecimal(entry.amount),
@@ -275,6 +284,8 @@ export function calculateInternalSplit(
 export function calculateBountySettlement(
   input: BountySettlementInput,
 ): BountySettlementResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   let timeCoefficient: bigint;
   if (input.extensionApproved) {
     timeCoefficient = parseDecimal("1");
@@ -345,6 +356,8 @@ const TECH_AWARD_FIXED: Partial<Record<string, string>> = {
 export function calculateTechCenterAward(
   input: TechCenterAwardInput,
 ): TechCenterAwardResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   const quantity = BigInt(Math.max(0, Math.trunc(input.quantity ?? 1)));
   const share = parseDecimal(input.personalShare ?? "1");
   let gross = ZERO;
@@ -451,10 +464,10 @@ export function calculateTechCenterAward(
     gross = mul(gross, parseDecimal("1") - delay);
     note = "按延期比例扣减";
   }
-  const personal = roundTo(mul(gross, share), 2, "HALF_UP");
+  const personal = roundTo(mul(gross, share), minorUnits, "HALF_UP");
   return {
     awardType: input.awardType,
-    grossAmount: formatDecimal(roundTo(gross, 2, "HALF_UP")),
+    grossAmount: formatDecimal(roundTo(gross, minorUnits, "HALF_UP")),
     personalAmount: formatDecimal(personal),
     cappable,
     note,
@@ -469,6 +482,8 @@ export function calculateTechCenterAward(
 export function calculateTechCenterPool(
   input: TechCenterPoolInput,
 ): TechCenterPoolResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   requireNonNegative("业务中心提成总额", input.totalBusinessCommission);
   requireUniquePersonIds(
     "技术中心成员",
@@ -514,11 +529,11 @@ export function calculateTechCenterPool(
       totalWeight <= 0n
         ? "0"
         : formatDecimal(
-            roundTo(div(mul(pool, entry.weight), totalWeight), 2, "HALF_UP"),
+            roundTo(div(mul(pool, entry.weight), totalWeight), minorUnits, "HALF_UP"),
           ),
   }));
   return {
-    poolAmount: formatDecimal(roundTo(pool, 2, "HALF_UP")),
+    poolAmount: formatDecimal(roundTo(pool, minorUnits, "HALF_UP")),
     headAdjustment: formatDecimal(headAdjustment),
     allocations,
   };
@@ -528,6 +543,8 @@ export function calculateTechCenterPool(
 export function calculateOverseasSalesAward(
   input: OverseasSalesAwardInput,
 ): OverseasSalesAwardResult {
+  const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
+
   if (input.maliciousPoaching) {
     return {
       grossAmount: "0",
@@ -605,10 +622,10 @@ export function calculateOverseasSalesAward(
     note = `${note ?? ""}；KA 次年在手订单下降超 30%，追回已发奖金的 50%`;
   }
   return {
-    grossAmount: formatDecimal(roundTo(gross, 2, "HALF_UP")),
-    deduction: formatDecimal(roundTo(deduction, 2, "HALF_UP")),
-    netAmount: formatDecimal(roundTo(net, 2, "HALF_UP")),
-    recoverableAmount: formatDecimal(roundTo(recoverable, 2, "HALF_UP")),
+    grossAmount: formatDecimal(roundTo(gross, minorUnits, "HALF_UP")),
+    deduction: formatDecimal(roundTo(deduction, minorUnits, "HALF_UP")),
+    netAmount: formatDecimal(roundTo(net, minorUnits, "HALF_UP")),
+    recoverableAmount: formatDecimal(roundTo(recoverable, minorUnits, "HALF_UP")),
     disqualified: false,
     note,
   };

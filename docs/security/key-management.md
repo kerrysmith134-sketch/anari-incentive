@@ -63,9 +63,9 @@ WEBHOOK_KEYRING_FILE=/run/secrets/webhook-keyring.json
 
 1. **Sidecar 文件投影**（本仓库已支持）：Vault Agent / Kubernetes CSI / AWS Secrets Manager 把 keyring 写到 `WEBHOOK_KEYRING_FILE`；进程启动读取一次。轮换需要滚动重启。
 2. **环境变量注入**：由编排平台从 KMS 解密后注入；适合短期过渡。
-3. **自定义 SecretProvider**：在 `createIntegrationCrypto({ rawKeys, signingKeys })` 调用处从 Vault/KMS SDK 取 key；API/worker 可在启动时拉取，或由外部控制器生成 keyring 文件。
+3. **KMS 主动轮换回调**：配置 `WEBHOOK_ROTATION_CALLBACK_TOKEN`（>=32 字符）后，外部 KMS/控制器可调用 `POST /api/v1/integration-keys/rotate` 并携带 `x-rotation-token`，无需员工会话即可热加载 keyring。
 
-尚未实现：HSM 内加密（当前 AES key 在进程内存）、KMS 自动轮换回调、keyring 热加载。生产接入 KMS 时应把 keyring 文件权限设为 `0400`、挂载为 tmpfs，并限制 sidecar 的读取主体。
+**HSM 不支持，也不在本项目范围内。** 本项目只做应用层 AES-256-GCM + keyring 轮换；不引入 PKCS#11/HSM 厂商 SDK，不承诺 HSM 内加解密。KMS 侧只需把 keyring 投影为文件，并通过 rotate 回调触发 reload。生产接入 KMS 时应把 keyring 文件权限设为 `0400`、挂载为 tmpfs，并限制 sidecar 的读取主体。
 
 ## 4. 失败语义
 

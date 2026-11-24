@@ -65,6 +65,7 @@ import type {
   FairnessCommitment,
   FinancialFact,
   AccountingPeriod,
+  AccountingPeriodChangeRequest,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -1349,6 +1350,28 @@ export class PgPlatformStoreBase {
     };
   }
   
+  protected mapAccountingPeriodChangeRequest(
+    row: QueryResultRow,
+  ): AccountingPeriodChangeRequest {
+    return {
+      id: row.id,
+      tenantId: row.tenant_id,
+      legalEntityId: row.legal_entity_id,
+      period: row.period,
+      action: row.action,
+      status: row.status,
+      requestedBy: row.requested_by,
+      requestedAt: iso(row.requested_at) ?? new Date().toISOString(),
+      reason: row.reason ?? null,
+      reopeningRef: row.reopening_ref ?? null,
+      decidedBy: row.decided_by ?? null,
+      decidedAt: iso(row.decided_at),
+      decisionNote: row.decision_note ?? null,
+      createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      updatedAt: iso(row.updated_at) ?? new Date().toISOString(),
+    };
+  }
+
   protected mapRuleChangeOrder(row: QueryResultRow): RuleChangeOrder {
     return {
       id: row.id,

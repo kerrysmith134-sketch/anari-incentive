@@ -12,3 +12,4 @@ export * from "./feishu-directory.js";
 export * from "./sync-runner.js";
 export * from "./canonical.js";
 export * from "./erp-financial.js";
+export * from "./outbound-http.js";

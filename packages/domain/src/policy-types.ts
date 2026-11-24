@@ -286,6 +286,8 @@ export interface MonthlyStarEvaluationResult {
 // ---------------------------------------------------------------------------
 
 export interface DbcpStatementInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   grossProfit: DecimalString;
   businessExpenses: DecimalString;
   laborAndTravel: DecimalString;
@@ -305,6 +307,8 @@ export interface DbcpStatementResult {
 }
 
 export interface BusinessUnitCommissionInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   dbcp: DecimalString;
   netCollection: DecimalString;
   /** 覆盖档位表，用于模拟；不传使用制度默认档位。 */
@@ -321,6 +325,8 @@ export interface BusinessUnitCommissionResult {
 
 /** 第八条 执行总监管理补差。 */
 export interface ExecutiveSupplementInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   dbcp: DecimalString;
   managementScore: DecimalString;
   marketingReward: DecimalString;
@@ -339,6 +345,8 @@ export interface InternalSplitParticipant {
 }
 
 export interface InternalSplitInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   commissionPool: DecimalString;
   marketingReward: DecimalString;
   executiveSupplement: DecimalString;
@@ -363,6 +371,8 @@ export type BountyQualityGrade =
   | "FAILED";
 
 export interface BountySettlementInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   baseReward: DecimalString;
   delayWorkingDays: number;
   keyMilestoneMissed?: boolean;
@@ -403,6 +413,8 @@ export type TechCenterAwardType =
   | "SPECIAL_TECH_CONTRIBUTION";
 
 export interface TechCenterAwardInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   awardType: TechCenterAwardType;
   /** 定制项目费、年度节约金额、GA 奖励等可变基数。 */
   baseAmount?: DecimalString;
@@ -431,6 +443,8 @@ export interface TechCenterAwardResult {
 }
 
 export interface TechCenterPoolInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   totalBusinessCommission: DecimalString;
   members: Array<{
     personId: UUID;
@@ -456,6 +470,8 @@ export interface TechCenterPoolResult {
 
 /** 003 海外销售激励。 */
 export interface OverseasSalesAwardInput {
+  /** ISO 4217；缺省 CNY（制度金额模块）。 */
+  currency?: string;
   awardType:
     | "NEW_CUSTOMER_STAR"
     | "KA_BREAKTHROUGH"
