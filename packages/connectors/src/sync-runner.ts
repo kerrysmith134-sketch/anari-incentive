@@ -163,11 +163,22 @@ async function resolveSubject(
 
 /** NP-015：路由由 mapping.targetType 显式决定；不再从 evidenceType 猜测。 */
 export function routeTarget(targetType: string | undefined): {
-  route: "EVIDENCE" | "FINANCIAL_FACT" | "QUARANTINE";
+  route:
+    | "EVIDENCE"
+    | "FINANCIAL_FACT"
+    | "COMMERCIAL_ACCOUNT"
+    | "COMMERCIAL_OPPORTUNITY"
+    | "QUARANTINE";
   reason?: string;
 } {
   if (targetType === "EVIDENCE") return { route: "EVIDENCE" };
   if (targetType === "FINANCIAL_FACT") return { route: "FINANCIAL_FACT" };
+  if (targetType === "COMMERCIAL_ACCOUNT") {
+    return { route: "COMMERCIAL_ACCOUNT" };
+  }
+  if (targetType === "COMMERCIAL_OPPORTUNITY") {
+    return { route: "COMMERCIAL_OPPORTUNITY" };
+  }
   return {
     route: "QUARANTINE",
     reason: "SCHEMA_MISMATCH",
@@ -193,6 +204,7 @@ export interface ParsedFinancialFact {
   };
   sourceVersion?: string;
   reversalOf?: string;
+  reopeningRef?: string;
 }
 
 const INSTRUMENT_TYPES = new Set([
@@ -261,6 +273,7 @@ export function parseFinancialFact(
   const sourceVersion =
     textValue(payload.sourceVersion) ?? textValue(event.sourceEventVersion);
   const reversalOf = textValue(payload.reversalOf);
+  const reopeningRef = textValue(payload.reopeningRef);
 
   if (accountingPeriod && !ACCOUNTING_PERIOD_PATTERN.test(accountingPeriod)) {
     return {
@@ -320,6 +333,7 @@ export function parseFinancialFact(
     fxSnapshot,
     sourceVersion,
     reversalOf,
+    reopeningRef,
   };
 }
 
@@ -795,6 +809,98 @@ export async function runSyncCycle(deps: {
             projectedKeys.add(projectionKey);
             const routing = routeTarget(mapping.targetType);
             try {
+              if (routing.route === "COMMERCIAL_ACCOUNT") {
+                const payload = (event.payload ?? {}) as Record<string, unknown>;
+                const externalAccountId = String(
+                  payload.externalAccountId ?? event.sourceRecordId ?? "",
+                ).trim();
+                const name = String(
+                  payload.name ?? payload.accountName ?? "",
+                ).trim();
+                if (!externalAccountId || !name) {
+                  counters.recordsInvalid += 1;
+                  counters.recordsQuarantined += 1;
+                  await recordQuarantine(request, {
+                    sourceSystem: mapping.sourceSystem,
+                    externalRecordId,
+                    reason: "SCHEMA_MISMATCH",
+                    payload: { raw: payload, detail: "commercial account requires externalAccountId and name" },
+                  });
+                  continue;
+                }
+                const result = await request<{ created: boolean }>(
+                  "/api/v1/commercial/import/accounts",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      sourceSystem: mapping.sourceSystem,
+                      externalAccountId,
+                      name,
+                    }),
+                  },
+                );
+                if (result.created) counters.recordsCreated += 1;
+                else counters.recordsUpdated += 1;
+                counters.recordsUpserted += 1;
+                continue;
+              }
+              if (routing.route === "COMMERCIAL_OPPORTUNITY") {
+                const payload = (event.payload ?? {}) as Record<string, unknown>;
+                const externalAccountId = String(
+                  payload.externalAccountId ?? payload.accountId ?? "",
+                ).trim();
+                const accountName = String(
+                  payload.accountName ?? payload.account ?? "",
+                ).trim();
+                const externalOpportunityId = String(
+                  payload.externalOpportunityId ??
+                    event.sourceRecordId ??
+                    canonical.externalObjectId,
+                ).trim();
+                const name = String(payload.name ?? payload.opportunityName ?? "").trim();
+                const currency = String(payload.currency ?? "").trim().toUpperCase();
+                if (
+                  !externalAccountId ||
+                  !accountName ||
+                  !externalOpportunityId ||
+                  !name ||
+                  !/^[A-Z]{3}$/.test(currency)
+                ) {
+                  counters.recordsInvalid += 1;
+                  counters.recordsQuarantined += 1;
+                  await recordQuarantine(request, {
+                    sourceSystem: mapping.sourceSystem,
+                    externalRecordId,
+                    reason: "SCHEMA_MISMATCH",
+                    payload: {
+                      raw: payload,
+                      detail:
+                        "commercial opportunity requires externalAccountId, accountName, externalOpportunityId, name, currency",
+                    },
+                  });
+                  continue;
+                }
+                const result = await request<{ created: boolean }>(
+                  "/api/v1/commercial/import/opportunities",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      sourceSystem: mapping.sourceSystem,
+                      externalAccountId,
+                      accountName,
+                      externalOpportunityId,
+                      name,
+                      currency,
+                      stage: payload.stage,
+                      estimatedAmount: payload.estimatedAmount,
+                    }),
+                  },
+                );
+                if (result.created) counters.recordsCreated += 1;
+                else counters.recordsUpdated += 1;
+                counters.recordsUpserted += 1;
+                continue;
+              }
               if (routing.route === "EVIDENCE") {
                 // NP-008 + INT-207：外部 ID（含 UUID 形态）先解析身份；未解析 → 隔离。
                 const subject = await resolveSubject(
@@ -875,6 +981,7 @@ export async function runSyncCycle(deps: {
                     fxSnapshot: parsed.fxSnapshot,
                     sourceVersion: parsed.sourceVersion ?? canonical.sourceVersion,
                     reversalOf: parsed.reversalOf,
+                    reopeningRef: parsed.reopeningRef,
                     payload: event.payload,
                   }),
                 );

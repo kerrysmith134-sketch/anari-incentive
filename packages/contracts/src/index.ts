@@ -2895,6 +2895,34 @@ export function describeRequestSchema(schema: unknown): RequestSchemaContract {
   return { required: required.sort(), optional: optional.sort() };
 }
 
+/** Commercial 外部同步：source-aware upsert（Account / Opportunity）。 */
+export const importCommercialAccountSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalAccountId: z.string().min(1),
+  name: z.string().min(1),
+  ownerPersonId: uuidSchema.optional(),
+});
+export type ImportCommercialAccountBody = z.infer<
+  typeof importCommercialAccountSchema
+>;
+
+export const importCommercialOpportunitySchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalAccountId: z.string().min(1),
+  accountName: z.string().min(1),
+  externalOpportunityId: z.string().min(1),
+  name: z.string().min(1),
+  stage: z
+    .enum(["PROSPECT", "QUALIFIED", "PROPOSAL", "WON", "LOST"])
+    .optional(),
+  estimatedAmount: decimal.optional(),
+  currency: z.string().length(3),
+  ownerPersonId: uuidSchema.optional(),
+});
+export type ImportCommercialOpportunityBody = z.infer<
+  typeof importCommercialOpportunitySchema
+>;
+
 export const requestSchemaRegistry = {
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,
@@ -2933,6 +2961,8 @@ export const requestSchemaRegistry = {
   CreateCommercialQuote: createCommercialQuoteSchema,
   CreateCommercialContract: createCommercialContractSchema,
   CreateCommercialOrder: createCommercialOrderSchema,
+  ImportCommercialAccount: importCommercialAccountSchema,
+  ImportCommercialOpportunity: importCommercialOpportunitySchema,
   CloseAccountingPeriod: closeAccountingPeriodSchema,
   ReopenAccountingPeriod: reopenAccountingPeriodSchema,
   CreatePayrollRun: createPayrollRunSchema,

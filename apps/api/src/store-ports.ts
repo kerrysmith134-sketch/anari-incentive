@@ -465,6 +465,29 @@ export interface CommercialPort {
     tenantId: string,
     accountId?: string,
   ): Promise<Opportunity[]>;
+  upsertCommercialAccount(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalAccountId: string;
+    name: string;
+    ownerPersonId?: string;
+  }): Promise<{ account: Account; created: boolean }>;
+  upsertCommercialOpportunity(input: {
+    tenantId: string;
+    sourceSystem: string;
+    externalAccountId: string;
+    accountName: string;
+    externalOpportunityId: string;
+    name: string;
+    stage?: Opportunity["stage"];
+    estimatedAmount?: string;
+    currency: string;
+    ownerPersonId?: string;
+  }): Promise<{
+    account: Account;
+    opportunity: Opportunity;
+    created: boolean;
+  }>;
   createQuote(input: {
     tenantId: string;
     opportunityId: string;

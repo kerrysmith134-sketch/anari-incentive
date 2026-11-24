@@ -84,7 +84,7 @@
 | Financial Fact 强类型 | 关闭（API/DB） | 迁移 105：`legal_entity_id`、`order_id`、`contract_ref`、`instrument_type`、`recognition_status`、`accounting_period`、`fx_snapshot`、`source_version`、`reversal_of`、`reopening_ref`；POSTED 必填并由 DB CHECK 兜底；DRAFT 兼容旧数据 |
 | Accounting Period 关闭/重开 | 关闭 | `accounting_periods` 表 + `GET /api/v1/accounting-periods`、`POST .../close`、`POST .../reopen`；关闭后 POSTED 409 `PERIOD_CLOSED`，重开后必须携带同一 `reopeningRef` |
 | 币种精度（JPY/KWD） | 关闭 | `packages/policy-dsl/src/currency.ts`：ISO 4217 minor units（JPY 0 / USD 2 / KWD 3）；分配池、余数、现金加权模型按币种最小单位舍入 |
-| Commercial / PingCode / Ticketing Adapter | 未关闭 | Commercial 领域实体/API 已落（迁移 106），但 HubSpot/Commercial/PingCode/Ticketing 原生 adapter 仍无真实 API 契约与样本；README 真值表保持 `NOT_READY` |
+| Commercial / PingCode / Ticketing Adapter | 部分关闭 | Commercial Account/Opportunity 已接入 runner；Quote/Contract/Order 外部导入、HubSpot/PingCode/Ticketing 原生 adapter 仍未完成 |
 | Account→Opportunity→Quote→Contract→Order 领域模型 | 部分关闭 | 新增 `packages/domain/src/commercial.ts`：Deal→Opportunity（禁止 Deal→Order）、Quote 版本化、Order 必须来自已接受 Quote + 已签 Contract、FinancialFact 可追溯门禁；见 [commercial-domain-model](../v2/commercial-domain-model.md)；迁移 106 已落 6 张表与 API，前端/连接器未做 |
 | HubSpot Deal → ORDER | 关闭 | 预设改为 `OPPORTUNITY`，并新增契约样本测试 |
 | OAuth token 生命周期 | 关闭（runner） | `oauthTokenResolver` 接入 runner；401 → `invalidate()` + 重新取 token 重试一次；CLI 支持 `OAUTH_*` 环境变量 |
@@ -104,6 +104,10 @@
 | equity 多币种精度 | 关闭 | 回购/税费按 ISO 4217 最小单位；非 CNY 不套用人民币 5 万/50 万阈值。 |
 | Integrations 运行健康/数据质量 | 关闭 | 新增 health/data-quality tab，复用 sync-runs 与 quarantine；计数对平展示。 |
 | E2E 新流程 | 关闭 | `commercial.spec.ts`、`accounting-period-approval.spec.ts` 2 passed。 |
+| Commercial 接入 Sync Runner | 关闭（Account/Opportunity） | 新增 `COMMERCIAL_ACCOUNT` / `COMMERCIAL_OPPORTUNITY` 目标与 source-aware upsert API；runner 可直接导入/更新 Commercial 实体。Quote/Contract/Order 的外部导入仍待做。 |
+| Raw Ledger 不可变性 | 关闭 | 迁移 108 更新触发器，覆盖 source_version/payload_hash/resource_id/fetched_at/source_updated_at；服务端重新计算并核对 payloadHash。 |
+| Financial Fact DB/API 一致性 | 关闭 | 迁移 108 CHECK 增加 order/contract 必填；runner/parser 透传 reopeningRef；ISO 4217 改用运行时 registry。 |
+| Commercial 完整性 | 关闭 | 已接受/已拒绝 Quote 不可修订；Contract 金额/币种必须等于 Quote；Order 币种/行金额/总额校验；confirm 先锁 contract 再锁 order。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -129,10 +133,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：134 files passed / 2 skipped；1347 tests passed / 108 skipped。
+- `npm test`：134 files passed / 2 skipped；1351 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
-- `npm run test:pg`：3 files / 121 tests passed（迁移 102–107；含 Commercial、Financial Fact、期间双人审批）。
-- `npm run test:pg-upgrade`：89 → 107 migrations，107 tests passed。
+- `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
+- `npm run test:pg-upgrade`：89 → 108 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

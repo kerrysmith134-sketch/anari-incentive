@@ -64,6 +64,25 @@ const emptyForm: FormState = {
   unitPrice: "0",
 };
 
+/** 与后端一致的 1e6 定点乘法，避免 0.1 * 0.2 的浮点误差。 */
+function multiplyDecimal(left: string, right: string): string {
+  const parse = (value: string): bigint => {
+    const trimmed = value.trim();
+    if (!/^\d+(\.\d{1,6})?$/.test(trimmed)) {
+      throw new Error(`invalid decimal ${value}`);
+    }
+    const [whole, fraction = ""] = trimmed.split(".");
+    return BigInt(whole + fraction.padEnd(6, "0"));
+  };
+  const product = (parse(left) * parse(right)) / 1_000_000n;
+  const whole = product / 1_000_000n;
+  const fraction = (product % 1_000_000n)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : `${whole}`;
+}
+
 const CREATE_LABEL: Record<CreateKind, string> = {
   account: "新建客户账户",
   opportunity: "新建销售机会",
@@ -196,9 +215,7 @@ export function CommercialPage() {
                 description: form.description,
                 quantity: form.quantity,
                 unitPrice: form.unitPrice,
-                amount: String(
-                  Number(form.quantity) * Number(form.unitPrice),
-                ),
+                amount: multiplyDecimal(form.quantity, form.unitPrice),
                 currency: form.currency,
               },
             ],

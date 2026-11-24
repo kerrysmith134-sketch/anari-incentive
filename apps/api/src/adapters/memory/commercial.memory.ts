@@ -12,7 +12,7 @@ import {
   type OrderLine,
   type Quote,
 } from "@anari/domain";
-import { formatDecimal } from "@anari/policy-dsl";
+import { formatDecimal, mul, parseDecimal } from "@anari/policy-dsl";
 import { ConflictError } from "../../store.js";
 import { money, notFound, now } from "../shared.js";
 import type { CommercialPort } from "../../store-ports.js";
@@ -151,6 +151,88 @@ export function MemoryCommercialMixin(
         .sort((a, b) => a.name.localeCompare(b.name));
     }
 
+    async upsertCommercialAccount(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalAccountId: string;
+      name: string;
+      ownerPersonId?: string;
+    }): Promise<{ account: Account; created: boolean }> {
+      const existing = [...this.commercialAccounts.values()].find(
+        (account) =>
+          account.tenantId === input.tenantId &&
+          account.sourceSystem === input.sourceSystem &&
+          account.externalAccountId === input.externalAccountId,
+      );
+      if (existing) {
+        existing.name = input.name;
+        if (input.ownerPersonId) existing.ownerPersonId = input.ownerPersonId;
+        return { account: existing, created: false };
+      }
+      const account = await this.createAccount({
+        tenantId: input.tenantId,
+        externalAccountId: input.externalAccountId,
+        name: input.name,
+        ownerPersonId: input.ownerPersonId,
+      });
+      account.sourceSystem = input.sourceSystem;
+      return { account, created: true };
+    }
+
+    async upsertCommercialOpportunity(input: {
+      tenantId: string;
+      sourceSystem: string;
+      externalAccountId: string;
+      accountName: string;
+      externalOpportunityId: string;
+      name: string;
+      stage?: Opportunity["stage"];
+      estimatedAmount?: string;
+      currency: string;
+      ownerPersonId?: string;
+    }): Promise<{
+      account: Account;
+      opportunity: Opportunity;
+      created: boolean;
+    }> {
+      const { account } = await this.upsertCommercialAccount({
+        tenantId: input.tenantId,
+        sourceSystem: input.sourceSystem,
+        externalAccountId: input.externalAccountId,
+        name: input.accountName,
+        ownerPersonId: input.ownerPersonId,
+      });
+      const existing = [...this.commercialOpportunities.values()].find(
+        (opportunity) =>
+          opportunity.tenantId === input.tenantId &&
+          opportunity.sourceSystem === input.sourceSystem &&
+          opportunity.externalOpportunityId === input.externalOpportunityId,
+      );
+      if (existing) {
+        existing.accountId = account.id;
+        existing.name = input.name;
+        if (input.stage) existing.stage = input.stage;
+        if (input.estimatedAmount !== undefined) {
+          existing.estimatedAmount = formatDecimal(money(input.estimatedAmount));
+        }
+        existing.currency = input.currency.toUpperCase();
+        if (input.ownerPersonId) existing.ownerPersonId = input.ownerPersonId;
+        return { account, opportunity: existing, created: false };
+      }
+      const opportunity = await this.createOpportunity({
+        tenantId: input.tenantId,
+        accountId: account.id,
+        externalOpportunityId: input.externalOpportunityId,
+        name: input.name,
+        stage: input.stage,
+        estimatedAmount: input.estimatedAmount,
+        currency: input.currency,
+        ownerPersonId: input.ownerPersonId,
+      });
+      opportunity.sourceSystem = input.sourceSystem;
+      return { account, opportunity, created: true };
+    }
+
     async createQuote(input: {
       tenantId: string;
       opportunityId: string;
@@ -166,6 +248,11 @@ export function MemoryCommercialMixin(
       let version = 1;
       if (input.supersedesQuoteId) {
         const previous = this.findQuote(input.tenantId, input.supersedesQuoteId);
+        if (previous.status === "ACCEPTED" || previous.status === "REJECTED") {
+          throw new ConflictError(
+            `QUOTE_NOT_REVISABLE: quote ${previous.id} is ${previous.status}; accepted/rejected quotes are immutable`,
+          );
+        }
         if (previous.opportunityId !== opportunity.id) {
           throw new ConflictError(
             "QUOTE_OPPORTUNITY_MISMATCH: superseded quote belongs to another opportunity",
@@ -260,6 +347,17 @@ export function MemoryCommercialMixin(
           `QUOTE_NOT_ACCEPTED: quote ${quote.id} is ${quote.status}`,
         );
       }
+      const contractAmount = formatDecimal(money(input.amount));
+      if (quote.currency !== input.currency.toUpperCase()) {
+        throw new ConflictError(
+          `CONTRACT_CURRENCY_MISMATCH: quote ${quote.currency}, contract ${input.currency}`,
+        );
+      }
+      if (quote.amount !== contractAmount) {
+        throw new ConflictError(
+          `CONTRACT_QUOTE_AMOUNT_MISMATCH: quote ${quote.amount}, contract ${contractAmount}`,
+        );
+      }
       const duplicate = [...this.commercialContracts.values()].find(
         (contract) =>
           contract.tenantId === input.tenantId &&
@@ -277,7 +375,7 @@ export function MemoryCommercialMixin(
         contractRef: input.contractRef,
         status: "DRAFT",
         currency: input.currency.toUpperCase(),
-        amount: formatDecimal(money(input.amount)),
+        amount: contractAmount,
       };
       this.commercialContracts.set(contract.id, contract);
       return contract;
@@ -354,6 +452,31 @@ export function MemoryCommercialMixin(
       if (input.lines.length === 0) {
         throw new ConflictError("ORDER_LINES_REQUIRED");
       }
+      if (input.currency.toUpperCase() !== contract.currency) {
+        throw new ConflictError(
+          `ORDER_CURRENCY_MISMATCH: contract ${contract.currency}, order ${input.currency}`,
+        );
+      }
+      let orderTotal = 0n;
+      for (const line of input.lines) {
+        if (line.currency.toUpperCase() !== input.currency.toUpperCase()) {
+          throw new ConflictError(
+            `ORDER_LINE_CURRENCY_MISMATCH: order ${input.currency}, line ${line.currency}`,
+          );
+        }
+        const expected = mul(parseDecimal(line.quantity), parseDecimal(line.unitPrice));
+        if (expected !== parseDecimal(line.amount)) {
+          throw new ConflictError(
+            `ORDER_LINE_AMOUNT_MISMATCH: quantity × unitPrice = ${formatDecimal(expected)}, line amount ${line.amount}`,
+          );
+        }
+        orderTotal += parseDecimal(line.amount);
+      }
+      if (orderTotal > parseDecimal(contract.amount)) {
+        throw new ConflictError(
+          `ORDER_EXCEEDS_CONTRACT: order ${formatDecimal(orderTotal)} > contract ${contract.amount}`,
+        );
+      }
       const duplicate = [...this.commercialOrders.values()].find(
         (order) =>
           order.tenantId === input.tenantId &&
@@ -396,6 +519,20 @@ export function MemoryCommercialMixin(
       if (order.status === "CONFIRMED") return order;
       const contract = this.findContract(tenantId, order.contractId);
       const quote = this.findQuote(tenantId, contract.quoteId);
+      if (order.currency !== contract.currency) {
+        throw new ConflictError(
+          `ORDER_CURRENCY_MISMATCH: contract ${contract.currency}, order ${order.currency}`,
+        );
+      }
+      const total = order.lines.reduce(
+        (sum, line) => sum + parseDecimal(line.amount),
+        0n,
+      );
+      if (total > parseDecimal(contract.amount)) {
+        throw new ConflictError(
+          `ORDER_EXCEEDS_CONTRACT: order ${formatDecimal(total)} > contract ${contract.amount}`,
+        );
+      }
       try {
         assertOrderMayBeConfirmed({ order, contract, quote });
       } catch (error) {

@@ -3866,6 +3866,62 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/commercial/import/accounts:
+    post:
+      tags: [Commercial]
+      summary: Source-aware upsert of a commercial account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCommercialAccount"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/commercial/import/opportunities:
+    post:
+      tags: [Commercial]
+      summary: Source-aware upsert of a commercial opportunity (CRM deal target)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCommercialOpportunity"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/commercial/opportunities:
     get:
       tags: [Commercial]
@@ -13355,6 +13411,31 @@ components:
           format: uuid
         reopeningRef: { type: string }
         reason: { type: string, minLength: 3 }
+
+    ImportCommercialAccount:
+      type: object
+      required: [sourceSystem, externalAccountId, name]
+      properties:
+        sourceSystem: { type: string }
+        externalAccountId: { type: string }
+        name: { type: string }
+        ownerPersonId: { type: string, format: uuid }
+
+    ImportCommercialOpportunity:
+      type: object
+      required: [sourceSystem, externalAccountId, accountName, externalOpportunityId, name, currency]
+      properties:
+        sourceSystem: { type: string }
+        externalAccountId: { type: string }
+        accountName: { type: string }
+        externalOpportunityId: { type: string }
+        name: { type: string }
+        stage:
+          type: string
+          enum: [PROSPECT, QUALIFIED, PROPOSAL, WON, LOST]
+        estimatedAmount: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        ownerPersonId: { type: string, format: uuid }
 
     CreateCommercialAccount:
       type: object

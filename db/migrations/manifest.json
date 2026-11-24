@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T17:49:03.521Z",
+  "generatedAt": "2026-11-24T19:51:30.466Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -535,6 +535,11 @@
       "file": "107_accounting_period_approvals.sql",
       "bytes": 1674,
       "sha256": "b95ab8d03a6a19bb95a2dca85d4d557bd7ac71bbe854db4bc2e826f8e74edddb"
+    },
+    {
+      "file": "108_raw_and_financial_integrity.sql",
+      "bytes": 2656,
+      "sha256": "783a136baa79779cf76723d71809686ddda2ee3d41c7bb0bd14ea97e5f6e3cf6"
     }
   ]
 }

@@ -12,6 +12,8 @@ import {
   createCommercialOpportunitySchema,
   createCommercialOrderSchema,
   createCommercialQuoteSchema,
+  importCommercialAccountSchema,
+  importCommercialOpportunitySchema,
 } from "@anari/contracts";
 import { data, idOf, parse, requireRoles, tenantOf } from "../../http-helpers.js";
 
@@ -39,6 +41,26 @@ export function registerCommercialRoutes(deps: {
           request,
         ),
       );
+    });
+
+    app.post("/api/v1/commercial/import/accounts", async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const body = parse(importCommercialAccountSchema, request.body);
+      const result = await platformStore.upsertCommercialAccount({
+        tenantId: tenantOf(request),
+        ...body,
+      });
+      return reply.status(result.created ? 201 : 200).send(data(result, request));
+    });
+
+    app.post("/api/v1/commercial/import/opportunities", async (request, reply) => {
+      requireRoles(request, "admin", "integration");
+      const body = parse(importCommercialOpportunitySchema, request.body);
+      const result = await platformStore.upsertCommercialOpportunity({
+        tenantId: tenantOf(request),
+        ...body,
+      });
+      return reply.status(result.created ? 201 : 200).send(data(result, request));
     });
 
     app.get("/api/v1/commercial/opportunities", async (request) => {

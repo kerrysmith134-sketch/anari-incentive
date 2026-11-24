@@ -26,6 +26,7 @@ export interface Account {
   id: string;
   tenantId: string;
   externalAccountId?: string;
+  sourceSystem?: string;
   name: string;
   status: CommercialAccountStatus;
   ownerPersonId?: string;
@@ -37,6 +38,7 @@ export interface Opportunity {
   accountId: string;
   /** CRM Deal/机会的外部键；它永远不是 Order 的外部键。 */
   externalOpportunityId?: string;
+  sourceSystem?: string;
   name: string;
   stage: OpportunityStage;
   estimatedAmount?: string;

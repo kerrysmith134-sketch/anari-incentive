@@ -396,6 +396,32 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
         );
       }),
     ).rejects.toThrow(/IMMUTABLE/);
+    // 迁移 100 新增字段同样不可变（迁移 108 修复）。
+    for (const [column, value] of [
+      ["source_version", "tampered"],
+      ["payload_hash", "tampered"],
+      ["resource_id", randomUUID()],
+      ["fetched_at", new Date().toISOString()],
+      ["source_updated_at", new Date().toISOString()],
+    ] as const) {
+      await expect(
+        withTenantContext(async (client) => {
+          await client.query(
+            `UPDATE raw_source_records SET ${column}=$2 WHERE id=$1`,
+            [record.id, value],
+          );
+        }),
+      ).rejects.toThrow(/IMMUTABLE/);
+    }
+    // replayed_at 仍是唯一允许的变更。
+    await expect(
+      withTenantContext(async (client) => {
+        await client.query(
+          "UPDATE raw_source_records SET replayed_at=now() WHERE id=$1",
+          [record.id],
+        );
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("Sprint 3 Commercial：Account→Opportunity→Quote→Contract→Order 持久化与门禁", async () => {
@@ -458,6 +484,37 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
 
     const orders = await store.listOrders(CONTRACT_TENANT_ID, account.id);
     expect(orders.map((entry) => entry.orderNumber)).toContain(`SO-${suffix}`);
+
+    const importedAccount = await store.upsertCommercialAccount({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "hubspot",
+      externalAccountId: `HS-${suffix}`,
+      name: "Imported account",
+    });
+    expect(importedAccount.created).toBe(true);
+    const importedOpportunity = await store.upsertCommercialOpportunity({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "hubspot",
+      externalAccountId: `HS-${suffix}`,
+      accountName: "Imported account",
+      externalOpportunityId: `HS-DEAL-${suffix}`,
+      name: "Imported deal",
+      currency: "USD",
+      estimatedAmount: "500",
+    });
+    expect(importedOpportunity.created).toBe(true);
+    const updated = await store.upsertCommercialOpportunity({
+      tenantId: CONTRACT_TENANT_ID,
+      sourceSystem: "hubspot",
+      externalAccountId: `HS-${suffix}`,
+      accountName: "Imported account",
+      externalOpportunityId: `HS-DEAL-${suffix}`,
+      name: "Imported deal v2",
+      currency: "USD",
+      estimatedAmount: "600",
+    });
+    expect(updated.created).toBe(false);
+    expect(updated.opportunity.name).toBe("Imported deal v2");
   });
 
   it("Sprint 5 会计期间双人审批：请求人不能自批，批准后执行关闭/重开", async () => {
@@ -572,6 +629,21 @@ describePg("NP-033: IntegrationPort 资源同步域 PG 契约", () => {
       reopeningRef: "REOPEN-2026-10-A",
     });
     expect(posted.reopeningRef).toBe("REOPEN-2026-10-A");
+
+    // 数据库 CHECK 与 API 一致：直接写 POSTED 但无 order/contract 也会被拒。
+    await expect(
+      withTenantContext(async (client) => {
+        await client.query(
+          `INSERT INTO financial_facts
+             (tenant_id, source_system, source_record_id, fact_type, amount, currency,
+              quality_status, recognition_status, legal_entity_id, accounting_period,
+              instrument_type, source_version, payload)
+           VALUES ($1,'sql-bypass','F-DB-1','REVENUE',1,'USD','UNVERIFIED','POSTED',
+                   $2,'2026-10','INVOICE','v1','{}')`,
+          [CONTRACT_TENANT_ID, legalEntityId],
+        );
+      }),
+    ).rejects.toThrow(/chk_financial_facts_posted_required/);
 
     // POSTED 缺会计语义：应用层 fail-closed（不是静默 DRAFT）。
     await expect(

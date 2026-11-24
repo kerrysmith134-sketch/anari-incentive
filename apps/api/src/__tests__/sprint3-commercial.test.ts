@@ -100,13 +100,6 @@ describe("Sprint 3 commercial lifecycle", () => {
     });
     expect(earlyContract.statusCode).toBe(409);
 
-    const accepted = await post(
-      app,
-      `/api/v1/commercial/quotes/${quote.id}/accept`,
-      {},
-    );
-    expect(accepted.statusCode).toBe(200);
-
     const v2 = dataOf<{ id: string; version: number; supersedesQuoteId: string }>(
       await post(app, "/api/v1/commercial/quotes", {
         opportunityId: opportunity.id,
@@ -127,6 +120,25 @@ describe("Sprint 3 commercial lifecycle", () => {
     expect(
       (noSupersedes.json() as { error: { message: string } }).error.message,
     ).toMatch(/QUOTE_VERSION_REQUIRES_SUPERSEDES/);
+
+    const accepted = await post(
+      app,
+      `/api/v1/commercial/quotes/${quote.id}/accept`,
+      {},
+    );
+    expect(accepted.statusCode).toBe(200);
+
+    // 已接受报价不可再修订。
+    const afterAccept = await post(app, "/api/v1/commercial/quotes", {
+      opportunityId: opportunity.id,
+      currency: "USD",
+      amount: "1200",
+      supersedesQuoteId: quote.id,
+    });
+    expect(afterAccept.statusCode).toBe(409);
+    expect(
+      (afterAccept.json() as { error: { message: string } }).error.message,
+    ).toMatch(/QUOTE_NOT_REVISABLE/);
 
     const contract = dataOf<{ id: string; status: string }>(
       await post(app, "/api/v1/commercial/contracts", {
@@ -245,12 +257,6 @@ describe("Sprint 3 commercial lifecycle close-out", () => {
         amount: "100",
       }),
     );
-    expect(
-      (
-        await post(app, `/api/v1/commercial/quotes/${quote.id}/void`, {})
-      ).statusCode,
-    ).toBe(200);
-
     const accepted = dataOf<{ id: string }>(
       await post(app, "/api/v1/commercial/quotes", {
         opportunityId: opportunity.id,
@@ -259,6 +265,11 @@ describe("Sprint 3 commercial lifecycle close-out", () => {
         supersedesQuoteId: quote.id,
       }),
     );
+    expect(
+      (
+        await post(app, `/api/v1/commercial/quotes/${quote.id}/void`, {})
+      ).statusCode,
+    ).toBe(200);
     await post(app, `/api/v1/commercial/quotes/${accepted.id}/accept`, {});
     const contract = dataOf<{ id: string }>(
       await post(app, "/api/v1/commercial/contracts", {
@@ -300,5 +311,48 @@ describe("Sprint 3 commercial lifecycle close-out", () => {
     );
     expect(terminate.statusCode).toBe(200);
     expect(dataOf<{ status: string }>(terminate).status).toBe("TERMINATED");
+  });
+});
+
+describe("Sprint 3 commercial source-aware import", () => {
+  it("upserts account/opportunity by source external id", async () => {
+    const app = buildAppFor();
+    const account1 = await post(app, "/api/v1/commercial/import/accounts", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-1",
+      name: "Imported Co",
+    });
+    expect(account1.statusCode).toBe(201);
+    const account2 = await post(app, "/api/v1/commercial/import/accounts", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-1",
+      name: "Imported Co (renamed)",
+    });
+    expect(account2.statusCode).toBe(200);
+    expect(dataOf<{ created: boolean; account: { id: string } }>(account2).created).toBe(false);
+
+    const opp1 = await post(app, "/api/v1/commercial/import/opportunities", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-1",
+      accountName: "Imported Co",
+      externalOpportunityId: "HS-DEAL-1",
+      name: "Deal one",
+      currency: "USD",
+      estimatedAmount: "1000",
+    });
+    expect(opp1.statusCode).toBe(201);
+    const opp2 = await post(app, "/api/v1/commercial/import/opportunities", {
+      sourceSystem: "hubspot",
+      externalAccountId: "HS-ACC-1",
+      accountName: "Imported Co",
+      externalOpportunityId: "HS-DEAL-1",
+      name: "Deal one updated",
+      currency: "USD",
+      estimatedAmount: "1200",
+    });
+    expect(opp2.statusCode).toBe(200);
+    const updated = dataOf<{ created: boolean; opportunity: { name: string } }>(opp2);
+    expect(updated.created).toBe(false);
+    expect(updated.opportunity.name).toBe("Deal one updated");
   });
 });

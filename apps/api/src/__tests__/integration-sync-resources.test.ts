@@ -572,6 +572,54 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
     void seed;
   });
 
+  it("COMMERCIAL_OPPORTUNITY：runner 直接 upsert Commercial 机会", async () => {
+    const app = buildAppFor(TENANT_A);
+    const inject = injectRequestFactory(app);
+    await seedConnectionMappingSchedule(
+      app,
+      "https://provider.example/api/commercial",
+      "COMMERCIAL_OPPORTUNITY",
+    );
+    const providerFetch = stubProviderFetch([
+      {
+        records: [
+          {
+            record_id: "OPP-1",
+            event_type: "upserted",
+            subject_type: "OPPORTUNITY",
+            subject_id: ADMIN,
+            evidence_type: "COMMERCIAL",
+            occurred_at: "2026-10-01T00:00:00.000Z",
+            externalAccountId: "HS-ACC-1",
+            accountName: "Imported Co",
+            externalOpportunityId: "HS-DEAL-1",
+            name: "Deal one",
+            currency: "USD",
+            estimatedAmount: "1000",
+          },
+        ],
+      },
+    ]);
+    const summary = await runSyncCycle({
+      request: inject,
+      limit: 10,
+      maxPages: 1,
+      claimNow: new Date(Date.now() + 2 * 3600_000).toISOString(),
+      providerFetchImpl: providerFetch as unknown as typeof fetch,
+      credentialRefResolver: () => "Bearer wave1-test",
+    });
+    expect(summary.schedules[0]!.status).toBe("SUCCEEDED");
+    expect(summary.schedules[0]!.counters.recordsCreated).toBe(1);
+    const opportunities = await inject<Array<{ name: string; externalOpportunityId: string; currency: string }>>(
+      "/api/v1/commercial/opportunities",
+    );
+    expect(
+      opportunities.some(
+        (item) => item.externalOpportunityId === "HS-DEAL-1" && item.name === "Deal one",
+      ),
+    ).toBe(true);
+  });
+
   it("INT-214：OAuth 401 → invalidate + 重新取 token 重试一次", async () => {
     const app = buildAppFor(TENANT_A);
     const inject = injectRequestFactory(app);

@@ -927,10 +927,16 @@ export function registerIntegrationRoutes(deps: {
           `must be ${inferredRetention}, got ${body.retentionClass}`,
       );
     }
-    // INT-202：版本键必须由同一稳定哈希派生——缺省时服务端计算，绝不写空串。
-    const payloadHash =
-      body.payloadHash ??
-      createHash("sha256").update(canonicalJson(payload)).digest("hex");
+    // INT-218：Hash 必须由服务端对 payload 重新计算并核对；客户端传入
+    // 不一致的 Hash 直接拒绝，避免伪造版本身份绕过幂等/篡改检测。
+    const payloadHash = createHash("sha256")
+      .update(canonicalJson(payload))
+      .digest("hex");
+    if (body.payloadHash && body.payloadHash !== payloadHash) {
+      throw new ConflictError(
+        `RAW_PAYLOAD_HASH_MISMATCH: provided ${body.payloadHash}, computed ${payloadHash}`,
+      );
+    }
     const record = await platformStore.appendRawSourceRecord({
       tenantId: tenantOf(request),
       sourceSystem: body.sourceSystem,

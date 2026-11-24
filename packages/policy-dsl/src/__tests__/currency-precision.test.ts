@@ -57,6 +57,7 @@ describe("ISO 4217 currency precision", () => {
   it("rejects non-ISO currency codes", () => {
     expect(() => currencyMinorUnits("US")).toThrow(/INVALID_CURRENCY/);
     expect(() => currencyMinorUnits("RMB1")).toThrow(/INVALID_CURRENCY/);
+    expect(() => currencyMinorUnits("ZZZ")).toThrow(/INVALID_CURRENCY/);
   });
 
   it("formats to the currency minimum unit", () => {

@@ -416,6 +416,31 @@
         "holdoutRatio"
       ]
     },
+    "ImportCommercialAccount": {
+      "required": [
+        "externalAccountId",
+        "name",
+        "sourceSystem"
+      ],
+      "optional": [
+        "ownerPersonId"
+      ]
+    },
+    "ImportCommercialOpportunity": {
+      "required": [
+        "accountName",
+        "currency",
+        "externalAccountId",
+        "externalOpportunityId",
+        "name",
+        "sourceSystem"
+      ],
+      "optional": [
+        "estimatedAmount",
+        "ownerPersonId",
+        "stage"
+      ]
+    },
     "ModelSummary": {
       "required": [
         "dimensions",

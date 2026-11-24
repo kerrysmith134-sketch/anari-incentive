@@ -51,12 +51,32 @@ export const DEFAULT_CURRENCY = "CNY";
 
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
+/**
+ * 运行时 ISO 4217 registry（Node ICU 提供，随 Node/ICU 版本更新）。
+ * 只做格式正则会把 ZZZ 这类未分配代码当成有效币种；这里 fail-closed。
+ */
+const ISO_4217_CODES: Set<string> | undefined = (() => {
+  try {
+    const supported = (
+      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    ).supportedValuesOf?.("currency");
+    return supported && supported.length > 0 ? new Set(supported) : undefined;
+  } catch {
+    return undefined;
+  }
+})();
+
 /** 规范化并校验 ISO 4217 alpha-3 代码；非法代码 fail-closed。 */
 export function normalizeCurrency(currency: string): string {
   const code = currency?.trim().toUpperCase();
   if (!CURRENCY_PATTERN.test(code)) {
     throw new Error(
       `INVALID_CURRENCY: ${JSON.stringify(currency)} is not an ISO 4217 alpha-3 code`,
+    );
+  }
+  if (ISO_4217_CODES && !ISO_4217_CODES.has(code)) {
+    throw new Error(
+      `INVALID_CURRENCY: ${JSON.stringify(code)} is not an assigned ISO 4217 currency`,
     );
   }
   return code;
