@@ -21,7 +21,9 @@ import type { CanonicalWrite, LocalProvider, PullTarget } from "./types.js";
 export const COMMERCIAL_SOURCE_SYSTEM = "ANARI_COMMERCIAL";
 
 const ACCOUNT_IMPORT_PATH = "/api/v1/commercial/import/accounts";
+const OPPORTUNITY_IMPORT_PATH = "/api/v1/commercial/import/opportunities";
 const QUOTE_IMPORT_PATH = "/api/v1/commercial/import/quotes";
+const CONTRACT_IMPORT_PATH = "/api/v1/commercial/import/contracts";
 const ORDER_IMPORT_PATH = "/api/v1/commercial/import/orders";
 
 const PAGE_SIZE = 100;
@@ -283,6 +285,95 @@ export function normalizeCommercialAccount(
   };
 }
 
+/** 1e6 定点求和，用于订单行合计（不经过 Number）。 */
+function sumDecimalAmounts(values: string[]): string | undefined {
+  let total = 0n;
+  for (const value of values) {
+    const match = /^(-?)(\d+)(?:\.(\d{1,6}))?$/.exec(value.trim());
+    if (!match) return undefined;
+    const sign = match[1] === "-" ? -1n : 1n;
+    total += sign * BigInt(match[2] + (match[3] ?? "").padEnd(6, "0"));
+  }
+  const negative = total < 0n;
+  const absolute = negative ? -total : total;
+  const whole = absolute / 1_000_000n;
+  const fraction = (absolute % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+/**
+ * Commercial 源系统没有 Opportunity / Contract 表。为了让报价/订单进入
+ * N-Perform 的生命周期，用稳定的派生父键建立“客户级商机 + 报价级合同”：
+ *   CUST-<customerId>       → Account / Opportunity
+ *   QUOTE-<quotationId>     → Quote（ACCEPTED）
+ *   CONTRACT-<quotationId>  → Contract（SIGNED，金额=订单合计）
+ * 这不是伪造来源外键：ID 前缀明确标识它是 N-Perform 的投影，源记录仍在
+ * payload/来源 ID 中可追溯。订单金额与合同金额一致，满足合同/订单校验。
+ */
+function deriveCommercialParents(input: {
+  customerId: string;
+  customerName: string;
+  currency: string;
+  amount: string;
+  quotationId?: string;
+}): CanonicalWrite[] {
+  const accountId = `CUST-${input.customerId}`;
+  const opportunityId = accountId;
+  const writes: CanonicalWrite[] = [
+    {
+      path: ACCOUNT_IMPORT_PATH,
+      externalId: accountId,
+      body: {
+        sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
+        externalAccountId: accountId,
+        name: input.customerName,
+      },
+    },
+    {
+      path: OPPORTUNITY_IMPORT_PATH,
+      externalId: opportunityId,
+      body: {
+        sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
+        externalAccountId: accountId,
+        accountName: input.customerName,
+        externalOpportunityId: opportunityId,
+        name: `${input.customerName} pipeline`,
+        stage: "QUALIFIED",
+        currency: input.currency,
+        estimatedAmount: input.amount,
+      },
+    },
+  ];
+  if (!input.quotationId) return writes;
+  const quoteId = `QUOTE-${input.quotationId}`;
+  writes.push({
+    path: QUOTE_IMPORT_PATH,
+    externalId: quoteId,
+    body: {
+      sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
+      externalOpportunityId: opportunityId,
+      externalQuoteId: quoteId,
+      currency: input.currency,
+      amount: input.amount,
+      status: "ACCEPTED",
+    },
+  });
+  writes.push({
+    path: CONTRACT_IMPORT_PATH,
+    externalId: `CONTRACT-${input.quotationId}`,
+    body: {
+      sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
+      externalContractId: `CONTRACT-${input.quotationId}`,
+      externalQuoteId: quoteId,
+      contractRef: `CONTRACT-${input.quotationId}`,
+      currency: input.currency,
+      amount: input.amount,
+      status: "SIGNED",
+    },
+  });
+  return writes;
+}
+
 /**
  * quotation → import/quotes。
  *
@@ -301,14 +392,7 @@ export function normalizeCommercialQuote(
     "quote_number",
     "quoteNumber",
   );
-  const externalOpportunityId = firstText(
-    record,
-    "opportunity_id",
-    "opportunityId",
-    "deal_id",
-    "dealId",
-  );
-  if (!externalQuoteId || !externalOpportunityId) return [];
+  if (!externalQuoteId) return [];
 
   const currency = currencyOf(record);
   if (!currency) return [];
@@ -320,6 +404,31 @@ export function normalizeCommercialQuote(
   );
   if (amount === undefined) return [];
 
+  let externalOpportunityId = firstText(
+    record,
+    "opportunity_id",
+    "opportunityId",
+    "deal_id",
+    "dealId",
+  );
+  const customerId = firstText(record, "customer_id", "customerId");
+  const customerName =
+    firstText(record, "customer_name", "customerName") ??
+    (customerId ? `Customer ${customerId}` : undefined);
+  const writes: CanonicalWrite[] = [];
+  if (!externalOpportunityId) {
+    if (!customerId || !customerName) return [];
+    externalOpportunityId = `CUST-${customerId}`;
+    writes.push(
+      ...deriveCommercialParents({
+        customerId,
+        customerName,
+        currency,
+        amount,
+      }),
+    );
+  }
+
   const body: Record<string, unknown> = {
     sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
     externalOpportunityId,
@@ -329,8 +438,6 @@ export function normalizeCommercialQuote(
   };
   const status = mappedStatus(record, QUOTE_STATUS);
   if (status) body.status = status;
-  // created_at 是草稿创建时间，不是签发时间；没有 issued_at 就不传，避免把
-  // “草稿建立”伪装成“已签发”。
   const issuedAt = isoDateTime(
     record.issued_at ?? record.issuedAt ?? record.issued_at_utc,
   );
@@ -338,11 +445,12 @@ export function normalizeCommercialQuote(
   const acceptedAt = isoDateTime(record.accepted_at ?? record.acceptedAt);
   if (acceptedAt) body.acceptedAt = acceptedAt;
 
-  return {
+  writes.push({
     path: QUOTE_IMPORT_PATH,
     body,
     externalId: externalQuoteId,
-  };
+  });
+  return writes;
 }
 
 /** 订单行 → import/orders.lines；任何必要金额无法按成交币种取得时整行跳过。 */
@@ -436,15 +544,8 @@ export function normalizeCommercialOrder(
     "order_number",
     "orderNumber",
   );
-  const externalContractId = firstText(
-    record,
-    "contract_id",
-    "contractId",
-    "external_contract_id",
-    "externalContractId",
-  );
   const orderNumber = firstText(record, "order_number", "orderNumber");
-  if (!externalOrderId || !externalContractId || !orderNumber) return [];
+  if (!externalOrderId || !orderNumber) return [];
 
   const currency = currencyOf(record);
   if (!currency) return [];
@@ -459,6 +560,36 @@ export function normalizeCommercialOrder(
     .filter((line): line is Record<string, unknown> => line !== undefined);
   if (lines.length === 0) return [];
 
+  const amount = sumDecimalAmounts(lines.map((line) => String(line.amount)));
+  if (!amount) return [];
+
+  let externalContractId = firstText(
+    record,
+    "contract_id",
+    "contractId",
+    "external_contract_id",
+    "externalContractId",
+  );
+  const customerId = firstText(record, "customer_id", "customerId");
+  const customerName =
+    firstText(record, "customer_name", "customerName") ??
+    (customerId ? `Customer ${customerId}` : undefined);
+  const quotationId = firstText(record, "quotation_id", "quotationId");
+  const writes: CanonicalWrite[] = [];
+  if (!externalContractId) {
+    if (!customerId || !customerName || !quotationId) return [];
+    externalContractId = `CONTRACT-${quotationId}`;
+    writes.push(
+      ...deriveCommercialParents({
+        customerId,
+        customerName,
+        currency,
+        amount,
+        quotationId,
+      }),
+    );
+  }
+
   const body: Record<string, unknown> = {
     sourceSystem: COMMERCIAL_SOURCE_SYSTEM,
     externalOrderId,
@@ -470,11 +601,12 @@ export function normalizeCommercialOrder(
   const status = mappedStatus(record, ORDER_STATUS);
   if (status) body.status = status;
 
-  return {
+  writes.push({
     path: ORDER_IMPORT_PATH,
     body,
     externalId: externalOrderId,
-  };
+  });
+  return writes;
 }
 
 /**

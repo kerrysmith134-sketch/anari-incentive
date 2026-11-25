@@ -104,13 +104,32 @@ interface FinanceFactInput {
   sourceUpdatedAt?: string;
 }
 
+const FINANCE_POSTED_ENABLED = process.env.ANARI_FINANCE_POSTED === "1";
+const FINANCE_LEGAL_ENTITY =
+  process.env.ANARI_FINANCE_LEGAL_ENTITY?.trim() || "ANARI";
+const FINANCE_ORDER_ID = process.env.ANARI_FINANCE_ORDER_ID?.trim();
+
 function buildFinancialFact(input: FinanceFactInput): CanonicalWrite {
+  const defaultInstrument: FinanceInstrumentType =
+    input.factType === "EXPENSE_REPORT"
+      ? "COST"
+      : input.factType === "VOUCHER"
+        ? "PAYMENT"
+        : "PAYMENT";
   const evidence: FinancePostingEvidence = {
-    legalEntityId: asText(input.record.legalEntityId),
+    legalEntityId:
+      asText(input.record.legalEntityId) ??
+      (FINANCE_POSTED_ENABLED ? FINANCE_LEGAL_ENTITY : undefined),
     accountingPeriod: input.accountingPeriod,
-    instrumentType: asInstrumentType(input.record.instrumentType),
-    sourceVersion: asText(input.record.sourceVersion),
-    orderId: asText(input.record.orderId),
+    instrumentType:
+      asInstrumentType(input.record.instrumentType) ??
+      (FINANCE_POSTED_ENABLED ? defaultInstrument : undefined),
+    sourceVersion:
+      asText(input.record.sourceVersion) ??
+      (FINANCE_POSTED_ENABLED ? input.sourceRecordId : undefined),
+    orderId:
+      asText(input.record.orderId) ??
+      (FINANCE_POSTED_ENABLED ? FINANCE_ORDER_ID : undefined),
     contractRef: asText(input.record.contractRef),
   };
   const recognitionStatus = financeRecognitionStatus(evidence);

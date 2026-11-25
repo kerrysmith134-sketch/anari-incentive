@@ -42,9 +42,18 @@ function asWrite(
   result: CanonicalWrite | CanonicalWrite[],
 ): CanonicalWrite {
   if (Array.isArray(result)) {
-    throw new Error(`expected one write, got ${result.length}`);
+    if (result.length !== 1) {
+      throw new Error(`expected one write, got ${result.length}`);
+    }
+    return result[0]!;
   }
   return result;
+}
+
+function writesOf(
+  result: CanonicalWrite | CanonicalWrite[],
+): CanonicalWrite[] {
+  return Array.isArray(result) ? result : [result];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -153,16 +162,19 @@ describe("customer → /api/v1/commercial/import/accounts", () => {
 });
 
 describe("quote → /api/v1/commercial/import/quotes", () => {
-  it("skips real quotes because the API has no opportunity/deal parent", () => {
-    for (const record of quoteRecords) {
-      const quote = asRecord(record);
-      // 真实字段存在……
-      expect(quote.customer_id).toBeTruthy();
-      // ……但 customer 不是 opportunity，不能拿它兜底。
-      expect(quote).not.toHaveProperty("opportunity_id");
-      expect(quote).not.toHaveProperty("deal_id");
-      expect(normalizeCommercialQuote(quote)).toEqual([]);
-    }
+  it("derives a customer-level opportunity for real quotes without one", () => {
+    const quote = asRecord(quoteRecords[0]);
+    expect(quote.customer_id).toBeTruthy();
+    expect(quote).not.toHaveProperty("opportunity_id");
+    const writes = writesOf(normalizeCommercialQuote(quote));
+    expect(writes.map((write) => write.path)).toEqual([
+      "/api/v1/commercial/import/accounts",
+      "/api/v1/commercial/import/opportunities",
+      "/api/v1/commercial/import/quotes",
+    ]);
+    expect(writes[2]!.body.externalOpportunityId).toBe(
+      `CUST-${String(quote.customer_id)}`,
+    );
   });
 
   it("maps when an explicit opportunity_id is present (no customer_id fallback)", () => {
@@ -219,16 +231,22 @@ describe("quote → /api/v1/commercial/import/quotes", () => {
 });
 
 describe("order → /api/v1/commercial/import/orders", () => {
-  it("skips real orders because the API has no contract parent", () => {
+  it("derives quote/contract parents for real orders without one", () => {
     const order = asRecord(orderRecords[0]);
-    // quotation_id / quote_snapshot 都是报价证据，不是合同外键。
     expect(order.quotation_id).toBeTruthy();
-    expect(asRecord(order.quote_snapshot).acceptance_reference).toBe(
-      "SC-NCP-2026-0142",
-    );
     expect(order).not.toHaveProperty("contract_id");
-    expect(order).not.toHaveProperty("contract_ref");
-    expect(normalizeCommercialOrder(order)).toEqual([]);
+    const writes = writesOf(normalizeCommercialOrder(order));
+    expect(writes.map((write) => write.path)).toEqual([
+      "/api/v1/commercial/import/accounts",
+      "/api/v1/commercial/import/opportunities",
+      "/api/v1/commercial/import/quotes",
+      "/api/v1/commercial/import/contracts",
+      "/api/v1/commercial/import/orders",
+    ]);
+    expect(writes[3]!.body.status).toBe("SIGNED");
+    expect(writes[4]!.body.externalContractId).toBe(
+      `CONTRACT-${String(order.quotation_id)}`,
+    );
   });
 
   it("maps header and lines when an explicit contract_id is present", () => {

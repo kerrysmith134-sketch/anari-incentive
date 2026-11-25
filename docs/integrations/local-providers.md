@@ -37,9 +37,9 @@ npx tsx scripts/import-local.ts --provider anari-erp --dry-run
 
 ## 真实约束
 
-- Commercial 的 quotation 没有 opportunity、order 没有 contract：provider 明确跳过，不用 customer/quotation 伪造父关系。
-- Ticketing 响应没有 project：必须配置 `ANARI_TICKETING_PROJECT_ID`，否则不导入。
-- HR 只写人员；法人/组织架构没有 N-Perform 写端点，只读映射。
-- ERP/Finance 的 AP/AR/报销/付款事实默认 DRAFT；只有来源具备法人、期间、instrument、版本和订单/合同时才 POSTED。
+- Commercial 的 quotation 没有 opportunity、order 没有 contract：provider 用稳定派生父键建链（`CUST-<customerId>`、`QUOTE-<quotationId>`、`CONTRACT-<quotationId>`），不是伪造来源外键；源记录仍在 payload/来源 ID 中可追溯。
+- Ticketing 响应没有 project：默认投影到 `ANARI-TICKETING` 项目桶；可用 `ANARI_TICKETING_PROJECT_ID` 覆盖。
+- HR 人员走幂等 `/api/v1/people/import`；法人/组织架构仍只读（N-Perform 目前没有对应主数据写端点）。
+- ERP/Finance 默认 DRAFT。设置 `ANARI_ERP_POSTED=1`（法人、期间、instrument、版本、订单/合同齐全）或 `ANARI_FINANCE_POSTED=1` + `ANARI_FINANCE_LEGAL_ENTITY`/`ANARI_FINANCE_ORDER_ID` 后，才投影为 POSTED。
 - PingCode 使用官方 v2：`GET /v2/pjm/workitems`，Bearer token，`page_index` 从 0 开始。
 - 首次真实同步建议 `--max-pages 1 --dry-run`，核对字段后再写库。

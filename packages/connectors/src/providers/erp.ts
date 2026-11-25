@@ -144,6 +144,21 @@ export const erpMarginPortfolioTarget: PullTarget = {
   normalize: normalizeErpMarginRow,
 };
 
+/** ERP 不返回会计身份；联调时用配置补齐，默认 DRAFT 需要时改为 POSTED。 */
+const ERP_POSTED_ENABLED = process.env.ANARI_ERP_POSTED === "1";
+const DEFAULT_ERP_LEGAL_ENTITY =
+  process.env.ANARI_ERP_LEGAL_ENTITY?.trim() || "ANARI";
+
+function erpPeriod(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && /^\d{4}-\d{2}/.test(value)) {
+      return value.slice(0, 7);
+    }
+  }
+  return undefined;
+}
+
 export const erpProvider: LocalProvider = {
   code: "anari-erp",
   sourceSystem: ERP_SOURCE_SYSTEM,
@@ -190,12 +205,22 @@ export function normalizeErpApPayment(record: unknown): CanonicalWrite[] {
       qualityStatus: "VALID",
       record,
       // ERP 当前不返回这些会计身份字段；映射写在这里，上游哪天补了就自动 POSTED。
-      legalEntityId: optionalText(record.legal_entity_id),
+      legalEntityId:
+        optionalText(record.legal_entity_id) ??
+        (ERP_POSTED_ENABLED ? DEFAULT_ERP_LEGAL_ENTITY : undefined),
       orderId: orderReference(record),
       contractRef: optionalText(record.contract_ref),
-      instrumentType: optionalInstrumentType(record.instrument_type),
-      accountingPeriod: optionalAccountingPeriod(record.accounting_period),
-      sourceVersion: optionalSourceVersion(record.source_version),
+      instrumentType:
+        optionalInstrumentType(record.instrument_type) ??
+        (ERP_POSTED_ENABLED ? "PAYMENT" : undefined),
+      accountingPeriod:
+        optionalAccountingPeriod(record.accounting_period) ??
+        (ERP_POSTED_ENABLED
+          ? erpPeriod(record, "due_date", "expected_pay_date", "apply_date")
+          : undefined),
+      sourceVersion:
+        optionalSourceVersion(record.source_version) ??
+        (ERP_POSTED_ENABLED ? paymentId : undefined),
     }),
   ];
 }
@@ -227,12 +252,22 @@ export function normalizeErpArCollection(record: unknown): CanonicalWrite[] {
       currency,
       qualityStatus: "VALID",
       record,
-      legalEntityId: optionalText(record.legal_entity_id),
+      legalEntityId:
+        optionalText(record.legal_entity_id) ??
+        (ERP_POSTED_ENABLED ? DEFAULT_ERP_LEGAL_ENTITY : undefined),
       orderId: orderReference(record),
       contractRef: optionalText(record.contract_ref),
-      instrumentType: optionalInstrumentType(record.instrument_type),
-      accountingPeriod: optionalAccountingPeriod(record.accounting_period),
-      sourceVersion: optionalSourceVersion(record.source_version),
+      instrumentType:
+        optionalInstrumentType(record.instrument_type) ??
+        (ERP_POSTED_ENABLED ? "INVOICE" : undefined),
+      accountingPeriod:
+        optionalAccountingPeriod(record.accounting_period) ??
+        (ERP_POSTED_ENABLED
+          ? erpPeriod(record, "expected_due", "due_date")
+          : undefined),
+      sourceVersion:
+        optionalSourceVersion(record.source_version) ??
+        (ERP_POSTED_ENABLED ? receivableId : undefined),
     }),
   ];
 }
