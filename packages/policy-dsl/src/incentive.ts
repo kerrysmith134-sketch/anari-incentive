@@ -19,6 +19,7 @@ import type {
 } from "@anari/domain";
 import { currencyMinorUnits } from "./currency.js";
 import {
+  FACTOR,
   div,
   formatDecimal,
   max,
@@ -37,6 +38,14 @@ const ZERO = parseDecimal("0");
 // "扣减/分摊/系数"语义反转，重复人员会让台账行键碰撞，一律 fail-closed。
 // 错误经 policy.routes 的 runPolicyInput 包装为 400 POLICY_INPUT_INVALID。
 // ----------------------------------------------------------------------
+function requireUnitInterval(name: string, raw: string): bigint {
+  const value = parseDecimal(raw);
+  if (value < 0n || value > FACTOR) {
+    throw new Error(`${name} must be within [0, 1], got ${raw}`);
+  }
+  return value;
+}
+
 function requireNonNegative(name: string, raw: string): bigint {
   const value = parseDecimal(raw);
   if (value < 0n) {
@@ -309,13 +318,13 @@ export function calculateBountySettlement(
     FAILED: "0",
   };
   const qualityCoefficient = parseDecimal(qualityMap[input.qualityGrade]);
-  const share = parseDecimal(input.personalContributionShare);
+  const share = requireUnitInterval("personalContributionShare", input.personalContributionShare);
   const amount = roundTo(
     mul(
       mul(mul(parseDecimal(input.baseReward), timeCoefficient), qualityCoefficient),
       share,
     ),
-    2,
+    minorUnits,
     "HALF_UP",
   );
   // Quality FAILED zeroes the current settlement, so `amount` cannot cap the
@@ -359,7 +368,7 @@ export function calculateTechCenterAward(
   const minorUnits = currencyMinorUnits(input.currency ?? "CNY");
 
   const quantity = BigInt(Math.max(0, Math.trunc(input.quantity ?? 1)));
-  const share = parseDecimal(input.personalShare ?? "1");
+  const share = requireUnitInterval("personalShare", input.personalShare ?? "1");
   let gross = ZERO;
   let cappable = false;
   let note: string | undefined;
@@ -460,7 +469,11 @@ export function calculateTechCenterAward(
   }
 
   if (input.awardType === "HARDWARE_AC_DELIVERY" || input.awardType === "HARDWARE_DC_DELIVERY") {
-    const delay = min(parseDecimal(input.delayRatio ?? "0"), parseDecimal("1"));
+    const delay = clamp(
+      parseDecimal(input.delayRatio ?? "0"),
+      ZERO,
+      parseDecimal("1"),
+    );
     gross = mul(gross, parseDecimal("1") - delay);
     note = "按延期比例扣减";
   }
@@ -522,16 +535,41 @@ export function calculateTechCenterPool(
     return { personId: member.personId, weight };
   });
   const totalWeight = sum(prepared.map((entry) => entry.weight));
-  const allocations = prepared.map((entry) => ({
+  const step = 10n ** BigInt(6 - minorUnits);
+  const amounts = prepared.map(() => 0n);
+  if (totalWeight > 0n && pool > 0n) {
+    const remainders: Array<{ index: number; remainder: bigint; personId: string }> = [];
+    let allocated = 0n;
+    prepared.forEach((entry, index) => {
+      const raw = (pool * entry.weight) / totalWeight;
+      const floored = (raw / step) * step;
+      amounts[index] = floored;
+      allocated += floored;
+      remainders.push({ index, remainder: raw % step, personId: entry.personId });
+    });
+    let remaining = pool - allocated;
+    remainders.sort((left, right) =>
+      left.remainder === right.remainder
+        ? left.personId.localeCompare(right.personId)
+        : left.remainder > right.remainder
+          ? -1
+          : 1,
+    );
+    for (const entry of remainders) {
+      if (remaining < step) break;
+      amounts[entry.index] = amounts[entry.index]! + step;
+      remaining -= step;
+    }
+  }
+  const allocations = prepared.map((entry, index) => ({
     personId: entry.personId,
     weight: formatDecimal(roundTo(entry.weight, 4, "HALF_UP")),
-    amount:
-      totalWeight <= 0n
-        ? "0"
-        : formatDecimal(
-            roundTo(div(mul(pool, entry.weight), totalWeight), minorUnits, "HALF_UP"),
-          ),
+    amount: formatDecimal(amounts[index] ?? 0n),
   }));
+  const allocatedTotal = allocations.reduce((sum, row) => sum + parseDecimal(row.amount), 0n);
+  if (allocatedTotal > pool) {
+    throw new Error("TECH_CENTER_POOL_OVER_ALLOCATED: allocation exceeds pool");
+  }
   return {
     poolAmount: formatDecimal(roundTo(pool, minorUnits, "HALF_UP")),
     headAdjustment: formatDecimal(headAdjustment),
@@ -559,20 +597,21 @@ export function calculateOverseasSalesAward(
   let note: string | undefined;
   switch (input.awardType) {
     case "NEW_CUSTOMER_STAR": {
-      // 达标客户数（首单≥10 万、回款≤50 天）优先；旧调用方仍可只传总数。
-      const qualified =
-        input.qualifiedNewCustomerCount ?? input.newCustomerCount ?? 0;
-      if (qualified >= 8) {
+      // 只认已经核实的达标客户数；不能用普通客户数兜底，否则会绕过首单/回款条件。
+      const qualified = input.qualifiedNewCustomerCount;
+      if (qualified === undefined) {
+        note = "缺少核实的达标新客户数（首单≥10 万元且回款周期≤50 天），不计奖";
+      } else if (qualified >= 8) {
         gross = parseDecimal("10000");
         note = "每季度成功开发 8 个及以上达标新客户（首单≥10 万元且回款周期≤50 天）";
-      } else if ((input.newCustomerCount ?? 0) >= 8) {
-        note = "新客户数量达到 8 个，但达标客户数不足（首单≥10 万、回款≤50 天）";
+      } else {
+        note = "达标新客户数不足 8 个（首单≥10 万、回款≤50 天）";
       }
       break;
     }
     case "KA_BREAKTHROUGH": {
-      if (input.kaQualified === false) {
-        note = "未满足 KA 行业前 50/地区头部资格，不予发放突破奖";
+      if (input.kaQualified !== true) {
+        note = "KA 突破奖要求资格已确认（kaQualified=true），未确认不予发放";
         break;
       }
       const amount = parseDecimal(input.annualCustomerOrderAmount ?? "0");
@@ -608,7 +647,7 @@ export function calculateOverseasSalesAward(
     default:
       throw new Error(`unsupported overseas award type: ${input.awardType}`);
   }
-  const badDebt = parseDecimal(input.badDebtLoss ?? "0");
+  const badDebt = max(parseDecimal(input.badDebtLoss ?? "0"), ZERO);
   const deduction = min(gross, div(mul(badDebt, parseDecimal("50")), HUNDRED));
   const net = max(ZERO, gross - deduction);
   let recoverable = ZERO;

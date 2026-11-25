@@ -599,6 +599,7 @@ describe("016 incentive allocation engine", () => {
   it("overseas sales awards follow 003 thresholds and clawbacks", () => {
     const newStar = calculateOverseasSalesAward({
       awardType: "NEW_CUSTOMER_STAR",
+      qualifiedNewCustomerCount: 8,
       newCustomerCount: 8,
       badDebtLoss: "2000",
     });
@@ -608,6 +609,7 @@ describe("016 incentive allocation engine", () => {
     expect(
       calculateOverseasSalesAward({
         awardType: "KA_BREAKTHROUGH",
+        kaQualified: true,
         firstSigning: true,
         annualCustomerOrderAmount: "10000000",
       }).grossAmount,

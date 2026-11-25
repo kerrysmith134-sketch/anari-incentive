@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-25T20:52:12.034Z",
+  "generatedAt": "2026-11-25T22:43:35.505Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -575,6 +575,11 @@
       "file": "115_invoice_taxes.sql",
       "bytes": 3262,
       "sha256": "2cce62ce16ebd11fdc01ade531c30571d004316346f0896c5e69b0ebe950fd2f"
+    },
+    {
+      "file": "116_award_source_reservations.sql",
+      "bytes": 862,
+      "sha256": "463fd4792e697a67b5791c87a42e636124af0f6d2ea4a75457c3c3103621203a"
     }
   ]
 }

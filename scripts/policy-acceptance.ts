@@ -375,6 +375,7 @@ export const POLICY_ACCEPTANCE_CASES: AcceptanceCase[] = [
     run: () => {
       const result = calculateOverseasSalesAward({
         awardType: "NEW_CUSTOMER_STAR",
+        qualifiedNewCustomerCount: 8,
         newCustomerCount: 8,
         badDebtLoss: "3000",
       });
@@ -393,6 +394,7 @@ export const POLICY_ACCEPTANCE_CASES: AcceptanceCase[] = [
     run: () => ({
       gross: calculateOverseasSalesAward({
         awardType: "KA_BREAKTHROUGH",
+        kaQualified: true,
         firstSigning: true,
         annualCustomerOrderAmount: "12000000",
       }).grossAmount,

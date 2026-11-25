@@ -1245,6 +1245,21 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const batchId = randomUUID();
       return this.transactionFor(input.tenantId, async (client) => {
         try {
+          if (sourceRecordIds.length > 0) {
+            const { rows: reserved } = await client.query(
+              `INSERT INTO incentive_award_source_reservations
+                 (tenant_id, source_record_id, batch_id)
+               SELECT $1, unnest($2::text[]), $3
+               ON CONFLICT (tenant_id, source_record_id) DO NOTHING
+               RETURNING source_record_id`,
+              [input.tenantId, sourceRecordIds, batchId],
+            );
+            if (reserved.length !== sourceRecordIds.length) {
+              throw new ConflictError(
+                `source record already used by another award batch (reserved ${reserved.length}/${sourceRecordIds.length})`,
+              );
+            }
+          }
           const { rows } = await client.query(
             `INSERT INTO incentive_award_batches
               (id, tenant_id, batch_no, award_type, period, cycle_id, currency,

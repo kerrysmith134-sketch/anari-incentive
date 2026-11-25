@@ -372,7 +372,7 @@ describe("incentive endpoints (016/008/003)", () => {
     const overseas = await call(
       "POST",
       "/api/v1/policy/incentive/overseas-sales/award",
-      { awardType: "NEW_CUSTOMER_STAR", newCustomerCount: 8 },
+      { awardType: "NEW_CUSTOMER_STAR", qualifiedNewCustomerCount: 8, newCustomerCount: 8 },
     );
     expect(overseas.body.data.grossAmount).toBe("10000");
   });

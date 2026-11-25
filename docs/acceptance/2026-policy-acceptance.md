@@ -22,7 +22,7 @@
 | TECH-02 | 008 产品技术中心 | 客户定制项目费 20 万 × 30% | PASS | amount=60000 |
 | TECH-03 | 008 产品技术中心 | 年度降本 300 万 × 1%，上限 1 万 | PASS | amount=10000 |
 | TECH-04 | 008 产品技术中心 | 季度池：业务提成 15 万 × 19%，负责人 +0.1 | PASS | pool=28500, head=16108.7, pm=12391.3 |
-| OVERSEAS-01 | 003 海外销售 | 开发明星 8 个新客户，坏账损失 3000 扣 50% | PASS | gross=10000, deduction=1500, net=8500 |
+| OVERSEAS-01 | 003 海外销售 | 开发明星 8 个达标新客户（首单/回款已核实），坏账损失 3000 扣 50% | PASS | gross=10000, deduction=1500, net=8500 |
 | OVERSEAS-02 | 003 海外销售 | KA 首签且年度成交 1200 万 | PASS | gross=50000 |
 | EQUITY-01 | 011 股权激励 | L1 / A 轮 / B 绩效 / A 轮加入 → 2.5% | PASS | base=2.5, grant=2.5, cap=10, within=true |
 | EQUITY-02 | 011 股权激励 | L3 / B 轮 / A 绩效 / B 轮加入 → 0.184% | PASS | grant=0.184 |

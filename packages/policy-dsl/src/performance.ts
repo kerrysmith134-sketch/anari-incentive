@@ -567,12 +567,56 @@ export function calculateAnnualScorecard(
 }
 
 /** 第十二条：年度利润分享，池子受净利润条件、5%-10% 与预留预算约束。 */
+/**
+ * 最大余数法：先把池按最小货币单位向下取整，再按余数从大到小分配剩余单位。
+ * 总额永不超过池，任何个人金额不为负。tie-break 用 personId 升序，保证重放一致。
+ */
+function allocateAnnualPool(
+  pool: bigint,
+  weights: Array<{ personId: string; weight: bigint }>,
+  step: bigint,
+): bigint[] {
+  const total = weights.reduce((sum, entry) => sum + entry.weight, 0n);
+  if (pool <= 0n || total <= 0n) return weights.map(() => 0n);
+  const allocations = weights.map(() => 0n);
+  const remainders: Array<{ index: number; remainder: bigint; personId: string }> = [];
+  let allocated = 0n;
+  weights.forEach((entry, index) => {
+    const raw = (pool * entry.weight) / total;
+    const floored = (raw / step) * step;
+    allocations[index] = floored;
+    allocated += floored;
+    remainders.push({ index, remainder: raw % step, personId: entry.personId });
+  });
+  let remaining = pool - allocated;
+  remainders.sort((left, right) => {
+    if (left.remainder !== right.remainder) {
+      return left.remainder > right.remainder ? -1 : 1;
+    }
+    return left.personId.localeCompare(right.personId);
+  });
+  for (const entry of remainders) {
+    if (remaining < step) break;
+    allocations[entry.index] = allocations[entry.index]! + step;
+    remaining -= step;
+  }
+  return allocations;
+}
+
 export function calculateAnnualProfitSharing(
   input: AnnualProfitSharingInput,
 ): AnnualProfitSharingResult {
   const profit = parseDecimal(input.distributableNetProfit);
   const target = parseDecimal(input.netProfitTarget);
   const eligible = profit >= target && profit > 0n;
+  const reservedRaw = input.reservedBudgetBalance
+    ? parseDecimal(input.reservedBudgetBalance)
+    : ZERO;
+  const reserved = reservedRaw > 0n ? reservedRaw : undefined;
+  const uniquePeople = new Set(input.people.map((person) => person.personId));
+  if (uniquePeople.size !== input.people.length) {
+    throw new Error("DUPLICATE_PERSON_ID: annual sharing requires unique people");
+  }
   const rate = clamp(
     parseDecimal(input.poolRatePercent),
     ZERO,
@@ -595,11 +639,13 @@ export function calculateAnnualProfitSharing(
     };
   }
   const poolAmount = div(mul(profit, rate), HUNDRED);
-  const approvedPool = input.reservedBudgetBalance
-    ? min(poolAmount, parseDecimal(input.reservedBudgetBalance))
-    : poolAmount;
+  const approvedPool = reserved !== undefined ? min(poolAmount, reserved) : poolAmount;
 
   const prepared = input.people.map((person) => {
+    if (parseDecimal(person.monthlyWageBase) < 0n) throw new Error("NEGATIVE_MONTHLY_WAGE_BASE");
+    if (parseDecimal(person.gradeCoefficient) < 0n) throw new Error("NEGATIVE_GRADE_COEFFICIENT");
+    if (parseDecimal(person.weightedQuarterlyKp) < 0n) throw new Error("NEGATIVE_QUARTERLY_KP");
+    if (parseDecimal(person.attendanceRatio) < 0n) throw new Error("NEGATIVE_ATTENDANCE_RATIO");
     const valuePoints = mul(
       parseDecimal(person.monthlyWageBase),
       parseDecimal(person.gradeCoefficient),
@@ -627,22 +673,21 @@ export function calculateAnnualProfitSharing(
       })),
     };
   }
-  const allocations = prepared.map((entry) => ({
+  const step = 10_000n; // CNY 分；年度分配当前以人民币分为最小单位。
+  const amounts = allocateAnnualPool(
+    approvedPool,
+    prepared.map((entry) => ({ personId: entry.person.personId, weight: entry.points })),
+    step,
+  );
+  const allocations = prepared.map((entry, index) => ({
     personId: entry.person.personId,
     valuePoints: formatDecimal(roundTo(entry.valuePoints, 2, "HALF_UP")),
     points: formatDecimal(roundTo(entry.points, 4, "HALF_UP")),
-    amount: roundTo(div(mul(approvedPool, entry.points), totalPoints), 2, "HALF_UP"),
+    amount: formatDecimal(amounts[index] ?? 0n),
   }));
-  const allocated = sum(allocations.map((entry) => entry.amount));
-  const residual = approvedPool - allocated;
-  if (residual !== 0n && allocations.length > 0) {
-    const largest = [...prepared].sort((left, right) =>
-      left.points === right.points ? 0 : left.points > right.points ? -1 : 1,
-    )[0]!;
-    const targetAllocation = allocations.find(
-      (entry) => entry.personId === largest.person.personId,
-    )!;
-    targetAllocation.amount += residual;
+  const allocated = sum(allocations.map((entry) => parseDecimal(entry.amount)));
+  if (allocated > approvedPool) {
+    throw new Error("ANNUAL_ALLOCATION_EXCEEDS_POOL: allocation invariant failed");
   }
   return {
     eligible: true,
@@ -650,10 +695,7 @@ export function calculateAnnualProfitSharing(
     poolAmount: formatDecimal(roundTo(poolAmount, 2, "HALF_UP")),
     approvedPoolAmount: formatDecimal(roundTo(approvedPool, 2, "HALF_UP")),
     totalPoints: formatDecimal(roundTo(totalPoints, 4, "HALF_UP")),
-    allocations: allocations.map((entry) => ({
-      ...entry,
-      amount: formatDecimal(roundTo(entry.amount, 2, "HALF_UP")),
-    })),
+    allocations,
   };
 }
 

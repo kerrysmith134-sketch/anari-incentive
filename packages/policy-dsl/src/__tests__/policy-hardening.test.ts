@@ -345,6 +345,7 @@ describe("policy hardening rounds 01-24", () => {
   it("23: KA at 9.99M stays in the 30k tier", () => {
     const result = calculateOverseasSalesAward({
       awardType: "KA_BREAKTHROUGH",
+      kaQualified: true,
       firstSigning: true,
       annualCustomerOrderAmount: "9999999",
     });

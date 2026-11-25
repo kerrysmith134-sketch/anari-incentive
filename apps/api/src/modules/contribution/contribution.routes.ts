@@ -407,13 +407,8 @@ export function registerContributionRoutes(deps: {
         modelProvider: summary.provider,
         modelName: summary.model,
         promptVersion: "contribution-assessment-v1",
-        supporting: supporting.length > 0 ? supporting : [
-          {
-            statement: summary.summary,
-            evidenceRefs: [evidenceNodes[0]!.id],
-            basis: "CLAIM",
-          },
-        ],
+        // 没有正向证据时保留“无支持”状态，绝不把摘要伪造成正向陈述并绑定第一条证据。
+        supporting,
         counter,
         missingInformation,
         alternativeExplanations: [],
