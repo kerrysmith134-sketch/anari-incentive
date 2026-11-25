@@ -413,8 +413,8 @@ export function normalizeCommercialQuote(
   );
   const customerId = firstText(record, "customer_id", "customerId");
   const customerName =
-    firstText(record, "customer_name", "customerName") ??
-    (customerId ? `Customer ${customerId}` : undefined);
+    firstText(record, "customer_name", "customerName") ||
+    (customerId ? `Customer ${customerId}` : "");
   const writes: CanonicalWrite[] = [];
   if (!externalOpportunityId) {
     if (!customerId || !customerName) return [];
@@ -572,8 +572,8 @@ export function normalizeCommercialOrder(
   );
   const customerId = firstText(record, "customer_id", "customerId");
   const customerName =
-    firstText(record, "customer_name", "customerName") ??
-    (customerId ? `Customer ${customerId}` : undefined);
+    firstText(record, "customer_name", "customerName") ||
+    (customerId ? `Customer ${customerId}` : "");
   const quotationId = firstText(record, "quotation_id", "quotationId");
   const writes: CanonicalWrite[] = [];
   if (!externalContractId) {
