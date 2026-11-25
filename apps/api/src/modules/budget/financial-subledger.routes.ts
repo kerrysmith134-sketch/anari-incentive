@@ -125,6 +125,29 @@ function agingBucketFor(days: number): FinancialAgingBucket {
   return "90+";
 }
 
+type SettlementConversion =
+  | "SAME_CURRENCY"
+  | "FUNCTIONAL_CURRENCY"
+  | "FACT_FX_RATE"
+  | "INVOICE_FX_RATE_INVERSE";
+
+interface ConvertedSettlement {
+  amount: bigint;
+  conversion: SettlementConversion;
+}
+
+interface CrossCurrencySettlement {
+  factId: string;
+  documentType: string;
+  currency: string;
+  amount: string;
+  convertedAmount: string;
+  conversion: SettlementConversion;
+  functionalCurrency: string | null;
+  fxRate: string | null;
+  functionalAmount: string | null;
+}
+
 interface InvoiceSettlement {
   total: bigint;
   payments: bigint;
@@ -132,6 +155,76 @@ interface InvoiceSettlement {
   writeOffs: bigint;
   reversed: boolean;
   open: bigint;
+  crossCurrencySettlements: CrossCurrencySettlement[];
+}
+
+/**
+ * 把一笔收款/退款/核销折算成发票币种（迁移 112 follow-up）。
+ *
+ * 只有 1e6 定点 BigInt，路径按可用信息从最精确到最保守：
+ * 1. 币种相同 → 原币金额；
+ * 2. 事实的功能币 = 发票币种 → 直接用 functionalAmount（Y → Z=X）；
+ * 3. 事实的功能币 = 发票的功能币（X → Z）→ 用发票 fxRate 反算：
+ *    functionalAmount × 1e6 / fxRate（HALF_UP），支持 X/Y/Z 三币种链；
+ * 4. 没有 functionalAmount 但事实 fxRate 指向发票币种 → amount × fxRate；
+ * 5. 仍无法折算 → 409 CROSS_CURRENCY_FX_REQUIRED（fail-closed，绝不静默
+ *    忽略该笔收付）。
+ */
+function convertSettlementToInvoiceCurrency(
+  fact: FinancialFact,
+  invoice: FinancialFact,
+): ConvertedSettlement {
+  const native = parseDecimal(fact.amount);
+  if (fact.currency === invoice.currency) {
+    return { amount: native, conversion: "SAME_CURRENCY" };
+  }
+  const functionalAmount =
+    fact.functionalAmount === undefined
+      ? undefined
+      : parseDecimal(fact.functionalAmount);
+  const functionalCurrency = fact.functionalCurrency;
+  if (functionalCurrency === invoice.currency) {
+    if (functionalAmount !== undefined) {
+      return { amount: functionalAmount, conversion: "FUNCTIONAL_CURRENCY" };
+    }
+    if (fact.fxRate !== undefined && parseDecimal(fact.fxRate) > 0n) {
+      return {
+        amount: divRound(
+          native * parseDecimal(fact.fxRate),
+          SCALE,
+          "HALF_UP",
+        ),
+        conversion: "FACT_FX_RATE",
+      };
+    }
+  }
+  if (
+    functionalCurrency !== undefined &&
+    invoice.functionalCurrency !== undefined &&
+    functionalCurrency === invoice.functionalCurrency &&
+    functionalAmount !== undefined &&
+    invoice.fxRate !== undefined &&
+    parseDecimal(invoice.fxRate) > 0n
+  ) {
+    // 发票：X → Z 的汇率为 invoice.fxRate；事实功能币金额已为 Z，
+    // 因此 X = Z / rate。定点：Z×1e6 / rate（rate 也是 1e6 定点）。
+    return {
+      amount: divRound(
+        functionalAmount * SCALE,
+        parseDecimal(invoice.fxRate),
+        "HALF_UP",
+      ),
+      conversion: "INVOICE_FX_RATE_INVERSE",
+    };
+  }
+  throw new ConflictError(
+    `CROSS_CURRENCY_FX_REQUIRED: ${fact.documentType ?? fact.factType} fact ${fact.id} ` +
+      `in ${fact.currency} cannot be converted to invoice currency ${invoice.currency} ` +
+      `(functionalCurrency=${fact.functionalCurrency ?? "null"}, ` +
+      `functionalAmount=${fact.functionalAmount ?? "null"}, fxRate=${fact.fxRate ?? "null"}, ` +
+      `invoiceFunctionalCurrency=${invoice.functionalCurrency ?? "null"}, ` +
+      `invoiceFxRate=${invoice.fxRate ?? "null"})`,
+  );
 }
 
 function settleInvoice(
@@ -139,22 +232,50 @@ function settleInvoice(
   related: FinancialFact[],
 ): InvoiceSettlement {
   const total = parseDecimal(invoiceTotal(invoice));
-  const sameCurrency = related.filter(
-    (fact) => fact.currency === invoice.currency,
-  );
-  const sumOf = (type: FinancialFact["documentType"]) =>
-    sameCurrency
-      .filter((fact) => fact.documentType === type)
-      .reduce((sum, fact) => sum + parseDecimal(fact.amount), 0n);
-  const payments = sumOf("PAYMENT");
-  const refunds = sumOf("REFUND");
-  const writeOffs = sumOf("BAD_DEBT_WRITE_OFF");
+  let payments = 0n;
+  let refunds = 0n;
+  let writeOffs = 0n;
+  const crossCurrencySettlements: CrossCurrencySettlement[] = [];
+  for (const fact of related) {
+    if (
+      fact.documentType !== "PAYMENT" &&
+      fact.documentType !== "REFUND" &&
+      fact.documentType !== "BAD_DEBT_WRITE_OFF"
+    ) {
+      continue;
+    }
+    const converted = convertSettlementToInvoiceCurrency(fact, invoice);
+    if (converted.conversion !== "SAME_CURRENCY") {
+      crossCurrencySettlements.push({
+        factId: fact.id,
+        documentType: fact.documentType,
+        currency: fact.currency,
+        amount: formatDecimal(parseDecimal(fact.amount)),
+        convertedAmount: formatDecimal(converted.amount),
+        conversion: converted.conversion,
+        functionalCurrency: fact.functionalCurrency ?? null,
+        fxRate: fact.fxRate ?? null,
+        functionalAmount: fact.functionalAmount ?? null,
+      });
+    }
+    if (fact.documentType === "PAYMENT") payments += converted.amount;
+    if (fact.documentType === "REFUND") refunds += converted.amount;
+    if (fact.documentType === "BAD_DEBT_WRITE_OFF") {
+      writeOffs += converted.amount;
+    }
+  }
   // 全额冲销的发票不再形成应收；退款金额本身为负，减负数即回到 open。
   const reversed = related.some((fact) => fact.documentType === "REVERSAL");
-  const open = reversed
-    ? 0n
-    : total - payments - refunds - writeOffs;
-  return { total, payments, refunds, writeOffs, reversed, open };
+  const open = reversed ? 0n : total - payments - refunds - writeOffs;
+  return {
+    total,
+    payments,
+    refunds,
+    writeOffs,
+    reversed,
+    open,
+    crossCurrencySettlements,
+  };
 }
 
 interface AgingInvoiceRow {
@@ -171,6 +292,8 @@ interface AgingInvoiceRow {
   refunds: string;
   writeOffs: string;
   openAmount: string;
+  /** 跨币种收付折算审计链（仅列出 currency != invoice.currency 的事实）。 */
+  crossCurrencySettlements: CrossCurrencySettlement[];
   status: "OPEN" | "SETTLED" | "REVERSED" | "OVER_APPLIED";
 }
 
@@ -254,6 +377,7 @@ function buildAging(
       refunds: formatDecimal(settlement.refunds),
       writeOffs: formatDecimal(settlement.writeOffs),
       openAmount: formatDecimal(settlement.open),
+      crossCurrencySettlements: settlement.crossCurrencySettlements,
       status,
     });
     invoiceById.set(invoice.id, invoice);

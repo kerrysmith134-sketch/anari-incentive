@@ -450,6 +450,18 @@ describe("Financial subledger (migration 111)", () => {
 // 迁移 112：账龄 / 税额 / 坏账 / ERP 对账 / 复式记账。
 // ----------------------------------------------------------------------
 
+interface CrossCurrencySettlementBody {
+  factId: string;
+  documentType: string;
+  currency: string;
+  amount: string;
+  convertedAmount: string;
+  conversion: string;
+  functionalCurrency: string | null;
+  fxRate: string | null;
+  functionalAmount: string | null;
+}
+
 interface AgingRow {
   invoiceFactId: string;
   documentId: string | null;
@@ -463,6 +475,7 @@ interface AgingRow {
   payments: string;
   refunds: string;
   writeOffs: string;
+  crossCurrencySettlements?: CrossCurrencySettlementBody[];
 }
 
 interface AgingTotals {
@@ -1293,5 +1306,306 @@ describe("Financial subledger aging / tax / bad debt / GL (migration 112)", () =
     expect(
       (manual.json() as { error: { message: string } }).error.message,
     ).toMatch(/PERIOD_CLOSED/);
+  });
+});
+
+// ----------------------------------------------------------------------
+// 迁移 112 follow-up：账龄跨币种收款折算（X/Y/Z 三币种链）。
+// 规则：同币种直接用原币；事实功能币 = 发票币种 → functionalAmount；
+// 事实功能币 = 发票功能币 → 用发票 fxRate 反算；缺可用折算 → 409。
+// ----------------------------------------------------------------------
+
+function journalLine(journal: JournalBody | undefined, accountCode: string) {
+  return journal?.lines.find((line) => line.accountCode === accountCode);
+}
+
+describe("Financial subledger aging cross-currency conversion", () => {
+  it("converts EUR and JPY settlements into the USD invoice open amount", async () => {
+    const app = buildAppFor();
+    const asOf = "2026-11-25";
+    const period = "2026-10";
+
+    const invoiceRes = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-XCUR-1", "1000.00", "2026-10-01T00:00:00.000Z", {
+        accountingPeriod: period,
+        orderId: "SO-XCUR-1",
+      }),
+    );
+    expect(invoiceRes.statusCode).toBe(201);
+    const invoice = envelope(invoiceRes).data;
+
+    // EUR 收款：EUR → functional USD @1.1，200 EUR = 220 USD。
+    const eurPaymentRes = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "PAYMENT",
+      documentId: "PAY-XEUR",
+      amount: "200.00",
+      currency: "EUR",
+      functionalCurrency: "USD",
+      fxRate: "1.100000",
+    });
+    expect(eurPaymentRes.statusCode).toBe(201);
+    const eurPayment = envelope(eurPaymentRes).data;
+    expect(eurPayment.currency).toBe("EUR");
+    expect(eurPayment.functionalCurrency).toBe("USD");
+    expect(eurPayment.fxRate).toBe("1.1");
+    expect(eurPayment.functionalAmount).toBe("220");
+
+    // JPY 收款：JPY → functional USD @0.0067，30000 JPY = 201 USD。
+    const jpyPaymentRes = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "PAYMENT",
+      documentId: "PAY-XJPY",
+      amount: "30000.00",
+      currency: "JPY",
+      functionalCurrency: "USD",
+      fxRate: "0.006700",
+    });
+    expect(jpyPaymentRes.statusCode).toBe(201);
+    const jpyPayment = envelope(jpyPaymentRes).data;
+    expect(jpyPayment.functionalAmount).toBe("201");
+
+    // EUR 退款：50 EUR = 55 USD 减少（退款金额入库为负）。
+    const eurRefundRes = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "REFUND",
+      documentId: "REF-XEUR",
+      amount: "50.00",
+      currency: "EUR",
+      functionalCurrency: "USD",
+      fxRate: "1.100000",
+    });
+    expect(eurRefundRes.statusCode).toBe(201);
+    const eurRefund = envelope(eurRefundRes).data;
+    expect(eurRefund.amount).toBe("-50");
+    expect(eurRefund.functionalAmount).toBe("-55");
+
+    const agingData = await aging(app, LEGAL_ENTITY, asOf);
+    const row = agingData.invoices.find(
+      (candidate) => candidate.documentId === "INV-XCUR-1",
+    );
+    expect(row).toBeDefined();
+    if (!row) return;
+    // open = 1000 - 220 - 201 - (-55) = 634。
+    expect(row).toMatchObject({
+      currency: "USD",
+      payments: "421",
+      refunds: "-55",
+      openAmount: "634",
+    });
+    expect(row.crossCurrencySettlements).toHaveLength(3);
+    expect(
+      row.crossCurrencySettlements?.every(
+        (entry) => entry.conversion === "FUNCTIONAL_CURRENCY",
+      ),
+    ).toBe(true);
+    expect(
+      row.crossCurrencySettlements?.map((entry) => entry.convertedAmount),
+    ).toEqual(expect.arrayContaining(["220", "201", "-55"]));
+    expect(agingData.totals[0]).toMatchObject({
+      currency: "USD",
+      payments: "421",
+      refunds: "-55",
+      openAmount: "634",
+      buckets: { "31-60": "634" },
+    });
+
+    // GL：发票 AR 借 1000 USD；每张凭证平衡；收付 AR 金额仍是原币，
+    // 用同一折算规则（functionalAmount）还原为 USD 后与账龄 open 一致。
+    const invoiceJournal = (await journalsFor(app, "INV-XCUR-1"))[0];
+    const eurPaymentJournal = (await journalsFor(app, "PAY-XEUR"))[0];
+    const jpyPaymentJournal = (await journalsFor(app, "PAY-XJPY"))[0];
+    const eurRefundJournal = (await journalsFor(app, "REF-XEUR"))[0];
+    for (const journal of [
+      invoiceJournal,
+      eurPaymentJournal,
+      jpyPaymentJournal,
+      eurRefundJournal,
+    ]) {
+      assertBalanced(journal);
+    }
+    expect(journalLine(invoiceJournal, "AR")?.debit).toBe("1000");
+    expect(eurPaymentJournal?.currency).toBe("EUR");
+    expect(journalLine(eurPaymentJournal, "AR")?.credit).toBe("200");
+    expect(jpyPaymentJournal?.currency).toBe("JPY");
+    expect(journalLine(jpyPaymentJournal, "AR")?.credit).toBe("30000");
+    expect(eurRefundJournal?.currency).toBe("EUR");
+    expect(journalLine(eurRefundJournal, "AR")?.debit).toBe("50");
+
+    const glOpenInUsd =
+      1000 -
+      Number(eurPayment.functionalAmount) -
+      Number(jpyPayment.functionalAmount) -
+      Number(eurRefund.functionalAmount);
+    expect(glOpenInUsd).toBe(634);
+    expect(Number(row.openAmount)).toBe(glOpenInUsd);
+
+    // 子账仍按原币回读，折算只发生在账龄视图（可追溯）。
+    const ledgerRes = await get(
+      app,
+      "/api/v1/financial-subledger?orderId=SO-XCUR-1",
+    );
+    expect(ledgerRes.statusCode).toBe(200);
+    const totals = (
+      ledgerRes.json() as {
+        data: {
+          totals: Record<
+            string,
+            { invoiced: string; paid: string; refunded: string; net: string }
+          >;
+        };
+      }
+    ).data.totals;
+    expect(totals.USD).toMatchObject({
+      invoiced: "1000",
+      paid: "0",
+      refunded: "0",
+      net: "1000",
+    });
+    expect(totals.EUR).toMatchObject({
+      paid: "200",
+      refunded: "-50",
+      net: "150",
+    });
+    expect(totals.JPY).toMatchObject({ paid: "30000", net: "30000" });
+  });
+
+  it("supports an invoice X / payment Y / functional Z chain via invoice fxRate", async () => {
+    const app = buildAppFor();
+    const asOf = "2026-11-25";
+    const period = "2026-10";
+
+    // 发票 X=USD，功能币 Z=EUR（USD→EUR 0.9）。
+    const invoiceRes = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-XYZ-1", "1000.00", "2026-10-01T00:00:00.000Z", {
+        accountingPeriod: period,
+        orderId: "SO-XYZ-1",
+        currency: "USD",
+        functionalCurrency: "EUR",
+        fxRate: "0.900000",
+      }),
+    );
+    expect(invoiceRes.statusCode).toBe(201);
+    const invoice = envelope(invoiceRes).data;
+
+    // 收款 Y=JPY，功能币 Z=EUR：30000 JPY × 0.0067 = 201 EUR。
+    const paymentRes = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "PAYMENT",
+      documentId: "PAY-XYZ",
+      amount: "30000.00",
+      currency: "JPY",
+      functionalCurrency: "EUR",
+      fxRate: "0.006700",
+    });
+    expect(paymentRes.statusCode).toBe(201);
+    const payment = envelope(paymentRes).data;
+    expect(payment.functionalCurrency).toBe("EUR");
+    expect(payment.functionalAmount).toBe("201");
+
+    // X = Z / (USD→EUR 0.9) = 201 / 0.9 = 223.333333 USD（HALF_UP）。
+    const agingData = await aging(app, LEGAL_ENTITY, asOf);
+    const row = agingData.invoices.find(
+      (candidate) => candidate.documentId === "INV-XYZ-1",
+    );
+    expect(row).toBeDefined();
+    if (!row) return;
+    expect(row.payments).toBe("223.333333");
+    expect(row.openAmount).toBe("776.666667");
+    expect(row.crossCurrencySettlements).toHaveLength(1);
+    expect(row.crossCurrencySettlements?.[0]).toMatchObject({
+      conversion: "INVOICE_FX_RATE_INVERSE",
+      currency: "JPY",
+      amount: "30000",
+      functionalCurrency: "EUR",
+      functionalAmount: "201",
+      convertedAmount: "223.333333",
+    });
+
+    // GL 平衡 + 同一反算规则下与账龄 open 一致。
+    const paymentJournal = (await journalsFor(app, "PAY-XYZ"))[0];
+    assertBalanced(paymentJournal);
+    expect(paymentJournal?.currency).toBe("JPY");
+    expect(journalLine(paymentJournal, "AR")?.credit).toBe("30000");
+    const invoiceJournal = (await journalsFor(app, "INV-XYZ-1"))[0];
+    assertBalanced(invoiceJournal);
+    expect(journalLine(invoiceJournal, "AR")?.debit).toBe("1000");
+
+    const convertedBack = 1000 - 223.333333;
+    expect(Number(row.openAmount)).toBeCloseTo(convertedBack, 6);
+
+    const ledgerRes = await get(
+      app,
+      "/api/v1/financial-subledger?orderId=SO-XYZ-1",
+    );
+    const ledger = (
+      ledgerRes.json() as { data: { totals: Record<string, { paid: string }> } }
+    ).data.totals;
+    expect(ledger.JPY?.paid).toBe("30000");
+  });
+
+  it("fails closed when a cross-currency settlement has no usable FX", async () => {
+    const app = buildAppFor();
+    const asOf = "2026-11-25";
+    const period = "2026-10";
+
+    const invoiceRes = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-NOFX-1", "1000.00", "2026-10-01T00:00:00.000Z", {
+        accountingPeriod: period,
+        orderId: "SO-NOFX-1",
+      }),
+    );
+    expect(invoiceRes.statusCode).toBe(201);
+    const invoice = envelope(invoiceRes).data;
+
+    // ERP 直连 PAYMENT：JPY 原币且无 functionalCurrency/functionalAmount，
+    // 账龄无法折算时必须 409，不能当作 0 或直接忽略。
+    const paymentRes = await post(app, "/api/v1/financial-facts", {
+      sourceSystem: "ERP",
+      sourceRecordId: "PAY-NOFX",
+      factType: "PAYMENT",
+      amount: "5000.00",
+      currency: "JPY",
+      recognitionStatus: "POSTED",
+      legalEntityId: LEGAL_ENTITY,
+      accountingPeriod: period,
+      instrumentType: "PAYMENT",
+      orderId: "SO-NOFX-1",
+      sourceVersion: "v1",
+      documentType: "PAYMENT",
+      documentId: "PAY-NOFX-1",
+      relatedFactId: invoice.id,
+      payload: {},
+    });
+    expect(paymentRes.statusCode).toBe(201);
+
+    const agingRes = await get(
+      app,
+      `/api/v1/financial-subledger/aging?legalEntityId=${LEGAL_ENTITY}&asOf=${asOf}`,
+    );
+    expect(agingRes.statusCode).toBe(409);
+    const error = (
+      agingRes.json() as { error: { message: string } }
+    ).error.message;
+    expect(error).toMatch(/CROSS_CURRENCY_FX_REQUIRED/);
+    expect(error).toContain("JPY");
+    expect(error).toContain("USD");
+
+    // 依赖账龄的坏账计提同样 fail-closed。
+    const provisionRes = await post(
+      app,
+      "/api/v1/financial-bad-debt/provision",
+      { legalEntityId: LEGAL_ENTITY, accountingPeriod: period, asOf },
+    );
+    expect(provisionRes.statusCode).toBe(409);
+    expect(
+      (provisionRes.json() as { error: { message: string } }).error.message,
+    ).toMatch(/CROSS_CURRENCY_FX_REQUIRED/);
   });
 });

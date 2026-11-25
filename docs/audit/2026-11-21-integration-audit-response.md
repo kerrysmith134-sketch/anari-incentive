@@ -111,10 +111,10 @@
 | 财务子账 | 关闭（最小闭环） | 迁移 111 + 发票/收款/退款/冲销/FX 重估 API；document/related/fx/functional 字段落库，POSTED 期间门禁复用。 |
 | payroll 多币种 | 关闭 | run/line currency 一致；非 CNY 法定扣除置 0 并标记；JPY/KWD 精度测试。 |
 | 绩效上限 | 关闭 | 2026-11-25 业务确认按 110/150/105，不采用 130/150；政策门禁更新。 |
-| 子账账龄/税额/坏账 | 关闭 | 迁移 112：账龄桶、发票税额、IFRS 9 简化矩阵计提、坏账核销。 |
+| 子账账龄/税额/坏账 | 关闭 | 迁移 112：账龄桶、发票税额、IFRS 9 简化矩阵计提、坏账核销；跨币种收付按功能币/发票汇率折算，缺汇率 fail-closed。 |
 | ERP 对账 | 关闭（子账侧） | 按 documentType/币种对比子账与 ERP 来源事实，返回 PASS/VARIANCE；真实 ERP 样本仍需业务提供。 |
 | 复式记账 | 关闭 | gl_accounts/gl_journals/gl_journal_lines + RLS；发票/收付/退款/冲销/重估/坏账自动平衡凭证。 |
-| 多法人多币种合并 | 关闭（引擎） | IAS 21/ASC 830：期末/平均/历史汇率、CTA、内部往来抵消、平衡校验；3 法人 USD/EUR/JPY fixture + CLI PASS。 |
+| 多法人多币种合并 | 关闭（引擎） | IAS 21/ASC 830：期末/平均/历史汇率、CTA、IC AR/AP 与 IC 损益抵消、NCI（多级有效持股）、平衡校验；fixture + CLI PASS。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -140,7 +140,7 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：136 files passed / 2 skipped；1388 tests passed / 108 skipped。
+- `npm test`：136 files passed / 2 skipped；1395 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
 - `npm run test:pg-upgrade`：89 → 112 migrations，107 tests passed。

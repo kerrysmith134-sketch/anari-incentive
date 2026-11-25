@@ -14,7 +14,25 @@
  *   adjustment (CTA), presented inside equity as a separate OCI line;
  * - intercompany AR/AP balances are eliminated at the closing rate. They must
  *   clear to exactly zero per counterparty pair; a difference is a data error
- *   and fails closed instead of being parked in the CTA.
+ *   and fails closed instead of being parked in the CTA;
+ * - intercompany revenue/expense (`INTERCOMPANY_REVENUE` /
+ *   `INTERCOMPANY_EXPENSE`) is translated at the average rate and eliminated
+ *   per counterparty pair. The two sides must translate to the same group
+ *   amount; otherwise `INTERCOMPANY_PNL_IMBALANCE` is raised. Group revenue
+ *   and expense drop by the eliminated amounts while group net income is
+ *   unchanged (the two sides are equal);
+ * - minority interests: `ownershipPercent` is the direct ownership by the
+ *   parent (0-100). Effective ownership is the product along the ownership
+ *   chain, so multi-level NCI is not double counted. NCI is the minority
+ *   share of each subsidiary's translated net assets (including its CTA
+ *   share) and of its translated net income. The group balance sheet stays
+ *   `assets - liabilities = parentEquity + nci`.
+ *
+ * Compatibility: a 100%-owned group has no NCI and no intercompany P&L, so
+ * the legacy report shape (and therefore the locked fixture hash) is kept
+ * byte-for-byte. The `nci*` / `parent*` fields, `nciAllocations`,
+ * `eliminations.pnl` and the two extra balance keys are only emitted when
+ * they are actually present.
  *
  * All amounts are bigint micro-units (1e6 scale, see
  * `@anari/policy-dsl/decimal`). No floating point is used anywhere, and rate
@@ -40,8 +58,8 @@ import {
   sha256,
 } from "@anari/policy-dsl";
 
-/** Account types that participate in the shadow cycle. */
-export const ACCOUNT_TYPES = [
+/** Legacy balance-sheet / P&L accounts, always present in the report. */
+export const BALANCE_ACCOUNT_TYPES = [
   "REVENUE",
   "EXPENSE",
   "ASSET",
@@ -49,6 +67,23 @@ export const ACCOUNT_TYPES = [
   "EQUITY",
   "INTERCOMPANY_AR",
   "INTERCOMPANY_AP",
+] as const;
+
+export type BalanceAccountType = (typeof BALANCE_ACCOUNT_TYPES)[number];
+
+/** Intercompany P&L accounts, emitted only when they carry a balance. */
+export const INTERCOMPANY_PNL_ACCOUNT_TYPES = [
+  "INTERCOMPANY_REVENUE",
+  "INTERCOMPANY_EXPENSE",
+] as const;
+
+export type IntercompanyPnlAccountType =
+  (typeof INTERCOMPANY_PNL_ACCOUNT_TYPES)[number];
+
+/** Account types that participate in the shadow cycle. */
+export const ACCOUNT_TYPES = [
+  ...BALANCE_ACCOUNT_TYPES,
+  ...INTERCOMPANY_PNL_ACCOUNT_TYPES,
 ] as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -59,6 +94,16 @@ const ACCOUNT_TYPE_SET = new Set<string>(ACCOUNT_TYPES);
 const INTERCOMPANY_ACCOUNT_TYPES = new Set<AccountType>([
   "INTERCOMPANY_AR",
   "INTERCOMPANY_AP",
+]);
+
+const INTERCOMPANY_PNL_SET = new Set<AccountType>(
+  INTERCOMPANY_PNL_ACCOUNT_TYPES,
+);
+
+/** Accounts that only make sense with an explicit counterparty. */
+const COUNTERPARTY_REQUIRED_ACCOUNT_TYPES = new Set<AccountType>([
+  ...INTERCOMPANY_ACCOUNT_TYPES,
+  ...INTERCOMPANY_PNL_ACCOUNT_TYPES,
 ]);
 
 export type GroupRateKind = "CLOSING" | "AVERAGE" | "HISTORICAL";
@@ -77,6 +122,8 @@ export const GROUP_RATE_KIND_BY_ACCOUNT: Readonly<Record<AccountType, GroupRateK
     REVENUE: "AVERAGE",
     EXPENSE: "AVERAGE",
     EQUITY: "HISTORICAL",
+    INTERCOMPANY_REVENUE: "AVERAGE",
+    INTERCOMPANY_EXPENSE: "AVERAGE",
   };
 
 export type ConsolidationErrorCode =
@@ -86,7 +133,7 @@ export type ConsolidationErrorCode =
   | "INVALID_ENTITY"
   | "DUPLICATE_ENTITY"
   | "INVALID_HIERARCHY"
-  | "UNSUPPORTED_OWNERSHIP"
+  | "INVALID_OWNERSHIP"
   | "INVALID_ACCOUNT_TYPE"
   | "INVALID_AMOUNT"
   | "INVALID_CURRENCY"
@@ -97,6 +144,7 @@ export type ConsolidationErrorCode =
   | "INTERCOMPANY_COUNTERPARTY_REQUIRED"
   | "INTERCOMPANY_SELF_REFERENCE"
   | "INTERCOMPANY_IMBALANCE"
+  | "INTERCOMPANY_PNL_IMBALANCE"
   | "ENTITY_UNBALANCED"
   | "GROUP_UNBALANCED"
   | "PERIOD_MISMATCH";
@@ -126,9 +174,9 @@ export interface EntityDefinition {
   /** `null`/omitted for the group parent. */
   parentEntityId?: string | null;
   /**
-   * Ownership of the entity by its parent. This shadow cycle consolidates
-   * wholly owned entities only; NCI is out of scope (see
-   * `UNSUPPORTED_OWNERSHIP`).
+   * Direct ownership of the entity by its parent, as a percentage (0-100).
+   * Effective ownership is the product along the parent chain; the group
+   * parent itself is treated as 100% owned by the group's shareholders.
    */
   ownershipPercent: string;
   equity: EntityEquityInput;
@@ -188,6 +236,13 @@ export interface TranslatedTransaction {
   description: string;
 }
 
+/**
+ * Legacy balances are always emitted (zero included); the intercompany P&L
+ * keys are only emitted when non-zero to keep 100%-owned reports unchanged.
+ */
+export type EntityBalancesReport = Record<BalanceAccountType, string> &
+  Partial<Record<IntercompanyPnlAccountType, string>>;
+
 export interface EntityConsolidationReport {
   entityId: string;
   name: string;
@@ -195,13 +250,15 @@ export interface EntityConsolidationReport {
   parentEntityId: string | null;
   ownershipPercent: string;
   functional: {
-    balances: Record<AccountType, string>;
+    balances: EntityBalancesReport;
     openingEquity: {
       shareCapital: string;
       retainedEarnings: string;
       total: string;
     };
+    /** Total revenue including INTERCOMPANY_REVENUE. */
     revenue: string;
+    /** Total expense including INTERCOMPANY_EXPENSE. */
     expense: string;
     netIncome: string;
     totalAssets: string;
@@ -213,7 +270,9 @@ export interface EntityConsolidationReport {
     assets: string;
     liabilities: string;
     netAssets: string;
+    /** Total revenue including INTERCOMPANY_REVENUE (translated at average). */
     revenue: string;
+    /** Total expense including INTERCOMPANY_EXPENSE (translated at average). */
     expense: string;
     netIncome: string;
     shareCapital: string;
@@ -243,6 +302,45 @@ export interface EliminationLine {
   difference: string;
 }
 
+export interface PnlEliminationLine {
+  /** Counterparty pair, sorted lexicographically. */
+  entities: [string, string];
+  /** Intercompany revenue translated at the average rate, in group currency. */
+  revenue: string;
+  /** Intercompany expense translated at the average rate, in group currency. */
+  expense: string;
+  /** revenue - expense; always "0" for a published report. */
+  difference: string;
+}
+
+export interface PnlEliminationReport {
+  lines: PnlEliminationLine[];
+  totalRevenue: string;
+  totalExpense: string;
+  totalDifference: string;
+  cleared: boolean;
+}
+
+export interface NciAllocation {
+  entityId: string;
+  /** Direct ownership by the parent, in percent. */
+  ownershipPercent: string;
+  /** Effective ownership from the group parent, in percent. */
+  effectiveOwnershipPercent: string;
+  /** 100 - effective ownership, in percent. */
+  nciPercent: string;
+  /** The subsidiary's translated net assets (including its CTA share). */
+  netAssets: string;
+  /** The subsidiary's translated net income. */
+  netIncome: string;
+  /** The subsidiary's CTA (already included in netAssets). */
+  cta: string;
+  /** nciPercent x netAssets. */
+  nci: string;
+  /** nciPercent x netIncome. */
+  nciNetIncome: string;
+}
+
 export interface ConsolidatedTotals {
   assets: string;
   liabilities: string;
@@ -256,6 +354,14 @@ export interface ConsolidatedTotals {
   cta: string;
   equityTotal: string;
   balanceDifference: string;
+  /**
+   * NCI attribution is only emitted when the group actually has minority
+   * interests. A 100%-owned group keeps the legacy report shape (NCI = 0).
+   */
+  nci?: string;
+  nciNetIncome?: string;
+  parentNetIncome?: string;
+  parentEquity?: string;
 }
 
 export interface ConsolidationChecks {
@@ -267,6 +373,10 @@ export interface ConsolidationChecks {
    * is a pure translation residual and does not hide a bookkeeping error.
    */
   ctaTranslationOnly: boolean;
+  /** Present only when the group has minority interests. */
+  nciBalanced?: boolean;
+  /** Present only when intercompany P&L balances were eliminated. */
+  icPnlCleared?: boolean;
   balanced: boolean;
 }
 
@@ -281,7 +391,11 @@ export interface ConsolidationReport {
     totalPayable: string;
     totalDifference: string;
     cleared: boolean;
+    /** Only present when intercompany P&L accounts carry a balance. */
+    pnl?: PnlEliminationReport;
   };
+  /** Only present when the group has minority interests. */
+  nciAllocations?: NciAllocation[];
   /** Group totals after intercompany elimination. */
   group: ConsolidatedTotals;
   /** Group totals before intercompany elimination, for the elimination tie-out. */
@@ -579,11 +693,11 @@ function normalizeEntities(
       entity.ownershipPercent,
       `${entityId}.ownershipPercent`,
     );
-    if (ownershipPercent !== 100n * FACTOR) {
+    if (ownershipPercent < 0n || ownershipPercent > 100n * FACTOR) {
       throw new ConsolidationError(
-        "UNSUPPORTED_OWNERSHIP",
-        `${entityId}: this shadow cycle only consolidates wholly owned entities ` +
-          `(100%), got ${formatDecimal(ownershipPercent)}%; NCI is out of scope`,
+        "INVALID_OWNERSHIP",
+        `${entityId}: ownershipPercent must be between 0 and 100, ` +
+          `got ${formatDecimal(ownershipPercent)}`,
       );
     }
     const equity = entity.equity;
@@ -645,6 +759,53 @@ function normalizeEntities(
   return byId;
 }
 
+/**
+ * Effective ownership from the group parent, in percent (1e6 scale).
+ * The parent itself is 100%; each step multiplies by the direct percentage.
+ * Multi-level minorities therefore do not get double counted:
+ * 80% x 100% = 80%, not 100%.
+ */
+function computeEffectiveOwnership(
+  entities: Map<string, NormalizedEntity>,
+): Map<string, bigint> {
+  const memo = new Map<string, bigint>();
+  const visiting = new Set<string>();
+  const visit = (entityId: string): bigint => {
+    const cached = memo.get(entityId);
+    if (cached !== undefined) return cached;
+    const entity = entities.get(entityId);
+    if (!entity) {
+      throw new ConsolidationError(
+        "UNKNOWN_ENTITY",
+        `effective ownership requested for unknown entity ${entityId}`,
+      );
+    }
+    if (entity.parentEntityId === null) {
+      const root = 100n * FACTOR;
+      memo.set(entityId, root);
+      return root;
+    }
+    if (visiting.has(entityId)) {
+      throw new ConsolidationError(
+        "INVALID_HIERARCHY",
+        `ownership cycle detected at ${entityId}`,
+      );
+    }
+    visiting.add(entityId);
+    const parentEffective = visit(entity.parentEntityId);
+    visiting.delete(entityId);
+    const effective = divRound(
+      parentEffective * entity.ownershipPercent,
+      100n * FACTOR,
+      "HALF_UP",
+    );
+    memo.set(entityId, effective);
+    return effective;
+  };
+  for (const entityId of entities.keys()) visit(entityId);
+  return memo;
+}
+
 function normalizeTransactions(
   transactions: readonly TransactionInput[],
   period: string,
@@ -702,7 +863,7 @@ function normalizeTransactions(
       (typeof counterpartyRaw === "string" && counterpartyRaw.trim() === "")
         ? null
         : ensureString(counterpartyRaw, `${label}.counterpartyEntityId`);
-    if (INTERCOMPANY_ACCOUNT_TYPES.has(accountTypeText)) {
+    if (COUNTERPARTY_REQUIRED_ACCOUNT_TYPES.has(accountTypeText)) {
       if (counterpartyEntityId === null) {
         throw new ConsolidationError(
           "INTERCOMPANY_COUNTERPARTY_REQUIRED",
@@ -797,8 +958,18 @@ function computeTotals(input: {
   };
 }
 
-function formatTotals(totals: TotalsBig): ConsolidatedTotals {
-  return {
+interface NciSummary {
+  nci: bigint;
+  nciNetIncome: bigint;
+  parentNetIncome: bigint;
+  parentEquity: bigint;
+}
+
+function formatTotals(
+  totals: TotalsBig,
+  nci?: NciSummary,
+): ConsolidatedTotals {
+  const formatted: ConsolidatedTotals = {
     assets: formatDecimal(totals.assets),
     liabilities: formatDecimal(totals.liabilities),
     netAssets: formatDecimal(totals.netAssets),
@@ -812,6 +983,20 @@ function formatTotals(totals: TotalsBig): ConsolidatedTotals {
     equityTotal: formatDecimal(totals.equityTotal),
     balanceDifference: formatDecimal(totals.balanceDifference),
   };
+  if (nci) {
+    formatted.nci = formatDecimal(nci.nci);
+    formatted.nciNetIncome = formatDecimal(nci.nciNetIncome);
+    formatted.parentNetIncome = formatDecimal(nci.parentNetIncome);
+    formatted.parentEquity = formatDecimal(nci.parentEquity);
+  }
+  return formatted;
+}
+
+interface PnlEliminationResult {
+  lines: PnlEliminationLine[];
+  totalRevenue: bigint;
+  totalExpense: bigint;
+  totalDifference: bigint;
 }
 
 interface EliminationResult {
@@ -819,16 +1004,23 @@ interface EliminationResult {
   totalReceivable: bigint;
   totalPayable: bigint;
   totalDifference: bigint;
+  pnl?: PnlEliminationResult;
 }
 
 function buildEliminations(lines: readonly ComputedLine[]): EliminationResult {
-  const buckets = new Map<
+  const balanceBuckets = new Map<
     string,
     { entities: [string, string]; receivable: bigint; payable: bigint }
   >();
+  const pnlBuckets = new Map<
+    string,
+    { entities: [string, string]; revenue: bigint; expense: bigint }
+  >();
   for (const line of lines) {
     const { accountType, entityId, counterpartyEntityId } = line.transaction;
-    if (!INTERCOMPANY_ACCOUNT_TYPES.has(accountType)) continue;
+    const isBalance = INTERCOMPANY_ACCOUNT_TYPES.has(accountType);
+    const isPnl = INTERCOMPANY_PNL_SET.has(accountType);
+    if (!isBalance && !isPnl) continue;
     if (counterpartyEntityId === null) {
       // normalizeTransactions already rejects this; keep the guard defensive.
       throw new ConsolidationError(
@@ -841,15 +1033,28 @@ function buildEliminations(lines: readonly ComputedLine[]): EliminationResult {
         ? [entityId, counterpartyEntityId]
         : [counterpartyEntityId, entityId];
     const key = `${first}|${second}`;
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = { entities: [first, second], receivable: 0n, payable: 0n };
-      buckets.set(key, bucket);
+    if (isBalance) {
+      let bucket = balanceBuckets.get(key);
+      if (!bucket) {
+        bucket = { entities: [first, second], receivable: 0n, payable: 0n };
+        balanceBuckets.set(key, bucket);
+      }
+      if (accountType === "INTERCOMPANY_AR") {
+        bucket.receivable += line.groupAmount;
+      } else {
+        bucket.payable += line.groupAmount;
+      }
+      continue;
     }
-    if (accountType === "INTERCOMPANY_AR") {
-      bucket.receivable += line.groupAmount;
+    let bucket = pnlBuckets.get(key);
+    if (!bucket) {
+      bucket = { entities: [first, second], revenue: 0n, expense: 0n };
+      pnlBuckets.set(key, bucket);
+    }
+    if (accountType === "INTERCOMPANY_REVENUE") {
+      bucket.revenue += line.groupAmount;
     } else {
-      bucket.payable += line.groupAmount;
+      bucket.expense += line.groupAmount;
     }
   }
 
@@ -857,8 +1062,8 @@ function buildEliminations(lines: readonly ComputedLine[]): EliminationResult {
   const imbalances: string[] = [];
   let totalReceivable = 0n;
   let totalPayable = 0n;
-  for (const key of [...buckets.keys()].sort(compareStrings)) {
-    const bucket = buckets.get(key);
+  for (const key of [...balanceBuckets.keys()].sort(compareStrings)) {
+    const bucket = balanceBuckets.get(key);
     if (!bucket) continue;
     const difference = bucket.receivable - bucket.payable;
     totalReceivable += bucket.receivable;
@@ -884,11 +1089,54 @@ function buildEliminations(lines: readonly ComputedLine[]): EliminationResult {
         `(difference must be 0): ${imbalances.join("; ")}`,
     );
   }
+
+  let pnl: PnlEliminationResult | undefined;
+  if (pnlBuckets.size > 0) {
+    const pnlLines: PnlEliminationLine[] = [];
+    const pnlImbalances: string[] = [];
+    let totalRevenue = 0n;
+    let totalExpense = 0n;
+    for (const key of [...pnlBuckets.keys()].sort(compareStrings)) {
+      const bucket = pnlBuckets.get(key);
+      if (!bucket) continue;
+      const difference = bucket.revenue - bucket.expense;
+      totalRevenue += bucket.revenue;
+      totalExpense += bucket.expense;
+      pnlLines.push({
+        entities: bucket.entities,
+        revenue: formatDecimal(bucket.revenue),
+        expense: formatDecimal(bucket.expense),
+        difference: formatDecimal(difference),
+      });
+      if (difference !== 0n) {
+        pnlImbalances.push(
+          `${key} revenue=${formatDecimal(bucket.revenue)} ` +
+            `expense=${formatDecimal(bucket.expense)} ` +
+            `difference=${formatDecimal(difference)}`,
+        );
+      }
+    }
+    if (pnlImbalances.length > 0) {
+      throw new ConsolidationError(
+        "INTERCOMPANY_PNL_IMBALANCE",
+        "intercompany revenue/expense do not clear after average-rate " +
+          `translation (difference must be 0): ${pnlImbalances.join("; ")}`,
+      );
+    }
+    pnl = {
+      lines: pnlLines,
+      totalRevenue,
+      totalExpense,
+      totalDifference: totalRevenue - totalExpense,
+    };
+  }
+
   return {
     lines: linesOut,
     totalReceivable,
     totalPayable,
     totalDifference: totalReceivable - totalPayable,
+    ...(pnl ? { pnl } : {}),
   };
 }
 
@@ -932,6 +1180,7 @@ export function consolidateEntities(
   const period = rateBook.period;
   const entities = normalizeEntities(input.entities);
   const transactions = normalizeTransactions(input.transactions, period, entities);
+  const effectiveOwnership = computeEffectiveOwnership(entities);
 
   interface Accumulator {
     entity: NormalizedEntity;
@@ -1003,6 +1252,9 @@ export function consolidateEntities(
   let sumRetainedEarnings = 0n;
   let sumEquityTransactions = 0n;
   let sumCta = 0n;
+  const nciAllocations: NciAllocation[] = [];
+  let nciTotal = 0n;
+  let nciNetIncomeTotal = 0n;
 
   for (const entity of orderedEntities) {
     const accumulator = accumulators.get(entity.entityId);
@@ -1023,8 +1275,10 @@ export function consolidateEntities(
       balanceOf("LIABILITY") + balanceOf("INTERCOMPANY_AP");
     const openingEquity = entity.shareCapital + entity.retainedEarnings;
     const equityTransactions = balanceOf("EQUITY");
-    const functionalRevenue = balanceOf("REVENUE");
-    const functionalExpense = balanceOf("EXPENSE");
+    const functionalRevenue =
+      balanceOf("REVENUE") + balanceOf("INTERCOMPANY_REVENUE");
+    const functionalExpense =
+      balanceOf("EXPENSE") + balanceOf("INTERCOMPANY_EXPENSE");
     const functionalNetIncome = functionalRevenue - functionalExpense;
     const functionalDifference =
       functionalAssets -
@@ -1060,9 +1314,11 @@ export function consolidateEntities(
           liabilitiesUsd += line.groupAmount;
           break;
         case "REVENUE":
+        case "INTERCOMPANY_REVENUE":
           revenueUsd += line.groupAmount;
           break;
         case "EXPENSE":
+        case "INTERCOMPANY_EXPENSE":
           expenseUsd += line.groupAmount;
           break;
         case "EQUITY":
@@ -1106,6 +1362,19 @@ export function consolidateEntities(
       );
     }
 
+    const balancesReport = Object.fromEntries(
+      BALANCE_ACCOUNT_TYPES.map((accountType) => [
+        accountType,
+        formatDecimal(balanceOf(accountType)),
+      ]),
+    ) as EntityBalancesReport;
+    for (const accountType of INTERCOMPANY_PNL_ACCOUNT_TYPES) {
+      const value = balanceOf(accountType);
+      // Emit only non-zero IC P&L balances so 100%-owned reports keep their
+      // legacy shape.
+      if (value !== 0n) balancesReport[accountType] = formatDecimal(value);
+    }
+
     entityReports.push({
       entityId: entity.entityId,
       name: entity.name,
@@ -1113,12 +1382,7 @@ export function consolidateEntities(
       parentEntityId: entity.parentEntityId,
       ownershipPercent: formatDecimal(entity.ownershipPercent),
       functional: {
-        balances: Object.fromEntries(
-          ACCOUNT_TYPES.map((accountType) => [
-            accountType,
-            formatDecimal(balanceOf(accountType)),
-          ]),
-        ) as Record<AccountType, string>,
+        balances: balancesReport,
         openingEquity: {
           shareCapital: formatDecimal(entity.shareCapital),
           retainedEarnings: formatDecimal(entity.retainedEarnings),
@@ -1162,9 +1426,43 @@ export function consolidateEntities(
     sumRetainedEarnings += retainedEarningsUsd;
     sumEquityTransactions += equityTransactionsUsd;
     sumCta += cta;
+
+    // NCI uses effective ownership, so a chain such as 80% -> 100% attributes
+    // only the outside 20% slice once.
+    const effectivePercent =
+      effectiveOwnership.get(entity.entityId) ?? 100n * FACTOR;
+    const nciPercent = 100n * FACTOR - effectivePercent;
+    if (nciPercent > 0n) {
+      const entityNetAssets = assetsUsd - liabilitiesUsd;
+      const entityNci = divRound(
+        entityNetAssets * nciPercent,
+        100n * FACTOR,
+        "HALF_UP",
+      );
+      const entityNciNetIncome = divRound(
+        netIncomeUsd * nciPercent,
+        100n * FACTOR,
+        "HALF_UP",
+      );
+      nciTotal += entityNci;
+      nciNetIncomeTotal += entityNciNetIncome;
+      nciAllocations.push({
+        entityId: entity.entityId,
+        ownershipPercent: formatDecimal(entity.ownershipPercent),
+        effectiveOwnershipPercent: formatDecimal(effectivePercent),
+        nciPercent: formatDecimal(nciPercent),
+        netAssets: formatDecimal(entityNetAssets),
+        netIncome: formatDecimal(netIncomeUsd),
+        cta: formatDecimal(cta),
+        nci: formatDecimal(entityNci),
+        nciNetIncome: formatDecimal(entityNciNetIncome),
+      });
+    }
   }
 
   const eliminations = buildEliminations(allLines);
+  const eliminatedPnlRevenue = eliminations.pnl?.totalRevenue ?? 0n;
+  const eliminatedPnlExpense = eliminations.pnl?.totalExpense ?? 0n;
   const groupBeforeEliminationBig = computeTotals({
     assets: sumAssets,
     liabilities: sumLiabilities,
@@ -1178,8 +1476,8 @@ export function consolidateEntities(
   const groupBig = computeTotals({
     assets: sumAssets - eliminations.totalReceivable,
     liabilities: sumLiabilities - eliminations.totalPayable,
-    revenue: sumRevenue,
-    expense: sumExpense,
+    revenue: sumRevenue - eliminatedPnlRevenue,
+    expense: sumExpense - eliminatedPnlExpense,
     shareCapital: sumShareCapital,
     retainedEarnings: sumRetainedEarnings,
     equityTransactions: sumEquityTransactions,
@@ -1195,6 +1493,33 @@ export function consolidateEntities(
         `beforeElimination=${formatDecimal(groupBeforeEliminationBig.balanceDifference)} ` +
         `afterElimination=${formatDecimal(groupBig.balanceDifference)}`,
     );
+  }
+  if (groupBig.netIncome !== groupBeforeEliminationBig.netIncome) {
+    // Equal IC P&L elimination leaves group net income unchanged; anything
+    // else would mean the elimination was not a pure offset.
+    throw new ConsolidationError(
+      "GROUP_UNBALANCED",
+      "intercompany P&L elimination changed group net income: " +
+        `beforeElimination=${formatDecimal(groupBeforeEliminationBig.netIncome)} ` +
+        `afterElimination=${formatDecimal(groupBig.netIncome)}`,
+    );
+  }
+
+  const hasMinorities = nciAllocations.length > 0;
+  let nciSummary: NciSummary | undefined;
+  let nciBalanced: boolean | undefined;
+  if (hasMinorities) {
+    const parentNetIncome = groupBig.netIncome - nciNetIncomeTotal;
+    const parentEquity = groupBig.equityTotal - nciTotal;
+    nciSummary = {
+      nci: nciTotal,
+      nciNetIncome: nciNetIncomeTotal,
+      parentNetIncome,
+      parentEquity,
+    };
+    nciBalanced =
+      nciTotal + parentEquity === groupBig.equityTotal &&
+      groupBig.assets - groupBig.liabilities === nciTotal + parentEquity;
   }
 
   const translatedTransactions: TranslatedTransaction[] = allLines
@@ -1245,11 +1570,17 @@ export function consolidateEntities(
     ctaTranslationOnly: true,
     balanced: true,
   };
+  if (nciBalanced !== undefined) checks.nciBalanced = nciBalanced;
+  if (eliminations.pnl) {
+    checks.icPnlCleared = eliminations.pnl.totalDifference === 0n;
+  }
   checks.balanced =
     checks.entityFunctionalBalanced &&
     checks.intercompanyCleared &&
     checks.groupBalanced &&
-    checks.ctaTranslationOnly;
+    checks.ctaTranslationOnly &&
+    (checks.nciBalanced ?? true) &&
+    (checks.icPnlCleared ?? true);
 
   const reportBase = {
     period,
@@ -1262,8 +1593,22 @@ export function consolidateEntities(
       totalPayable: formatDecimal(eliminations.totalPayable),
       totalDifference: formatDecimal(eliminations.totalDifference),
       cleared: eliminations.totalDifference === 0n,
+      ...(eliminations.pnl
+        ? {
+            pnl: {
+              lines: eliminations.pnl.lines,
+              totalRevenue: formatDecimal(eliminations.pnl.totalRevenue),
+              totalExpense: formatDecimal(eliminations.pnl.totalExpense),
+              totalDifference: formatDecimal(
+                eliminations.pnl.totalDifference,
+              ),
+              cleared: eliminations.pnl.totalDifference === 0n,
+            },
+          }
+        : {}),
     },
-    group: formatTotals(groupBig),
+    ...(hasMinorities ? { nciAllocations } : {}),
+    group: formatTotals(groupBig, nciSummary),
     groupBeforeElimination: formatTotals(groupBeforeEliminationBig),
     checks,
   };

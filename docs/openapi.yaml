@@ -3988,6 +3988,17 @@ paths:
     get:
       tags: [Budget]
       summary: Invoice open amounts and aging buckets for a legal entity
+      description: |
+        账龄 open = 发票 total（amount + taxAmount）- 收款 - 退款 - 坏账核销。
+        收款/退款/核销的币种与发票不同时，折算到发票币种后再冲减：
+        - 事实功能币 = 发票币种：直接使用 functionalAmount（Y → Z=X）；
+        - 事实功能币 = 发票功能币（X → Z）：用发票 fxRate 反算
+          functionalAmount × 1e6 / fxRate；
+        - 仅有事实 fxRate 且指向发票币种时：amount × fxRate；
+        - 全部金额 1e6 定点、HALF_UP。
+        若跨币种收付缺少可用汇率/功能币金额，接口返回 409
+        CROSS_CURRENCY_FX_REQUIRED（fail-closed，绝不静默忽略该笔收付）。
+        rows[].crossCurrencySettlements 给出逐笔折算审计链。
       parameters:
         - name: legalEntityId
           in: query
@@ -4012,6 +4023,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
 
   /api/v1/financial-bad-debt/provision:
     post:

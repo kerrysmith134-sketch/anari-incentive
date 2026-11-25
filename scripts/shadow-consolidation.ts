@@ -82,11 +82,51 @@ async function main(): Promise<void> {
         `netIncome=${report.group.netIncome} CTA=${report.group.cta} ` +
         `balanceDifference=${report.group.balanceDifference}`,
     );
+    if (report.group.nci === undefined) {
+      console.log("nci 0 (100% owned; no minority interests)");
+    } else {
+      console.log(
+        `nci ${report.group.nci} | nciNetIncome ${report.group.nciNetIncome} | ` +
+          `parentNetIncome ${report.group.parentNetIncome} | ` +
+          `parentEquity ${report.group.parentEquity}`,
+      );
+      for (const allocation of report.nciAllocations ?? []) {
+        console.log(
+          `  nci ${allocation.entityId}: effective ` +
+            `${allocation.effectiveOwnershipPercent}% -> nci ` +
+            `${allocation.nciPercent}% | netAssets=${allocation.netAssets} ` +
+            `nci=${allocation.nci} nciNetIncome=${allocation.nciNetIncome}`,
+        );
+      }
+    }
+    const pnlElimination = report.eliminations.pnl;
+    if (pnlElimination === undefined) {
+      console.log("ic pnl elimination 0 pair(s)");
+    } else {
+      console.log(
+        `ic pnl elimination ${pnlElimination.lines.length} pair(s): ` +
+          `revenue=${pnlElimination.totalRevenue} ` +
+          `expense=${pnlElimination.totalExpense} ` +
+          `difference=${pnlElimination.totalDifference}`,
+      );
+      for (const line of pnlElimination.lines) {
+        console.log(
+          `  ic pnl ${line.entities.join("|")}: revenue=${line.revenue} ` +
+            `expense=${line.expense} difference=${line.difference}`,
+        );
+      }
+    }
     console.log(
       `checks: entityFunctionalBalanced=${report.checks.entityFunctionalBalanced} ` +
         `intercompanyCleared=${report.checks.intercompanyCleared} ` +
         `groupBalanced=${report.checks.groupBalanced} ` +
-        `ctaTranslationOnly=${report.checks.ctaTranslationOnly}`,
+        `ctaTranslationOnly=${report.checks.ctaTranslationOnly}` +
+        (report.checks.nciBalanced === undefined
+          ? ""
+          : ` nciBalanced=${report.checks.nciBalanced}`) +
+        (report.checks.icPnlCleared === undefined
+          ? ""
+          : ` icPnlCleared=${report.checks.icPnlCleared}`),
     );
     console.log(`reportHash ${report.reportHash}`);
   }

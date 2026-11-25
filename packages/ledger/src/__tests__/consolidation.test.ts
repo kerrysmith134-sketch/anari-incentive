@@ -4,6 +4,8 @@
  * - fixture 的合并结果（expected.json，含 CTA 与内部往来对冲）；
  * - EUR / JPY 的期末、平均、历史汇率差异；
  * - 内部往来按 closing 折算后必须清零，否则抛 INTERCOMPANY_IMBALANCE；
+ * - IC 收入/费用按 average 折算后必须相等，否则抛 INTERCOMPANY_PNL_IMBALANCE；
+ * - NCI（含多级持股的有效比例）与母公司权益/净利的拆分，且资产负债表仍平衡；
  * - 单法人折算与 CTA 方向（升值为正、贬值为负、无汇率变动为零）；
  * - 功能币账簿本身不平时抛 ENTITY_UNBALANCED（CTA 只吸收折算差）。
  */
@@ -207,6 +209,254 @@ function singleEntityInput(rates: RateTable): ConsolidationInput {
   };
 }
 
+/** Parent US (USD) owns 80% of DE (EUR); 20% NCI. */
+function nciInput(): ConsolidationInput {
+  return {
+    groupCurrency: "USD",
+    entities: [
+      {
+        entityId: "US-PARENT",
+        name: "ANARI Inc. (US)",
+        functionalCurrency: "USD",
+        parentEntityId: null,
+        ownershipPercent: "100",
+        equity: { shareCapital: "1000000", retainedEarnings: "0" },
+      },
+      {
+        entityId: "DE-SUB",
+        name: "ANARI GmbH (DE)",
+        functionalCurrency: "EUR",
+        parentEntityId: "US-PARENT",
+        ownershipPercent: "80",
+        equity: { shareCapital: "500000", retainedEarnings: "100000" },
+      },
+    ],
+    transactions: [
+      {
+        date: "2026-10-01",
+        entityId: "US-PARENT",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "1000000",
+        currency: "USD",
+        description: "US opening cash",
+      },
+      {
+        date: "2026-10-01",
+        entityId: "DE-SUB",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "600000",
+        currency: "EUR",
+        description: "DE opening cash",
+      },
+      {
+        date: "2026-10-10",
+        entityId: "DE-SUB",
+        accountType: "REVENUE",
+        counterpartyEntityId: null,
+        amount: "200000",
+        currency: "EUR",
+        description: "DE revenue",
+      },
+      {
+        date: "2026-10-10",
+        entityId: "DE-SUB",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "200000",
+        currency: "EUR",
+        description: "DE cash received",
+      },
+      {
+        date: "2026-10-12",
+        entityId: "DE-SUB",
+        accountType: "EXPENSE",
+        counterpartyEntityId: null,
+        amount: "50000",
+        currency: "EUR",
+        description: "DE expense",
+      },
+      {
+        date: "2026-10-12",
+        entityId: "DE-SUB",
+        accountType: "LIABILITY",
+        counterpartyEntityId: null,
+        amount: "50000",
+        currency: "EUR",
+        description: "DE accrued expense",
+      },
+    ],
+    rates: {
+      period: "2026-10",
+      closing: { USD: "1", EUR: "1.25" },
+      average: { USD: "1", EUR: "1.2" },
+      historical: { USD: "1", EUR: "1.1" },
+    },
+  };
+}
+
+/** 80% DE -> 100% JP: effective NCI in JP must still be 20%, not 0%. */
+function nciChainInput(): ConsolidationInput {
+  return {
+    groupCurrency: "USD",
+    entities: [
+      {
+        entityId: "US-PARENT",
+        name: "ANARI Inc. (US)",
+        functionalCurrency: "USD",
+        parentEntityId: null,
+        ownershipPercent: "100",
+        equity: { shareCapital: "1000000", retainedEarnings: "0" },
+      },
+      {
+        entityId: "DE-HOLDING",
+        name: "ANARI GmbH (DE)",
+        functionalCurrency: "EUR",
+        parentEntityId: "US-PARENT",
+        ownershipPercent: "80",
+        equity: { shareCapital: "500000", retainedEarnings: "0" },
+      },
+      {
+        entityId: "JP-SUB",
+        name: "ANARI Japan K.K.",
+        functionalCurrency: "JPY",
+        parentEntityId: "DE-HOLDING",
+        ownershipPercent: "100",
+        equity: { shareCapital: "100000000", retainedEarnings: "0" },
+      },
+    ],
+    transactions: [
+      {
+        date: "2026-10-01",
+        entityId: "US-PARENT",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "1000000",
+        currency: "USD",
+        description: "US opening cash",
+      },
+      {
+        date: "2026-10-01",
+        entityId: "DE-HOLDING",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "500000",
+        currency: "EUR",
+        description: "DE opening cash",
+      },
+      {
+        date: "2026-10-01",
+        entityId: "JP-SUB",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "100000000",
+        currency: "JPY",
+        description: "JP opening cash",
+      },
+    ],
+    rates: {
+      period: "2026-10",
+      closing: { USD: "1", EUR: "1.25", JPY: "0.00625" },
+      average: { USD: "1", EUR: "1.2", JPY: "0.006" },
+      historical: { USD: "1", EUR: "1.1", JPY: "0.0058" },
+    },
+  };
+}
+
+/**
+ * US (USD) bills DE (EUR) 60,000 USD on credit and both sides book it as
+ * intercompany P&L. At the transaction date 60,000 USD = 48,000 EUR. The
+ * closing rate is 1.25, so the AR/AP clears at 60,000 USD either way; the
+ * average rate decides whether the P&L elimination also clears.
+ */
+function icPnlInput(averageEur: string): ConsolidationInput {
+  return {
+    groupCurrency: "USD",
+    entities: [
+      {
+        entityId: "US-A",
+        name: "ANARI Inc. (US)",
+        functionalCurrency: "USD",
+        parentEntityId: null,
+        ownershipPercent: "100",
+        equity: { shareCapital: "1000000", retainedEarnings: "0" },
+      },
+      {
+        entityId: "DE-B",
+        name: "ANARI GmbH (DE)",
+        functionalCurrency: "EUR",
+        parentEntityId: "US-A",
+        ownershipPercent: "100",
+        equity: { shareCapital: "500000", retainedEarnings: "0" },
+      },
+    ],
+    transactions: [
+      {
+        date: "2026-10-01",
+        entityId: "US-A",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "1000000",
+        currency: "USD",
+        description: "US opening cash",
+      },
+      {
+        date: "2026-10-01",
+        entityId: "DE-B",
+        accountType: "ASSET",
+        counterpartyEntityId: null,
+        amount: "500000",
+        currency: "EUR",
+        description: "DE opening cash",
+      },
+      {
+        date: "2026-10-20",
+        entityId: "US-A",
+        accountType: "INTERCOMPANY_REVENUE",
+        counterpartyEntityId: "DE-B",
+        amount: "60000",
+        currency: "USD",
+        description: "Intercompany management fee revenue",
+      },
+      {
+        date: "2026-10-20",
+        entityId: "US-A",
+        accountType: "INTERCOMPANY_AR",
+        counterpartyEntityId: "DE-B",
+        amount: "60000",
+        currency: "USD",
+        description: "Intercompany receivable from DE",
+      },
+      {
+        date: "2026-10-20",
+        entityId: "DE-B",
+        accountType: "INTERCOMPANY_EXPENSE",
+        counterpartyEntityId: "US-A",
+        amount: "60000",
+        currency: "USD",
+        description: "Intercompany management fee expense",
+      },
+      {
+        date: "2026-10-20",
+        entityId: "DE-B",
+        accountType: "INTERCOMPANY_AP",
+        counterpartyEntityId: "US-A",
+        amount: "60000",
+        currency: "USD",
+        description: "Intercompany payable to US",
+      },
+    ],
+    rates: {
+      period: "2026-10",
+      closing: { USD: "1", EUR: "1.25" },
+      average: { USD: "1", EUR: averageEur },
+      historical: { USD: "1", EUR: "1.1" },
+      transactionRates: { "2026-10-20": { USD: "1", EUR: "1.25" } },
+    },
+  };
+}
+
 describe("multi-entity consolidation", () => {
   it("fixture 结果与 expected.json 锁定一致", () => {
     const report = consolidateEntities(fixtureInput());
@@ -390,6 +640,126 @@ describe("multi-entity consolidation", () => {
     expect(entity.translated.cta).toBe("-24000");
     expect(parseDecimal(entity.translated.cta) < 0n).toBe(true);
     expect(entity.translated.balanceDifference).toBe("0");
+  });
+
+  it("NCI 80%：少数股东权益与损益按有效持股比例拆分", () => {
+    const report = consolidateEntities(nciInput());
+    const de = entityOf(report, "DE-SUB");
+    expect(de.ownershipPercent).toBe("80");
+    expect(de.translated.cta).toBe("97500");
+    expect(de.translated.netIncome).toBe("180000");
+    expect(de.translated.equityTotal).toBe("937500");
+
+    expect(report.group.assets).toBe("2000000");
+    expect(report.group.liabilities).toBe("62500");
+    expect(report.group.equityTotal).toBe("1937500");
+    expect(report.group.netIncome).toBe("180000");
+    expect(report.group.nci).toBe("187500");
+    expect(report.group.nciNetIncome).toBe("36000");
+    expect(report.group.parentNetIncome).toBe("144000");
+    expect(report.group.parentEquity).toBe("1750000");
+    expect(report.checks.nciBalanced).toBe(true);
+    expect(report.checks.balanced).toBe(true);
+
+    const allocations = report.nciAllocations ?? [];
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0]).toMatchObject({
+      entityId: "DE-SUB",
+      ownershipPercent: "80",
+      effectiveOwnershipPercent: "80",
+      nciPercent: "20",
+      netAssets: "937500",
+      netIncome: "180000",
+      cta: "97500",
+      nci: "187500",
+      nciNetIncome: "36000",
+    });
+    // NCI includes its 20% share of the subsidiary's CTA (19,500).
+    expect(
+      (parseDecimal(allocations[0]?.cta ?? "0") * 20n) / 100n,
+    ).toBe(parseDecimal("19500"));
+
+    const assets = parseDecimal(report.group.assets);
+    const liabilities = parseDecimal(report.group.liabilities);
+    const nci = parseDecimal(report.group.nci ?? "0");
+    const parentEquity = parseDecimal(report.group.parentEquity ?? "0");
+    expect(assets - liabilities).toBe(parentEquity + nci);
+    expect(parentEquity + nci).toBe(parseDecimal(report.group.equityTotal));
+  });
+
+  it("NCI 多级持股：80% -> 100% 的有效 NCI 仍为 20%，不重复计算", () => {
+    const report = consolidateEntities(nciChainInput());
+    expect(report.group.nci).toBe("250000");
+    expect(report.group.parentEquity).toBe("2000000");
+    expect(report.group.nciNetIncome).toBe("0");
+    expect(report.group.parentNetIncome).toBe("0");
+
+    const allocations = report.nciAllocations ?? [];
+    expect(allocations).toHaveLength(2);
+    const holding = allocations.find(
+      (allocation) => allocation.entityId === "DE-HOLDING",
+    );
+    const japan = allocations.find(
+      (allocation) => allocation.entityId === "JP-SUB",
+    );
+    expect(holding).toMatchObject({
+      effectiveOwnershipPercent: "80",
+      nciPercent: "20",
+      nci: "125000",
+    });
+    expect(japan).toMatchObject({
+      effectiveOwnershipPercent: "80",
+      nciPercent: "20",
+      nci: "125000",
+    });
+    expect(
+      parseDecimal(report.group.assets) -
+        parseDecimal(report.group.liabilities),
+    ).toBe(
+      parseDecimal(report.group.parentEquity ?? "0") +
+        parseDecimal(report.group.nci ?? "0"),
+    );
+  });
+
+  it("IC 损益抵消：平均汇率匹配时 revenue/expense 扣除且 net income 不变", () => {
+    const report = consolidateEntities(icPnlInput("1.25"));
+    const us = entityOf(report, "US-A");
+    const de = entityOf(report, "DE-B");
+    expect(us.functional.balances.INTERCOMPANY_REVENUE).toBe("60000");
+    expect(de.functional.balances.INTERCOMPANY_EXPENSE).toBe("48000");
+    expect(us.translated.revenue).toBe("60000");
+    expect(de.translated.expense).toBe("60000");
+    expect(de.translated.cta).toBe("75000");
+
+    expect(report.groupBeforeElimination.revenue).toBe("60000");
+    expect(report.groupBeforeElimination.expense).toBe("60000");
+    expect(report.group.revenue).toBe("0");
+    expect(report.group.expense).toBe("0");
+    expect(report.group.netIncome).toBe("0");
+    expect(report.group.assets).toBe("1625000");
+    expect(report.group.liabilities).toBe("0");
+    expect(report.group.balanceDifference).toBe("0");
+    expect(report.checks.icPnlCleared).toBe(true);
+    expect(report.checks.balanced).toBe(true);
+
+    const pnl = report.eliminations.pnl;
+    expect(pnl).toBeDefined();
+    expect(pnl?.lines).toHaveLength(1);
+    expect(pnl?.lines[0]).toMatchObject({
+      revenue: "60000",
+      expense: "60000",
+      difference: "0",
+    });
+    expect(pnl?.totalRevenue).toBe("60000");
+    expect(pnl?.totalExpense).toBe("60000");
+    expect(pnl?.totalDifference).toBe("0");
+  });
+
+  it("IC 损益不匹配（average 1.20）时抛 INTERCOMPANY_PNL_IMBALANCE", () => {
+    const error = captureError(() => consolidateEntities(icPnlInput("1.2")));
+    expect(error.code).toBe("INTERCOMPANY_PNL_IMBALANCE");
+    expect(error.message).toContain("DE-B|US-A");
+    expect(error.message).toContain("difference=2400");
   });
 
   it("内部往来不平（USD 侧多计 10000）时抛 INTERCOMPANY_IMBALANCE", () => {
