@@ -1,0 +1,54 @@
+{
+  "items": [
+    {
+      "id": "2a3b4c5d-6e7f-4a1b-8c2d-3e4f5a6b7c8d",
+      "ticket_no": "TKT-2026-00044",
+      "customer_id": "9b8c7d6e-5f4a-4b3c-8d2e-1f0a9b8c7d6e",
+      "customer_name": "Lakeside Fleet",
+      "customer_email": "fleet@lakeside.example",
+      "assigned_to": "8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "assigned_name": "Mei Chen",
+      "channel": "whatsapp",
+      "ticket_type": "escalation",
+      "intent": "billing",
+      "priority": "urgent",
+      "status": "closed",
+      "subject": "Duplicate invoice for October",
+      "description": "The October invoice was issued twice for the same site.",
+      "ai_category": {
+        "label": "billing"
+      },
+      "ai_sentiment": {
+        "label": "angry"
+      },
+      "ai_summary": "Invoice duplicated; finance credited the second charge.",
+      "ai_suggested_response": "We have reversed the duplicate invoice.",
+      "ai_confidence_score": 91,
+      "ai_handling": false,
+      "csat_score": 5,
+      "csat_comment": null,
+      "csat_submitted_at": null,
+      "first_response_at": "2026-11-22T10:00:00Z",
+      "first_response_deadline": "2026-11-22T09:00:00Z",
+      "resolved_at": "2026-11-23T10:00:00Z",
+      "resolution_deadline": "2026-11-24T08:00:00Z",
+      "closed_at": "2026-11-24T09:00:00Z",
+      "reopened_at": null,
+      "reopen_count": 0,
+      "created_at": "2026-11-22T08:00:00Z",
+      "updated_at": "2026-11-24T09:00:00Z",
+      "device_snapshot": null,
+      "product_model_id": null,
+      "product_variant_id": null,
+      "product_revision_id": null,
+      "firmware_version_id": null
+    }
+  ],
+  "total": 3,
+  "skip": 2,
+  "limit": 2,
+  "page": 2,
+  "has_next": false,
+  "total_capped": false,
+  "next_cursor": null
+}

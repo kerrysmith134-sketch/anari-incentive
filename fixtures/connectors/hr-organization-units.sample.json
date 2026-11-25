@@ -1,0 +1,35 @@
+{
+  "data": [
+    {
+      "id": "7a1c3e5f-9b2d-4f60-8c47-1e3a5b7d9f20",
+      "org_key": "2d4f6a8c-1e3b-4d5f-9a70-3c5e7b9d1f42",
+      "version_no": 3,
+      "supersedes_id": "0b9e7d5c-3a1f-4e2d-8c6b-4a2f0d8e6c31",
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": null,
+      "unit_name": "Commercial",
+      "unit_type": "DIVISION",
+      "unit_code": "COMM",
+      "effective_from": "2026-01-01",
+      "effective_to": null,
+      "version": 5
+    },
+    {
+      "id": "b8d6f4a2-0c9e-4b7d-8f51-2a4c6e8b0d13",
+      "org_key": "6f8a0c2e-4d6b-4a1f-9e3d-5b7d9f1a3c60",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "e2b6d9a4-3f71-4a5c-9e08-7b2d6f1a3c95",
+      "parent_org_key": "2d4f6a8c-1e3b-4d5f-9a70-3c5e7b9d1f42",
+      "unit_name": "Customer Success",
+      "unit_type": "DEPARTMENT",
+      "unit_code": null,
+      "effective_from": "2025-07-01",
+      "effective_to": "2025-12-31",
+      "version": 2
+    }
+  ],
+  "meta": {
+    "request_id": "9c3e5a7b-1d2f-4e6a-8b90-3c5d7f9a1e42"
+  }
+}

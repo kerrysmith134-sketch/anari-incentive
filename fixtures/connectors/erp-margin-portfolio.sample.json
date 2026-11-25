@@ -1,0 +1,90 @@
+{
+  "rows": [
+    {
+      "so_id": 77,
+      "order_number": "SO-2026-0077",
+      "customer_name": "Northwind Energy GmbH",
+      "status": "confirmed",
+      "currency": "EUR",
+      "revenue": 42000.0,
+      "cost_total": 31000.0,
+      "gross_margin": 11000.0,
+      "margin_pct": 26.19,
+      "margin_status": "ok",
+      "unknown_count": 0,
+      "unknowns": [],
+      "estimated": false,
+      "currency_mismatch": false
+    },
+    {
+      "so_id": 78,
+      "order_number": "SO-2026-0078",
+      "customer_name": "华东储能科技有限公司",
+      "status": "confirmed",
+      "currency": "CNY",
+      "revenue": 120000.0,
+      "cost_total": 114600.0,
+      "gross_margin": 5400.0,
+      "margin_pct": 4.5,
+      "margin_status": "ok",
+      "unknown_count": 0,
+      "unknowns": [],
+      "estimated": true,
+      "currency_mismatch": false
+    },
+    {
+      "so_id": 79,
+      "order_number": "SO-2026-0079",
+      "customer_name": "华东储能科技有限公司",
+      "status": "in_production",
+      "currency": "CNY",
+      "revenue": 36000.0,
+      "cost_total": null,
+      "gross_margin": null,
+      "margin_pct": null,
+      "margin_status": "unavailable_cost",
+      "unknown_count": 2,
+      "unknowns": ["landed:no_landed_cost_record", "production:no_linked_work_order"],
+      "estimated": false,
+      "currency_mismatch": false
+    }
+  ],
+  "summary": {
+    "order_count": 3,
+    "currency": null,
+    "multi_currency": true,
+    "revenue": null,
+    "cost_total": null,
+    "gross_margin": null,
+    "margin_pct": null,
+    "estimated_count": 1,
+    "estimated_ratio": 0.3333,
+    "unknown_order_count": 1,
+    "unknown_ratio": 0.3333,
+    "by_currency": [
+      {
+        "currency": "CNY",
+        "order_count": 2,
+        "revenue": 156000.0,
+        "cost_total": 114600.0,
+        "priced_order_count": 1,
+        "unknown_order_count": 1,
+        "estimated_count": 1,
+        "gross_margin": 41400.0,
+        "margin_pct": 26.54
+      },
+      {
+        "currency": "EUR",
+        "order_count": 1,
+        "revenue": 42000.0,
+        "cost_total": 31000.0,
+        "priced_order_count": 1,
+        "unknown_order_count": 0,
+        "estimated_count": 0,
+        "gross_margin": 11000.0,
+        "margin_pct": 26.19
+      }
+    ],
+    "complete": false
+  }
+}

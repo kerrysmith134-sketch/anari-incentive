@@ -1,0 +1,70 @@
+{
+  "contacts": [
+    {
+      "id": "cmq4tf6c6000h4bxr5p4y1zmn",
+      "teamId": "cmq4t0z1a0000abcd5klmn8op",
+      "name": "Sanitized Contact",
+      "email": "contact@northwind.example",
+      "phone": "+86 138 0000 0001",
+      "title": "Procurement VP",
+      "feishuOpenId": null,
+      "linkedin": null,
+      "channelIds": null,
+      "enrichmentData": null,
+      "engagementScore": 78,
+      "relationshipStrength": 64,
+      "lastContactedAt": "2026-11-17T04:12:00.000Z",
+      "companyId": "cmq4te5b7000g4bxr3n2w8qyl",
+      "company": {
+        "id": "cmq4te5b7000g4bxr3n2w8qyl",
+        "name": "Northwind Motors"
+      },
+      "timezone": "Asia/Shanghai",
+      "lastScoredAt": "2026-11-18T00:00:00.000Z",
+      "scoreVersion": 3,
+      "ownerId": "cmq4tg7d5000i4bxr7q6a2bcd",
+      "owner": {
+        "id": "cmq4tg7d5000i4bxr7q6a2bcd",
+        "name": "Sanitized Owner"
+      },
+      "createdAt": "2026-07-30T02:20:00.000Z",
+      "updatedAt": "2026-11-17T04:12:00.000Z",
+      "deletedAt": null,
+      "version": 2,
+      "writeVersion": 5
+    },
+    {
+      "id": "cmq4tn2q9000m4bxr4y6a8bdt",
+      "teamId": "cmq4t0z1a0000abcd5klmn8op",
+      "name": "Sanitized Lead",
+      "email": "lead@globex.example",
+      "phone": null,
+      "title": "Energy Deployment Manager",
+      "feishuOpenId": null,
+      "linkedin": null,
+      "channelIds": null,
+      "enrichmentData": null,
+      "engagementScore": 31,
+      "relationshipStrength": null,
+      "lastContactedAt": null,
+      "companyId": "cmq4tm1p0000l4bxr3x5z7acs",
+      "company": {
+        "id": "cmq4tm1p0000l4bxr3x5z7acs",
+        "name": "Globex Energy"
+      },
+      "timezone": "Asia/Singapore",
+      "lastScoredAt": null,
+      "scoreVersion": 0,
+      "ownerId": null,
+      "owner": null,
+      "createdAt": "2026-09-12T01:00:00.000Z",
+      "updatedAt": "2026-09-12T01:00:00.000Z",
+      "deletedAt": null,
+      "version": 1,
+      "writeVersion": 0
+    }
+  ],
+  "total": 2,
+  "withEmail": 2,
+  "highEngagement": 1
+}

@@ -1,0 +1,57 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": "vch_4a1b9e2c7d30",
+      "tenantId": "default",
+      "voucherNo": "JV-2026-10-rpt-2026-10-014",
+      "reportId": "rpt-2026-10-014",
+      "period": "2026-10",
+      "amount": 1250.5,
+      "currency": "CNY",
+      "status": "posted",
+      "lines": [
+        {
+          "account": "expense:travel",
+          "side": "debit",
+          "amount": 1250.5
+        },
+        {
+          "account": "payable:employee_reimbursement",
+          "side": "credit",
+          "amount": 1250.5
+        }
+      ],
+      "createdAt": "2026-10-31T01:00:00.000Z",
+      "createdBy": "apikey:key_9f2c",
+      "postedAt": "2026-11-01T02:30:00.000Z",
+      "postedBy": "ou_8f14e45fceea167a5a36dedd4bea2543"
+    },
+    {
+      "id": "vch_9e6f3b1a2c58",
+      "tenantId": "default",
+      "voucherNo": "JV-2026-10-rpt-2026-10-021",
+      "reportId": "rpt-2026-10-021",
+      "period": "2026-10",
+      "amount": 800,
+      "currency": "CNY",
+      "status": "draft",
+      "lines": [
+        {
+          "account": "expense:office",
+          "side": "debit",
+          "amount": 800
+        },
+        {
+          "account": "payable:employee_reimbursement",
+          "side": "credit",
+          "amount": 800
+        }
+      ],
+      "createdAt": "2026-10-31T01:05:00.000Z",
+      "createdBy": "apikey:key_9f2c",
+      "postedAt": null,
+      "postedBy": null
+    }
+  ]
+}

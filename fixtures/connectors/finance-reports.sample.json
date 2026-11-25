@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": "rpt-2026-10-014",
+      "userId": "ou_8f14e45fceea167a5a36dedd4bea2543",
+      "status": "approved",
+      "totalCNY": 1250.5,
+      "submittedAt": "2026-10-14T02:15:00.000Z",
+      "dept": "研发中心",
+      "updatedAt": "2026-10-16T09:20:00.000Z",
+      "routeType": "standard"
+    },
+    {
+      "id": "rpt-2026-10-021",
+      "userId": "ou_c0ffee00babe1234deadbeefcafebabe",
+      "status": "paid",
+      "totalCNY": 800,
+      "submittedAt": "2026-10-20T07:00:00.000Z",
+      "dept": "财务部",
+      "updatedAt": "2026-10-22T03:30:00.000Z",
+      "routeType": "special"
+    }
+  ],
+  "meta": {
+    "limit": 50,
+    "offset": 0,
+    "count": 2
+  }
+}

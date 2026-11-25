@@ -1,0 +1,101 @@
+{
+  "data": [
+    {
+      "id": "not-a-uuid",
+      "display_name": "Broken uuid",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": 1,
+      "created_at": "2026-11-01T08:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "display_name": "Missing id",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": 1,
+      "created_at": "2026-11-01T08:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "id": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+      "display_name": "   ",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": 1,
+      "created_at": "2026-11-01T08:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "id": "1d2e3f4a-5b6c-4d7e-8f90-a1b2c3d4e5f6",
+      "display_name": "Impossible date",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": 1,
+      "created_at": "2026-02-30T10:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "id": "2e3f4a5b-6c7d-4e8f-9a01-b2c3d4e5f607",
+      "display_name": "Impossible time",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": 1,
+      "created_at": "2026-11-01T25:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "id": "3f4a5b6c-7d8e-4f90-8a12-c3d4e5f60718",
+      "display_name": "Version is a string",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "ACTIVE",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": "feishu",
+      "version": "1",
+      "created_at": "2026-11-01T08:00:00",
+      "updated_at": "2026-11-01T08:00:00",
+      "legal_name": null
+    },
+    {
+      "id": "4a5b6c7d-8e9f-4a01-9b23-d4e5f6071829",
+      "display_name": "Valid survivor",
+      "preferred_name": null,
+      "primary_work_email": "survivor@anari.example",
+      "person_status": "ACTIVE",
+      "data_quality_status": "VERIFIED",
+      "source_system": "manual",
+      "version": 2,
+      "created_at": "2026-10-05T06:30:00",
+      "updated_at": "2026-11-22T11:12:13"
+    }
+  ],
+  "meta": {
+    "request_id": "0b9e7d5c-3a1f-4e2d-8c6b-4a2f0d8e6c31",
+    "pagination": {
+      "limit": 50,
+      "next_cursor": null,
+      "has_more": false
+    }
+  }
+}

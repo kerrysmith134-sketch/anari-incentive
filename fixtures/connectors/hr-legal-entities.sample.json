@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "entity_code": "ANARI-CN",
+      "legal_name": "Anari Energy Technology (Shanghai) Co., Ltd.",
+      "country_code": "CN",
+      "jurisdiction_code": "310000",
+      "currency_code": "CNY",
+      "status": "ACTIVE",
+      "version": 2
+    },
+    {
+      "id": "e2b6d9a4-3f71-4a5c-9e08-7b2d6f1a3c95",
+      "entity_code": "ANARI-SG",
+      "legal_name": "Anari Energy Pte. Ltd.",
+      "country_code": "SG",
+      "jurisdiction_code": null,
+      "currency_code": "SGD",
+      "status": "ACTIVE",
+      "version": 1
+    }
+  ],
+  "meta": {
+    "request_id": "5a1f8c3e-2d7b-4a90-8e64-1c3f5b7d9a20"
+  }
+}

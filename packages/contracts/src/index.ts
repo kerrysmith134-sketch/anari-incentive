@@ -3758,3 +3758,12 @@ export const importCommercialOrderSchema = z.object({
 export type ImportCommercialOrderBody = z.infer<
   typeof importCommercialOrderSchema
 >;
+
+export const importPersonSchema = z.object({
+  sourceSystem: z.string().min(1),
+  externalId: z.string().min(1),
+  employeeCode: z.string().min(1).max(64).optional(),
+  displayName: z.string().min(1),
+  employmentStatus: z.string().min(1).optional(),
+});
+export type ImportPersonBody = z.infer<typeof importPersonSchema>;

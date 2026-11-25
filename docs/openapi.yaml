@@ -10969,6 +10969,34 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/people/import:
+    post:
+      tags: [People]
+      summary: Source-aware idempotent person import for HR connectors
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportPerson"
+      responses:
+        "200":
+          description: Existing person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/platform/tenants/{id}/persons:
     get:
       tags: [Platform]
@@ -16683,6 +16711,16 @@ components:
           minItems: 1
           items:
             type: string
+
+    ImportPerson:
+      type: object
+      required: [sourceSystem, externalId, displayName]
+      properties:
+        sourceSystem: { type: string }
+        externalId: { type: string }
+        employeeCode: { type: string, maxLength: 64 }
+        displayName: { type: string }
+        employmentStatus: { type: string }
 
     CreatePlatformPerson:
       type: object

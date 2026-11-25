@@ -10,6 +10,7 @@ import {
   assignPersonOrgSchema,
   createOrgNodeSchema,
   createPlatformPersonSchema,
+  importPersonSchema,
   createPlatformTenantSchema,
   createPlatformUserSchema,
   createSubscriptionPlanSchema,
@@ -183,6 +184,43 @@ export function registerPlatformAdminRoutes(deps: {
         request,
       ),
     );
+  });
+
+  app.post("/api/v1/people/import", async (request, reply) => {
+    const tenantId = tenantOf(request);
+    requireTenantAdmin(request, tenantId);
+    const body = parse(importPersonSchema, request.body);
+    const people = await platformStore.listPersons(tenantId);
+    const identities = await platformStore.listExternalIdentities(tenantId, {
+      sourceSystem: body.sourceSystem,
+      objectType: "PERSON",
+    });
+    const linked = identities.find((item) => item.externalId === body.externalId);
+    let person = linked
+      ? people.find((candidate) => candidate.id === linked.personId)
+      : undefined;
+    let created = false;
+    if (!person) {
+      const employeeCode = body.employeeCode ?? `EXT-${body.externalId}`;
+      person = people.find((candidate) => candidate.employeeCode === employeeCode);
+      if (!person) {
+        person = await platformStore.createPerson({
+          tenantId,
+          employeeCode,
+          displayName: body.displayName,
+          employmentStatus: body.employmentStatus,
+        });
+        created = true;
+      }
+      await platformStore.upsertExternalIdentity({
+        tenantId,
+        sourceSystem: body.sourceSystem,
+        externalId: body.externalId,
+        personId: person.id,
+        objectType: "PERSON",
+      });
+    }
+    return reply.status(created ? 201 : 200).send(data({ person, created }, request));
   });
 
   app.get("/api/v1/platform/tenants/:id/persons", async (request) => {

@@ -1,0 +1,76 @@
+{
+  "data": [
+    {
+      "id": "6b8d0f2a-4c6e-4a1b-9d3f-5e7a9c1b3d50",
+      "org_key": "bad-org-key",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": null,
+      "unit_name": "Broken org key",
+      "unit_type": "DEPARTMENT",
+      "unit_code": null,
+      "effective_from": "2026-01-01",
+      "effective_to": null,
+      "version": 1
+    },
+    {
+      "id": "7c9e1a3b-5d7f-4b2c-8e4a-6f8b0d2c4e61",
+      "org_key": "3e5f7a9b-1c3d-4e5f-8a70-2b4c6d8e0f13",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": null,
+      "unit_name": "Missing effective_from",
+      "unit_type": "DEPARTMENT",
+      "unit_code": null,
+      "effective_to": null,
+      "version": 1
+    },
+    {
+      "id": "8d0f2b4c-6e8a-4c3d-9f5b-7a9c1e3d5f72",
+      "org_key": "4f6a8b0c-2d4e-4f6a-9b81-3c5d7e9f1a24",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": null,
+      "unit_name": "Impossible date",
+      "unit_type": "DEPARTMENT",
+      "unit_code": null,
+      "effective_from": "2026-02-30",
+      "effective_to": null,
+      "version": 1
+    },
+    {
+      "id": "9e1a3c5d-7f9b-4d4e-8a6c-8b0d2f4e6a83",
+      "org_key": "5a7b9c1d-3e5f-4a6b-8c92-4d6e8f0a2b35",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": "not-a-uuid",
+      "unit_name": "Broken parent",
+      "unit_type": "DEPARTMENT",
+      "unit_code": null,
+      "effective_from": "2026-01-01",
+      "effective_to": null,
+      "version": 1
+    },
+    {
+      "id": "0f2b4d6e-8a0c-4e5f-9b7d-9c1e3a5b7c94",
+      "org_key": "6b8c0d2e-4f6a-4b7c-9d03-5e7f9a1b3c46",
+      "version_no": 1,
+      "supersedes_id": null,
+      "legal_entity_id": "c4e8a1f2-7b3d-4c69-8a20-5d1e9f3b7c48",
+      "parent_org_key": null,
+      "unit_name": "Valid survivor",
+      "unit_type": "TEAM",
+      "unit_code": "CS-TEAM-1",
+      "effective_from": "2026-03-01",
+      "effective_to": null,
+      "version": 1
+    }
+  ],
+  "meta": {
+    "request_id": "1a3c5e7f-9b2d-4f6a-8c04-6d8e0a2c4b57"
+  }
+}

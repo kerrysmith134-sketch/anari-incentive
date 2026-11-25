@@ -1,0 +1,140 @@
+{
+  "deals": [
+    {
+      "id": "cmq4u1a2b000q4bxr8c1e3fhy",
+      "name": "Drifted Projection Deal",
+      "amount": "5000",
+      "currency": "CNY",
+      "stageId": "cmq4u2b3c000r4bxr9d2f4giz",
+      "stage": {
+        "id": "cmq4u2b3c000r4bxr9d2f4giz",
+        "name": "Qualified",
+        "color": "#1877F1",
+        "order": 1,
+        "isWon": false,
+        "isLost": false
+      },
+      "companyId": "cmq4u3c4d000s4bxr1e3g5hja",
+      "company": null,
+      "ownerId": null,
+      "owner": null,
+      "version": 2,
+      "writeVersion": 4,
+      "createdAt": "2026-10-01T00:00:00.000Z",
+      "updatedAt": "2026-10-02T00:00:00.000Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4u4d5e000t4bxr2f4h6ikb",
+      "name": "Custom Stage Deal",
+      "amount": "99000",
+      "currency": "CNY",
+      "stageId": "cmq4u5e6f000u4bxr3g5i7jlc",
+      "stage": {
+        "id": "cmq4u5e6f000u4bxr3g5i7jlc",
+        "name": "Legal Hold",
+        "color": "#6B7280",
+        "order": 7,
+        "isWon": false,
+        "isLost": false
+      },
+      "companyId": "cmq4u6f7g000v4bxr4h6j8kmd",
+      "company": {
+        "id": "cmq4u6f7g000v4bxr4h6j8kmd",
+        "name": "Umbrella Industrial"
+      },
+      "ownerId": null,
+      "owner": null,
+      "version": 1,
+      "writeVersion": 1,
+      "createdAt": "2026-10-03T00:00:00.000Z",
+      "updatedAt": "2026-10-04T00:00:00.000Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4u7g8h000w4bxr5i7k9lne",
+      "name": "Missing Currency Deal",
+      "amount": "42000",
+      "currency": "",
+      "stageId": "cmq4u8h9i000x4bxr6j8l1mof",
+      "stage": {
+        "id": "cmq4u8h9i000x4bxr6j8l1mof",
+        "name": "Proposal",
+        "color": "#8B5CF6",
+        "order": 2,
+        "isWon": false,
+        "isLost": false
+      },
+      "companyId": "cmq4u9i1j000y4bxr7k9m2npg",
+      "company": {
+        "id": "cmq4u9i1j000y4bxr7k9m2npg",
+        "name": "Soylent Grid"
+      },
+      "ownerId": null,
+      "owner": null,
+      "version": 1,
+      "writeVersion": 1,
+      "createdAt": "2026-10-05T00:00:00.000Z",
+      "updatedAt": "2026-10-06T00:00:00.000Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4ua2k3000z4bxr8l1n3oqh",
+      "name": "Numeric Amount Deal",
+      "amount": 98765.43,
+      "currency": "usd",
+      "stageId": "cmq4ub3l400104bxr9m2o4pri",
+      "stage": {
+        "id": "cmq4ub3l400104bxr9m2o4pri",
+        "name": "closed_won",
+        "color": "#10B981",
+        "order": 5,
+        "isWon": true,
+        "isLost": false
+      },
+      "companyId": "cmq4uc4m500114bxr1n3p5qsj",
+      "company": {
+        "id": "cmq4uc4m500114bxr1n3p5qsj",
+        "name": "Vandelay Imports"
+      },
+      "ownerId": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+      "owner": {
+        "id": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+        "name": "Sanitized Owner"
+      },
+      "version": 2,
+      "writeVersion": 2,
+      "createdAt": "2026-10-07T00:00:00.000Z",
+      "updatedAt": "2026-10-08T00:00:00.000Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4ud5n600124bxr2o4q6rtk",
+      "name": "Malformed Amount Deal",
+      "amount": "1,250.00",
+      "currency": "CNY",
+      "stageId": "cmq4ue6o700134bxr3p5r7sul",
+      "stage": {
+        "id": "cmq4ue6o700134bxr3p5r7sul",
+        "name": "Closed Lost",
+        "color": "#6B7280",
+        "order": 6,
+        "isWon": false,
+        "isLost": true
+      },
+      "companyId": "cmq4uf7p800144bxr4q6s8tvm",
+      "company": {
+        "id": "cmq4uf7p800144bxr4q6s8tvm",
+        "name": "Hooli Energy"
+      },
+      "ownerId": null,
+      "owner": null,
+      "version": 1,
+      "writeVersion": 3,
+      "createdAt": "2026-10-09T00:00:00.000Z",
+      "updatedAt": "2026-10-10T00:00:00.000Z",
+      "deletedAt": null
+    }
+  ],
+  "total": 5
+}

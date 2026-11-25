@@ -24,6 +24,7 @@
     "test:pg": "./scripts/test-pg.sh",
     "test:pg-upgrade": "./scripts/test-pg-upgrade.sh",
     "contracts:manifest": "tsx scripts/generate-request-contracts.ts",
+    "import:local": "tsx scripts/import-local.ts",
     "contracts:entities": "tsx scripts/generate-entity-contracts.ts && tsx scripts/generate-entity-types.ts && tsx scripts/generate-access-contracts.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "agent:scan": "tsx scripts/agent-scan.ts",

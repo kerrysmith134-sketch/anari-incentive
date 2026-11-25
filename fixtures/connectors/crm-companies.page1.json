@@ -1,0 +1,100 @@
+{
+  "companies": [
+    {
+      "id": "cmq4te5b7000g4bxr3n2w8qyl",
+      "name": "Northwind Motors",
+      "teamId": "cmq4t0z1a0000abcd5klmn8op",
+      "domain": "northwind.example",
+      "industry": "EV Manufacturing",
+      "size": "10000+",
+      "website": "https://northwind.example",
+      "address": "Sanitized District, Shanghai, China",
+      "phone": "+86 21 0000 0000",
+      "linkedin": "https://www.linkedin.com/company/sanitized-northwind",
+      "enrichmentData": {
+        "provider": "sanitized",
+        "fetchedAt": "2026-10-01T00:00:00.000Z"
+      },
+      "enrichmentStatus": "completed",
+      "sentimentScore": 0.62,
+      "lastActivityAt": "2026-11-18T09:12:44.512Z",
+      "notes": null,
+      "createdAt": "2026-07-30T02:11:09.000Z",
+      "updatedAt": "2026-11-18T09:12:44.512Z",
+      "version": 4,
+      "writeVersion": 9,
+      "deletedAt": null,
+      "ownerId": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+      "owner": {
+        "id": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+        "name": "Sanitized Owner"
+      },
+      "_count": {
+        "contacts": 2,
+        "deals": 1
+      }
+    },
+    {
+      "id": "cmq4tm1p0000l4bxr3x5z7acs",
+      "name": "Globex Energy",
+      "teamId": "cmq4t0z1a0000abcd5klmn8op",
+      "domain": "globex.example",
+      "industry": "Energy Storage",
+      "size": "1000-5000",
+      "website": "https://globex.example",
+      "address": "Sanitized District, Singapore",
+      "phone": "+65 0000 0000",
+      "linkedin": null,
+      "enrichmentData": null,
+      "enrichmentStatus": "pending",
+      "sentimentScore": null,
+      "lastActivityAt": null,
+      "notes": null,
+      "createdAt": "2026-09-11T06:22:31.000Z",
+      "updatedAt": "2026-09-11T06:22:31.000Z",
+      "version": 1,
+      "writeVersion": 0,
+      "deletedAt": null,
+      "ownerId": "cmq4tg7d5000i4bxr7q6a2bcd",
+      "owner": {
+        "id": "cmq4tg7d5000i4bxr7q6a2bcd",
+        "name": "Sanitized Owner"
+      },
+      "_count": {
+        "contacts": 1,
+        "deals": 1
+      }
+    },
+    {
+      "id": "cmq4tr5tc000p4bxr7b9d2egw",
+      "name": "Initech Charging",
+      "teamId": "cmq4t0z1a0000abcd5klmn8op",
+      "domain": null,
+      "industry": null,
+      "size": null,
+      "website": null,
+      "address": null,
+      "phone": null,
+      "linkedin": null,
+      "enrichmentData": null,
+      "enrichmentStatus": "pending",
+      "sentimentScore": null,
+      "lastActivityAt": null,
+      "notes": null,
+      "createdAt": "2026-11-24T10:05:12.000Z",
+      "updatedAt": "2026-11-24T10:05:12.000Z",
+      "version": 1,
+      "writeVersion": 0,
+      "deletedAt": null,
+      "ownerId": null,
+      "owner": null,
+      "_count": {
+        "contacts": 0,
+        "deals": 1
+      }
+    }
+  ],
+  "total": 3,
+  "enriched": 1,
+  "totalContacts": 3
+}

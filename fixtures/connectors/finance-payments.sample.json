@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": "pay_5f2a9c31",
+      "refType": "report",
+      "refId": "rpt-2026-10-014",
+      "amount": "1250.50",
+      "direction": "out",
+      "status": "paid",
+      "bankRef": "CMB2026101500931"
+    },
+    {
+      "id": "pay_7c81e0d4",
+      "refType": "advance",
+      "refId": "adv-2026-10-003",
+      "amount": "350.00",
+      "direction": "in",
+      "status": "pending",
+      "bankRef": null
+    }
+  ],
+  "meta": {
+    "limit": 50,
+    "offset": 0,
+    "count": 2
+  }
+}

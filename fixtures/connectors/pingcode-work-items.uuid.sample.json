@@ -1,0 +1,75 @@
+{
+  "page_size": 100,
+  "page_index": 0,
+  "total": 1,
+  "values": [
+    {
+      "id": "5edca524cad2fa1125cb0636",
+      "url": "https://open.pingcode.com/v2/pjm/workitems/5edca524cad2fa1125cb0636",
+      "short_id": "4eDtOpWJ",
+      "project": {
+        "id": "5eb623f6a70571487ea47000",
+        "identifier": "SCR",
+        "name": "Scrum 项目",
+        "template_type": "scrum"
+      },
+      "identifier": 11,
+      "whole_identifier": "SCR-11",
+      "title": "子任务：缺陷修复与验收",
+      "type": {
+        "id": "630da48bc9443b1aa94ce3ee",
+        "name": "子任务",
+        "group": "task",
+        "icon": "subtask"
+      },
+      "assignee": {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "alice",
+        "display_name": "Alice"
+      },
+      "participants": [
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "type": "user",
+          "user": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "alice",
+            "display_name": "Alice"
+          }
+        },
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "type": "user",
+          "user": {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "name": "bob",
+            "display_name": "Bob"
+          }
+        },
+        {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "type": "user_group",
+          "user_group": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "name": "QA"
+          }
+        }
+      ],
+      "sprint": {
+        "id": "5ecf7b74eaab845a2aa53139",
+        "name": "Sprint 2",
+        "status": "completed"
+      },
+      "state": {
+        "id": "5c9b35de90ad7153c2062f19",
+        "name": "已完成",
+        "type": "completed"
+      },
+      "created_at": 1583290900,
+      "updated_at": 1583291000,
+      "completed_at": 1583291000,
+      "is_archived": 0,
+      "is_deleted": 0
+    }
+  ]
+}

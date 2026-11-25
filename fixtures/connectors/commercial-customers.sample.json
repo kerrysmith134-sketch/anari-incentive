@@ -1,0 +1,70 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Nordic Charge Partner AB",
+      "alias": "NCP",
+      "type": "distributor",
+      "region": "Europe",
+      "country": "Sweden",
+      "industry": "EV charging",
+      "credit_rating": "A",
+      "payment_terms": "T/T 30% advance, 70% before shipment",
+      "discount_tier": 1,
+      "total_orders": 7,
+      "total_revenue": "486000.00",
+      "health_score": 86.5,
+      "notes": "",
+      "owner_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "owner_name": "Sales Owner A",
+      "created_by": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "contacts": [
+        {
+          "id": "11111111-1111-4111-8111-111111111112",
+          "customer_id": "11111111-1111-4111-8111-111111111111",
+          "name": "Contact A",
+          "email": "contact.a@example.com",
+          "phone": "+46000000000",
+          "role": "purchasing",
+          "is_primary": true,
+          "notes": null
+        }
+      ],
+      "addresses": [],
+      "created_at": "2026-03-04T09:00:00+00:00",
+      "updated_at": "2026-11-21T14:35:00+00:00"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Iberia Fleet Solutions SL",
+      "alias": null,
+      "type": "fleet",
+      "region": "Europe",
+      "country": "Spain",
+      "industry": "Fleet operations",
+      "credit_rating": "B",
+      "payment_terms": "T/T 50% advance",
+      "discount_tier": 0,
+      "total_orders": 2,
+      "total_revenue": "32000.00",
+      "health_score": 71.0,
+      "notes": "",
+      "owner_id": null,
+      "owner_name": null,
+      "created_by": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "contacts": [],
+      "addresses": [],
+      "created_at": "2026-06-18T11:20:00+00:00",
+      "updated_at": "2026-11-20T10:20:30+00:00"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 100,
+    "total": 2,
+    "hasMore": true,
+    "next_cursor": "eyJ1cGRhdGVkX2F0IjoiMjAyNi0xMS0yMFQxMDoyMDozMCswMDowMCIsImlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIn0=",
+    "ordering": "updated_at_desc,id_desc"
+  }
+}

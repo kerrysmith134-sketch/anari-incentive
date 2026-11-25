@@ -124,6 +124,7 @@
 | KMS 轮换健康 | 关闭 | `/integration-keys/health` + 超龄/失败告警 webhook；不泄露密钥。 |
 | 发票多税种 | 关闭 | taxes[] 多税种、tax breakdown、GL 汇总税额仍平衡。 |
 | PG 并发回归 | 关闭 | 合同确认/终止、重复确认、关期/入账并发，124 PG tests。 |
+| 本地系统 Provider | 关闭（代码） | Anari ERP/Commercial/CRM/Ticketing/HR/Finance + PingCode 官方 v2 适配器 + import CLI；真实联调需启动本地服务并配置 token。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -149,7 +150,7 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：139 files passed / 2 skipped；1475 tests passed / 111 skipped。
+- `npm test`：145 files passed / 2 skipped；1612 tests passed / 111 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
 - `npm run test:pg-upgrade`：89 → 115 migrations，110 tests passed。

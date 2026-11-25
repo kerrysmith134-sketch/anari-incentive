@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "id": "3f2b7c9e-4d51-4a8e-9b3c-6f0d1e2a4b5c",
+      "display_name": "陈晓雯",
+      "preferred_name": "Xiaowen",
+      "primary_work_email": "xiaowen.chen@anari.example",
+      "person_status": "ACTIVE",
+      "data_quality_status": "VERIFIED",
+      "source_system": "feishu",
+      "version": 4,
+      "created_at": "2026-02-03T09:15:00",
+      "updated_at": "2026-11-21T10:42:18",
+      "legal_name": "陈晓雯"
+    },
+    {
+      "id": "a91d4e6f-2c38-4b7a-8d05-1e9f3a6b2c47",
+      "display_name": "Marcus Reed",
+      "preferred_name": null,
+      "primary_work_email": null,
+      "person_status": "PROSPECT",
+      "data_quality_status": "UNVERIFIED",
+      "source_system": null,
+      "version": 1,
+      "created_at": "2026-11-19T23:05:44.120000",
+      "updated_at": "2026-11-19T23:05:44.120000",
+      "legal_name": null
+    }
+  ],
+  "meta": {
+    "request_id": "7f3c2a1e-9d4b-4e6a-8c15-2b7d9f0a4e63",
+    "pagination": {
+      "limit": 2,
+      "next_cursor": "eyJjIjoiMjAyNi0xMS0xOVQyMzowNTo0NC4xMjAwMDAiLCJpIjoiYTkxZDRlNmYtMmMzOC00YjdhLThkMDUtMWU5ZjNhNmIyYzQ3In0",
+      "has_more": true
+    }
+  }
+}

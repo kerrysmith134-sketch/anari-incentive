@@ -1,0 +1,137 @@
+{
+  "deals": [
+    {
+      "id": "cmq4td1a9000f4bxr2m8kq3vz",
+      "name": "Northwind Charging Station Phase 2",
+      "amount": "1250000",
+      "currency": "CNY",
+      "expectedCloseDate": "2026-12-31T00:00:00.000Z",
+      "closedAt": "2026-11-18T09:12:44.512Z",
+      "sourceChannel": "whatsapp",
+      "stageId": "cmq4tb2c8000a4bxr9d1s7pke",
+      "stage": {
+        "id": "cmq4tb2c8000a4bxr9d1s7pke",
+        "name": "Closed Won",
+        "color": "#10B981",
+        "order": 5,
+        "isWon": true,
+        "isLost": false
+      },
+      "companyId": "cmq4te5b7000g4bxr3n2w8qyl",
+      "company": {
+        "id": "cmq4te5b7000g4bxr3n2w8qyl",
+        "name": "Northwind Motors"
+      },
+      "primaryContactId": "cmq4tf6c6000h4bxr5p4y1zmn",
+      "primaryContact": {
+        "id": "cmq4tf6c6000h4bxr5p4y1zmn",
+        "name": "Sanitized Contact"
+      },
+      "ownerId": "cmq4tg7d5000i4bxr7q6a2bcd",
+      "owner": {
+        "id": "cmq4tg7d5000i4bxr7q6a2bcd",
+        "name": "Sanitized Owner"
+      },
+      "position": 0,
+      "healthScore": 72.5,
+      "riskFactors": null,
+      "healthMeta": null,
+      "nextBestAction": null,
+      "closeProbability": 0.75,
+      "velocityDays": 41.5,
+      "aiUpdatedAt": "2026-11-18T09:13:02.004Z",
+      "version": 3,
+      "writeVersion": 12,
+      "createdAt": "2026-08-02T03:14:07.000Z",
+      "updatedAt": "2026-11-18T09:12:44.512Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4tk9m2000j4bxr1v3x5zaq",
+      "name": "Globex Supercharger V4 Deployment",
+      "amount": "187500.5",
+      "currency": "USD",
+      "expectedCloseDate": "2026-12-15T00:00:00.000Z",
+      "closedAt": null,
+      "sourceChannel": "email",
+      "stageId": "cmq4tl0n1000k4bxr2w4y6zbr",
+      "stage": {
+        "id": "cmq4tl0n1000k4bxr2w4y6zbr",
+        "name": "Negotiation",
+        "color": "#F59E0B",
+        "order": 3,
+        "isWon": false,
+        "isLost": false
+      },
+      "companyId": "cmq4tm1p0000l4bxr3x5z7acs",
+      "company": {
+        "id": "cmq4tm1p0000l4bxr3x5z7acs",
+        "name": "Globex Energy"
+      },
+      "primaryContactId": "cmq4tn2q9000m4bxr4y6a8bdt",
+      "primaryContact": {
+        "id": "cmq4tn2q9000m4bxr4y6a8bdt",
+        "name": "Sanitized Contact"
+      },
+      "ownerId": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+      "owner": {
+        "id": "9f1b2c3d-4e5f-4a6b-8c7d-1e2f3a4b5c6d",
+        "name": "Sanitized Owner"
+      },
+      "position": 1,
+      "healthScore": 60,
+      "riskFactors": null,
+      "healthMeta": null,
+      "nextBestAction": null,
+      "closeProbability": 0.5,
+      "velocityDays": 22,
+      "aiUpdatedAt": "2026-11-20T02:00:00.000Z",
+      "version": 5,
+      "writeVersion": 20,
+      "createdAt": "2026-09-11T06:22:31.000Z",
+      "updatedAt": "2026-11-20T02:00:00.000Z",
+      "deletedAt": null
+    },
+    {
+      "id": "cmq4tp3ra000n4bxr5z7b9ceu",
+      "name": "Initech BESS Pilot",
+      "amount": null,
+      "currency": "CNY",
+      "expectedCloseDate": "2027-03-31T00:00:00.000Z",
+      "closedAt": null,
+      "sourceChannel": "wechat",
+      "stageId": "cmq4tq4sb000o4bxr6a8c1dfv",
+      "stage": {
+        "id": "cmq4tq4sb000o4bxr6a8c1dfv",
+        "name": "Lead",
+        "color": "#9CA3AF",
+        "order": 0,
+        "isWon": false,
+        "isLost": false
+      },
+      "companyId": "cmq4tr5tc000p4bxr7b9d2egw",
+      "company": {
+        "id": "cmq4tr5tc000p4bxr7b9d2egw",
+        "name": "Initech Charging"
+      },
+      "primaryContactId": null,
+      "primaryContact": null,
+      "ownerId": null,
+      "owner": null,
+      "position": 0,
+      "healthScore": null,
+      "riskFactors": null,
+      "healthMeta": null,
+      "nextBestAction": null,
+      "closeProbability": null,
+      "velocityDays": null,
+      "aiUpdatedAt": null,
+      "version": 1,
+      "writeVersion": 0,
+      "createdAt": "2026-11-24T10:05:12.000Z",
+      "updatedAt": "2026-11-24T10:05:12.000Z",
+      "deletedAt": null
+    }
+  ],
+  "total": 3
+}
