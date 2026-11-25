@@ -392,6 +392,7 @@ import { registerPlatformAdminRoutes } from "./modules/platform/platform-admin.r
 import { registerCalculationRoutes } from "./modules/calculation/calculation-runs.routes.js";
 import { registerBudgetRoutes } from "./modules/budget/budget.routes.js";
 import { registerCommercialRoutes } from "./modules/commercial/commercial.routes.js";
+import { registerWorkItemRoutes } from "./modules/work-items/work-item.routes.js";
 import { registerSettlementExportRoutes } from "./modules/settlement/settlement-exports.routes.js";
 import { registerEsignRoutes } from "./modules/esign/esign.routes.js";
 import { registerWorkforceGovernanceRoutes } from "./modules/governance/workforce-governance.routes.js";
@@ -1587,6 +1588,7 @@ export function buildApp(
   );
   app.register(registerBudgetRoutes({ platformStore, storeFor }));
   app.register(registerCommercialRoutes({ platformStore }));
+  app.register(registerWorkItemRoutes({ platformStore }));
   app.register(
     registerSettlementExportRoutes({
       platformStore,

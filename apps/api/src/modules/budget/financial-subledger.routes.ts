@@ -87,9 +87,12 @@ function normalizePercent(percent: number): string {
   return formatDecimal(parseDecimal(String(percent)));
 }
 
+function absBig(value: bigint): bigint {
+  return value < 0n ? -value : value;
+}
+
 function absAmount(value: string): bigint {
-  const parsed = parseDecimal(value);
-  return parsed < 0n ? -parsed : parsed;
+  return absBig(parseDecimal(value));
 }
 
 function negate(value: string): string {
@@ -261,7 +264,9 @@ function settleInvoice(
     if (fact.documentType === "PAYMENT") payments += converted.amount;
     if (fact.documentType === "REFUND") refunds += converted.amount;
     if (fact.documentType === "BAD_DEBT_WRITE_OFF") {
-      writeOffs += converted.amount;
+      // 核销事实金额为负（冲减 AR，与 REFUND/REVERSAL 的符号约定一致）；
+      // 账龄上的 writeOffs 按核销额正数展示，用绝对值累计。
+      writeOffs += absBig(converted.amount);
     }
   }
   // 全额冲销的发票不再形成应收；退款金额本身为负，减负数即回到 open。
@@ -1142,6 +1147,9 @@ export function registerFinancialSubledgerRoutes(deps: {
 
     // ------------------------------------------------------------------
     // POST /api/v1/financial-bad-debt/write-off
+    // amount 缺省 = 全额核销当前 open；指定则按部分核销处理（可多次，
+    // 累计不得超过 open）。每次核销落一条金额为 -amount 的
+    // BAD_DEBT_WRITE_OFF 事实 + 借贷平衡的 GL 凭证。
     // ------------------------------------------------------------------
     app.post("/api/v1/financial-bad-debt/write-off", async (request, reply) => {
       requireRoles(request, "finance");
@@ -1164,39 +1172,64 @@ export function registerFinancialSubledgerRoutes(deps: {
       const related = await platformStore.listFinancialFacts(tenantId, {
         relatedFactId: invoice.id,
       });
-      if (related.some((fact) => fact.documentType === "BAD_DEBT_WRITE_OFF")) {
-        throw new ConflictError(
-          `INVOICE_ALREADY_WRITTEN_OFF: invoice ${invoice.id} already has a write-off`,
-        );
-      }
+      const priorWriteOffs = related.filter(
+        (fact) => fact.documentType === "BAD_DEBT_WRITE_OFF",
+      );
       const settlement = settleInvoice(invoice, related);
       if (settlement.open <= 0n) {
+        // 已核销完 / 已结清：区分「之前核销过」与「本来就没有 open」。
+        if (priorWriteOffs.length > 0) {
+          throw new ConflictError(
+            `INVOICE_ALREADY_WRITTEN_OFF: invoice ${invoice.id} has no remaining open amount ` +
+              `(written off ${formatDecimal(settlement.writeOffs)}, open ${formatDecimal(settlement.open)})`,
+          );
+        }
         throw new ConflictError(
           `NOTHING_TO_WRITE_OFF: invoice ${invoice.id} has open amount ${formatDecimal(settlement.open)}`,
         );
       }
-      const amount = formatDecimal(settlement.open);
+      // amount 缺省 → 全额；显式金额由 schema 保证 > 0（0/负 → 400）。
+      const amount =
+        body.amount === undefined
+          ? formatDecimal(settlement.open)
+          : normalizeAmount(body.amount);
+      const amountValue = parseDecimal(amount);
+      if (amountValue > settlement.open) {
+        throw new ConflictError(
+          `WRITE_OFF_EXCEEDS_OPEN: requested ${amount} exceeds open amount ` +
+            `${formatDecimal(settlement.open)} for invoice ${invoice.id}`,
+        );
+      }
+      const openBefore = formatDecimal(settlement.open);
+      const openAfter = formatDecimal(settlement.open - amountValue);
+      // 冲减 AR：事实金额为负数（与 REFUND/REVERSAL 一致）。
+      const signedAmount = negate(amount);
       const accountingPeriod =
         body.accountingPeriod ?? invoice.accountingPeriod;
-      const documentId = `WO-${invoice.id}`;
+      // 同一发票可多次部分核销，(document_type, document_id) 需唯一，
+      // 因此按已有核销笔数顺序编号，保留可追溯的链。
+      const documentId = `WO-${invoice.id}-${priorWriteOffs.length + 1}`;
       const functional = sameCurrencyFunctional(
         invoice.currency,
         invoice.functionalCurrency,
-        amount,
+        signedAmount,
       );
       const fact = await platformStore.createFinancialFact({
         tenantId,
         sourceSystem: SUBLEDGER_SOURCE,
         sourceRecordId: documentId,
         factType: "BAD_DEBT_WRITE_OFF",
-        amount,
+        amount: signedAmount,
         currency: invoice.currency,
         qualityStatus: "VALID",
         payload: {
           documentType: "BAD_DEBT_WRITE_OFF",
           documentId,
           relatedFactId: invoice.id,
-          openAmountBefore: amount,
+          writeOffAmount: amount,
+          openAmountBefore: openBefore,
+          openAmountAfter: openAfter,
+          partial: openAfter !== "0",
           reason: body.reason,
         },
         legalEntityId: invoice.legalEntityId,
@@ -1223,8 +1256,9 @@ export function registerFinancialSubledgerRoutes(deps: {
         data(
           {
             ...fact,
-            openAmountBefore: amount,
-            openAmountAfter: "0",
+            writeOffAmount: amount,
+            openAmountBefore: openBefore,
+            openAmountAfter: openAfter,
           },
           request,
         ),
@@ -1468,7 +1502,9 @@ export function registerFinancialSubledgerRoutes(deps: {
           totals.provisioned += amount;
         }
         if (fact.documentType === "BAD_DEBT_WRITE_OFF") {
-          totals.writtenOff += amount;
+          // 核销事实金额为负（冲减 AR），汇总字段按核销额正数展示；
+          // net 仍累加原始带符号金额，核销后能正确归零。
+          totals.writtenOff += absBig(amount);
         }
       }
       const totals = Object.fromEntries(

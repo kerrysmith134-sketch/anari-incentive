@@ -115,6 +115,10 @@
 | ERP 对账 | 关闭（子账侧） | 按 documentType/币种对比子账与 ERP 来源事实，返回 PASS/VARIANCE；真实 ERP 样本仍需业务提供。 |
 | 复式记账 | 关闭 | gl_accounts/gl_journals/gl_journal_lines + RLS；发票/收付/退款/冲销/重估/坏账自动平衡凭证。 |
 | 多法人多币种合并 | 关闭（引擎） | IAS 21/ASC 830：期末/平均/历史汇率、CTA、IC AR/AP 与 IC 损益抵消、NCI（多级有效持股）、平衡校验；fixture + CLI PASS。 |
+| Ticketing Work Item | 关闭（模型+同步） | 迁移 114 + Work Item/事件/贡献 + `WORK_ITEM` Runner 目标 + PingCode 通用预设。 |
+| Accounting Period 审批人/通知 | 关闭 | 迁移 113 + 审批人目录 + 创建/结果站内通知 + UI。 |
+| Integrations Mapping Studio | 关闭（前端） | 映射编辑/预览/版本化保存/失败面板；sync-run 级重放后端仍缺。 |
+| 坏账部分核销 | 关闭 | write-off 支持部分金额，累计不超 open，GL 平衡。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -123,11 +127,11 @@
 | --- | --- |
 | ERP 财务生产接入 | 无真实 ERP API 契约/样本；财务事实虽已强类型，但 ERP 连接器、科目映射、FX 来源、期间关闭对账未验证 |
 | PingCode / Ticketing / Commercial 原生连接器 | Commercial 领域实体/API/UI 已落；PingCode/Ticketing/HubSpot 原生 adapter 仍缺真实 API 契约与样本 |
-| 真实多法人/多币种影子结算 | pilot fixture/CLI 已通过；真实脱敏数据影子周期未跑 |
+| 真实多法人/多币种影子结算 | 引擎 + fixture/CLI 已通过；真实脱敏数据仍需业务导入后跑影子周期 |
 | HSM / KMS | keyring 文件 + 热加载 + KMS rotate 回调；**HSM/PKCS#11 明确不在范围内**，不引入厂商 SDK |
-| Accounting Period 双人审批 | 请求/批准分离 + Finance Center 工作台已完成；审批人目录/通知仍未接 |
+| Accounting Period 双人审批 | 请求/批准分离 + 工作台 + 审批人目录/通知已完成 |
 | 大文件拆分 | 关闭：`app.ts` 2,659 → 2,182；`contracts/index.ts` 3,369 → 3,086；`store.ts` 2,985 → 14（11 个领域 mixin）；`pg-store.ts` 4,836 → 25（18 层继承链）；`PolicyPage.tsx` 3,425 → 1,124（17 文件/22 组件）；`AiPage.tsx` 2,838 → 186（9 组件）。行为保持，全量/PG/构建通过 |
-| Integrations UI 工作台 IA | 已加运行健康/数据质量 tab；Mapping Studio 深层交互仍未重构 |
+| Integrations UI 工作台 IA | 已加运行健康/数据质量 tab + Mapping Studio；sync-run 级重放仍缺后端接口 |
 
 ## 3. 验证命令与结果
 
@@ -140,10 +144,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：136 files passed / 2 skipped；1395 tests passed / 108 skipped。
+- `npm test`：138 files passed / 2 skipped；1410 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
-- `npm run test:pg-upgrade`：89 → 112 migrations，107 tests passed。
+- `npm run test:pg-upgrade`：89 → 114 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

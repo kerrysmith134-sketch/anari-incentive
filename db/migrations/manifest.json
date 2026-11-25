@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-25T18:01:02.701Z",
+  "generatedAt": "2026-11-25T19:30:25.254Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -560,6 +560,16 @@
       "file": "112_subledger_aging_tax_gl.sql",
       "bytes": 7249,
       "sha256": "560450196acb982861f7b66232de8ad6bb05a05b4af10d40046abd82daf74d34"
+    },
+    {
+      "file": "113_period_approvers.sql",
+      "bytes": 1385,
+      "sha256": "b4f9681b1a06130880b7631034630656c4a26bf5e16e28644e16f58b92c6ac5e"
+    },
+    {
+      "file": "114_work_items.sql",
+      "bytes": 6100,
+      "sha256": "fa75b5b26a77ed9a439138a4b7557a72cdf169768de7ba8484b240d8b396a2d6"
     }
   ]
 }

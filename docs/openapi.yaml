@@ -27,6 +27,7 @@ security:
 tags:
   - name: System
   - name: Work packages
+  - name: Work items
   - name: Equity
   - name: Bounty
   - name: Payroll
@@ -3729,6 +3730,51 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/accounting-period-approvers:
+    get:
+      tags: [Budget]
+      summary: List effective accounting period approvers
+      description: |
+        返回当前生效的审批人：显式目录非空时为 DIRECTORY，目录为空或全部
+        失效时回退到租户内 admin/finance 角色人员（ROLE_FALLBACK）。
+      responses:
+        "200":
+          description: Effective approvers and their source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Budget]
+      summary: Replace the accounting period approver directory
+      description: |
+        全量替换审批人目录（至少 1 人）。仅 admin/finance 可调用；每个人必须
+        属于当前租户且 employmentStatus=ACTIVE。被移除的人保留目录行并置为
+        inactive，便于审计追溯。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceAccountingPeriodApprovers"
+      responses:
+        "200":
+          description: Updated effective approvers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/accounting-periods/close:
     post:
       tags: [Budget]
@@ -4059,11 +4105,13 @@ paths:
   /api/v1/financial-bad-debt/write-off:
     post:
       tags: [Budget]
-      summary: Write off the remaining open amount of an invoice
+      summary: Write off all or part of the remaining open amount of an invoice
       description: |
-        生成 POSTED 的 BAD_DEBT_WRITE_OFF 事实（金额由服务端按发票 - 收款 -
-        退款 - 已核销重算），冲减该发票 open amount，并生成
-        借 ALLOWANCE / 贷 AR 的平衡凭证。
+        生成 POSTED 的 BAD_DEBT_WRITE_OFF 事实（金额为本次核销额的负数，
+        冲减 AR），并生成借 ALLOWANCE / 贷 AR 的平衡凭证。
+        amount 可选：缺省为全额核销当前 open amount；指定时按部分核销处理，
+        必须 > 0（0 或负数 → 400）且 <= 当前 open amount（超限 → 409
+        WRITE_OFF_EXCEEDS_OPEN）。同一发票可多次核销，累计不得超过 open。
       requestBody:
         required: true
         content:
@@ -4661,6 +4709,85 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/StateConflict"
+
+  /api/v1/work-items/import:
+    post:
+      tags: [Work items]
+      summary: Source-aware upsert of a canonical ticketing work item
+      description: |
+        Idempotent on `(tenant, sourceSystem, externalId)`. A status change
+        appends exactly one append-only history event; supplied `events` are
+        deduplicated. Contributions are upserted per `(personId, role)`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportWorkItem"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/work-items:
+    get:
+      tags: [Work items]
+      summary: List work items by project and/or contributing person
+      parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: personId
+          in: query
+          required: false
+          description: Matches the assignee or any contribution holder.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Work items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/work-items/{id}:
+    get:
+      tags: [Work items]
+      summary: Work item with append-only status history and contributions
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Work item detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/rule-change-orders:
     get:
@@ -14013,6 +14140,13 @@ components:
         accountingPeriod:
           type: string
           pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        amount:
+          type: string
+          description: |
+            可选。本次核销金额（1e6 定点字符串，最多 6 位小数）。缺省为当前
+            open amount 全额核销；必须 > 0 且 <= open amount（超限 → 409
+            WRITE_OFF_EXCEEDS_OPEN，0 或负数 → 400）。
+          pattern: "^\\d+(\\.\\d{1,6})?$"
         reason:
           type: string
           maxLength: 512
@@ -14071,6 +14205,18 @@ components:
           type: string
           format: uuid
         note: { type: string, minLength: 3 }
+
+    ReplaceAccountingPeriodApprovers:
+      type: object
+      required: [personIds]
+      properties:
+        personIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: string
+            format: uuid
 
     CloseAccountingPeriod:
       type: object
@@ -14165,6 +14311,61 @@ components:
         externalAccountId: { type: string }
         name: { type: string }
         ownerPersonId: { type: string, format: uuid }
+
+    ImportWorkItem:
+      type: object
+      required: [sourceSystem, externalId, projectId, title, type, status]
+      properties:
+        sourceSystem: { type: string }
+        externalId: { type: string }
+        projectId: { type: string }
+        title: { type: string }
+        type:
+          type: string
+          enum: [STORY, TASK, BUG, EPIC, OTHER]
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, BLOCKED, DONE, CANCELLED]
+        assigneePersonId: { type: string, format: uuid }
+        reporterPersonId: { type: string, format: uuid }
+        startedAt: { type: string, format: date-time }
+        dueAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        weight: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+        events:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            required: [toStatus]
+            properties:
+              fromStatus:
+                type: string
+                enum: [OPEN, IN_PROGRESS, BLOCKED, DONE, CANCELLED]
+              toStatus:
+                type: string
+                enum: [OPEN, IN_PROGRESS, BLOCKED, DONE, CANCELLED]
+              occurredAt: { type: string, format: date-time }
+              actorPersonId: { type: string, format: uuid }
+        contributions:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [personId, role]
+            properties:
+              personId: { type: string, format: uuid }
+              role: { type: string }
+              weight: { type: string }
+              ratio: { type: string }
 
     ImportCommercialOpportunity:
       type: object

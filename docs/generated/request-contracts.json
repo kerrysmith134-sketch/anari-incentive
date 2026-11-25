@@ -481,6 +481,7 @@
       ],
       "optional": [
         "accountingPeriod",
+        "amount",
         "legalEntityId",
         "reason",
         "sourceVersion"
@@ -533,6 +534,30 @@
         "estimatedAmount",
         "ownerPersonId",
         "stage"
+      ]
+    },
+    "ImportWorkItem": {
+      "required": [
+        "externalId",
+        "projectId",
+        "sourceSystem",
+        "status",
+        "title",
+        "type"
+      ],
+      "optional": [
+        "amount",
+        "assigneePersonId",
+        "completedAt",
+        "contributions",
+        "currency",
+        "dueAt",
+        "events",
+        "payload",
+        "priority",
+        "reporterPersonId",
+        "startedAt",
+        "weight"
       ]
     },
     "ModelSummary": {
@@ -640,6 +665,12 @@
         "period",
         "reason",
         "reopeningRef"
+      ],
+      "optional": []
+    },
+    "ReplaceAccountingPeriodApprovers": {
+      "required": [
+        "personIds"
       ],
       "optional": []
     },

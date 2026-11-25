@@ -52,6 +52,8 @@ import type {
   GlJournal,
   GlJournalLine,
   AccountingPeriod,
+  AccountingPeriodApprover,
+  AccountingPeriodApproverResolution,
   AccountingPeriodChangeRequest,
   CalibrationSession,
   ManagerTrainingRecord,
@@ -126,6 +128,11 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
     /** 迁移 112：复式记账内存账本（按租户隔离）。 */
     private readonly glAccounts = new Map<string, GlAccount[]>();
     private readonly glJournals = new Map<string, GlJournal>();
+    /** 迁移 113：会计期间审批人目录，key = tenantId:personId。 */
+    private readonly accountingPeriodApprovers = new Map<
+      string,
+      AccountingPeriodApprover
+    >();
 
     private ensureGlAccounts(tenantId: string): GlAccount[] {
       let accounts = this.glAccounts.get(tenantId);
@@ -1169,6 +1176,119 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       found.reopenReason = input.reason;
       found.updatedAt = now();
       return found;
+    }
+
+    // 迁移 113：会计期间审批人目录（显式目录优先，空目录回退角色）。
+    async listAccountingPeriodApprovers(
+      tenantId: string,
+    ): Promise<AccountingPeriodApprover[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return [...this.accountingPeriodApprovers.values()]
+        .filter((row) => row.tenantId === tenantId)
+        .sort(
+          (a, b) =>
+            Number(b.active) - Number(a.active) ||
+            a.createdAt.localeCompare(b.createdAt) ||
+            a.personId.localeCompare(b.personId),
+        )
+        .map((row) => {
+          const person = this.persons.get(row.personId);
+          return {
+            ...row,
+            displayName:
+              person?.tenantId === tenantId
+                ? person.displayName
+                : undefined,
+          };
+        });
+    }
+
+    async replaceAccountingPeriodApprovers(input: {
+      tenantId: string;
+      personIds: string[];
+      updatedBy?: string;
+    }): Promise<AccountingPeriodApproverResolution> {
+      if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
+      const personIds = [...new Set(input.personIds)];
+      if (personIds.length === 0) {
+        throw new ConflictError("APPROVER_REQUIRED");
+      }
+      for (const personId of personIds) {
+        const person = this.persons.get(personId);
+        if (!person || person.tenantId !== input.tenantId) {
+          throw new ConflictError(`APPROVER_NOT_IN_TENANT: ${personId}`);
+        }
+        if (person.employmentStatus !== "ACTIVE") {
+          throw new ConflictError(`APPROVER_INACTIVE: ${personId}`);
+        }
+      }
+
+      const selected = new Set(personIds);
+      for (const [key, row] of this.accountingPeriodApprovers) {
+        if (row.tenantId !== input.tenantId) continue;
+        const active = selected.has(row.personId);
+        if (row.active !== active) {
+          this.accountingPeriodApprovers.set(key, { ...row, active });
+        }
+      }
+      for (const personId of personIds) {
+        const key = `${input.tenantId}:${personId}`;
+        if (this.accountingPeriodApprovers.has(key)) continue;
+        this.accountingPeriodApprovers.set(key, {
+          tenantId: input.tenantId,
+          personId,
+          active: true,
+          createdAt: now(),
+        });
+      }
+      return this.listEffectiveAccountingPeriodApprovers(input.tenantId);
+    }
+
+    async listEffectiveAccountingPeriodApprovers(
+      tenantId: string,
+    ): Promise<AccountingPeriodApproverResolution> {
+      const directory = (
+        await this.listAccountingPeriodApprovers(tenantId)
+      ).filter((row) => row.active);
+      const activeDirectory = directory.filter((row) => {
+        const person = this.persons.get(row.personId);
+        return (
+          person?.tenantId === tenantId &&
+          person.employmentStatus === "ACTIVE"
+        );
+      });
+      if (activeDirectory.length > 0) {
+        return { approvers: activeDirectory, source: "DIRECTORY" };
+      }
+
+      // 回退：租户内持有 admin/finance 角色的人员（按成员角色字段）。
+      const memberships = await this.listMemberships(tenantId);
+      const privilegedUserIds = new Set(
+        memberships
+          .filter(
+            (membership) =>
+              membership.status === "ACTIVE" &&
+              membership.roleCodes.some(
+                (role) => role === "admin" || role === "finance",
+              ),
+          )
+          .map((membership) => membership.userId),
+      );
+      const fallback = (await this.listPersons(tenantId))
+        .filter(
+          (person) =>
+            person.employmentStatus === "ACTIVE" &&
+            person.userId !== undefined &&
+            privilegedUserIds.has(person.userId),
+        )
+        .map((person) => ({
+          tenantId,
+          personId: person.id,
+          active: true,
+          createdAt: person.createdAt,
+          displayName: person.displayName,
+        }));
+      return { approvers: fallback, source: "ROLE_FALLBACK" };
     }
   };
 }

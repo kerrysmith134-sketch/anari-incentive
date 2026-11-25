@@ -67,6 +67,32 @@ export const FIELD_MAPPING_PRESETS: FieldMappingPreset[] = [
     },
   },
   {
+    code: "ticketing-work-items",
+    provider: "pingcode",
+    name: "PingCode / generic ticketing work items (canonical)",
+    mappingType: "HTTP_JSON",
+    sourceSystem: "pingcode",
+    // 114：工单/任务直接进入规范 Work Item（状态历史 + 多人贡献），
+    // 而不是被压成 Evidence 后丢失状态。
+    targetType: "WORK_ITEM",
+    fieldMap: {
+      sourceRecordId: "id",
+      eventType: "=WORK_ITEM_UPSERTED",
+      subjectType: "=WORK_ITEM",
+      subjectId: "id",
+      evidenceType: "=WORK_ITEM",
+      occurredAt: "updated_at",
+      sourceUpdatedAt: "updated_at",
+    },
+    config: {
+      recordsPath: "values",
+      nextCursorPath: "next_cursor",
+      cursorParam: "cursor",
+      pageSizeParam: "page_size",
+      updatedSinceParam: "updated_since",
+    },
+  },
+  {
     code: "feishu-bitable",
     provider: "feishu",
     name: "Feishu Bitable records",

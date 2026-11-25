@@ -10,7 +10,7 @@
  */
 import type { Pool } from "pg";
 import type {
-  ApprovalPort, AssessmentPort, BudgetPort, CommercialPort, CommsPort, DatagovPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort
+  ApprovalPort, AssessmentPort, BudgetPort, CommercialPort, CommsPort, DatagovPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort, WorkItemPort
 } from "./store-ports.js";
 import { MemoryPlatformStoreBase, type MemoryPlatformStoreBaseShape } from "./adapters/memory/base.memory.js";
 import { MemoryApprovalMixin } from "./adapters/memory/approval.memory.js";
@@ -28,6 +28,7 @@ import { MemoryModelgovMixin } from "./adapters/memory/modelgov.memory.js";
 import { MemoryPolicygovMixin } from "./adapters/memory/policygov.memory.js";
 import { MemorySettlementMixin } from "./adapters/memory/settlement.memory.js";
 import { MemoryTenantMixin } from "./adapters/memory/tenant.memory.js";
+import { MemoryWorkItemMixin } from "./adapters/memory/work-item.memory.js";
 import { PgPlatformStoreBase, type PgPlatformStoreBaseShape } from "./adapters/postgres/base.postgres.js";
 import { PgApprovalMixin } from "./adapters/postgres/approval.postgres.js";
 import { PgAssessmentMixin } from "./adapters/postgres/assessment.postgres.js";
@@ -44,6 +45,7 @@ import { PgModelgovMixin } from "./adapters/postgres/modelgov.postgres.js";
 import { PgPolicygovMixin } from "./adapters/postgres/policygov.postgres.js";
 import { PgSettlementMixin } from "./adapters/postgres/settlement.postgres.js";
 import { PgTenantMixin } from "./adapters/postgres/tenant.postgres.js";
+import { PgWorkItemMixin } from "./adapters/postgres/work-item.postgres.js";
 
 export interface PlatformStore extends
   ApprovalPort,
@@ -60,7 +62,8 @@ export interface PlatformStore extends
   ModelgovPort,
   PolicygovPort,
   SettlementPort,
-  TenantPort {}
+  TenantPort,
+  WorkItemPort {}
 
 type MemoryBaseCtor = abstract new (...args: ConstructorParameters<typeof MemoryPlatformStoreBase>) => MemoryPlatformStoreBaseShape;
 type PgBaseCtor = abstract new (...args: ConstructorParameters<typeof PgPlatformStoreBase>) => PgPlatformStoreBaseShape;
@@ -81,7 +84,9 @@ export class MemoryPlatformStore
     (MemoryBudgetMixin(
     (MemoryAssessmentMixin(
     (MemoryApprovalMixin(
+    (MemoryWorkItemMixin(
     (MemoryPlatformStoreBase) as unknown as MemoryBaseCtor
+  )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
@@ -115,7 +120,9 @@ export class PgPlatformStore
     (PgBudgetMixin(
     (PgAssessmentMixin(
     (PgApprovalMixin(
+    (PgWorkItemMixin(
     (PgPlatformStoreBase) as unknown as PgBaseCtor
+  )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor

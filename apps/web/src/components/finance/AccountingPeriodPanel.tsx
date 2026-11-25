@@ -20,7 +20,8 @@ import { api, ApiError } from "../../lib/api.js";
 import { useApiQuery } from "../../lib/hooks.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { useToast } from "../../contexts/ToastContext.js";
-import { formatDateTime } from "../../lib/format.js";
+import { displayName, formatDateTime } from "../../lib/format.js";
+import { usePeople } from "../PersonSelect.js";
 
 interface AccountingPeriodView {
   id: string;
@@ -45,12 +46,29 @@ interface ChangeRequestView {
   decidedAt?: string | null;
 }
 
+interface ApproverView {
+  tenantId: string;
+  personId: string;
+  active: boolean;
+  createdAt: string;
+  displayName?: string;
+}
+
+interface ApproverResolution {
+  approvers: ApproverView[];
+  source: "DIRECTORY" | "ROLE_FALLBACK";
+}
+
 export function AccountingPeriodPanel() {
   const { session } = useAuth();
   const toast = useToast();
+  const { people } = usePeople();
   const periods = useApiQuery<AccountingPeriodView[]>("/api/v1/accounting-periods");
   const pending = useApiQuery<ChangeRequestView[]>(
     "/api/v1/accounting-periods/change-requests?status=PENDING",
+  );
+  const approvers = useApiQuery<ApproverResolution>(
+    "/api/v1/accounting-period-approvers",
   );
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<"CLOSE" | "REOPEN">("CLOSE");
@@ -60,6 +78,50 @@ export function AccountingPeriodPanel() {
   const [reopeningRef, setReopeningRef] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [selectedApprovers, setSelectedApprovers] = useState<string[]>([]);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [savingApprovers, setSavingApprovers] = useState(false);
+
+  const effectiveApprovers = approvers.data?.approvers ?? [];
+
+  function notifiedCount(request: ChangeRequestView): number {
+    // 创建请求时通知除请求人外的全部有效审批人。
+    return effectiveApprovers.filter(
+      (approver) => approver.personId !== request.requestedBy,
+    ).length;
+  }
+
+  function openApproverEditor() {
+    setSelectedApprovers(effectiveApprovers.map((approver) => approver.personId));
+    setEditorError(null);
+    setEditorOpen(true);
+  }
+
+  async function saveApprovers(event: FormEvent) {
+    event.preventDefault();
+    if (selectedApprovers.length === 0) {
+      setEditorError("至少选择 1 名审批人");
+      return;
+    }
+    setSavingApprovers(true);
+    setEditorError(null);
+    try {
+      await api("/api/v1/accounting-period-approvers", {
+        method: "PUT",
+        body: { personIds: selectedApprovers },
+      });
+      toast.success("审批人已更新");
+      setEditorOpen(false);
+      approvers.reload();
+    } catch (caught) {
+      setEditorError(
+        caught instanceof ApiError ? caught.message : "保存审批人失败",
+      );
+    } finally {
+      setSavingApprovers(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -170,6 +232,43 @@ export function AccountingPeriodPanel() {
       )}
 
       <div className="detail-section" style={{ marginTop: 20 }}>
+        <div className="detail-section__title">期间审批人</div>
+        {approvers.error ? (
+          <ErrorNotice error={approvers.error} onRetry={approvers.reload} />
+        ) : approvers.loading ? (
+          <LoadingRows rows={1} />
+        ) : effectiveApprovers.length === 0 ? (
+          <p className="muted">
+            目录为空且没有可回退的 admin/finance 人员；期间变更仍可提交。
+          </p>
+        ) : (
+          <>
+            <div className="chip-row">
+              {effectiveApprovers.map((approver) => (
+                <span className="chip" key={approver.personId}>
+                  {approver.displayName ??
+                    displayName(approver.personId, people)}
+                </span>
+              ))}
+            </div>
+            {approvers.data?.source === "ROLE_FALLBACK" ? (
+              <p className="muted" style={{ marginTop: 8 }}>
+                目录为空，当前按租户 admin/finance 角色回退；保存目录后以目录为准。
+              </p>
+            ) : null}
+          </>
+        )}
+        <div className="row-actions" style={{ marginTop: 10 }}>
+          <Button size="sm" variant="secondary" onClick={openApproverEditor}>
+            编辑审批人
+          </Button>
+          <Button size="sm" variant="ghost" onClick={approvers.reload}>
+            刷新
+          </Button>
+        </div>
+      </div>
+
+      <div className="detail-section" style={{ marginTop: 20 }}>
         <div className="detail-section__title">
           待审批请求（{(pending.data ?? []).length}）
         </div>
@@ -188,6 +287,7 @@ export function AccountingPeriodPanel() {
                   <th>法人 / 期间</th>
                   <th>请求人</th>
                   <th>原因</th>
+                  <th>通知</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -200,6 +300,7 @@ export function AccountingPeriodPanel() {
                     </td>
                     <td className="mono">{request.requestedBy.slice(0, 8)}</td>
                     <td>{request.reason ?? "—"}</td>
+                    <td>已通知 {notifiedCount(request)} 人</td>
                     <td>
                       <div className="row-actions">
                         <Button
@@ -286,6 +387,67 @@ export function AccountingPeriodPanel() {
               onChange={(event) => setReason(event.target.value)}
             />
           </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={editorOpen}
+        title="编辑会计期间审批人"
+        onClose={() => setEditorOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditorOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form="period-approver-form"
+              loading={savingApprovers}
+              disabled={selectedApprovers.length === 0}
+            >
+              保存审批人
+            </Button>
+          </>
+        }
+      >
+        <form id="period-approver-form" onSubmit={saveApprovers}>
+          <p className="muted">
+            至少选择 1 名审批人；仅同租户在职人员可被选中。变更后新请求会通知这些人。
+          </p>
+          {editorError ? (
+            <div style={{ marginBottom: 12 }}>
+              <InfoNotice tone="warning">{editorError}</InfoNotice>
+            </div>
+          ) : null}
+          {people.filter(
+            (person) => person.employmentStatus !== "INACTIVE",
+          ).length === 0 ? (
+            <p className="muted">没有可选的同租户在职人员。</p>
+          ) : (
+            <div className="stack">
+              {people
+                .filter((person) => person.employmentStatus !== "INACTIVE")
+                .map((person) => (
+                  <label className="checkbox" key={person.id}>
+                    <input
+                      type="checkbox"
+                      checked={selectedApprovers.includes(person.id)}
+                      onChange={(event) =>
+                        setSelectedApprovers((current) =>
+                          event.target.checked
+                            ? [...current, person.id]
+                            : current.filter((id) => id !== person.id),
+                        )
+                      }
+                    />
+                    <span>
+                      {person.employeeCode} · {person.displayName}
+                    </span>
+                  </label>
+                ))}
+            </div>
+          )}
         </form>
       </Modal>
     </Panel>

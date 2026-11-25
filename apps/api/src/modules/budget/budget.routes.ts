@@ -2,6 +2,7 @@
  * 预算与财务域路由（自由裁量评审/预算释放/现金门禁/财务事实）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { AccountingPeriodChangeRequest } from "@anari/domain";
 import type { BudgetPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import {
@@ -11,6 +12,7 @@ import {
   createDiscretionaryPoolReviewSchema,
   createFinancialFactSchema,
   reopenAccountingPeriodSchema,
+  replaceAccountingPeriodApproversSchema,
 } from "@anari/contracts";
 import {
   data,
@@ -29,6 +31,89 @@ export function registerBudgetRoutes(deps: {
 }): FastifyPluginAsync {
   const { platformStore, storeFor } = deps;
   return async (app: FastifyInstance) => {
+  type PeriodNotificationInput = {
+    recipientPersonId?: string;
+    audience: "PERSON" | "MANAGER" | "FINANCE" | "ADMIN";
+    title: string;
+    body: string;
+    sourceType?: string;
+    sourceId?: string;
+    idempotencyKey?: string;
+  };
+
+  function createNotificationFor(request: FastifyRequest) {
+    const store = storeFor(request);
+    // 现有 IncentiveStore.createNotification 已支持 idempotencyKey（AUD-011），
+    // 但接口签名未暴露；这里按实现签名收窄，避免重复提交产生重复通知。
+    return store.createNotification.bind(store) as (
+      input: PeriodNotificationInput,
+    ) => Promise<unknown>;
+  }
+
+  async function notifyPeriodApprovers(
+    request: FastifyRequest,
+    change: AccountingPeriodChangeRequest,
+  ): Promise<void> {
+    try {
+      const { approvers } =
+        await platformStore.listEffectiveAccountingPeriodApprovers(
+          tenantOf(request),
+        );
+      const notify = createNotificationFor(request);
+      for (const approver of approvers) {
+        if (approver.personId === change.requestedBy) continue;
+        await notify({
+          recipientPersonId: approver.personId,
+          audience: "PERSON",
+          title: `会计期间${change.action === "CLOSE" ? "关闭" : "重开"}待审批`,
+          body:
+            `请求 ${change.id}：法人 ${change.legalEntityId}，期间 ${change.period}，` +
+            `动作 ${change.action}。请复核后批准或驳回。`,
+          sourceType: "ACCOUNTING_PERIOD_APPROVAL",
+          sourceId: change.id,
+          idempotencyKey: `accounting-period-approval:${change.id}:${approver.personId}`,
+        });
+      }
+    } catch (error) {
+      // 通知是 best-effort：目录缺失/回退为空都不能阻断期间变更请求。
+      console.error(
+        "[accounting-period] approver notification failed",
+        error,
+      );
+    }
+  }
+
+  async function notifyPeriodRequester(
+    request: FastifyRequest,
+    change: AccountingPeriodChangeRequest,
+    decision: "APPROVE" | "REJECT",
+    note?: string,
+  ): Promise<void> {
+    try {
+      const notify = createNotificationFor(request);
+      await notify({
+        recipientPersonId: change.requestedBy,
+        audience: "PERSON",
+        title:
+          decision === "APPROVE"
+            ? "会计期间变更已批准"
+            : "会计期间变更已驳回",
+        body:
+          `请求 ${change.id}（法人 ${change.legalEntityId}，期间 ${change.period}，` +
+          `动作 ${change.action}）${decision === "APPROVE" ? "已批准并执行" : "已被驳回"}。` +
+          (note ? `审批意见：${note}` : ""),
+        sourceType: "ACCOUNTING_PERIOD_APPROVAL_RESULT",
+        sourceId: change.id,
+        idempotencyKey: `accounting-period-decision:${change.id}`,
+      });
+    } catch (error) {
+      console.error(
+        "[accounting-period] requester notification failed",
+        error,
+      );
+    }
+  }
+
   // 迁移 111：财务子账路由（发票/收款/退款/冲销/FX 重估/子账回读）。
   app.register(registerFinancialSubledgerRoutes({ platformStore }));
   app.post("/api/v1/budget-pools/:id/discretionary-reviews", async (request, reply) => {
@@ -176,6 +261,45 @@ export function registerBudgetRoutes(deps: {
     );
   });
 
+  // 迁移 113：会计期间审批人目录。空目录（或全部失效）时回退到
+  // 租户内 admin/finance 角色人员，GET 用 source 字段说明当前来源。
+  app.get("/api/v1/accounting-period-approvers", async (request) => {
+    requireRoles(request, "manager", "finance", "admin");
+    return data(
+      await platformStore.listEffectiveAccountingPeriodApprovers(
+        tenantOf(request),
+      ),
+      request,
+    );
+  });
+
+  app.put("/api/v1/accounting-period-approvers", async (request) => {
+    requireRoles(request, "finance", "admin");
+    const body = parse(replaceAccountingPeriodApproversSchema, request.body);
+    const tenantId = tenantOf(request);
+    const actor = request.authContext?.personId;
+    const resolution = await platformStore.replaceAccountingPeriodApprovers({
+      tenantId,
+      personIds: body.personIds,
+      updatedBy: actor,
+    });
+    try {
+      await storeFor(request).recordAuditEvent?.({
+        actorType: "USER",
+        actorId: actor,
+        action: "ACCOUNTING_PERIOD_APPROVERS_REPLACED",
+        objectType: "ACCOUNTING_PERIOD_APPROVER_DIRECTORY",
+        objectId: tenantId,
+        reason: resolution.approvers
+          .map((approver) => approver.personId)
+          .join(","),
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    return data(resolution, request);
+  });
+
   app.post("/api/v1/accounting-periods/close", async (request, reply) => {
     requireRoles(request, "finance", "admin");
     const body = parse(closeAccountingPeriodSchema, request.body);
@@ -192,6 +316,7 @@ export function registerBudgetRoutes(deps: {
       requestedBy: actor,
       reason: body.reason,
     });
+    await notifyPeriodApprovers(request, change);
     return reply.status(202).send(data(change, request));
   });
 
@@ -212,6 +337,7 @@ export function registerBudgetRoutes(deps: {
       reason: body.reason,
       reopeningRef: body.reopeningRef,
     });
+    await notifyPeriodApprovers(request, change);
     return reply.status(202).send(data(change, request));
   });
 
@@ -256,6 +382,12 @@ export function registerBudgetRoutes(deps: {
         decision: body.decision,
         note: body.note,
       });
+      await notifyPeriodRequester(
+        request,
+        result.request,
+        body.decision,
+        body.note,
+      );
       try {
         await storeFor(request).recordAuditEvent?.({
           actorType: "USER",

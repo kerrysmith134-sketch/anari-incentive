@@ -836,13 +836,16 @@ describe("Financial subledger aging / tax / bad debt / GL (migration 112)", () =
     const writeOffData = (
       writeOff.json() as {
         data: FactBody & {
+          writeOffAmount: string;
           openAmountBefore: string;
           openAmountAfter: string;
         };
       }
     ).data;
     expect(writeOffData.documentType).toBe("BAD_DEBT_WRITE_OFF");
-    expect(writeOffData.amount).toBe("1000");
+    // 核销冲减 AR：事实金额为负，核销额本身为正数。
+    expect(writeOffData.amount).toBe("-1000");
+    expect(writeOffData.writeOffAmount).toBe("1000");
     expect(writeOffData.openAmountBefore).toBe("1000");
     expect(writeOffData.openAmountAfter).toBe("0");
     const writeOffJournal = (
@@ -873,6 +876,147 @@ describe("Financial subledger aging / tax / bad debt / GL (migration 112)", () =
     expect(
       (duplicate.json() as { error: { message: string } }).error.message,
     ).toMatch(/INVOICE_ALREADY_WRITTEN_OFF/);
+  });
+
+  it("supports partial bad-debt write-offs without exceeding the open amount", async () => {
+    const app = buildAppFor();
+    const period = "2026-11";
+    const asOf = "2026-11-25";
+    const invoice = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-PARTIAL-WO", "1000.00", "2026-11-15T00:00:00.000Z", {
+        accountingPeriod: period,
+        orderId: "SO-PARTIAL-WO",
+      }),
+    );
+    expect(invoice.statusCode).toBe(201);
+    const invoiceFact = envelope(invoice).data;
+
+    const rowsFor = async () =>
+      (await aging(app, LEGAL_ENTITY, asOf)).invoices.filter(
+        (row) => row.documentId === "INV-PARTIAL-WO",
+      )[0];
+
+    // 1) 部分核销 300：事实金额 -300，open 1000 → 700。
+    const partial = await post(app, "/api/v1/financial-bad-debt/write-off", {
+      invoiceFactId: invoiceFact.id,
+      amount: "300.00",
+      reason: "partial uncollectible",
+    });
+    expect(partial.statusCode).toBe(201);
+    const partialData = (
+      partial.json() as {
+        data: FactBody & {
+          writeOffAmount: string;
+          openAmountBefore: string;
+          openAmountAfter: string;
+        };
+      }
+    ).data;
+    expect(partialData.documentType).toBe("BAD_DEBT_WRITE_OFF");
+    expect(partialData.recognitionStatus).toBe("POSTED");
+    // 核销冲减 AR：事实金额为负，核销额正数落 payload / 响应。
+    expect(partialData.amount).toBe("-300");
+    expect(partialData.writeOffAmount).toBe("300");
+    expect(partialData.openAmountBefore).toBe("1000");
+    expect(partialData.openAmountAfter).toBe("700");
+    expect(partialData.functionalAmount).toBe("-300");
+
+    // GL 凭证金额 = 核销额（300），借 ALLOWANCE / 贷 AR，借贷平衡。
+    const partialJournal = (
+      await journalsFor(app, partialData.documentId ?? "")
+    )[0];
+    assertBalanced(partialJournal);
+    expect(partialJournal?.totalDebit).toBe("300");
+    expect(partialJournal?.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountCode: "ALLOWANCE", debit: "300", credit: "0" }),
+        expect.objectContaining({ accountCode: "AR", debit: "0", credit: "300" }),
+      ]),
+    );
+
+    let row = await rowsFor();
+    expect(row).toMatchObject({
+      writeOffs: "300",
+      openAmount: "700",
+      status: "OPEN",
+    });
+
+    // 2) 第二次核销 800 > open 700 → 409 WRITE_OFF_EXCEEDS_OPEN，open 不变。
+    const exceeds = await post(app, "/api/v1/financial-bad-debt/write-off", {
+      invoiceFactId: invoiceFact.id,
+      amount: "800",
+    });
+    expect(exceeds.statusCode).toBe(409);
+    expect(
+      (exceeds.json() as { error: { message: string } }).error.message,
+    ).toMatch(/WRITE_OFF_EXCEEDS_OPEN/);
+    row = await rowsFor();
+    expect(row).toMatchObject({ writeOffs: "300", openAmount: "700" });
+
+    // 3) 金额 0 / 负数 / 超过 6 位小数 → 400（契约层拒绝，不落事实）。
+    for (const invalid of ["0", "0.000000", "-5", "-0.000001", "1.0000001"]) {
+      const rejected = await post(
+        app,
+        "/api/v1/financial-bad-debt/write-off",
+        { invoiceFactId: invoiceFact.id, amount: invalid },
+      );
+      expect(rejected.statusCode).toBe(400);
+    }
+    row = await rowsFor();
+    expect(row).toMatchObject({ writeOffs: "300", openAmount: "700" });
+
+    // 4) 金额缺省 = 全额核销剩余 open 700；累计核销 1000，open 归零。
+    const remaining = await post(
+      app,
+      "/api/v1/financial-bad-debt/write-off",
+      { invoiceFactId: invoiceFact.id, reason: "confirmed uncollectible" },
+    );
+    expect(remaining.statusCode).toBe(201);
+    const remainingData = (
+      remaining.json() as {
+        data: FactBody & {
+          writeOffAmount: string;
+          openAmountBefore: string;
+          openAmountAfter: string;
+        };
+      }
+    ).data;
+    expect(remainingData.amount).toBe("-700");
+    expect(remainingData.writeOffAmount).toBe("700");
+    expect(remainingData.openAmountBefore).toBe("700");
+    expect(remainingData.openAmountAfter).toBe("0");
+    const remainingJournal = (
+      await journalsFor(app, remainingData.documentId ?? "")
+    )[0];
+    assertBalanced(remainingJournal);
+    expect(remainingJournal?.totalDebit).toBe("700");
+    expect(remainingJournal?.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountCode: "ALLOWANCE", debit: "700", credit: "0" }),
+        expect.objectContaining({ accountCode: "AR", debit: "0", credit: "700" }),
+      ]),
+    );
+
+    row = await rowsFor();
+    expect(row).toMatchObject({
+      writeOffs: "1000",
+      openAmount: "0",
+      status: "SETTLED",
+    });
+
+    // 5) 已核销完再核销（缺省或显式）→ 409，不会超过 open。
+    const closed = await post(app, "/api/v1/financial-bad-debt/write-off", {
+      invoiceFactId: invoiceFact.id,
+      amount: "1",
+    });
+    expect(closed.statusCode).toBe(409);
+    expect(
+      (closed.json() as { error: { message: string } }).error.message,
+    ).toMatch(/INVOICE_ALREADY_WRITTEN_OFF/);
+    row = await rowsFor();
+    expect(row).toMatchObject({ writeOffs: "1000", openAmount: "0" });
   });
 
   it("honours a body matrix override for provisioning", async () => {

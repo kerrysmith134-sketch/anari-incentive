@@ -1335,13 +1335,19 @@ export type FinancialBadDebtProvisionBody = z.infer<
 >;
 
 /**
- * POST /api/v1/financial-bad-debt/write-off：全额核销一张发票的剩余 open
- * amount；金额由服务端按账龄/收款/退款/已核销重算，客户端不得指定。
+ * POST /api/v1/financial-bad-debt/write-off：核销一张发票的剩余 open amount。
+ *
+ * - amount 缺省 → 全额核销当前 open amount（沿用旧行为）；
+ * - amount 指定 → 部分核销，必须 > 0（否则 400）且 <= 当前 open amount
+ *   （超限 → 409 WRITE_OFF_EXCEEDS_OPEN）；
+ * - 每次核销生成金额为 -amount 的 BAD_DEBT_WRITE_OFF 事实（冲减 AR，
+ *   符号约定与 REFUND / REVERSAL 一致），多次核销累计不得超过 open。
  */
 export const financialBadDebtWriteOffSchema = z.object({
   invoiceFactId: uuidSchema,
   legalEntityId: z.string().min(1).optional(),
   accountingPeriod: accountingPeriodSchema.optional(),
+  amount: positiveSubledgerDecimal.optional(),
   reason: z.string().min(1).max(512).optional(),
   sourceVersion: z.string().min(1).max(256).default("1"),
 });
@@ -1495,6 +1501,17 @@ export const reopenAccountingPeriodSchema = z.object({
 });
 export type ReopenAccountingPeriodBody = z.infer<
   typeof reopenAccountingPeriodSchema
+>;
+
+/**
+ * 迁移 113：全量替换会计期间审批人目录。
+ * 至少 1 人；服务端再校验每个人属于当前租户且 employmentStatus=ACTIVE。
+ */
+export const replaceAccountingPeriodApproversSchema = z.object({
+  personIds: z.array(uuidSchema).min(1).max(50),
+});
+export type ReplaceAccountingPeriodApproversBody = z.infer<
+  typeof replaceAccountingPeriodApproversSchema
 >;
 
 export const createRuleChangeOrderSchema = z.object({
@@ -3263,6 +3280,74 @@ export type ImportCommercialOpportunityBody = z.infer<
   typeof importCommercialOpportunitySchema
 >;
 
+/**
+ * 114：Ticketing Canonical Work Item 导入契约。
+ * 枚举与 @anari/domain 的 WORK_ITEM_* 对齐（contracts 不依赖 domain，
+ * 故在此显式重复字面量；domain 的单测覆盖同一取值集合）。
+ */
+export const workItemStatusSchema = z.enum([
+  "OPEN",
+  "IN_PROGRESS",
+  "BLOCKED",
+  "DONE",
+  "CANCELLED",
+]);
+export const workItemTypeSchema = z.enum([
+  "STORY",
+  "TASK",
+  "BUG",
+  "EPIC",
+  "OTHER",
+]);
+export const workItemPrioritySchema = z.enum([
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "URGENT",
+]);
+
+export const workItemEventInputSchema = z.object({
+  fromStatus: workItemStatusSchema.optional(),
+  toStatus: workItemStatusSchema,
+  occurredAt: z.string().datetime().optional(),
+  actorPersonId: uuidSchema.optional(),
+});
+
+export const workItemContributionInputSchema = z.object({
+  personId: uuidSchema,
+  role: z.string().min(1).max(64),
+  weight: decimal.optional(),
+  ratio: decimal.optional(),
+});
+
+export const importWorkItemSchema = z
+  .object({
+    sourceSystem: z.string().min(1).max(64),
+    externalId: z.string().min(1).max(256),
+    projectId: z.string().min(1).max(256),
+    title: z.string().min(1).max(512),
+    type: workItemTypeSchema,
+    priority: workItemPrioritySchema.optional(),
+    status: workItemStatusSchema,
+    assigneePersonId: uuidSchema.optional(),
+    reporterPersonId: uuidSchema.optional(),
+    startedAt: z.string().datetime().optional(),
+    dueAt: z.string().datetime().optional(),
+    completedAt: z.string().datetime().optional(),
+    weight: decimal.optional(),
+    currency: z.string().length(3).optional(),
+    amount: decimal.optional(),
+    payload: z.record(z.unknown()).optional(),
+    events: z.array(workItemEventInputSchema).max(500).optional(),
+    contributions: z.array(workItemContributionInputSchema).max(200).optional(),
+  })
+  // 有金额必须能说明币种（与 114 迁移的 CHECK 约束一致）。
+  .refine((body) => body.amount === undefined || body.currency !== undefined, {
+    message: "currency is required when amount is present",
+    path: ["currency"],
+  });
+export type ImportWorkItemBody = z.infer<typeof importWorkItemSchema>;
+
 export const requestSchemaRegistry = {
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,
@@ -3312,6 +3397,7 @@ export const requestSchemaRegistry = {
   ImportCommercialOpportunity: importCommercialOpportunitySchema,
   CloseAccountingPeriod: closeAccountingPeriodSchema,
   ReopenAccountingPeriod: reopenAccountingPeriodSchema,
+  ReplaceAccountingPeriodApprovers: replaceAccountingPeriodApproversSchema,
   CreatePayrollRun: createPayrollRunSchema,
   CreateRetentionPolicy: createRetentionPolicySchema,
   CreateSettlementBatch: createSettlementBatchSchema,
@@ -3322,6 +3408,7 @@ export const requestSchemaRegistry = {
   RecordWorkforceSubgroupAttribute: recordWorkforceSubgroupAttributeSchema,
   ResolveAppeal: resolveAppealSchema,
   UpdateFieldAccessPolicies: updateFieldAccessPoliciesSchema,
+  ImportWorkItem: importWorkItemSchema,
 } as const;
 
 /**

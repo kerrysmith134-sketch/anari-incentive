@@ -9,6 +9,8 @@
  */
 import type {
   AccountingPeriod,
+  AccountingPeriodApprover,
+  AccountingPeriodApproverResolution,
   AccountingPeriodChangeRequest,
   CommercialOrder,
   Contract,
@@ -117,6 +119,12 @@ import type {
   TrustSurveyRun,
   WebhookInboxMessage,
   WorkflowRun,
+  WorkItem,
+  WorkItemContribution,
+  WorkItemEvent,
+  WorkItemFilter,
+  WorkItemImportInput,
+  WorkItemImportResult,
 } from "@anari/domain";
 
 /** 审批域端口：审批请求/决策/消费。 */
@@ -491,6 +499,19 @@ export interface BudgetPort {
     reopeningRef: string;
     reason: string;
   }): Promise<AccountingPeriod>;
+  // 迁移 113：会计期间审批人目录（显式目录优先，空目录回退角色）。
+  listAccountingPeriodApprovers(
+    tenantId: string,
+  ): Promise<AccountingPeriodApprover[]>;
+  replaceAccountingPeriodApprovers(input: {
+    tenantId: string;
+    personIds: string[];
+    updatedBy?: string;
+  }): Promise<AccountingPeriodApproverResolution>;
+  /** 创建期间变更请求时用于决定通知对象；目录为空/失效时回退角色。 */
+  listEffectiveAccountingPeriodApprovers(
+    tenantId: string,
+  ): Promise<AccountingPeriodApproverResolution>;
 }
 
 /** Commercial 域端口（Sprint 3）：Account→Opportunity→Quote→Contract→Order。 */
@@ -2068,4 +2089,25 @@ export interface TenantPort {
     personId: string;
     managerPersonId: string | null;
   }): Promise<PlatformPerson>;
+}
+
+/**
+ * Ticketing 工作项端口（114）：投递（PingCode/通用 Ticketing）→ 规范工作项。
+ *
+ * - 导入按 (tenant, source, externalId) 幂等；状态变化才追加 append-only 事件；
+ * - 贡献是多人分摊（person + role），重复导入更新而不是新增；
+ * - 读取按项目过滤，personId 匹配负责人或任一贡献人（贡献归集视图）；
+ * - 导入缺省的可选字段表示“本次来源未提供”，保留既有值而不是清空。
+ */
+export interface WorkItemPort {
+  importWorkItem(input: WorkItemImportInput): Promise<WorkItemImportResult>;
+  listWorkItems(tenantId: string, filter?: WorkItemFilter): Promise<WorkItem[]>;
+  getWorkItem(
+    tenantId: string,
+    workItemId: string,
+  ): Promise<{
+    workItem: WorkItem;
+    events: WorkItemEvent[];
+    contributions: WorkItemContribution[];
+  }>;
 }

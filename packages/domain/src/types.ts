@@ -974,6 +974,32 @@ export interface AccountingPeriodChangeRequest {
   updatedAt: string;
 }
 
+/**
+ * 会计期间审批人目录（迁移 113）。
+ *
+ * 目录按租户维护；PUT 全量替换时被移除的人保留行并置 active=false，
+ * 便于审计追溯历史审批人。目录为空（或全部失效）时，服务层回退到
+ * 租户内 admin/finance 角色人员，不阻断期间变更请求。
+ */
+export interface AccountingPeriodApprover {
+  tenantId: UUID;
+  personId: UUID;
+  active: boolean;
+  createdAt: string;
+  /** 读时从人员目录补齐的展示名，不落库。 */
+  displayName?: string;
+}
+
+export type AccountingPeriodApproverSource =
+  | "DIRECTORY"
+  | "ROLE_FALLBACK";
+
+/** 有效审批人解析结果：显式目录优先，否则回退到角色人员。 */
+export interface AccountingPeriodApproverResolution {
+  approvers: AccountingPeriodApprover[];
+  source: AccountingPeriodApproverSource;
+}
+
 export interface FinancialFact {
   id: UUID;
   tenantId: UUID;
@@ -2901,3 +2927,9 @@ export interface AgentTodoFilter {
   status?: AgentTodo["status"];
   sourceType?: string;
 }
+
+/**
+ * Ticketing Canonical Work Item（114 迁移）：经 types.ts 聚合导出到 @anari/domain。
+ * 独立模块保证规范模型 + 纯解析函数不散落在适配层。
+ */
+export * from "./work-item.js";

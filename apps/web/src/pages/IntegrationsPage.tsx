@@ -1,20 +1,15 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import {
   Badge,
   Button,
   DefinitionList,
   EmptyState,
   ErrorNotice,
-  FormField,
   InfoNotice,
   LoadingRows,
-  Modal,
   PageHeader,
   Panel,
-  Select,
   Tabs,
-  TextInput,
-  Textarea,
 } from "../components/ui.js";
 import { IntegrationWizard } from "../components/integration-wizard.js";
 import { useAuth } from "../contexts/AuthContext.js";
@@ -37,7 +32,7 @@ import type {
 } from "../lib/types.js";
 import type { ExternalIdentityView } from "../lib/ops-types.js";
 
-import { MappingsSection } from "../components/integrations/MappingsSection.js";
+import { MappingStudio } from "../components/integrations/MappingStudio.js";
 import { SchedulesSection } from "../components/integrations/SchedulesSection.js";
 import { RunsSection } from "../components/integrations/RunsSection.js";
 import { IdentitiesSection } from "../components/integrations/IdentitiesSection.js";
@@ -344,7 +339,8 @@ export function IntegrationsPage() {
                 ) : null}
                 <div className="tab-panel">
                   {detailTab === "mappings" ? (
-                    <MappingsSection
+                    <MappingStudio
+                      key={selected.id}
                       connection={selected}
                       mappings={mappings.data ?? []}
                       loading={mappings.loading}
@@ -355,6 +351,14 @@ export function IntegrationsPage() {
                       }
                       presets={presets.data ?? []}
                       reload={mappings.reload}
+                      runs={syncRuns.data ?? []}
+                      runsLoading={syncRuns.loading}
+                      runsError={
+                        syncRuns.error instanceof Error
+                          ? syncRuns.error
+                          : undefined
+                      }
+                      reloadRuns={syncRuns.reload}
                     />
                   ) : null}
                   {detailTab === "schedules" ? (

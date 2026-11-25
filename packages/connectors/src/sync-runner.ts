@@ -16,6 +16,7 @@ import {
 import { readFileSync } from "node:fs";
 import { HttpJsonConnector } from "./http-json.js";
 import { canonicalize, sha256Stable, type CanonicalBusinessEvent } from "./canonical.js";
+import { parseWorkItemImportPayload } from "@anari/domain";
 
 export type SyncRequestFn = <T>(
   path: string,
@@ -171,6 +172,7 @@ export function routeTarget(targetType: string | undefined): {
     | "COMMERCIAL_QUOTE"
     | "COMMERCIAL_CONTRACT"
     | "COMMERCIAL_ORDER"
+    | "WORK_ITEM"
     | "QUARANTINE";
   reason?: string;
 } {
@@ -190,6 +192,9 @@ export function routeTarget(targetType: string | undefined): {
   }
   if (targetType === "COMMERCIAL_ORDER") {
     return { route: "COMMERCIAL_ORDER" };
+  }
+  if (targetType === "WORK_ITEM") {
+    return { route: "WORK_ITEM" };
   }
   return {
     route: "QUARANTINE",
@@ -1026,6 +1031,47 @@ export async function runSyncCycle(deps: {
                     lines,
                   }),
                 });
+                if (result.created) counters.recordsCreated += 1;
+                else counters.recordsUpdated += 1;
+                counters.recordsUpserted += 1;
+                continue;
+              }
+              if (routing.route === "WORK_ITEM") {
+                // 114：Ticketing → 规范工作项。字段缺失/非法枚举 → 隔离，
+                // 不把半截工单写进工作项表（缺字段隔离，可追溯重放）。
+                const payload = (event.payload ?? {}) as Record<string, unknown>;
+                const parsed = parseWorkItemImportPayload({
+                  ...payload,
+                  sourceSystem: mapping.sourceSystem,
+                  externalId:
+                    payload.externalId ??
+                    event.sourceRecordId ??
+                    canonical.externalObjectId,
+                });
+                if (!parsed.ok) {
+                  counters.recordsInvalid += 1;
+                  counters.recordsQuarantined += 1;
+                  await recordQuarantine(request, {
+                    sourceSystem: mapping.sourceSystem,
+                    externalRecordId,
+                    reason: "SCHEMA_MISMATCH",
+                    payload: {
+                      raw: payload,
+                      detail: parsed.errors.join("; "),
+                    },
+                  });
+                  continue;
+                }
+                const result = await request<{ created: boolean }>(
+                  "/api/v1/work-items/import",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      ...parsed.value,
+                      sourceSystem: mapping.sourceSystem,
+                    }),
+                  },
+                );
                 if (result.created) counters.recordsCreated += 1;
                 else counters.recordsUpdated += 1;
                 counters.recordsUpserted += 1;

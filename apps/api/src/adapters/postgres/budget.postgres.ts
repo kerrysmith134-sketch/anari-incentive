@@ -52,6 +52,8 @@ import type {
   GlJournal,
   GlJournalLine,
   AccountingPeriod,
+  AccountingPeriodApprover,
+  AccountingPeriodApproverResolution,
   AccountingPeriodChangeRequest,
   CalibrationSession,
   ManagerTrainingRecord,
@@ -1251,6 +1253,127 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         );
       }
       return this.mapAccountingPeriod(rows[0]);
+    }
+
+    // ------------------------------------------------------------------
+    // 迁移 113：会计期间审批人目录（显式目录优先，空目录回退角色）。
+    // ------------------------------------------------------------------
+    async listAccountingPeriodApprovers(
+      tenantId: string,
+    ): Promise<AccountingPeriodApprover[]> {
+      await this.assertTenant(tenantId);
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT a.tenant_id, a.person_id, a.active, a.created_at,
+                p.display_name
+           FROM accounting_period_approvers a
+           LEFT JOIN people p
+             ON p.tenant_id = a.tenant_id AND p.id = a.person_id
+          WHERE a.tenant_id = $1
+          ORDER BY a.active DESC, a.created_at ASC, a.person_id ASC`,
+        [tenantId],
+      );
+      return rows.map((row: QueryResultRow) => ({
+        tenantId: row.tenant_id,
+        personId: row.person_id,
+        active: row.active,
+        createdAt: iso(row.created_at) ?? new Date().toISOString(),
+        displayName: row.display_name ?? undefined,
+      }));
+    }
+
+    async replaceAccountingPeriodApprovers(input: {
+      tenantId: string;
+      personIds: string[];
+      updatedBy?: string;
+    }): Promise<AccountingPeriodApproverResolution> {
+      await this.assertTenant(input.tenantId);
+      const personIds = [...new Set(input.personIds)];
+      if (personIds.length === 0) {
+        throw new ConflictError("APPROVER_REQUIRED");
+      }
+      const personById = new Map(
+        (await this.listPersons(input.tenantId)).map((person) => [
+          person.id,
+          person,
+        ]),
+      );
+      for (const personId of personIds) {
+        const person = personById.get(personId);
+        if (!person) {
+          throw new ConflictError(`APPROVER_NOT_IN_TENANT: ${personId}`);
+        }
+        if (person.employmentStatus !== "ACTIVE") {
+          throw new ConflictError(`APPROVER_INACTIVE: ${personId}`);
+        }
+      }
+
+      await this.transactionFor(input.tenantId, async (client) => {
+        for (const personId of personIds) {
+          await client.query(
+            `INSERT INTO accounting_period_approvers
+               (tenant_id, person_id, active)
+             VALUES ($1, $2, true)
+             ON CONFLICT (tenant_id, person_id)
+             DO UPDATE SET active = true`,
+            [input.tenantId, personId],
+          );
+        }
+        // 全量替换：未选中的人保留行（审计历史）但置为 inactive。
+        await client.query(
+          `UPDATE accounting_period_approvers
+              SET active = (person_id = ANY($2::uuid[]))
+            WHERE tenant_id = $1
+              AND active IS DISTINCT FROM (person_id = ANY($2::uuid[]))`,
+          [input.tenantId, personIds],
+        );
+      });
+      return this.listEffectiveAccountingPeriodApprovers(input.tenantId);
+    }
+
+    async listEffectiveAccountingPeriodApprovers(
+      tenantId: string,
+    ): Promise<AccountingPeriodApproverResolution> {
+      const directory = (
+        await this.listAccountingPeriodApprovers(tenantId)
+      ).filter((row) => row.active);
+      const persons = await this.listPersons(tenantId);
+      const personById = new Map(persons.map((person) => [person.id, person]));
+      const activeDirectory = directory.filter(
+        (row) => personById.get(row.personId)?.employmentStatus === "ACTIVE",
+      );
+      if (activeDirectory.length > 0) {
+        return { approvers: activeDirectory, source: "DIRECTORY" };
+      }
+
+      // 回退：租户内持有 admin/finance 角色的人员（按成员角色字段）。
+      const memberships = await this.listMemberships(tenantId);
+      const privilegedUserIds = new Set(
+        memberships
+          .filter(
+            (membership) =>
+              membership.status === "ACTIVE" &&
+              membership.roleCodes.some(
+                (role) => role === "admin" || role === "finance",
+              ),
+          )
+          .map((membership) => membership.userId),
+      );
+      const fallback = persons
+        .filter(
+          (person) =>
+            person.employmentStatus === "ACTIVE" &&
+            person.userId !== undefined &&
+            privilegedUserIds.has(person.userId),
+        )
+        .map((person) => ({
+          tenantId,
+          personId: person.id,
+          active: true,
+          createdAt: person.createdAt,
+          displayName: person.displayName,
+        }));
+      return { approvers: fallback, source: "ROLE_FALLBACK" };
     }
 
     // ------------------------------------------------------------------
