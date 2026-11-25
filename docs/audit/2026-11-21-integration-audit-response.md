@@ -150,7 +150,7 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：148 files passed / 2 skipped；1643 tests passed / 111 skipped。
+- `npm test`：148 files passed / 2 skipped；1649 tests passed / 111 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
 - `npm run test:pg-upgrade`：89 → 115 migrations，110 tests passed。

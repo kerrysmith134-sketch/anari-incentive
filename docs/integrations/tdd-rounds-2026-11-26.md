@@ -1,6 +1,6 @@
 # Local Provider TDD Rounds（2026-11-26）
 
-执行 31 个 TDD 场景，覆盖：
+执行 37 个 TDD 场景，覆盖：
 
 - Commercial：账户/报价/订单派生父链、缺 customer_name 回退、缺 quotation 跳过、行金额不一致跳过、确定性 ID。
 - Ticketing：默认项目桶、closed+resolved→DONE、closed 无 resolved→CANCELLED、未知 type 跳过、非 UUID assignee 省略。
@@ -13,4 +13,4 @@
 
 红→绿修复：`firstText` 返回 `""` 时 `??` 不回退，导致报价/订单缺 `customer_name` 被误判为空而整条丢弃；改为 `||` 回退到 `Customer <id>`。
 
-结果：31/31 通过；连续 5 轮重复运行均通过；全量 `npm test` 1643 passed / 111 skipped。
+结果：37/37 通过；连续 5 轮重复运行均通过；全量 `npm test` 1649 passed / 111 skipped。
