@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-25T11:21:03.303Z",
+  "generatedAt": "2026-11-25T18:01:02.701Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -555,6 +555,11 @@
       "file": "111_financial_subledger.sql",
       "bytes": 4071,
       "sha256": "3d00af91221cca461958eec64aa097f21b9c7c945a6041417b7b20bc2ea82b6c"
+    },
+    {
+      "file": "112_subledger_aging_tax_gl.sql",
+      "bytes": 7249,
+      "sha256": "560450196acb982861f7b66232de8ad6bb05a05b4af10d40046abd82daf74d34"
     }
   ]
 }

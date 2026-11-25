@@ -48,6 +48,9 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  GlAccount,
+  GlJournal,
+  GlJournalLine,
   AccountingPeriod,
   AccountingPeriodChangeRequest,
   CalibrationSession,
@@ -107,7 +110,11 @@ import type {
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
-import { adverseActionTransitions, assertTransition } from "@anari/domain";
+import {
+  adverseActionTransitions,
+  assertTransition,
+  GL_ACCOUNT_SEED,
+} from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
 import type { PlatformStore } from "../../platform-store.js";
 import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
@@ -116,6 +123,164 @@ import type { MemoryPlatformStoreBase, MemoryPlatformStoreBaseShape } from "./ba
 
 export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParameters<typeof MemoryPlatformStoreBase>) => MemoryPlatformStoreBaseShape) {
   return class extends Base implements BudgetPort {
+    /** 迁移 112：复式记账内存账本（按租户隔离）。 */
+    private readonly glAccounts = new Map<string, GlAccount[]>();
+    private readonly glJournals = new Map<string, GlJournal>();
+
+    private ensureGlAccounts(tenantId: string): GlAccount[] {
+      let accounts = this.glAccounts.get(tenantId);
+      if (!accounts) {
+        const createdAt = now();
+        accounts = GL_ACCOUNT_SEED.map((seed) => ({
+          id: randomUUID(),
+          tenantId,
+          code: seed.code,
+          name: seed.name,
+          accountType: seed.accountType,
+          normalBalance: seed.normalBalance,
+          createdAt,
+        }));
+        this.glAccounts.set(tenantId, accounts);
+      }
+      return accounts;
+    }
+
+    async createJournalEntry(input: {
+      tenantId: string;
+      journalNo?: string;
+      documentType: GlJournal["documentType"];
+      documentId: string;
+      legalEntityId: string;
+      accountingPeriod: string;
+      currency: string;
+      description?: string;
+      sourceFactId?: string;
+      lines: Array<{ accountCode: string; debit?: string; credit?: string }>;
+    }): Promise<GlJournal> {
+      if (!this.tenants.has(input.tenantId)) {
+        notFound("Tenant", input.tenantId);
+      }
+      const accounts = this.ensureGlAccounts(input.tenantId);
+      const known = new Set(accounts.map((account) => account.code));
+      const currency = input.currency.trim();
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw new ConflictError(`INVALID_JOURNAL_CURRENCY: ${input.currency}`);
+      }
+      if (input.lines.length < 2) {
+        throw new ConflictError(
+          "JOURNAL_LINES_REQUIRED: a journal must have at least two lines",
+        );
+      }
+      let totalDebit = 0n;
+      let totalCredit = 0n;
+      const normalized = input.lines.map((line, index) => {
+        if (!known.has(line.accountCode)) {
+          throw new ConflictError(
+            `UNKNOWN_GL_ACCOUNT: ${line.accountCode}`,
+          );
+        }
+        const debit = line.debit === undefined ? 0n : parseDecimal(line.debit);
+        const credit =
+          line.credit === undefined ? 0n : parseDecimal(line.credit);
+        if (debit < 0n || credit < 0n) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_AMOUNT: line ${index + 1} has a negative amount`,
+          );
+        }
+        if ((debit > 0n) === (credit > 0n)) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_LINE: line ${index + 1} must have exactly one of debit/credit greater than zero`,
+          );
+        }
+        totalDebit += debit;
+        totalCredit += credit;
+        return {
+          accountCode: line.accountCode,
+          debit: formatDecimal(debit),
+          credit: formatDecimal(credit),
+        };
+      });
+      if (totalDebit !== totalCredit || totalDebit === 0n) {
+        throw new ConflictError(
+          `JOURNAL_NOT_BALANCED: debits ${formatDecimal(totalDebit)} != credits ${formatDecimal(totalCredit)}`,
+        );
+      }
+      // 幂等：同一业务文档只有一张凭证（重复调用返回既有凭证）。
+      const duplicate = [...this.glJournals.values()].find(
+        (journal) =>
+          journal.tenantId === input.tenantId &&
+          journal.documentType === input.documentType &&
+          journal.documentId === input.documentId,
+      );
+      if (duplicate) return duplicate;
+      const createdAt = now();
+      const journalId = randomUUID();
+      const lines: GlJournalLine[] = normalized.map((line, index) => ({
+        id: randomUUID(),
+        tenantId: input.tenantId,
+        journalId,
+        lineNo: index + 1,
+        accountCode: line.accountCode,
+        debit: line.debit,
+        credit: line.credit,
+        currency,
+        createdAt,
+      }));
+      const journal: GlJournal = {
+        id: journalId,
+        tenantId: input.tenantId,
+        journalNo:
+          input.journalNo ??
+          `JE-${input.documentType}-${input.documentId}`,
+        documentType: input.documentType,
+        documentId: input.documentId,
+        legalEntityId: input.legalEntityId,
+        accountingPeriod: input.accountingPeriod,
+        currency,
+        description: input.description,
+        sourceFactId: input.sourceFactId,
+        totalDebit: formatDecimal(totalDebit),
+        totalCredit: formatDecimal(totalCredit),
+        lines,
+        createdAt,
+      };
+      this.glJournals.set(journal.id, journal);
+      return journal;
+    }
+
+    async listJournals(
+      tenantId: string,
+      filter?: {
+        documentId?: string;
+        documentType?: GlJournal["documentType"];
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        limit?: number;
+      },
+    ): Promise<GlJournal[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      const limit = filter?.limit ?? 200;
+      return [...this.glJournals.values()]
+        .filter(
+          (journal) =>
+            journal.tenantId === tenantId &&
+            (!filter?.documentId ||
+              journal.documentId === filter.documentId) &&
+            (!filter?.documentType ||
+              journal.documentType === filter.documentType) &&
+            (!filter?.legalEntityId ||
+              journal.legalEntityId === filter.legalEntityId) &&
+            (!filter?.accountingPeriod ||
+              journal.accountingPeriod === filter.accountingPeriod),
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .slice(0, limit);
+    }
+
+    async listGlAccounts(tenantId: string): Promise<GlAccount[]> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      return this.ensureGlAccounts(tenantId);
+    }
     
     async createDiscretionaryPoolReview(input: {
       tenantId: string;
@@ -442,6 +607,8 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       fxRate?: string;
       functionalCurrency?: string;
       functionalAmount?: string;
+      taxRate?: string;
+      taxAmount?: string;
     }): Promise<FinancialFact> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
       const recognitionStatus = input.recognitionStatus ?? "DRAFT";
@@ -506,6 +673,39 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
             `FUNCTIONAL_AMOUNT_INCONSISTENT: same-currency fact must have functionalAmount equal to amount (${input.amount}), got ${input.functionalAmount}`,
           );
         }
+      }
+      // 迁移 112：税额。taxAmount = amount × taxRate / 100，1e6 定点、
+      // HALF_UP；客户端传入的 taxAmount 必须与服务端重算一致（否则 409）。
+      const taxRate =
+        input.taxRate === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(input.taxRate));
+      let taxAmount =
+        input.taxAmount === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(input.taxAmount));
+      if (taxRate !== undefined) {
+        const rate = parseDecimal(taxRate);
+        if (rate < 0n || rate > 100_000_000n) {
+          throw new ConflictError(`INVALID_TAX_RATE: ${input.taxRate}`);
+        }
+        const expectedTax = formatDecimal(
+          divRound(
+            parseDecimal(input.amount) * rate,
+            100_000_000n,
+            "HALF_UP",
+          ),
+        );
+        if (taxAmount === undefined) {
+          taxAmount = expectedTax;
+        } else if (taxAmount !== expectedTax) {
+          throw new ConflictError(
+            `TAX_AMOUNT_INCONSISTENT: expected ${expectedTax} for amount ${input.amount} at taxRate ${taxRate}%, got ${input.taxAmount}`,
+          );
+        }
+      }
+      if (taxAmount !== undefined && parseDecimal(taxAmount) < 0n) {
+        throw new ConflictError(`INVALID_TAX_AMOUNT: ${taxAmount}`);
       }
       if (recognitionStatus === "POSTED") {
         if (!input.legalEntityId || !input.accountingPeriod) {
@@ -641,6 +841,8 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           fxRate: existing.fxRate,
           functionalCurrency: existing.functionalCurrency,
           functionalAmount: existing.functionalAmount,
+          taxRate: existing.taxRate,
+          taxAmount: existing.taxAmount,
         };
         revisions.push(revisionEntry);
         this.financialFactRevisions.set(existing.id, revisions);
@@ -688,6 +890,12 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       fact.functionalAmount = input.functionalAmount === undefined
         ? undefined
         : formatDecimal(parseDecimal(input.functionalAmount));
+      fact.taxRate = taxRate;
+      fact.taxAmount = taxAmount;
+      fact.totalAmount =
+        taxAmount === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(fact.amount) + parseDecimal(taxAmount));
       this.financialFacts.set(key, fact);
       return fact;
     }

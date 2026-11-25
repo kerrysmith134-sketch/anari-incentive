@@ -48,6 +48,9 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  GlAccount,
+  GlJournal,
+  GlJournalLine,
   AccountingPeriod,
   AccountingPeriodChangeRequest,
   CalibrationSession,
@@ -107,7 +110,11 @@ import type {
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
-import { adverseActionTransitions, assertTransition } from "@anari/domain";
+import {
+  adverseActionTransitions,
+  assertTransition,
+  GL_ACCOUNT_SEED,
+} from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
 import type { PlatformStore } from "../../platform-store.js";
 import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
@@ -503,6 +510,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       fxRate?: string;
       functionalCurrency?: string;
       functionalAmount?: string;
+      taxRate?: string;
+      taxAmount?: string;
     }): Promise<FinancialFact> {
       const recognitionStatus = input.recognitionStatus ?? "DRAFT";
       if (
@@ -564,6 +573,35 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
             `FUNCTIONAL_AMOUNT_INCONSISTENT: same-currency fact must have functionalAmount equal to amount (${input.amount}), got ${input.functionalAmount}`,
           );
         }
+      }
+      // 迁移 112：税额。taxAmount = amount × taxRate / 100，1e6 定点、
+      // HALF_UP；客户端传入的 taxAmount 必须与服务端重算一致（否则 409）。
+      const taxRate =
+        input.taxRate === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(input.taxRate));
+      let taxAmount =
+        input.taxAmount === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(input.taxAmount));
+      if (taxRate !== undefined) {
+        const rate = parseDecimal(taxRate);
+        if (rate < 0n || rate > 100_000_000n) {
+          throw new ConflictError(`INVALID_TAX_RATE: ${input.taxRate}`);
+        }
+        const expectedTax = formatDecimal(
+          divRound(parseDecimal(input.amount) * rate, 100_000_000n, "HALF_UP"),
+        );
+        if (taxAmount === undefined) {
+          taxAmount = expectedTax;
+        } else if (taxAmount !== expectedTax) {
+          throw new ConflictError(
+            `TAX_AMOUNT_INCONSISTENT: expected ${expectedTax} for amount ${input.amount} at taxRate ${taxRate}%, got ${input.taxAmount}`,
+          );
+        }
+      }
+      if (taxAmount !== undefined && parseDecimal(taxAmount) < 0n) {
+        throw new ConflictError(`INVALID_TAX_AMOUNT: ${taxAmount}`);
       }
       try {
         return await this.transactionFor(input.tenantId, async (client) => {
@@ -701,10 +739,11 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                   recognition_status, accounting_period, fx_snapshot,
                   source_version, reversal_of, reopening_ref,
                   document_type, document_id, related_fact_id,
-                  fx_rate, functional_currency, functional_amount)
+                  fx_rate, functional_currency, functional_amount,
+                  tax_rate, tax_amount)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
                        $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20,
-                       $21, $22, $23, $24, $25, $26)`,
+                       $21, $22, $23, $24, $25, $26, $27, $28)`,
               [
                 input.tenantId,
                 existing.id,
@@ -732,6 +771,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                 existing.fx_rate ?? null,
                 existing.functional_currency ?? null,
                 existing.functional_amount ?? null,
+                existing.tax_rate ?? null,
+                existing.tax_amount ?? null,
               ],
             );
           }
@@ -744,10 +785,11 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                recognition_status, accounting_period, fx_snapshot,
                source_version, reversal_of, reopening_ref,
                document_type, document_id, related_fact_id,
-               fx_rate, functional_currency, functional_amount)
+               fx_rate, functional_currency, functional_amount,
+               tax_rate, tax_amount)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
                     $13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$22,
-                    $23,$24,$25,$26,$27,$28)
+                    $23,$24,$25,$26,$27,$28,$29,$30)
             ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
             DO UPDATE SET period_start=EXCLUDED.period_start,
                           period_end=EXCLUDED.period_end,
@@ -772,7 +814,9 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                           related_fact_id=EXCLUDED.related_fact_id,
                           fx_rate=EXCLUDED.fx_rate,
                           functional_currency=EXCLUDED.functional_currency,
-                          functional_amount=EXCLUDED.functional_amount
+                          functional_amount=EXCLUDED.functional_amount,
+                          tax_rate=EXCLUDED.tax_rate,
+                          tax_amount=EXCLUDED.tax_amount
             RETURNING *`,
             [
               existing?.id ?? randomUUID(),
@@ -803,6 +847,8 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
               input.fxRate ?? null,
               input.functionalCurrency?.trim() ?? null,
               input.functionalAmount ?? null,
+              taxRate ?? null,
+              taxAmount ?? null,
             ],
           );
           return this.mapSubledgerFact(rows[0]);
@@ -1207,6 +1253,290 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       return this.mapAccountingPeriod(rows[0]);
     }
 
+    // ------------------------------------------------------------------
+    // 迁移 112：复式记账（gl_accounts / gl_journals / gl_journal_lines）。
+    // ------------------------------------------------------------------
+    private async ensureGlAccounts(
+      client: PoolClient,
+      tenantId: string,
+    ): Promise<void> {
+      for (const seed of GL_ACCOUNT_SEED) {
+        await client.query(
+          `INSERT INTO gl_accounts
+             (tenant_id, code, name, account_type, normal_balance)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
+          [tenantId, seed.code, seed.name, seed.accountType, seed.normalBalance],
+        );
+      }
+    }
+
+    private mapGlJournal(row: QueryResultRow): GlJournal {
+      return {
+        id: row.id,
+        tenantId: row.tenant_id,
+        journalNo: row.journal_no,
+        documentType: row.document_type,
+        documentId: row.document_id,
+        legalEntityId: row.legal_entity_id,
+        accountingPeriod: row.accounting_period,
+        currency: String(row.currency).trim(),
+        description: row.description ?? undefined,
+        sourceFactId: row.source_fact_id ?? undefined,
+        totalDebit: decimalText(String(row.total_debit)) ?? "0",
+        totalCredit: decimalText(String(row.total_credit)) ?? "0",
+        lines: [],
+        createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      };
+    }
+
+    private mapGlJournalLine(row: QueryResultRow): GlJournalLine {
+      return {
+        id: row.id,
+        tenantId: row.tenant_id,
+        journalId: row.journal_id,
+        lineNo: Number(row.line_no),
+        accountCode: row.account_code,
+        debit: decimalText(String(row.debit)) ?? "0",
+        credit: decimalText(String(row.credit)) ?? "0",
+        currency: String(row.currency).trim(),
+        createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      };
+    }
+
+    private async loadJournal(
+      client: PoolClient,
+      row: QueryResultRow,
+    ): Promise<GlJournal> {
+      const journal = this.mapGlJournal(row);
+      const { rows: lines } = await client.query(
+        `SELECT * FROM gl_journal_lines
+          WHERE tenant_id=$1 AND journal_id=$2
+          ORDER BY line_no ASC`,
+        [journal.tenantId, journal.id],
+      );
+      journal.lines = lines.map((line: QueryResultRow) =>
+        this.mapGlJournalLine(line),
+      );
+      return journal;
+    }
+
+    async createJournalEntry(input: {
+      tenantId: string;
+      journalNo?: string;
+      documentType: GlJournal["documentType"];
+      documentId: string;
+      legalEntityId: string;
+      accountingPeriod: string;
+      currency: string;
+      description?: string;
+      sourceFactId?: string;
+      lines: Array<{ accountCode: string; debit?: string; credit?: string }>;
+    }): Promise<GlJournal> {
+      const currency = input.currency.trim();
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw new ConflictError(`INVALID_JOURNAL_CURRENCY: ${input.currency}`);
+      }
+      if (input.lines.length < 2) {
+        throw new ConflictError(
+          "JOURNAL_LINES_REQUIRED: a journal must have at least two lines",
+        );
+      }
+      let totalDebit = 0n;
+      let totalCredit = 0n;
+      const normalized: Array<{
+        accountCode: string;
+        debit: string;
+        credit: string;
+      }> = [];
+      for (const [index, line] of input.lines.entries()) {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(line.accountCode)) {
+          throw new ConflictError(
+            `INVALID_GL_ACCOUNT: ${line.accountCode}`,
+          );
+        }
+        const debit = line.debit === undefined ? 0n : parseDecimal(line.debit);
+        const credit =
+          line.credit === undefined ? 0n : parseDecimal(line.credit);
+        if (debit < 0n || credit < 0n) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_AMOUNT: line ${index + 1} has a negative amount`,
+          );
+        }
+        if ((debit > 0n) === (credit > 0n)) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_LINE: line ${index + 1} must have exactly one of debit/credit greater than zero`,
+          );
+        }
+        totalDebit += debit;
+        totalCredit += credit;
+        normalized.push({
+          accountCode: line.accountCode,
+          debit: formatDecimal(debit),
+          credit: formatDecimal(credit),
+        });
+      }
+      if (totalDebit !== totalCredit || totalDebit === 0n) {
+        throw new ConflictError(
+          `JOURNAL_NOT_BALANCED: debits ${formatDecimal(totalDebit)} != credits ${formatDecimal(totalCredit)}`,
+        );
+      }
+      try {
+        return await this.transactionFor(input.tenantId, async (client) => {
+        await this.ensureGlAccounts(client, input.tenantId);
+        const journalNo =
+          input.journalNo ??
+          `JE-${input.documentType}-${input.documentId}`;
+        const { rows } = await client.query(
+          `INSERT INTO gl_journals
+             (tenant_id, journal_no, document_type, document_id,
+              legal_entity_id, accounting_period, currency, description,
+              source_fact_id, total_debit, total_credit)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (tenant_id, document_type, document_id) DO NOTHING
+           RETURNING *`,
+          [
+            input.tenantId,
+            journalNo,
+            input.documentType,
+            input.documentId,
+            input.legalEntityId,
+            input.accountingPeriod,
+            currency,
+            input.description ?? null,
+            input.sourceFactId ?? null,
+            formatDecimal(totalDebit),
+            formatDecimal(totalCredit),
+          ],
+        );
+        if (!rows[0]) {
+          // 幂等：同一业务文档已生成凭证，返回既有凭证。
+          const { rows: existing } = await client.query(
+            `SELECT * FROM gl_journals
+              WHERE tenant_id=$1 AND document_type=$2 AND document_id=$3`,
+            [input.tenantId, input.documentType, input.documentId],
+          );
+          if (!existing[0]) {
+            throw new ConflictError(
+              `JOURNAL_CONFLICT: ${input.documentType}/${input.documentId}`,
+            );
+          }
+          return this.loadJournal(client, existing[0]);
+        }
+        for (const [index, line] of normalized.entries()) {
+          await client.query(
+            `INSERT INTO gl_journal_lines
+               (tenant_id, journal_id, line_no, account_code,
+                debit, credit, currency)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [
+              input.tenantId,
+              rows[0].id,
+              index + 1,
+              line.accountCode,
+              line.debit,
+              line.credit,
+              currency,
+            ],
+          );
+        }
+        return this.loadJournal(client, rows[0]);
+        });
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "23503") {
+          throw new ConflictError(
+            "UNKNOWN_GL_ACCOUNT: journal line references an account that is not seeded for this tenant",
+          );
+        }
+        if (code === "23514") {
+          throw new ConflictError(
+            "JOURNAL_INVALID: journal failed database balance/amount checks",
+          );
+        }
+        throw error;
+      }
+    }
+
+    async listJournals(
+      tenantId: string,
+      filter?: {
+        documentId?: string;
+        documentType?: GlJournal["documentType"];
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        limit?: number;
+      },
+    ): Promise<GlJournal[]> {
+      await this.assertTenant(tenantId);
+      const params: string[] = [tenantId];
+      let sql = "SELECT * FROM gl_journals WHERE tenant_id=$1";
+      if (filter?.documentId) {
+        params.push(filter.documentId);
+        sql += ` AND document_id=$${params.length}`;
+      }
+      if (filter?.documentType) {
+        params.push(filter.documentType);
+        sql += ` AND document_type=$${params.length}`;
+      }
+      if (filter?.legalEntityId) {
+        params.push(filter.legalEntityId);
+        sql += ` AND legal_entity_id=$${params.length}`;
+      }
+      if (filter?.accountingPeriod) {
+        params.push(filter.accountingPeriod);
+        sql += ` AND accounting_period=$${params.length}`;
+      }
+      sql += ` ORDER BY created_at DESC, journal_no DESC LIMIT ${
+        filter?.limit ?? 200
+      }`;
+      const { rows } = await this.tenantQuery(tenantId, sql, params);
+      if (rows.length === 0) return [];
+      const journals = rows.map((row: QueryResultRow) =>
+        this.mapGlJournal(row),
+      );
+      const { rows: lineRows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM gl_journal_lines
+          WHERE tenant_id=$1 AND journal_id = ANY($2::uuid[])
+          ORDER BY journal_id, line_no`,
+        [tenantId, journals.map((journal) => journal.id)],
+      );
+      const byJournal = new Map<string, GlJournalLine[]>();
+      for (const line of lineRows) {
+        const mapped = this.mapGlJournalLine(line);
+        const list = byJournal.get(mapped.journalId) ?? [];
+        list.push(mapped);
+        byJournal.set(mapped.journalId, list);
+      }
+      for (const journal of journals) {
+        journal.lines = byJournal.get(journal.id) ?? [];
+      }
+      return journals;
+    }
+
+    async listGlAccounts(tenantId: string): Promise<GlAccount[]> {
+      await this.assertTenant(tenantId);
+      // 新租户在首次读取时补齐最小科目表（Migration 112 只给既有租户种子）。
+      await this.transactionFor(tenantId, async (client) => {
+        await this.ensureGlAccounts(client, tenantId);
+      });
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM gl_accounts WHERE tenant_id=$1 ORDER BY code ASC`,
+        [tenantId],
+      );
+      return rows.map((row: QueryResultRow) => ({
+        id: row.id,
+        tenantId: row.tenant_id,
+        code: row.code,
+        name: row.name,
+        accountType: row.account_type,
+        normalBalance: row.normal_balance,
+        createdAt: iso(row.created_at) ?? new Date().toISOString(),
+      }));
+    }
+
     /**
      * 迁移 111：base.mapFinancialFact 只认识 105 的列；子账新列在本 mixin
      * 内补映射，避免改动共享 base（行为保持）。
@@ -1216,6 +1546,18 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       const functionalCurrency = row.functional_currency
         ? String(row.functional_currency).trim()
         : undefined;
+      const taxRate =
+        row.tax_rate === null || row.tax_rate === undefined
+          ? undefined
+          : (decimalText(String(row.tax_rate)) ?? undefined);
+      const taxAmount =
+        row.tax_amount === null || row.tax_amount === undefined
+          ? undefined
+          : (decimalText(String(row.tax_amount)) ?? undefined);
+      const totalAmount =
+        taxAmount === undefined
+          ? undefined
+          : formatDecimal(parseDecimal(fact.amount) + parseDecimal(taxAmount));
       return {
         ...fact,
         documentType: row.document_type ?? undefined,
@@ -1230,6 +1572,9 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
           row.functional_amount === null || row.functional_amount === undefined
             ? undefined
             : (decimalText(String(row.functional_amount)) ?? undefined),
+        taxRate,
+        taxAmount,
+        totalAmount,
       };
     }
   };

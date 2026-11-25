@@ -3984,6 +3984,221 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/financial-subledger/aging:
+    get:
+      tags: [Budget]
+      summary: Invoice open amounts and aging buckets for a legal entity
+      parameters:
+        - name: legalEntityId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: asOf
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Aging rows (CURRENT/1-30/31-60/61-90/90+) plus per-currency totals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/financial-bad-debt/provision:
+    post:
+      tags: [Budget]
+      summary: Provision bad debt from the aging matrix
+      description: |
+        按账龄矩阵（CURRENT 0%、1-30 2%、31-60 5%、61-90 10%、90+ 50%，
+        body.matrix 可逐桶覆盖）逐张发票生成 POSTED 的 BAD_DEBT_PROVISION
+        事实与借贷平衡凭证。同发票 + 同期间重复调用幂等跳过。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinancialBadDebtProvision"
+      responses:
+        "201":
+          description: Provision facts created (or idempotently skipped)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-bad-debt/write-off:
+    post:
+      tags: [Budget]
+      summary: Write off the remaining open amount of an invoice
+      description: |
+        生成 POSTED 的 BAD_DEBT_WRITE_OFF 事实（金额由服务端按发票 - 收款 -
+        退款 - 已核销重算），冲减该发票 open amount，并生成
+        借 ALLOWANCE / 贷 AR 的平衡凭证。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinancialBadDebtWriteOff"
+      responses:
+        "201":
+          description: Write-off created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-subledger/reconciliation:
+    get:
+      tags: [Budget]
+      summary: Reconcile the subledger against ERP source facts by document type
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        - name: legalEntityId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: sourceSystem
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ERP
+      responses:
+        "200":
+          description: Per-currency/document-type differences with PASS or VARIANCE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/financial-journals:
+    get:
+      tags: [Budget]
+      summary: Read double-entry journals and lines
+      parameters:
+        - name: documentId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: documentType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [INVOICE, PAYMENT, REFUND, FX_REVALUATION, REVERSAL, CREDIT_NOTE, BAD_DEBT_PROVISION, BAD_DEBT_WRITE_OFF]
+        - name: legalEntityId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: accountingPeriod
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Journals with debit/credit lines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Budget]
+      summary: Post a manual balanced journal
+      description: |
+        借贷必须相等（1e6 定点），否则 409 JOURNAL_NOT_BALANCED；
+        CLOSED 期间同样拒绝（PERIOD_CLOSED）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGlJournal"
+      responses:
+        "201":
+          description: Journal posted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-gl-accounts:
+    get:
+      tags: [Budget]
+      summary: List the seeded chart of accounts
+      responses:
+        "200":
+          description: GL accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/commercial/accounts:
     get:
       tags: [Commercial]
@@ -13610,7 +13825,7 @@ components:
           type: string
         documentType:
           type: string
-          enum: [INVOICE, PAYMENT, REFUND, FX_REVALUATION, REVERSAL, CREDIT_NOTE]
+          enum: [INVOICE, PAYMENT, REFUND, FX_REVALUATION, REVERSAL, CREDIT_NOTE, BAD_DEBT_PROVISION, BAD_DEBT_WRITE_OFF]
         documentId:
           type: string
         relatedFactId:
@@ -13621,6 +13836,12 @@ components:
           type: string
           pattern: "^[A-Z]{3}$"
         functionalAmount:
+          type: string
+        taxRate:
+          type: number
+          minimum: 0
+          maximum: 100
+        taxAmount:
           type: string
 
     CreateFinancialInvoice:
@@ -13653,6 +13874,15 @@ components:
         functionalAmount:
           type: string
           pattern: "^\\d+(\\.\\d{1,6})?$"
+        taxRate:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Tax percentage (0-100). taxAmount is computed server-side with 1e6 fixed point.
+        taxAmount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+          description: Optional client-supplied tax amount; must match amount x taxRate / 100.
         sourceVersion:
           type: string
           default: "1"
@@ -13731,6 +13961,91 @@ components:
         reason:
           type: string
           maxLength: 512
+
+    FinancialBadDebtProvision:
+      type: object
+      required: [legalEntityId, accountingPeriod]
+      properties:
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        asOf:
+          type: string
+          format: date
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        matrix:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 100
+          description: Partial override of the aging provision matrix (percentages).
+        sourceVersion:
+          type: string
+          default: "1"
+
+    FinancialBadDebtWriteOff:
+      type: object
+      required: [invoiceFactId]
+      properties:
+        invoiceFactId:
+          type: string
+          format: uuid
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        reason:
+          type: string
+          maxLength: 512
+        sourceVersion:
+          type: string
+          default: "1"
+
+    CreateGlJournal:
+      type: object
+      required: [documentType, documentId, legalEntityId, accountingPeriod, currency, lines]
+      properties:
+        documentType:
+          type: string
+          enum: [INVOICE, PAYMENT, REFUND, FX_REVALUATION, REVERSAL, CREDIT_NOTE, BAD_DEBT_PROVISION, BAD_DEBT_WRITE_OFF]
+        documentId:
+          type: string
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        description:
+          type: string
+          maxLength: 512
+        sourceFactId:
+          type: string
+        lines:
+          type: array
+          minItems: 2
+          maxItems: 100
+          items:
+            type: object
+            required: [accountCode]
+            properties:
+              accountCode:
+                type: string
+                pattern: "^[A-Z][A-Z0-9_]*$"
+              debit:
+                type: string
+                pattern: "^\\d+(\\.\\d{1,6})?$"
+              credit:
+                type: string
+                pattern: "^\\d+(\\.\\d{1,6})?$"
 
     DecideAccountingPeriodChange:
       type: object

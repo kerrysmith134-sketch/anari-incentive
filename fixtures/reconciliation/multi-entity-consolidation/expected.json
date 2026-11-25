@@ -1,0 +1,197 @@
+{
+  "period": "2026-10",
+  "groupCurrency": "USD",
+  "entities": {
+    "ANARI-DE": {
+      "functional": {
+        "balances": {
+          "REVENUE": "340000",
+          "EXPENSE": "240000",
+          "ASSET": "1210000",
+          "LIABILITY": "240000",
+          "EQUITY": "0",
+          "INTERCOMPANY_AR": "80000",
+          "INTERCOMPANY_AP": "100000"
+        },
+        "openingEquity": {
+          "shareCapital": "600000",
+          "retainedEarnings": "250000",
+          "total": "850000"
+        },
+        "revenue": "340000",
+        "expense": "240000",
+        "netIncome": "100000",
+        "totalAssets": "1290000",
+        "totalLiabilities": "340000",
+        "balanceDifference": "0"
+      },
+      "translated": {
+        "assets": "1612500",
+        "liabilities": "425000",
+        "netAssets": "1187500",
+        "revenue": "408000",
+        "expense": "288000",
+        "netIncome": "120000",
+        "shareCapital": "660000",
+        "retainedEarnings": "275000",
+        "equityTransactions": "0",
+        "cta": "132500",
+        "equityTotal": "1187500",
+        "balanceDifference": "0"
+      },
+      "rates": {
+        "closing": "1.25",
+        "average": "1.2",
+        "historical": "1.1"
+      }
+    },
+    "ANARI-JP": {
+      "functional": {
+        "balances": {
+          "REVENUE": "40000000",
+          "EXPENSE": "28000000",
+          "ASSET": "170000000",
+          "LIABILITY": "22000000",
+          "EQUITY": "0",
+          "INTERCOMPANY_AR": "0",
+          "INTERCOMPANY_AP": "16000000"
+        },
+        "openingEquity": {
+          "shareCapital": "90000000",
+          "retainedEarnings": "30000000",
+          "total": "120000000"
+        },
+        "revenue": "40000000",
+        "expense": "28000000",
+        "netIncome": "12000000",
+        "totalAssets": "170000000",
+        "totalLiabilities": "38000000",
+        "balanceDifference": "0"
+      },
+      "translated": {
+        "assets": "1062500",
+        "liabilities": "237500",
+        "netAssets": "825000",
+        "revenue": "240000",
+        "expense": "168000",
+        "netIncome": "72000",
+        "shareCapital": "522000",
+        "retainedEarnings": "174000",
+        "equityTransactions": "0",
+        "cta": "57000",
+        "equityTotal": "825000",
+        "balanceDifference": "0"
+      },
+      "rates": {
+        "closing": "0.00625",
+        "average": "0.006",
+        "historical": "0.0058"
+      }
+    },
+    "ANARI-US": {
+      "functional": {
+        "balances": {
+          "REVENUE": "625000",
+          "EXPENSE": "300000",
+          "ASSET": "2100000",
+          "LIABILITY": "500000",
+          "EQUITY": "0",
+          "INTERCOMPANY_AR": "125000",
+          "INTERCOMPANY_AP": "0"
+        },
+        "openingEquity": {
+          "shareCapital": "1000000",
+          "retainedEarnings": "400000",
+          "total": "1400000"
+        },
+        "revenue": "625000",
+        "expense": "300000",
+        "netIncome": "325000",
+        "totalAssets": "2225000",
+        "totalLiabilities": "500000",
+        "balanceDifference": "0"
+      },
+      "translated": {
+        "assets": "2225000",
+        "liabilities": "500000",
+        "netAssets": "1725000",
+        "revenue": "625000",
+        "expense": "300000",
+        "netIncome": "325000",
+        "shareCapital": "1000000",
+        "retainedEarnings": "400000",
+        "equityTransactions": "0",
+        "cta": "0",
+        "equityTotal": "1725000",
+        "balanceDifference": "0"
+      },
+      "rates": {
+        "closing": "1",
+        "average": "1",
+        "historical": "1"
+      }
+    }
+  },
+  "group": {
+    "assets": "4675000",
+    "liabilities": "937500",
+    "netAssets": "3737500",
+    "revenue": "1273000",
+    "expense": "756000",
+    "netIncome": "517000",
+    "shareCapital": "2182000",
+    "retainedEarnings": "849000",
+    "equityTransactions": "0",
+    "cta": "189500",
+    "equityTotal": "3737500",
+    "balanceDifference": "0"
+  },
+  "groupBeforeElimination": {
+    "assets": "4900000",
+    "liabilities": "1162500",
+    "netAssets": "3737500",
+    "revenue": "1273000",
+    "expense": "756000",
+    "netIncome": "517000",
+    "shareCapital": "2182000",
+    "retainedEarnings": "849000",
+    "equityTransactions": "0",
+    "cta": "189500",
+    "equityTotal": "3737500",
+    "balanceDifference": "0"
+  },
+  "eliminations": {
+    "lines": [
+      {
+        "entities": [
+          "ANARI-DE",
+          "ANARI-JP"
+        ],
+        "receivable": "100000",
+        "payable": "100000",
+        "difference": "0"
+      },
+      {
+        "entities": [
+          "ANARI-DE",
+          "ANARI-US"
+        ],
+        "receivable": "125000",
+        "payable": "125000",
+        "difference": "0"
+      }
+    ],
+    "totalReceivable": "225000",
+    "totalPayable": "225000",
+    "totalDifference": "0",
+    "cleared": true
+  },
+  "checks": {
+    "entityFunctionalBalanced": true,
+    "intercompanyCleared": true,
+    "groupBalanced": true,
+    "ctaTranslationOnly": true,
+    "balanced": true
+  },
+  "reportHash": "sha256:debd2168f3bad51f8db9075ea19b4470de86292ddb549fc1c37954e785a5466f"
+}

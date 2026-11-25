@@ -1012,9 +1012,23 @@ export const financialDocumentTypeSchema = z.enum([
   "FX_REVALUATION",
   "REVERSAL",
   "CREDIT_NOTE",
+  "BAD_DEBT_PROVISION",
+  "BAD_DEBT_WRITE_OFF",
 ]);
 export type FinancialDocumentTypeBody = z.infer<
   typeof financialDocumentTypeSchema
+>;
+
+/** 账龄桶（迁移 112）：与 @anari/domain 的 FinancialAgingBucket 对齐。 */
+export const financialAgingBucketSchema = z.enum([
+  "CURRENT",
+  "1-30",
+  "31-60",
+  "61-90",
+  "90+",
+]);
+export type FinancialAgingBucketBody = z.infer<
+  typeof financialAgingBucketSchema
 >;
 
 const isoCurrency = z
@@ -1038,6 +1052,25 @@ const positiveFxRate = subledgerDecimal.refine(
 const accountingPeriodSchema = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM");
+
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "expected an ISO date (YYYY-MM-DD)");
+
+/**
+ * 百分比（0-100，最多 6 位小数）。用于 taxRate 与坏账计提矩阵；
+ * 服务端用 1e6 定点计算，浮点数只做入参表达。
+ */
+const percentSchema = z
+  .number()
+  .finite()
+  .min(0, "percent must be between 0 and 100")
+  .max(100, "percent must be between 0 and 100")
+  .refine(
+    (value) =>
+      Math.abs(value * 1_000_000 - Math.round(value * 1_000_000)) < 1e-6,
+    "percent supports at most 6 decimal places",
+  );
 
 /**
  * 2026-11-21 审计 Sprint 5：Financial Fact 不再是“金额 + payload”。
@@ -1088,6 +1121,9 @@ export const createFinancialFactSchema = z
     fxRate: positiveFxRate.optional(),
     functionalCurrency: isoCurrency.optional(),
     functionalAmount: subledgerDecimal.optional(),
+    /** 迁移 112：税额（可选）。taxAmount 由服务端按 taxRate 重算校验。 */
+    taxRate: percentSchema.optional(),
+    taxAmount: subledgerDecimal.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.recognitionStatus !== "POSTED") return;
@@ -1147,7 +1183,10 @@ export type CreateFinancialFactBody = z.infer<
  * - 必须能追溯到订单或合同；
  * - 币种严格 ISO 4217，金额/汇率最多 6 位小数且必须为正；
  * - 跨币种（currency != functionalCurrency）必须带 fxRate，服务端用
- *   1e6 BigInt 计算 functionalAmount 并拒绝不一致。
+ *   1e6 BigInt 计算 functionalAmount 并拒绝不一致；
+ * - 迁移 112：taxRate（百分比 0-100）可选，taxAmount 由服务端按
+ *   amount × taxRate / 100 计算；客户端传入不一致的 taxAmount 会被 409 拒绝，
+ *   发票 total = amount + taxAmount。
  */
 export const createFinancialInvoiceSchema = z
   .object({
@@ -1161,6 +1200,8 @@ export const createFinancialInvoiceSchema = z
     fxRate: positiveFxRate.optional(),
     functionalCurrency: isoCurrency,
     functionalAmount: subledgerDecimal.optional(),
+    taxRate: percentSchema.optional(),
+    taxAmount: subledgerDecimal.optional(),
     sourceVersion: z.string().min(1).max(256).default("1"),
     issuedAt: z.string().datetime().optional(),
   })
@@ -1265,6 +1306,106 @@ export const financialSubledgerQuerySchema = z
 export type FinancialSubledgerQueryBody = z.infer<
   typeof financialSubledgerQuerySchema
 >;
+
+/** GET /api/v1/financial-subledger/aging：按法人 + 截止日计算账龄。 */
+export const financialAgingQuerySchema = z.object({
+  legalEntityId: z.string().min(1),
+  asOf: isoDateSchema.optional(),
+});
+export type FinancialAgingQueryBody = z.infer<
+  typeof financialAgingQuerySchema
+>;
+
+/**
+ * POST /api/v1/financial-bad-debt/provision：按账龄矩阵计提坏账准备。
+ * matrix 为 0-100 的百分比，可只覆盖部分桶；缺省桶使用默认矩阵。
+ */
+export const financialBadDebtProvisionSchema = z.object({
+  legalEntityId: z.string().min(1),
+  accountingPeriod: accountingPeriodSchema,
+  asOf: isoDateSchema.optional(),
+  currency: isoCurrency.optional(),
+  matrix: z
+    .record(financialAgingBucketSchema, percentSchema)
+    .optional(),
+  sourceVersion: z.string().min(1).max(256).default("1"),
+});
+export type FinancialBadDebtProvisionBody = z.infer<
+  typeof financialBadDebtProvisionSchema
+>;
+
+/**
+ * POST /api/v1/financial-bad-debt/write-off：全额核销一张发票的剩余 open
+ * amount；金额由服务端按账龄/收款/退款/已核销重算，客户端不得指定。
+ */
+export const financialBadDebtWriteOffSchema = z.object({
+  invoiceFactId: uuidSchema,
+  legalEntityId: z.string().min(1).optional(),
+  accountingPeriod: accountingPeriodSchema.optional(),
+  reason: z.string().min(1).max(512).optional(),
+  sourceVersion: z.string().min(1).max(256).default("1"),
+});
+export type FinancialBadDebtWriteOffBody = z.infer<
+  typeof financialBadDebtWriteOffSchema
+>;
+
+/** GET /api/v1/financial-subledger/reconciliation：子账 vs ERP 对账。 */
+export const financialReconciliationQuerySchema = z.object({
+  period: accountingPeriodSchema,
+  legalEntityId: z.string().min(1),
+  sourceSystem: z.string().min(1).default("ERP"),
+});
+export type FinancialReconciliationQueryBody = z.infer<
+  typeof financialReconciliationQuerySchema
+>;
+
+/** GET /api/v1/financial-journals：按文档/期间回读复式分录。 */
+export const financialJournalQuerySchema = z.object({
+  documentId: z.string().min(1).max(128).optional(),
+  documentType: financialDocumentTypeSchema.optional(),
+  legalEntityId: z.string().min(1).optional(),
+  accountingPeriod: accountingPeriodSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+});
+export type FinancialJournalQueryBody = z.infer<
+  typeof financialJournalQuerySchema
+>;
+
+const glJournalLineInputSchema = z
+  .object({
+    accountCode: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9_]*$/, "expected an uppercase account code"),
+    debit: subledgerDecimal.optional(),
+    credit: subledgerDecimal.optional(),
+  })
+  .superRefine((value, ctx) => {
+    const debit = value.debit === undefined ? 0 : Number(value.debit);
+    const credit = value.credit === undefined ? 0 : Number(value.credit);
+    if ((debit > 0 && credit > 0) || (debit === 0 && credit === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["debit"],
+        message: "exactly one of debit/credit must be greater than zero",
+      });
+    }
+  });
+
+/**
+ * POST /api/v1/financial-journals：登记一张手工复式凭证。
+ * 借贷必须相等（1e6 定点），否则 409；CLOSED 期间同样拒绝。
+ */
+export const createGlJournalSchema = z.object({
+  documentType: financialDocumentTypeSchema,
+  documentId: z.string().min(1).max(128),
+  legalEntityId: z.string().min(1),
+  accountingPeriod: accountingPeriodSchema,
+  currency: isoCurrency,
+  description: z.string().min(1).max(512).optional(),
+  sourceFactId: z.string().min(1).max(128).optional(),
+  lines: z.array(glJournalLineInputSchema).min(2).max(100),
+});
+export type CreateGlJournalBody = z.infer<typeof createGlJournalSchema>;
 
 const commercialCurrency = z.string().length(3);
 
@@ -3159,6 +3300,9 @@ export const requestSchemaRegistry = {
   CreateFinancialPayment: createFinancialPaymentSchema,
   CreateFinancialRevaluation: createFinancialRevaluationSchema,
   ReverseFinancialFact: reverseFinancialFactSchema,
+  FinancialBadDebtProvision: financialBadDebtProvisionSchema,
+  FinancialBadDebtWriteOff: financialBadDebtWriteOffSchema,
+  CreateGlJournal: createGlJournalSchema,
   CreateCommercialAccount: createCommercialAccountSchema,
   CreateCommercialOpportunity: createCommercialOpportunitySchema,
   CreateCommercialQuote: createCommercialQuoteSchema,

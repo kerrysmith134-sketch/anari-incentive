@@ -53,6 +53,8 @@ import type {
   ExternalIdentity,
   FairnessCommitment,
   FinancialFact,
+  GlAccount,
+  GlJournal,
   CalibrationSession,
   ManagerTrainingRecord,
   IntegrationConnection,
@@ -384,6 +386,9 @@ export interface BudgetPort {
     fxRate?: string;
     functionalCurrency?: string;
     functionalAmount?: string;
+    /** 税额（迁移 112）：taxAmount = amount × taxRate / 100。 */
+    taxRate?: string;
+    taxAmount?: string;
   }): Promise<FinancialFact>;
   getFinancialFact(
     tenantId: string,
@@ -405,6 +410,35 @@ export interface BudgetPort {
       relatedFactId?: string;
     },
   ): Promise<FinancialFact[]>;
+  // 迁移 112：复式记账（gl_accounts / gl_journals / gl_journal_lines）。
+  /** 登记一张借贷平衡的凭证；不平衡 → ConflictError（HTTP 409）。 */
+  createJournalEntry(input: {
+    tenantId: string;
+    journalNo?: string;
+    documentType: GlJournal["documentType"];
+    documentId: string;
+    legalEntityId: string;
+    accountingPeriod: string;
+    currency: string;
+    description?: string;
+    sourceFactId?: string;
+    lines: Array<{
+      accountCode: string;
+      debit?: string;
+      credit?: string;
+    }>;
+  }): Promise<GlJournal>;
+  listJournals(
+    tenantId: string,
+    filter?: {
+      documentId?: string;
+      documentType?: GlJournal["documentType"];
+      legalEntityId?: string;
+      accountingPeriod?: string;
+      limit?: number;
+    },
+  ): Promise<GlJournal[]>;
+  listGlAccounts(tenantId: string): Promise<GlAccount[]>;
   // 2026-11-21 审计 Sprint 5：会计期间关闭/重开（POSTED 事实前置门禁）。
   listAccountingPeriods(
     tenantId: string,

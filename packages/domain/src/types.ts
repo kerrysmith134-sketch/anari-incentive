@@ -906,7 +906,8 @@ export type FinancialRecognitionStatus = "DRAFT" | "POSTED";
  * - PAYMENT / REFUND：收款 / 退款（退款金额为负）；
  * - FX_REVALUATION：汇率重估，金额 = 原币金额 × (新汇率 - 原汇率)；
  * - REVERSAL：冲销，金额为原事实取反；
- * - CREDIT_NOTE：预留贷项通知单。
+ * - CREDIT_NOTE：预留贷项通知单；
+ * - BAD_DEBT_PROVISION / BAD_DEBT_WRITE_OFF：坏账计提 / 核销（迁移 112）。
  */
 export type FinancialDocumentType =
   | "INVOICE"
@@ -914,7 +915,25 @@ export type FinancialDocumentType =
   | "REFUND"
   | "FX_REVALUATION"
   | "REVERSAL"
-  | "CREDIT_NOTE";
+  | "CREDIT_NOTE"
+  | "BAD_DEBT_PROVISION"
+  | "BAD_DEBT_WRITE_OFF";
+
+/** 应收账款账龄桶（迁移 112）。CURRENT = 0 天，90+ = 超过 90 天。 */
+export type FinancialAgingBucket =
+  | "CURRENT"
+  | "1-30"
+  | "31-60"
+  | "61-90"
+  | "90+";
+
+export const FINANCIAL_AGING_BUCKETS: readonly FinancialAgingBucket[] = [
+  "CURRENT",
+  "1-30",
+  "31-60",
+  "61-90",
+  "90+",
+];
 
 /** 会计期间（按法人隔离；CLOSED 期间拒绝新的 POSTED 事实）。 */
 export interface AccountingPeriod {
@@ -1001,7 +1020,95 @@ export interface FinancialFact {
   functionalCurrency?: string;
   /** 功能币金额，应用层用 1e6 BigInt 计算并校验。 */
   functionalAmount?: DecimalString;
+  /**
+   * 迁移 112：税额。taxRate 为百分比（0-100，最多 6 位小数），
+   * taxAmount = amount × taxRate / 100，服务端 1e6 定点计算。
+   */
+  taxRate?: DecimalString;
+  taxAmount?: DecimalString;
+  /** 派生字段：amount + taxAmount（仅当存在税额时返回）。 */
+  totalAmount?: DecimalString;
 }
+
+// ----------------------------------------------------------------------
+// 复式记账（迁移 112）：会计科目 / 日记账 / 分录。
+// 金额统一 1e6 定点 DecimalString；每张凭证借贷必须相等。
+// ----------------------------------------------------------------------
+
+export type GlAccountType =
+  | "ASSET"
+  | "LIABILITY"
+  | "EQUITY"
+  | "REVENUE"
+  | "EXPENSE";
+
+export type GlNormalBalance = "DEBIT" | "CREDIT";
+
+export interface GlAccount {
+  id: UUID;
+  tenantId: UUID;
+  code: string;
+  name: string;
+  accountType: GlAccountType;
+  normalBalance: GlNormalBalance;
+  createdAt: string;
+}
+
+export interface GlJournalLine {
+  id: UUID;
+  tenantId: UUID;
+  journalId: UUID;
+  lineNo: number;
+  accountCode: string;
+  debit: DecimalString;
+  credit: DecimalString;
+  currency: string;
+  createdAt: string;
+}
+
+export interface GlJournal {
+  id: UUID;
+  tenantId: UUID;
+  journalNo: string;
+  documentType: FinancialDocumentType;
+  documentId: string;
+  legalEntityId: string;
+  /** YYYY-MM */
+  accountingPeriod: string;
+  currency: string;
+  description?: string;
+  sourceFactId?: string;
+  totalDebit: DecimalString;
+  totalCredit: DecimalString;
+  lines: GlJournalLine[];
+  createdAt: string;
+}
+
+/** 最小会计科目表（迁移 112 种子 + Memory adapter 初始化）。 */
+export const GL_ACCOUNT_SEED: ReadonlyArray<{
+  code: string;
+  name: string;
+  accountType: GlAccountType;
+  normalBalance: GlNormalBalance;
+}> = [
+  { code: "AR", name: "Accounts Receivable", accountType: "ASSET", normalBalance: "DEBIT" },
+  { code: "REVENUE", name: "Revenue", accountType: "REVENUE", normalBalance: "CREDIT" },
+  { code: "TAX_PAYABLE", name: "Tax Payable", accountType: "LIABILITY", normalBalance: "CREDIT" },
+  { code: "CASH", name: "Cash", accountType: "ASSET", normalBalance: "DEBIT" },
+  { code: "FX_GAIN_LOSS", name: "FX Gain/Loss", accountType: "REVENUE", normalBalance: "CREDIT" },
+  { code: "BAD_DEBT_EXPENSE", name: "Bad Debt Expense", accountType: "EXPENSE", normalBalance: "DEBIT" },
+  { code: "ALLOWANCE", name: "Allowance for Doubtful Accounts", accountType: "ASSET", normalBalance: "CREDIT" },
+];
+
+export const GL_ACCOUNT_CODES = {
+  AR: "AR",
+  REVENUE: "REVENUE",
+  TAX_PAYABLE: "TAX_PAYABLE",
+  CASH: "CASH",
+  FX_GAIN_LOSS: "FX_GAIN_LOSS",
+  BAD_DEBT_EXPENSE: "BAD_DEBT_EXPENSE",
+  ALLOWANCE: "ALLOWANCE",
+} as const;
 
 export type RuleChangeStatus = "DRAFT" | "APPROVED" | "PUBLICIZED" | "REJECTED";
 

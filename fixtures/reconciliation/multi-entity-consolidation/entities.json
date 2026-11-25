@@ -1,0 +1,38 @@
+{
+  "groupCurrency": "USD",
+  "entities": [
+    {
+      "entityId": "ANARI-US",
+      "name": "ANARI Inc. (US)",
+      "functionalCurrency": "USD",
+      "parentEntityId": null,
+      "ownershipPercent": "100",
+      "equity": {
+        "shareCapital": "1000000",
+        "retainedEarnings": "400000"
+      }
+    },
+    {
+      "entityId": "ANARI-DE",
+      "name": "ANARI GmbH (DE)",
+      "functionalCurrency": "EUR",
+      "parentEntityId": "ANARI-US",
+      "ownershipPercent": "100",
+      "equity": {
+        "shareCapital": "600000",
+        "retainedEarnings": "250000"
+      }
+    },
+    {
+      "entityId": "ANARI-JP",
+      "name": "ANARI Japan K.K. (JP)",
+      "functionalCurrency": "JPY",
+      "parentEntityId": "ANARI-DE",
+      "ownershipPercent": "100",
+      "equity": {
+        "shareCapital": "90000000",
+        "retainedEarnings": "30000000"
+      }
+    }
+  ]
+}

@@ -307,7 +307,9 @@
         "reopeningRef",
         "reversalOf",
         "sourceUpdatedAt",
-        "sourceVersion"
+        "sourceVersion",
+        "taxAmount",
+        "taxRate"
       ]
     },
     "CreateFinancialInvoice": {
@@ -325,7 +327,9 @@
         "fxRate",
         "issuedAt",
         "orderId",
-        "sourceVersion"
+        "sourceVersion",
+        "taxAmount",
+        "taxRate"
       ]
     },
     "CreateFinancialPayment": {
@@ -354,6 +358,20 @@
       ],
       "optional": [
         "reason"
+      ]
+    },
+    "CreateGlJournal": {
+      "required": [
+        "accountingPeriod",
+        "currency",
+        "documentId",
+        "documentType",
+        "legalEntityId",
+        "lines"
+      ],
+      "optional": [
+        "description",
+        "sourceFactId"
       ]
     },
     "CreatePayrollRun": {
@@ -443,6 +461,29 @@
       "optional": [
         "allowCreate",
         "dryRun"
+      ]
+    },
+    "FinancialBadDebtProvision": {
+      "required": [
+        "accountingPeriod",
+        "legalEntityId"
+      ],
+      "optional": [
+        "asOf",
+        "currency",
+        "matrix",
+        "sourceVersion"
+      ]
+    },
+    "FinancialBadDebtWriteOff": {
+      "required": [
+        "invoiceFactId"
+      ],
+      "optional": [
+        "accountingPeriod",
+        "legalEntityId",
+        "reason",
+        "sourceVersion"
       ]
     },
     "GenerateClawbackRecovery": {
