@@ -724,3 +724,286 @@ describe("NP-002/003/004/015/016: runner 全流程（注入式 request）", () =
     expect(checkpoint.watermark).toBe("2026-10-20T12:00:00.000Z");
   });
 });
+
+/**
+ * sync-run 级重放（Mapping Studio 失败面板）：
+ * - FAILED / PARTIAL 才可重放；跨租户 404；SUCCEEDED 409；
+ * - 只重做目标写入：不新建 run、不推进 checkpoint、原 run 审计保留；
+ * - 幂等：已重放记录 skipped；body.rawRecordIds 可精确指定。
+ */
+interface ReplayResult {
+  replayed: number;
+  skipped: number;
+  failed: number;
+  rawRecordIds: string[];
+}
+
+async function seedReplayRunFixture(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  options: { sourceSystem?: string; externalRecordIds?: string[] } = {},
+) {
+  const inject = injectRequestFactory(app);
+  const sourceSystem = options.sourceSystem ?? "replay-system";
+  const connection = await inject<{ id: string }>(
+    "/api/v1/integration-connections",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        provider: "generic",
+        connectionName: `replay-${Date.now()}`,
+        credentialRef: "vault/creds",
+        config: {
+          url: "https://provider.example/api/replay",
+          recordsPath: "records",
+        },
+      }),
+    },
+  );
+  const mapping = await inject<{ id: string }>(
+    `/api/v1/integration-connections/${connection.id}/mappings`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: "replay mapping",
+        mappingType: "HTTP_JSON",
+        sourceSystem,
+        targetType: "EVIDENCE",
+        fieldMap: {
+          sourceRecordId: "record_id",
+          eventType: "event_type",
+          subjectType: "subject_type",
+          subjectId: "subject_id",
+          evidenceType: "evidence_type",
+          occurredAt: "occurred_at",
+        },
+        config: { allowUuidPassthrough: true },
+        version: 1,
+      }),
+    },
+  );
+  const resource = await inject<{ id: string }>("/api/v1/sync-resources", {
+    method: "POST",
+    body: JSON.stringify({
+      connectionId: connection.id,
+      resourceKey: `replay-resource-${Date.now()}`,
+      mappingId: mapping.id,
+    }),
+  });
+  const run = await inject<{ id: string; status: string }>(
+    `/api/v1/integration-connections/${connection.id}/sync-runs`,
+    { method: "POST", body: JSON.stringify({ status: "QUEUED" }) },
+  );
+  const records: Array<{ id: string; externalRecordId: string }> = [];
+  for (const externalRecordId of options.externalRecordIds ?? [
+    "RR-1",
+    "RR-2",
+  ]) {
+    records.push(
+      await inject<{ id: string; externalRecordId: string }>(
+        "/api/v1/raw-source-records",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sourceSystem,
+            externalRecordId,
+            resourceId: resource.id,
+            payload: {
+              record_id: externalRecordId,
+              event_type: "updated",
+              subject_type: "PERSON",
+              subject_id: ADMIN,
+              evidence_type: "ACTIVITY",
+              occurred_at: "2026-10-01T00:00:00.000Z",
+            },
+          }),
+        },
+      ),
+    );
+  }
+  return { inject, connection, mapping, resource, run, records, sourceSystem };
+}
+
+async function finishReplayRun(
+  inject: ReturnType<typeof injectRequestFactory>,
+  runId: string,
+  status: "FAILED" | "SUCCEEDED" | "PARTIAL",
+  overrides: Record<string, unknown> = {},
+) {
+  return inject(`/api/v1/sync-runs/${runId}/finish`, {
+    method: "POST",
+    body: JSON.stringify({
+      status,
+      recordsSeen: 2,
+      recordsUpserted: 0,
+      recordsFetched: 2,
+      recordsRawPersisted: 2,
+      recordsFailed: status === "SUCCEEDED" ? 0 : 2,
+      ...overrides,
+    }),
+  });
+}
+
+describe("sync-run 级重放（INT-209 run-level）", () => {
+  it("FAILED run 重放成功：目标写入完成、不新建 run、不推进 checkpoint", async () => {
+    const app = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(app);
+    await finishReplayRun(fixture.inject, fixture.run.id, "FAILED");
+    const runsBefore = await fixture.inject<Array<{ id: string }>>(
+      `/api/v1/integration-connections/${fixture.connection.id}/sync-runs`,
+    );
+    const checkpointBefore = await fixture.inject<{ cursor: string | null }>(
+      `/api/v1/sync-resources/${fixture.resource.id}/checkpoint`,
+    );
+
+    const result = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      { method: "POST" },
+    );
+    expect(result.replayed).toBe(2);
+    expect(result.skipped).toBe(0);
+    expect(result.failed).toBe(0);
+    expect([...result.rawRecordIds].sort()).toEqual(
+      fixture.records.map((record) => record.id).sort(),
+    );
+
+    const evidence = await fixture.inject<Array<{ sourceSystem: string }>>(
+      "/api/v1/evidence",
+    );
+    expect(
+      evidence.filter((node) => node.sourceSystem === fixture.sourceSystem),
+    ).toHaveLength(2);
+
+    // 不创建新 run，原 run 仍是 FAILED（审计保留）。
+    const runsAfter = await fixture.inject<Array<{ id: string; status: string }>>(
+      `/api/v1/integration-connections/${fixture.connection.id}/sync-runs`,
+    );
+    expect(runsAfter).toHaveLength(runsBefore.length);
+    const originalRun = runsAfter.find((run) => run.id === fixture.run.id);
+    expect(originalRun?.status).toBe("FAILED");
+
+    // checkpoint 不被重置/推进。
+    const checkpointAfter = await fixture.inject<{ cursor: string | null }>(
+      `/api/v1/sync-resources/${fixture.resource.id}/checkpoint`,
+    );
+    expect(checkpointAfter.cursor).toBe(checkpointBefore.cursor);
+  });
+
+  it("PARTIAL run 也可重放（可重放状态白名单）", async () => {
+    const app = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(app, {
+      externalRecordIds: ["PR-1"],
+    });
+    await finishReplayRun(fixture.inject, fixture.run.id, "PARTIAL");
+    const result = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      { method: "POST" },
+    );
+    expect(result.replayed).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it("重复重放幂等：已处理记录 skipped，目标写入不重复", async () => {
+    const app = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(app);
+    await finishReplayRun(fixture.inject, fixture.run.id, "FAILED");
+    const first = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      { method: "POST" },
+    );
+    expect(first.replayed).toBe(2);
+
+    const second = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      { method: "POST" },
+    );
+    expect(second.replayed).toBe(0);
+    expect(second.skipped).toBe(2);
+    expect(second.failed).toBe(0);
+    expect(second.rawRecordIds).toEqual([]);
+    const evidence = await fixture.inject<Array<{ sourceSystem: string }>>(
+      "/api/v1/evidence",
+    );
+    expect(
+      evidence.filter((node) => node.sourceSystem === fixture.sourceSystem),
+    ).toHaveLength(2);
+  });
+
+  it("跨租户 404（不泄露 run 是否存在）", async () => {
+    const appA = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(appA);
+    await finishReplayRun(fixture.inject, fixture.run.id, "FAILED");
+    const appB = buildAppFor(TENANT_B);
+    const res = await appB.inject({
+      method: "POST",
+      url: `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      headers: {
+        "content-type": "application/json",
+        "x-tenant-id": TENANT_B,
+        "x-user-id": "sync-test",
+        "x-person-id": ADMIN,
+      },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("SUCCEEDED 409（非可重放状态）", async () => {
+    const app = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(app);
+    await finishReplayRun(fixture.inject, fixture.run.id, "SUCCEEDED");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      headers: {
+        "content-type": "application/json",
+        "x-tenant-id": TENANT_A,
+        "x-user-id": "sync-test",
+        "x-person-id": ADMIN,
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toContain("SYNC_RUN_NOT_REPLAYABLE");
+  });
+
+  it("body.rawRecordIds 精确重放；未知记录 404", async () => {
+    const app = buildAppFor(TENANT_A);
+    const fixture = await seedReplayRunFixture(app);
+    await finishReplayRun(fixture.inject, fixture.run.id, "FAILED");
+    const target = fixture.records[0]!;
+    const result = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      {
+        method: "POST",
+        body: JSON.stringify({ rawRecordIds: [target.id] }),
+      },
+    );
+    expect(result.replayed).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.rawRecordIds).toEqual([target.id]);
+
+    // 其余记录仍待重放；已指定重放的那条自动跳过。
+    const rest = await fixture.inject<ReplayResult>(
+      `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      { method: "POST" },
+    );
+    expect(rest.replayed).toBe(1);
+    expect(rest.skipped).toBe(1);
+    expect(rest.rawRecordIds).toEqual([fixture.records[1]!.id]);
+
+    // 跨租户 / 未知 raw record id → 404（不泄露存在性）。
+    const missing = await app.inject({
+      method: "POST",
+      url: `/api/v1/sync-runs/${fixture.run.id}/replay`,
+      payload: JSON.stringify({
+        rawRecordIds: ["00000000-0000-4000-8000-0000000000ff"],
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-tenant-id": TENANT_A,
+        "x-user-id": "sync-test",
+        "x-person-id": ADMIN,
+      },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+});

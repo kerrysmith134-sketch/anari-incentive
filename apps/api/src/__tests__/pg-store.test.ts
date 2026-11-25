@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool, type PoolClient } from "pg";
 import { sha256 } from "@anari/policy-dsl";
 import {
@@ -18,6 +18,7 @@ import { PgPlatformStore } from "../platform-store.js";
 import { calculatePayroll } from "../payroll.js";
 import { PgStore, DEMO_TENANT_ID } from "../pg-store.js";
 import { REFERENCE_POLICY_ID } from "../policy-registry.js";
+import { ConflictError } from "../store.js";
 import { CHARGING_POLICY_ID, EQUIPMENT_POLICY_ID } from "./pack-ids.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
@@ -4709,5 +4710,523 @@ evidenceOpened: 1,rationale: "Self",
     expect(Array.isArray(policies)).toBe(true);
     const sources = await platform.listDataSources(DEMO_TENANT_ID);
     expect(Array.isArray(sources)).toBe(true);
+  });
+
+  // ------------------------------------------------------------------
+  // 并发回归（2026-11）：合同确认 vs 合同终止、重复确认、会计期间关闭 vs
+  // POSTED 发票入账。只加测试，不改业务代码。
+  //
+  // - 由外层 describePg 门控：无 DATABASE_URL 时整块 skip，不启动 Docker。
+  // - 每轮独立 fixture（account/opportunity/quote/contract/order、legal
+  //   entity），轮次之间不共享状态，避免上一轮残留掩盖竞态。
+  // - 用 gate 事务的显式行锁把两侧操作都排进数据库锁队列后再释放：否则
+  //   Node 侧常常先跑完一个再发下一个，测不到数据库层的真实交错。
+  // - 错误类型只接受业务 409（ConflictError）。deadlock(40P01) /
+  //   serialization(40001) / statement_timeout(57014) 一律判失败。
+  // - commercial 域没有确认审计表（confirmOrder 不写 audit_events），
+  //   "一次确认" 以可观测的单次写入为准：confirmed_at 只落一次、重复确认
+  //   返回同一时间戳、第三次确认不改行版本（xmin）。
+  // ------------------------------------------------------------------
+  describe("并发回归：合同/订单与会计期间", { timeout: 120_000 }, () => {
+    const CONC_TENANT_ID = "00000000-0000-4000-8000-00000000c0c0";
+    const CONC_ACTOR_ID = "00000000-0000-4000-8000-00000000c0c1";
+    const PERIOD = "2026-11";
+    /** 10-20 轮：足以暴露偶发交错，又不显著拖慢 CI。 */
+    const ROUNDS = 12;
+    /** 等待两侧都阻塞在行锁上的上限；超时只意味着交错更少，不是失败。 */
+    const LOCK_WAIT_TIMEOUT_MS = 2_000;
+    /** pg 并发控制错误：死锁 / 序列化失败 / 语句超时。 */
+    const CONCURRENCY_FAILURE_CODES = new Set(["40P01", "40001", "57014"]);
+
+    const racePools: Pool[] = [];
+    let sideA!: PgPlatformStore;
+    let sideB!: PgPlatformStore;
+
+    beforeAll(async () => {
+      // 独立契约租户 + 操作员（幂等；不与演示租户/其他契约测试耦合）。
+      await pool.query(
+        `INSERT INTO tenants (id, name, slug)
+         VALUES ($1, 'PG Concurrency Tenant', 'pg-concurrency')
+         ON CONFLICT (id) DO NOTHING`,
+        [CONC_TENANT_ID],
+      );
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.tenant_id', $1, true)", [
+          CONC_TENANT_ID,
+        ]);
+        await client.query(
+          `INSERT INTO people (id, tenant_id, employee_code, display_name)
+           VALUES ($1, $2, 'PG-CONC-1', '并发回归操作员')
+           ON CONFLICT (id) DO NOTHING`,
+          [CONC_ACTOR_ID, CONC_TENANT_ID],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+      // 两侧各一个单连接池：并发操作分别拿到独立 client / 独立事务。
+      const poolA = new Pool({ connectionString: databaseUrl, max: 1 });
+      const poolB = new Pool({ connectionString: databaseUrl, max: 1 });
+      racePools.push(poolA, poolB);
+      sideA = new PgPlatformStore(poolA);
+      sideB = new PgPlatformStore(poolB);
+    });
+
+    afterAll(async () => {
+      await Promise.all(racePools.map((racePool) => racePool.end()));
+    });
+
+    /** 业务 409 校验：并把死锁/超时等驱动层错误显式判为失败。 */
+    function assertBusinessConflict(reason: unknown, pattern: RegExp): void {
+      const code = (reason as { code?: string } | undefined)?.code;
+      expect(
+        CONCURRENCY_FAILURE_CODES.has(String(code)),
+        `并发回归出现数据库层并发错误（deadlock/serialization/timeout）: ` +
+          `code=${String(code)} ${String(reason)}`,
+      ).toBe(false);
+      expect(
+        reason,
+        "并发冲突必须映射为业务 409，而不是原始驱动错误",
+      ).toBeInstanceOf(ConflictError);
+      expect((reason as Error).message).toMatch(pattern);
+    }
+
+    function rejectedReason(result: PromiseSettledResult<unknown>): unknown {
+      expect(result.status, "该侧应当被业务 409 拒绝").toBe("rejected");
+      return (result as PromiseRejectedResult).reason;
+    }
+
+    /** 等至少 expected 个事务阻塞在锁上（best effort，超时继续）。 */
+    async function waitForLockWaiters(expected: number): Promise<void> {
+      const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        const { rows } = await platformPool.query(
+          `SELECT count(*)::int AS waiting
+             FROM pg_locks
+            WHERE NOT granted
+              AND database = (
+                SELECT oid FROM pg_database WHERE datname = current_database()
+              )`,
+        );
+        if (Number(rows[0]?.waiting ?? 0) >= expected) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+
+    /**
+     * 用 gate 事务占住目标行，再同时发起两侧操作；两侧都进入锁队列后释放，
+     * 让两个事务在数据库层真正竞争，而不是在 Node 侧串行。
+     */
+    async function raceWithRowLock<A, B>(
+      lock: { sql: string; params: unknown[] },
+      left: () => Promise<A>,
+      right: () => Promise<B>,
+    ): Promise<[PromiseSettledResult<A>, PromiseSettledResult<B>]> {
+      const gate = await platformPool.connect();
+      let leftPromise: Promise<A> | undefined;
+      let rightPromise: Promise<B> | undefined;
+      try {
+        await gate.query("BEGIN");
+        await gate.query("SELECT set_config('app.tenant_id', $1, true)", [
+          CONC_TENANT_ID,
+        ]);
+        await gate.query(lock.sql, lock.params);
+        leftPromise = left();
+        rightPromise = right();
+        await waitForLockWaiters(2);
+        await gate.query("COMMIT");
+        return await Promise.allSettled([leftPromise, rightPromise]);
+      } catch (error) {
+        await gate.query("ROLLBACK").catch(() => undefined);
+        // ROLLBACK 已释放行锁，两侧会继续跑完；等它们收敛，避免
+        // "未观察的 Promise" 产生 unhandled rejection 噪声。
+        if (leftPromise) await leftPromise.catch(() => undefined);
+        if (rightPromise) await rightPromise.catch(() => undefined);
+        throw error;
+      } finally {
+        gate.release();
+      }
+    }
+
+    async function seedCommercialChain(label: string) {
+      const suffix = `${label}-${randomUUID().slice(0, 8)}`;
+      const account = await sideA.createAccount({
+        tenantId: CONC_TENANT_ID,
+        externalAccountId: `CONC-ACC-${suffix}`,
+        name: `并发账户 ${suffix}`,
+      });
+      const opportunity = await sideA.createOpportunity({
+        tenantId: CONC_TENANT_ID,
+        accountId: account.id,
+        externalOpportunityId: `CONC-OPP-${suffix}`,
+        name: `并发机会 ${suffix}`,
+        currency: "USD",
+        estimatedAmount: "1000",
+      });
+      const quote = await sideA.createQuote({
+        tenantId: CONC_TENANT_ID,
+        opportunityId: opportunity.id,
+        currency: "USD",
+        amount: "1000",
+      });
+      await sideA.acceptQuote(CONC_TENANT_ID, quote.id);
+      const contract = await sideA.createContract({
+        tenantId: CONC_TENANT_ID,
+        accountId: account.id,
+        opportunityId: opportunity.id,
+        quoteId: quote.id,
+        contractRef: `CONC-CT-${suffix}`,
+        currency: "USD",
+        amount: "1000",
+      });
+      await sideA.signContract(CONC_TENANT_ID, contract.id);
+      return { account, opportunity, quote, contract, suffix };
+    }
+
+    function createDraftOrder(
+      store: PgPlatformStore,
+      contractId: string,
+      accountId: string,
+      orderNumber: string,
+    ) {
+      return store.createOrder({
+        tenantId: CONC_TENANT_ID,
+        accountId,
+        contractId,
+        orderNumber,
+        currency: "USD",
+        lines: [
+          {
+            kind: "PRODUCT" as const,
+            description: "EV charger",
+            quantity: "1",
+            unitPrice: "1000",
+            amount: "1000",
+            currency: "USD",
+          },
+        ],
+      });
+    }
+
+    async function readOrderAndContractState(orderId: string) {
+      const { rows } = await withTenantContext(CONC_TENANT_ID, (client) =>
+        client.query(
+          `SELECT o.status AS order_status, ct.status AS contract_status
+             FROM commercial_orders o
+             JOIN commercial_contracts ct
+               ON ct.tenant_id = o.tenant_id AND ct.id = o.contract_id
+            WHERE o.tenant_id=$1 AND o.id=$2`,
+          [CONC_TENANT_ID, orderId],
+        ),
+      );
+      expect(rows, "订单必须仍属该合同（JOIN 结果唯一）").toHaveLength(1);
+      return {
+        orderStatus: String(rows[0].order_status),
+        contractStatus: String(rows[0].contract_status),
+      };
+    }
+
+    /** POSTED 发票事实：带齐会计语义（法人/期间/单据/来源版本）。 */
+    function postedInvoice(legalEntityId: string, recordId: string) {
+      return {
+        tenantId: CONC_TENANT_ID,
+        sourceSystem: "conc-erp",
+        sourceRecordId: recordId,
+        factType: "INVOICE_AMOUNT",
+        amount: "1000.00",
+        currency: "USD",
+        qualityStatus: "UNVERIFIED" as const,
+        legalEntityId,
+        accountingPeriod: PERIOD,
+        instrumentType: "INVOICE" as const,
+        orderId: "SO-CONC-1",
+        recognitionStatus: "POSTED" as const,
+        sourceVersion: "v1",
+        documentType: "INVOICE" as const,
+        documentId: `INV-${recordId}`,
+        payload: {},
+      };
+    }
+
+    async function readFactRows(sourceRecordId: string) {
+      const { rows } = await withTenantContext(CONC_TENANT_ID, (client) =>
+        client.query(
+          `SELECT id, recognition_status
+             FROM financial_facts
+            WHERE tenant_id=$1 AND source_system='conc-erp'
+              AND source_record_id=$2`,
+          [CONC_TENANT_ID, sourceRecordId],
+        ),
+      );
+      return rows as Array<{ id: string; recognition_status: string }>;
+    }
+
+    function closePeriod(store: PgPlatformStore, legalEntityId: string) {
+      return store.closeAccountingPeriod({
+        tenantId: CONC_TENANT_ID,
+        legalEntityId,
+        period: PERIOD,
+        actorPersonId: CONC_ACTOR_ID,
+        reason: "month-end close",
+      });
+    }
+
+    it("合同确认 vs 合同终止并发：终态只能是 CONFIRMED 或 TERMINATED 之一，无死锁", async () => {
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const { account, contract } = await seedCommercialChain(
+          `race-confirm-terminate-${round}`,
+        );
+        const order = await createDraftOrder(
+          sideA,
+          contract.id,
+          account.id,
+          `SO-RACE-${round}-${randomUUID().slice(0, 6)}`,
+        );
+        const [confirmResult, terminateResult] = await raceWithRowLock(
+          {
+            sql: "SELECT 1 FROM commercial_contracts WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            params: [CONC_TENANT_ID, contract.id],
+          },
+          () => sideA.confirmOrder(CONC_TENANT_ID, order.id),
+          () => sideB.terminateContract(CONC_TENANT_ID, contract.id),
+        );
+        const state = await readOrderAndContractState(order.id);
+        const confirmed = state.orderStatus === "CONFIRMED";
+        const terminated = state.contractStatus === "TERMINATED";
+        // 核心不变式：两个终态互斥。
+        expect(
+          confirmed && terminated,
+          `第 ${round} 轮出现 CONFIRMED + TERMINATED 的矛盾终态`,
+        ).toBe(false);
+        // 两侧争同一把 contract 行锁 → 必须恰好一个成功、另一个业务 409。
+        const fulfilled = [confirmResult, terminateResult].filter(
+          (result) => result.status === "fulfilled",
+        );
+        expect(fulfilled, `第 ${round} 轮应有且只有一个成功方`).toHaveLength(1);
+        if (confirmResult.status === "fulfilled") {
+          expect(confirmResult.value.status).toBe("CONFIRMED");
+          expect(confirmed, `第 ${round} 轮确认成功后订单必须 CONFIRMED`).toBe(
+            true,
+          );
+          expect(terminated, `第 ${round} 轮确认成功后合同不得 TERMINATED`).toBe(
+            false,
+          );
+          assertBusinessConflict(
+            rejectedReason(terminateResult),
+            /CONTRACT_HAS_CONFIRMED_ORDER/,
+          );
+        } else {
+          expect(terminateResult.status, "确认失败时终止必须成功").toBe(
+            "fulfilled",
+          );
+          if (terminateResult.status !== "fulfilled") {
+            throw new Error("合同终止必须成功：确认失败只能因为合同已 TERMINATED");
+          }
+          expect(terminateResult.value.status).toBe("TERMINATED");
+          expect(
+            terminated,
+            `第 ${round} 轮终止成功后合同必须 TERMINATED`,
+          ).toBe(true);
+          expect(
+            confirmed,
+            `第 ${round} 轮终止成功后订单不得 CONFIRMED`,
+          ).toBe(false);
+          assertBusinessConflict(
+            rejectedReason(confirmResult),
+            /CONTRACT_NOT_SIGNED/,
+          );
+        }
+      }
+    });
+
+    it("重复确认同一订单并发：只有一张订单、一次确认写入", async () => {
+      const { account, contract } = await seedCommercialChain(
+        "race-double-confirm",
+      );
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const order = await createDraftOrder(
+          sideA,
+          contract.id,
+          account.id,
+          `SO-DBL-${round}-${randomUUID().slice(0, 6)}`,
+        );
+        // 两个独立事务同时确认同一张订单。
+        const [firstResult, secondResult] = await raceWithRowLock(
+          {
+            sql: "SELECT 1 FROM commercial_contracts WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            params: [CONC_TENANT_ID, contract.id],
+          },
+          () => sideA.confirmOrder(CONC_TENANT_ID, order.id),
+          () => sideB.confirmOrder(CONC_TENANT_ID, order.id),
+        );
+        if (
+          firstResult.status !== "fulfilled" ||
+          secondResult.status !== "fulfilled"
+        ) {
+          assertBusinessConflict(
+            firstResult.status === "rejected"
+              ? firstResult.reason
+              : secondResult.status === "rejected"
+                ? secondResult.reason
+                : new Error("重复确认不应失败"),
+            /CONFLICT|ORDER|CONTRACT/,
+          );
+          throw new Error(
+            `第 ${round} 轮重复确认必须幂等成功（两侧都返回 CONFIRMED）`,
+          );
+        }
+        const confirmedOrder = firstResult.value;
+        const replayOrder = secondResult.value;
+        expect(confirmedOrder.id).toBe(order.id);
+        expect(replayOrder.id).toBe(order.id);
+        expect(confirmedOrder.status).toBe("CONFIRMED");
+        expect(replayOrder.status).toBe("CONFIRMED");
+        expect(confirmedOrder.confirmedAt).toBeTruthy();
+        // 一次确认：重复确认不得重新 now()，两侧看到同一确认时间。
+        expect(
+          replayOrder.confirmedAt,
+          `第 ${round} 轮重复确认重新写了 confirmed_at（应幂等 no-op）`,
+        ).toBe(confirmedOrder.confirmedAt);
+
+        // 只有一张订单：订单号在租户内唯一，行数恒为 1。
+        const { rows: orderRows } = await withTenantContext(
+          CONC_TENANT_ID,
+          (client) =>
+            client.query(
+              `SELECT count(*)::int AS total,
+                      count(confirmed_at)::int AS confirmed_total
+                 FROM commercial_orders
+                WHERE tenant_id=$1 AND order_number=$2`,
+              [CONC_TENANT_ID, order.orderNumber],
+            ),
+        );
+        expect(Number(orderRows[0].total)).toBe(1);
+        expect(Number(orderRows[0].confirmed_total)).toBe(1);
+
+        // 第三次顺序确认仍是 no-op：不改行版本（xmin），也不改确认时间。
+        const { rows: beforeRows } = await withTenantContext(
+          CONC_TENANT_ID,
+          (client) =>
+            client.query(
+              `SELECT xmin::text AS xmin, confirmed_at
+                 FROM commercial_orders
+                WHERE tenant_id=$1 AND id=$2`,
+              [CONC_TENANT_ID, order.id],
+            ),
+        );
+        const third = await sideA.confirmOrder(CONC_TENANT_ID, order.id);
+        const { rows: afterRows } = await withTenantContext(
+          CONC_TENANT_ID,
+          (client) =>
+            client.query(
+              `SELECT xmin::text AS xmin, confirmed_at
+                 FROM commercial_orders
+                WHERE tenant_id=$1 AND id=$2`,
+              [CONC_TENANT_ID, order.id],
+            ),
+        );
+        expect(
+          afterRows[0].xmin,
+          `第 ${round} 轮第三次确认不得再写订单行`,
+        ).toBe(beforeRows[0].xmin);
+        expect(third.confirmedAt).toBe(confirmedOrder.confirmedAt);
+        expect((afterRows[0].confirmed_at as Date).toISOString()).toBe(
+          confirmedOrder.confirmedAt,
+        );
+      }
+    });
+
+    it("期间关闭 vs POSTED 发票并发：关闭后不再接受 POSTED，且无死锁", async () => {
+      // 控制组 1：先入账、后关期（"关闭前入账"是合法终态）。
+      {
+        const legalEntityId = `LE-CONC-CTRL-A-${randomUUID().slice(0, 8)}`;
+        const recordId = `CTRL-A-${randomUUID().slice(0, 8)}`;
+        const posted = await sideA.createFinancialFact(
+          postedInvoice(legalEntityId, recordId),
+        );
+        expect(posted.recognitionStatus).toBe("POSTED");
+        const closed = await closePeriod(sideA, legalEntityId);
+        expect(closed.status).toBe("CLOSED");
+        expect(await readFactRows(recordId)).toHaveLength(1);
+      }
+
+      // 控制组 2：先关期、后入账 → 必须 409，且不留 POSTED 行。
+      {
+        const legalEntityId = `LE-CONC-CTRL-B-${randomUUID().slice(0, 8)}`;
+        const recordId = `CTRL-B-${randomUUID().slice(0, 8)}`;
+        const closed = await closePeriod(sideA, legalEntityId);
+        expect(closed.status).toBe("CLOSED");
+        await expect(
+          sideB.createFinancialFact(postedInvoice(legalEntityId, recordId)),
+        ).rejects.toThrow(/PERIOD_CLOSED/);
+        expect(await readFactRows(recordId)).toHaveLength(0);
+      }
+
+      // 竞争组：期间已 OPEN，关闭与 POSTED 入账争同一期间行锁。
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const legalEntityId = `LE-CONC-RACE-${round}-${randomUUID().slice(0, 6)}`;
+        const recordId = `RACE-${round}-${randomUUID().slice(0, 6)}`;
+        // 显式建 OPEN 期间行：关闭与入账都争这一行，才能测到真实交错。
+        await withTenantContext(CONC_TENANT_ID, (client) =>
+          client.query(
+            `INSERT INTO accounting_periods
+               (tenant_id, legal_entity_id, period, status)
+             VALUES ($1,$2,$3,'OPEN')`,
+            [CONC_TENANT_ID, legalEntityId, PERIOD],
+          ),
+        );
+        const [postResult, closeResult] = await raceWithRowLock(
+          {
+            sql: `SELECT 1 FROM accounting_periods
+                   WHERE tenant_id=$1 AND legal_entity_id=$2 AND period=$3
+                   FOR UPDATE`,
+            params: [CONC_TENANT_ID, legalEntityId, PERIOD],
+          },
+          () => sideA.createFinancialFact(postedInvoice(legalEntityId, recordId)),
+          () => closePeriod(sideB, legalEntityId),
+        );
+        // 期间行已存在且保持 OPEN，关闭只会阻塞在行锁上，所以必然成功。
+        expect(
+          closeResult.status,
+          `第 ${round} 轮关闭必须成功（期间行已 OPEN，只会被行锁阻塞）`,
+        ).toBe("fulfilled");
+        const period = await sideA.getAccountingPeriod(
+          CONC_TENANT_ID,
+          legalEntityId,
+          PERIOD,
+        );
+        expect(period?.status).toBe("CLOSED");
+
+        const facts = await readFactRows(recordId);
+        if (postResult.status === "fulfilled") {
+          // 入账先拿到期间行锁 → 提交后才轮到关闭；属于"关闭前入账"。
+          expect(postResult.value.recognitionStatus).toBe("POSTED");
+          expect(facts, `第 ${round} 轮入账成功必须落一条 POSTED`).toHaveLength(
+            1,
+          );
+          expect(facts[0]?.recognition_status).toBe("POSTED");
+        } else {
+          // 关闭先拿到期间行锁 → 入账必须 409，且不留任何事实行。
+          assertBusinessConflict(postResult.reason, /PERIOD_CLOSED/);
+          expect(
+            facts,
+            `第 ${round} 轮被拒的 POSTED 不得留下事实行`,
+          ).toHaveLength(0);
+        }
+
+        // 关期后任何新的 POSTED 都必须被拒（最终不变式）。
+        await expect(
+          sideA.createFinancialFact(
+            postedInvoice(legalEntityId, `${recordId}-AFTER`),
+          ),
+        ).rejects.toThrow(/PERIOD_CLOSED/);
+        expect(await readFactRows(`${recordId}-AFTER`)).toHaveLength(0);
+      }
+    });
   });
 });

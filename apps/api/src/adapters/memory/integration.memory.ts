@@ -527,6 +527,13 @@ export function MemoryIntegrationMixin(Base: abstract new (...args: ConstructorP
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
+
+    async getSyncRun(tenantId: string, syncRunId: string): Promise<SyncRun> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      const run = this.syncRuns.get(syncRunId);
+      if (!run || run.tenantId !== tenantId) notFound("SyncRun", syncRunId);
+      return run;
+    }
     
     async finishSyncRun(input: {
       tenantId: string;

@@ -382,6 +382,7 @@ import { registerEvaluationCycleRoutes } from "./modules/evaluation/evaluation-c
 import { registerPeopleGovernanceRoutes } from "./modules/people/people-governance.routes.js";
 import { registerPolicyAdminRoutes } from "./modules/policyadmin/policy-admin.routes.js";
 import { registerAgentTaskRoutes } from "./modules/agent/agent-tasks.routes.js";
+import { registerAgentAssistRoutes } from "./modules/agent-assist/assist.routes.js";
 import { registerAuditPrivacyRoutes } from "./modules/audit/audit-privacy.routes.js";
 import { registerLedgerRoutes } from "./modules/ledger/ledger.routes.js";
 import { registerPayrollRunRoutes } from "./modules/settlement/payroll-runs.routes.js";
@@ -1409,6 +1410,8 @@ export function buildApp(
   app.register(registerStrategicPoolRoutes({ platformStore, storeFor, countEvent }));
   app.register(registerTenantModuleRoutes({ platformStore, storeFor }));
   app.register(registerAgentMetricsRoutes({ storeFor }));
+  // 确定性 Agent 辅助（无 LLM）：映射建议/同步诊断/对账解释，只读计算。
+  app.register(registerAgentAssistRoutes());
   app.register(
     registerAiGovernanceRoutes({
       platformStore,

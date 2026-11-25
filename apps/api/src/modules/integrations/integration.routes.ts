@@ -3,6 +3,7 @@
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import type { IntegrationPort } from "../../store-ports.js";
+import type { RawSourceRecord } from "@anari/domain";
 import {
   claimDueSyncSchedulesSchema,
   claimResourceLeaseSchema,
@@ -19,6 +20,7 @@ import {
   releaseResourceLeaseSchema,
   renewResourceLeaseSchema,
   replayRawSourceRecordSchema,
+  replaySyncRunSchema,
   setIntegrationConnectionStatusSchema,
   setSyncScheduleEnabledSchema,
   upsertExternalObjectSchema,
@@ -28,9 +30,29 @@ import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   createIntegrationCrypto,
+  createKeyRotationMonitor,
+  DEFAULT_KEY_HEALTH_INTERVAL_MS,
+  MIN_KEY_HEALTH_INTERVAL_MS,
   RawPayloadDecryptError,
+  resolveWebhookKeyMaxAgeDays,
 } from "../../integration-crypto.js";
 import { outboundJsonFetch, redactSample } from "../../outbound-http.js";
+
+/**
+ * `WEBHOOK_KEY_HEALTH_INTERVAL_MS`（默认 1 小时，最小 1 分钟）。
+ * 与轮换告警无关：只决定进程内健康检查的频率；非法值退回默认。
+ */
+function resolveKeyHealthIntervalMs(env: NodeJS.ProcessEnv): number {
+  const raw = env.WEBHOOK_KEY_HEALTH_INTERVAL_MS;
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return DEFAULT_KEY_HEALTH_INTERVAL_MS;
+  }
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_KEY_HEALTH_INTERVAL_MS;
+  }
+  return Math.max(MIN_KEY_HEALTH_INTERVAL_MS, Math.floor(parsed));
+}
 
 /** 重放/证据转投所需的最小 store 面。 */
 interface IngestionStoreLike {
@@ -308,8 +330,159 @@ export function registerIntegrationRoutes(deps: {
     return parsed as Record<string, unknown>;
   }
 
+  /**
+   * INT-209：按 mapping 版本重放单条原始记录——服务端读映射、应用 fieldMap
+   * （含 =常量与转换）并按 targetType 投影，成功后标记 replayed 并留审计。
+   *
+   * sync-run 级重放复用同一路径（单条端点与 run 级端点不得有两套目标写入
+   * 语义）；失败由调用方决定是整体报错还是计入 failed 计数。
+   */
+  async function replayRawRecordByMapping(
+    request: FastifyRequest,
+    record: RawSourceRecord,
+    mappingId: string,
+    /** 单条端点已解密时直接复用，避免重复解密。 */
+    decryptedPayload?: Record<string, unknown>,
+    options?: {
+      /**
+       * 证据通道的 sourceEventVersion。run 级重放传入原始投影所用版本，
+       * 已成功投影的记录会命中 ingest 幂等键（duplicates），不重复落证据。
+       */
+      sourceEventVersion?: string;
+    },
+  ): Promise<{ targetType?: string; skipped?: boolean }> {
+    const payload = decryptedPayload ?? rawPayloadOf(record.payloadEncrypted);
+    const mapping = await platformStore.getIntegrationMapping(
+      tenantOf(request),
+      mappingId,
+    );
+    const providerConnection = await platformStore.getIntegrationConnection(
+      tenantOf(request),
+      mapping.connectionId,
+    );
+    const mappingLike = mapping as unknown as IntegrationMappingLike;
+    const columns = buildHttpJsonConnectorConfig(
+      {
+        provider: providerConnection.provider,
+        credentialRef: providerConnection.credentialRef,
+        config: providerConnection.config,
+      },
+      mappingLike,
+    )?.columns;
+    if (!columns) {
+      throw new ConflictError(
+        `REPLAY_MAPPING_UNUSABLE: mapping ${mapping.id} is not an HTTP_JSON mapping with usable columns`,
+      );
+    }
+    const event = mapRecordToEvent(payload, columns);
+    const routing = routeTarget(mappingLike.targetType);
+    /** 已成功投影过的记录在 run 级重放中应计入 skipped，而不是重复写目标。 */
+    let skipped = false;
+    if (routing.route === "EVIDENCE") {
+      const ingested = await storeFor(request).ingestEvents({
+        sourceSystem: mapping.sourceSystem,
+        events: [
+          {
+            ...event,
+            ...(options?.sourceEventVersion
+              ? { sourceEventVersion: options.sourceEventVersion }
+              : {}),
+            payload,
+          },
+        ],
+      });
+      const result = ingested as
+        | { accepted?: number; duplicates?: number }
+        | undefined;
+      skipped =
+        (result?.accepted ?? 1) === 0 && (result?.duplicates ?? 0) > 0;
+    } else if (routing.route === "FINANCIAL_FACT") {
+      const parsed = parseFinancialFact(
+        event as unknown as Record<string, unknown>,
+      );
+      if ("error" in parsed) {
+        throw new ConflictError(
+          `REPLAY_FINANCIAL_FACT_INVALID: ${parsed.error}`,
+        );
+      }
+      const occurredAt =
+        typeof event.occurredAt === "string" ? event.occurredAt : "";
+      await (
+        storeFor(request) as unknown as {
+          createFinancialFact: (input: Record<string, unknown>) => Promise<unknown>;
+        }
+      ).createFinancialFact({
+        tenantId: tenantOf(request),
+        sourceSystem: mapping.sourceSystem,
+        sourceRecordId: String(event.sourceRecordId ?? record.externalRecordId),
+        factType: parsed.factType,
+        periodStart: occurredAt.slice(0, 10) || undefined,
+        periodEnd: occurredAt.slice(0, 10) || undefined,
+        amount: parsed.amount,
+        currency: parsed.currency,
+        qualityStatus: "UNVERIFIED",
+        sourceUpdatedAt: event.sourceUpdatedAt,
+        legalEntityId: parsed.legalEntityId,
+        orderId: parsed.orderId,
+        contractRef: parsed.contractRef,
+        instrumentType: parsed.instrumentType,
+        recognitionStatus: parsed.recognitionStatus,
+        accountingPeriod: parsed.accountingPeriod,
+        fxSnapshot: parsed.fxSnapshot,
+        sourceVersion: parsed.sourceVersion,
+        reversalOf: parsed.reversalOf,
+        payload: event.payload ?? {},
+      });
+    } else {
+      throw new ConflictError(
+        `REPLAY_TARGET_UNSUPPORTED: targetType ${mappingLike.targetType ?? "(missing)"} cannot be replayed`,
+      );
+    }
+    await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
+    countEvent("raw_source_record_replayed_by_mapping");
+    try {
+      await storeFor(request)?.recordAuditEvent?.({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? undefined,
+        action: "RAW_SOURCE_RECORD_REPLAYED_BY_MAPPING",
+        objectType: "RAW_SOURCE_RECORD",
+        objectId: record.id,
+        reason: `mapping=${mappingId} sourceRecord=${record.externalRecordId}`,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    return { targetType: mappingLike.targetType, skipped };
+  }
+
 
   return async (app: FastifyInstance) => {
+  // ------------------------------------------------------------------
+  // INT-219：KMS/keyring 轮换健康与告警。
+  // 启动检查 + 定时检查只写日志（超龄不阻断启动）；可选
+  // WEBHOOK_KEY_ALERT_URL 在超龄/轮换失败时 POST 一条 JSON（5s 超时，
+  // 失败只记日志、不递归）。健康快照不含任何密钥材料。
+  // ------------------------------------------------------------------
+  const keyRotationMonitor = createKeyRotationMonitor({
+    crypto: integrationCrypto,
+    alertUrl: process.env.WEBHOOK_KEY_ALERT_URL,
+    logger: {
+      warn: (message, meta) => {
+        app.log.warn(meta ?? {}, message);
+      },
+    },
+    countEvent,
+    intervalMs: resolveKeyHealthIntervalMs(process.env),
+  });
+  keyRotationMonitor.start();
+  app.addHook("onClose", async () => {
+    keyRotationMonitor.stop();
+  });
+  const keyMaxAge = resolveWebhookKeyMaxAgeDays(process.env);
+  if (keyMaxAge.warning) {
+    app.log.warn({ setting: "WEBHOOK_KEY_MAX_AGE_DAYS" }, keyMaxAge.warning);
+  }
+
   // INT-217：KMS 主动轮换回调（无员工会话；共享 token + 常数时间比较）。
   app.post("/api/v1/integration-keys/rotate", async (request, reply) => {
     const expected = process.env.WEBHOOK_ROTATION_CALLBACK_TOKEN;
@@ -331,7 +504,19 @@ export function registerIntegrationRoutes(deps: {
         errorBody("ROTATION_TOKEN_INVALID", "invalid rotation token"),
       );
     }
-    integrationCrypto.reload();
+    try {
+      integrationCrypto.reload();
+    } catch {
+      // 旧 keyring 继续生效（不静默降级）；health.lastError 暴露原因。
+      void keyRotationMonitor.reportReloadFailure();
+      return reply.status(500).send(
+        errorBody(
+          "INTEGRATION_KEY_ROTATION_FAILED",
+          integrationCrypto.keyHealth().lastError ??
+            "keyring rotation was rejected",
+        ),
+      );
+    }
     countEvent("integration_keys_rotated_by_callback");
     return data(
       {
@@ -344,9 +529,20 @@ export function registerIntegrationRoutes(deps: {
   });
 
   // INT-216：KMS/Vault/文件 keyring 热加载（无需重启 API）。
-  app.post("/api/v1/integration-keys/reload", async (request) => {
+  app.post("/api/v1/integration-keys/reload", async (request, reply) => {
     requireRoles(request, "admin");
-    integrationCrypto.reload();
+    try {
+      integrationCrypto.reload();
+    } catch {
+      void keyRotationMonitor.reportReloadFailure();
+      return reply.status(409).send(
+        errorBody(
+          "INTEGRATION_KEY_RELOAD_FAILED",
+          integrationCrypto.keyHealth().lastError ??
+            "keyring reload was rejected",
+        ),
+      );
+    }
     countEvent("integration_keys_reloaded");
     return data(
       {
@@ -356,6 +552,12 @@ export function registerIntegrationRoutes(deps: {
       },
       request,
     );
+  });
+
+  // INT-219：轮换健康（admin）——只返回 keyId/年龄/来源，不含密钥材料。
+  app.get("/api/v1/integration-keys/health", async (request) => {
+    requireRoles(request, "admin");
+    return data(integrationCrypto.keyHealth(), request);
   });
 
   app.post("/api/v1/integration-connections", async (request, reply) => {
@@ -1050,97 +1252,18 @@ export function registerIntegrationRoutes(deps: {
     if (body.mappingId) {
       // INT-209（Sprint 2.1 P1）：基于 Mapping 版本的重放——服务端读映射、
       // 应用 fieldMap（含 =常量与转换）并按其 targetType 投影；审计可追溯。
-      const mapping = await platformStore.getIntegrationMapping(
-        tenantOf(request),
+      const replayed = await replayRawRecordByMapping(
+        request,
+        record,
         body.mappingId,
+        payload,
       );
-      const providerConnection = await platformStore.getIntegrationConnection(
-        tenantOf(request),
-        mapping.connectionId,
-      );
-      const mappingLike = mapping as unknown as IntegrationMappingLike;
-      const columns = buildHttpJsonConnectorConfig(
-        {
-          provider: providerConnection.provider,
-          credentialRef: providerConnection.credentialRef,
-          config: providerConnection.config,
-        },
-        mappingLike,
-      )?.columns;
-      if (!columns) {
-        throw new ConflictError(
-          `REPLAY_MAPPING_UNUSABLE: mapping ${mapping.id} is not an HTTP_JSON mapping with usable columns`,
-        );
-      }
-      const event = mapRecordToEvent(payload, columns);
-      const routing = routeTarget(mappingLike.targetType);
-      if (routing.route === "EVIDENCE") {
-        await storeFor(request).ingestEvents({
-          sourceSystem: mapping.sourceSystem,
-          events: [{ ...event, payload }],
-        });
-      } else if (routing.route === "FINANCIAL_FACT") {
-        const parsed = parseFinancialFact(
-          event as unknown as Record<string, unknown>,
-        );
-        if ("error" in parsed) {
-          throw new ConflictError(
-            `REPLAY_FINANCIAL_FACT_INVALID: ${parsed.error}`,
-          );
-        }
-        const occurredAt =
-          typeof event.occurredAt === "string" ? event.occurredAt : "";
-        await (
-          storeFor(request) as unknown as {
-            createFinancialFact: (input: Record<string, unknown>) => Promise<unknown>;
-          }
-        ).createFinancialFact({
-          tenantId: tenantOf(request),
-          sourceSystem: mapping.sourceSystem,
-          sourceRecordId: String(event.sourceRecordId ?? record.externalRecordId),
-          factType: parsed.factType,
-          periodStart: occurredAt.slice(0, 10) || undefined,
-          periodEnd: occurredAt.slice(0, 10) || undefined,
-          amount: parsed.amount,
-          currency: parsed.currency,
-          qualityStatus: "UNVERIFIED",
-          sourceUpdatedAt: event.sourceUpdatedAt,
-          legalEntityId: parsed.legalEntityId,
-          orderId: parsed.orderId,
-          contractRef: parsed.contractRef,
-          instrumentType: parsed.instrumentType,
-          recognitionStatus: parsed.recognitionStatus,
-          accountingPeriod: parsed.accountingPeriod,
-          fxSnapshot: parsed.fxSnapshot,
-          sourceVersion: parsed.sourceVersion,
-          reversalOf: parsed.reversalOf,
-          payload: event.payload ?? {},
-        });
-      } else {
-        throw new ConflictError(
-          `REPLAY_TARGET_UNSUPPORTED: targetType ${mappingLike.targetType ?? "(missing)"} cannot be replayed`,
-        );
-      }
-      await platformStore.markRawSourceRecordReplayed(tenantOf(request), record.id);
-      countEvent("raw_source_record_replayed_by_mapping");
-      try {
-        await storeFor(request)?.recordAuditEvent?.({
-          actorType: "USER",
-          actorId: ownPersonId(request) ?? undefined,
-          action: "RAW_SOURCE_RECORD_REPLAYED_BY_MAPPING",
-          objectType: "RAW_SOURCE_RECORD",
-          objectId: record.id,
-          reason: `mapping=${body.mappingId} sourceRecord=${record.externalRecordId}`,
-        });
-      } catch {
-        /* audit is best-effort */
-      }
       return data(
         {
           replayed: true,
           sourceRecordId: record.externalRecordId,
           mappingId: body.mappingId,
-          targetType: mappingLike.targetType,
+          targetType: replayed.targetType,
         },
         request,
       );
@@ -1389,6 +1512,209 @@ export function registerIntegrationRoutes(deps: {
         cursorAfter: body.cursorAfter,
         errorSummary: body.errorSummary,
       }),
+      request,
+    );
+  });
+
+  /**
+   * sync-run 级重放（Mapping Studio 失败面板）。
+   *
+   * 语义边界（INT-209 的 run 级封装）：
+   * - 只有该 run 所属租户可重放；跨租户一律 404（不泄露 run 是否存在）。
+   * - 只有 FAILED / PARTIAL 的 run 可重放；SUCCEEDED 等状态 409。
+   * - 只重放目标写入：不重置 checkpoint、不创建新 run、不改原 run 计数，
+   *   原始 run 的记录与审计保持原样（重放本身另记审计）。
+   * - 幂等：replayedAt 已存在的原始记录计入 skipped，不重复投影。
+   * - 缺省范围 = 该 run 期间（createdAt/startedAt → finishedAt）落地的
+   *   failed / quarantined 原始记录：隔离记录按 quarantine 精确匹配；失败
+   *   目标写入没有逐条标记（禁止新增迁移列），按 run 窗口内的原始记录
+   *   回收，已成功投影的记录由目标写入幂等/去重跳过。计数器明确为
+   *   0/0 的 run（例如 provider 拉取失败）没有可重放记录。
+   * - body.rawRecordIds 可精确指定（仍受租户与该连接归属约束）。
+   */
+  app.post("/api/v1/sync-runs/:id/replay", async (request) => {
+    requireRoles(request, "admin", "integration");
+    const body = parse(replaySyncRunSchema, request.body ?? {});
+    const tenantId = tenantOf(request);
+    const run = await platformStore.getSyncRun(tenantId, idOf(request));
+    if (run.status !== "FAILED" && run.status !== "PARTIAL") {
+      throw new ConflictError(
+        `SYNC_RUN_NOT_REPLAYABLE: run ${run.id} is ${run.status}; only FAILED or PARTIAL runs can be replayed`,
+      );
+    }
+    const [resources, mappings, allRecords] = await Promise.all([
+      platformStore.listSyncResources(tenantId, run.connectionId),
+      platformStore.listIntegrationMappings(tenantId, run.connectionId),
+      platformStore.listRawSourceRecords(tenantId),
+    ]);
+    const resourceById = new Map(
+      resources.map((resource) => [resource.id, resource]),
+    );
+    const mappingById = new Map(
+      mappings.map((mapping) => [mapping.id, mapping]),
+    );
+    // 没有 resourceId 的历史原始记录退回按连接映射的 sourceSystem 判定归属。
+    const connectionSourceSystems = new Set(
+      mappings.map((mapping) => mapping.sourceSystem),
+    );
+    const belongsToRun = (record: RawSourceRecord): boolean =>
+      record.resourceId
+        ? resourceById.has(record.resourceId)
+        : connectionSourceSystems.has(record.sourceSystem);
+    const recordById = new Map(
+      allRecords.map((record) => [record.id, record]),
+    );
+    let candidates: RawSourceRecord[];
+    if (body.rawRecordIds) {
+      const seen = new Set<string>();
+      candidates = [];
+      for (const rawRecordId of body.rawRecordIds) {
+        if (seen.has(rawRecordId)) continue;
+        seen.add(rawRecordId);
+        const record = recordById.get(rawRecordId);
+        // 跨租户 / 不属于该 run 的原始记录：404（不泄露存在性）。
+        if (!record || !belongsToRun(record)) {
+          throw new NotFoundError(
+            `RawSourceRecord ${rawRecordId} not found for sync run ${run.id}`,
+          );
+        }
+        candidates.push(record);
+      }
+    } else {
+      const windowStart = Date.parse(run.startedAt ?? run.createdAt);
+      const windowEnd = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
+      const landedInRun = (record: RawSourceRecord): boolean => {
+        if (!belongsToRun(record)) return false;
+        const landedAt = Date.parse(record.createdAt);
+        return landedAt >= windowStart && landedAt <= windowEnd;
+      };
+      const failedCount = run.recordsFailed;
+      const quarantinedCount = run.recordsQuarantined;
+      const countersKnown =
+        failedCount !== undefined || quarantinedCount !== undefined;
+      if (
+        countersKnown &&
+        (failedCount ?? 0) === 0 &&
+        (quarantinedCount ?? 0) === 0
+      ) {
+        // 该 run 没有 failed / quarantined 记录（例如 provider 拉取失败），
+        // 缺省重放范围为空——不把已成功的运行数据重复投影。
+        candidates = [];
+      } else if (!countersKnown || (failedCount ?? 0) > 0) {
+        // failed target write 没有逐条标记（禁止新增迁移列），按 run 窗口
+        // 回收；已成功投影的记录由目标写入幂等/去重跳过。
+        candidates = allRecords.filter(landedInRun);
+      } else {
+        // 只有 quarantined 计数：按隔离区记录精确定位对应原始记录。
+        const quarantinedKeys = new Set(
+          (
+            await platformStore.listQuarantineRecords(tenantId)
+          )
+            .filter(
+              (entry) =>
+                Boolean(entry.externalRecordId) &&
+                Date.parse(entry.createdAt) >= windowStart &&
+                Date.parse(entry.createdAt) <= windowEnd,
+            )
+            .map(
+              (entry) =>
+                `${entry.sourceSystem}\u0000${entry.externalRecordId ?? ""}`,
+            ),
+        );
+        candidates = allRecords.filter(
+          (record) =>
+            landedInRun(record) &&
+            quarantinedKeys.has(
+              `${record.sourceSystem}\u0000${record.externalRecordId}`,
+            ),
+        );
+      }
+    }
+    let skipped = 0;
+    let replayed = 0;
+    let failed = 0;
+    const replayedIds: string[] = [];
+    const failures: string[] = [];
+    for (const record of candidates) {
+      if (record.replayedAt) {
+        skipped += 1;
+        continue;
+      }
+      const resource = record.resourceId
+        ? resourceById.get(record.resourceId)
+        : undefined;
+      // 优先用资源绑定映射；否则用同 sourceSystem 的最新 ACTIVE 映射。
+      const fallbackMapping = mappings
+        .filter(
+          (mapping) =>
+            mapping.sourceSystem === record.sourceSystem &&
+            mapping.status === "ACTIVE",
+        )
+        .sort((left, right) => right.version - left.version)[0];
+      const mappingId =
+        (resource?.mappingId && mappingById.has(resource.mappingId)
+          ? resource.mappingId
+          : undefined) ?? fallbackMapping?.id;
+      if (!mappingId) {
+        failed += 1;
+        if (failures.length < 5) {
+          failures.push(`${record.id}: no usable mapping`);
+        }
+        continue;
+      }
+      try {
+        // 证据通道按原始投影版本重放，已成功投影的记录命中 ingest 幂等键。
+        const projectionVersion =
+          record.sourceVersion &&
+          record.payloadHash &&
+          record.sourceVersion === record.payloadHash
+            ? "1"
+            : record.sourceVersion;
+        const outcome = await replayRawRecordByMapping(
+          request,
+          record,
+          mappingId,
+          undefined,
+          { sourceEventVersion: projectionVersion },
+        );
+        if (outcome.skipped) {
+          skipped += 1;
+        } else {
+          replayed += 1;
+          replayedIds.push(record.id);
+        }
+      } catch (error) {
+        failed += 1;
+        if (failures.length < 5) {
+          failures.push(
+            `${record.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+    }
+    try {
+      await storeFor(request)?.recordAuditEvent?.({
+        actorType: "USER",
+        actorId: ownPersonId(request) ?? undefined,
+        action: "SYNC_RUN_REPLAYED",
+        objectType: "SYNC_RUN",
+        objectId: run.id,
+        reason:
+          `run=${run.id} connection=${run.connectionId} ` +
+          `replayed=${replayed} skipped=${skipped} failed=${failed}` +
+          (replayedIds.length > 0
+            ? ` rawRecordIds=${replayedIds.slice(0, 20).join(",")}`
+            : "") +
+          (failures.length > 0 ? ` failures=${failures.join("; ")}` : ""),
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    countEvent("sync_run_replayed");
+    return data(
+      { replayed, skipped, failed, rawRecordIds: replayedIds },
       request,
     );
   });

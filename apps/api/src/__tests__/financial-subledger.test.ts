@@ -77,6 +77,16 @@ async function get(
   return (await app.inject({ method: "GET", url })) as unknown as InjectResult;
 }
 
+function errorMessage(result: InjectResult): string {
+  return (result.json() as { error: { message: string } }).error.message;
+}
+
+function errorDetails(result: InjectResult): string {
+  return JSON.stringify(
+    (result.json() as { error: { details?: unknown } }).error.details ?? [],
+  );
+}
+
 interface FactBody {
   id: string;
   documentType?: string;
@@ -94,6 +104,14 @@ interface FactBody {
   orderId?: string;
   contractRef?: string;
   recognitionStatus: string;
+  payload?: Record<string, unknown>;
+}
+
+interface InvoiceTaxBody {
+  code: string;
+  rate: string;
+  base: string;
+  taxAmount: string;
 }
 
 function envelope(result: InjectResult): { data: FactBody } {
@@ -1751,5 +1769,330 @@ describe("Financial subledger aging cross-currency conversion", () => {
     expect(
       (provisionRes.json() as { error: { message: string } }).error.message,
     ).toMatch(/CROSS_CURRENCY_FX_REQUIRED/);
+  });
+});
+
+/**
+ * 迁移 115：发票多税种（VAT 13% + WHT 6% 等）。
+ *
+ * 覆盖：
+ * - 逐税种 1e6 定点计算、先取整后汇总（tax_amount）与含税总额（totalAmount）；
+ * - payload.taxBreakdown 明细（code / rate / base / taxAmount），不新增列；
+ * - taxes 与旧 taxRate 互斥、空数组 / 超 5 条 / 重复 code / 越界 code&rate（400）；
+ * - 客户端 taxAmount 必须等于逐税种汇总（409），只有 taxAmount 无税率（409）；
+ * - 收款按含税总额核销、账龄 open 用含税总额；
+ * - GL：单一 TAX_PAYABLE 贷记汇总税额，凭证借贷平衡且不新增科目。
+ */
+describe("Financial subledger multi-tax invoices (migration 115)", () => {
+  it("computes two taxes (13% + 6%) per code and aggregates into tax_amount", async () => {
+    const app = buildAppFor();
+    const res = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-1",
+        amount: "1000.00",
+        taxes: [
+          { code: "VAT", rate: 13 },
+          { code: "WHT", rate: 6 },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(201);
+    const invoice = envelope(res).data;
+    // 逐税种先算再汇总：130 + 60 = 190；发票总额 1000 + 190 = 1190。
+    expect(invoice.taxRate).toBeUndefined();
+    expect(invoice.taxAmount).toBe("190");
+    expect(invoice.totalAmount).toBe("1190");
+    expect(invoice.payload?.taxBreakdown).toEqual([
+      { code: "VAT", rate: "13", base: "1000", taxAmount: "130" },
+      { code: "WHT", rate: "6", base: "1000", taxAmount: "60" },
+    ] satisfies InvoiceTaxBody[]);
+
+    const journal = (await journalsFor(app, "INV-MT-1"))[0];
+    assertBalanced(journal);
+    expect(journal?.totalDebit).toBe("1190");
+    expect(journal?.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountCode: "AR", debit: "1190", credit: "0" }),
+        expect.objectContaining({ accountCode: "REVENUE", debit: "0", credit: "1000" }),
+        expect.objectContaining({
+          accountCode: "TAX_PAYABLE",
+          debit: "0",
+          credit: "190",
+        }),
+      ]),
+    );
+    // 不按税种新增科目：仍是一借两贷三行。
+    expect(journal?.lines).toHaveLength(3);
+
+    // 冲销凭证 = 原凭证借贷互换：TAX_PAYABLE 借方 = 汇总税额，仍平衡。
+    const reversalRes = await post(
+      app,
+      `/api/v1/financial-facts/${invoice.id}/reverse`,
+      { reason: "multi-tax audit" },
+    );
+    expect(reversalRes.statusCode).toBe(201);
+    const reversal = envelope(reversalRes).data;
+    const reversalJournal = (
+      await journalsFor(app, reversal.documentId ?? "")
+    )[0];
+    assertBalanced(reversalJournal);
+    expect(reversalJournal?.totalDebit).toBe("1190");
+    expect(reversalJournal?.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          accountCode: "AR",
+          debit: "0",
+          credit: "1190",
+        }),
+        expect.objectContaining({
+          accountCode: "TAX_PAYABLE",
+          debit: "190",
+          credit: "0",
+        }),
+      ]),
+    );
+  });
+
+  it("rounds each tax before summing and re-validates client taxAmount", async () => {
+    const app = buildAppFor();
+    // 0.000003 × 50% = 0.0000015 → HALF_UP 0.000002；两条合计 0.000004。
+    // 若先合并税率（100%）一次取整只会得到 0.000003，验证“先逐条取整”。
+    const res = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-ROUND",
+        amount: "0.000003",
+        taxes: [
+          { code: "VAT", rate: 50 },
+          { code: "WHT", rate: 50 },
+        ],
+      }),
+    );
+    expect(res.statusCode).toBe(201);
+    const invoice = envelope(res).data;
+    expect(invoice.taxAmount).toBe("0.000004");
+    expect(invoice.totalAmount).toBe("0.000007");
+
+    // 客户端 taxAmount 与逐税种汇总一致 → 201。
+    const accepted = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-ROUND-2",
+        amount: "1000.00",
+        taxes: [
+          { code: "VAT", rate: 13 },
+          { code: "WHT", rate: 6 },
+        ],
+        taxAmount: "190.00",
+      }),
+    );
+    expect(accepted.statusCode).toBe(201);
+    expect(envelope(accepted).data.taxAmount).toBe("190");
+
+    // 用“汇总税率一次取整”的 0.000003 冒充 → 409（汇总校验失败）。
+    const drifted = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-ROUND-3",
+        amount: "0.000003",
+        taxes: [
+          { code: "VAT", rate: 50 },
+          { code: "WHT", rate: 50 },
+        ],
+        taxAmount: "0.000003",
+      }),
+    );
+    expect(drifted.statusCode).toBe(409);
+    expect(errorMessage(drifted)).toMatch(/TAX_AMOUNT_INCONSISTENT/);
+
+    // 只有 taxAmount、没有 taxRate / taxes → 409（无口径可校验）。
+    const noRate = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-ROUND-4",
+        amount: "1000.00",
+        taxAmount: "190.00",
+      }),
+    );
+    expect(noRate.statusCode).toBe(409);
+    expect(errorMessage(noRate)).toMatch(/TAX_RATE_REQUIRED/);
+  });
+
+  it("rejects taxRate + taxes, empty/oversized arrays and duplicate codes", async () => {
+    const app = buildAppFor();
+    const both = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-BAD-BOTH",
+        taxRate: 13,
+        taxes: [{ code: "VAT", rate: 13 }],
+      }),
+    );
+    expect(both.statusCode).toBe(400);
+    expect(errorDetails(both)).toMatch(/MUTUALLY_EXCLUSIVE_TAX_INPUT/);
+
+    const empty = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({ documentId: "INV-MT-BAD-EMPTY", taxes: [] }),
+    );
+    expect(empty.statusCode).toBe(400);
+    expect(errorDetails(empty)).toMatch(/between 1 and 5/);
+
+    const oversized = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-BAD-MANY",
+        taxes: Array.from({ length: 6 }, (_, index) => ({
+          code: `T${index}`,
+          rate: 1,
+        })),
+      }),
+    );
+    expect(oversized.statusCode).toBe(400);
+    expect(errorDetails(oversized)).toMatch(/between 1 and 5/);
+
+    // 重复 code（大小写/首尾空白归一后相同）→ 400，拒绝歧义税率。
+    const duplicate = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-BAD-DUP",
+        taxes: [
+          { code: "VAT", rate: 13 },
+          { code: " vat ", rate: 6 },
+        ],
+      }),
+    );
+    expect(duplicate.statusCode).toBe(400);
+    expect(errorDetails(duplicate)).toMatch(/DUPLICATE_TAX_CODE/);
+
+    const longCode = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-BAD-CODE",
+        taxes: [{ code: "X".repeat(33), rate: 5 }],
+      }),
+    );
+    expect(longCode.statusCode).toBe(400);
+    expect(errorDetails(longCode)).toMatch(/at most 32 characters/);
+
+    const blankCode = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoicePayload({
+        documentId: "INV-MT-BAD-BLANK",
+        taxes: [{ code: "   ", rate: 5 }],
+      }),
+    );
+    expect(blankCode.statusCode).toBe(400);
+
+    for (const rate of [101, -1, 1.1234567]) {
+      const bad = await post(
+        app,
+        "/api/v1/financial-invoices",
+        invoicePayload({
+          documentId: `INV-MT-BAD-RATE-${rate}`,
+          taxes: [{ code: "VAT", rate }],
+        }),
+      );
+      expect(bad.statusCode).toBe(400);
+    }
+
+    // 全部在写库前失败：不产生任何发票事实。
+    const agingRes = await get(
+      app,
+      `/api/v1/financial-subledger/aging?legalEntityId=${LEGAL_ENTITY}&asOf=2026-11-25`,
+    );
+    expect(agingRes.statusCode).toBe(200);
+    expect(
+      (agingRes.json() as { data: { invoices: AgingRow[] } }).data.invoices,
+    ).toHaveLength(0);
+  });
+
+  it("settles against the tax-inclusive total and ages the open amount with tax", async () => {
+    const app = buildAppFor();
+    const asOf = "2026-11-25";
+    const createRes = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-MT-AGING", "1000.00", "2026-11-20T00:00:00.000Z", {
+        accountingPeriod: "2026-11",
+        taxes: [
+          { code: "VAT", rate: 13 },
+          { code: "WHT", rate: 6 },
+        ],
+      }),
+    );
+    expect(createRes.statusCode).toBe(201);
+    const invoice = envelope(createRes).data;
+    expect(invoice.totalAmount).toBe("1190");
+
+    // 只付不含税额 1000 → 税额仍开放：open = 1190 - 1000 = 190。
+    const partial = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "PAYMENT",
+      amount: "1000.00",
+    });
+    expect(partial.statusCode).toBe(201);
+    // 收付事实记录被核销发票的含税总额口径（迁移 115）。
+    expect(envelope(partial).data.payload).toMatchObject({
+      invoiceTaxAmount: "190",
+      invoiceTotalAmount: "1190",
+    });
+
+    const partialAging = await aging(app, LEGAL_ENTITY, asOf);
+    expect(partialAging.invoices).toHaveLength(1);
+    expect(partialAging.invoices[0]).toMatchObject({
+      documentId: "INV-MT-AGING",
+      taxAmount: "190",
+      totalAmount: "1190",
+      payments: "1000",
+      openAmount: "190",
+      status: "OPEN",
+    });
+    expect(partialAging.totals[0]?.openAmount).toBe("190");
+
+    // 补齐税额 190 → 含税总额结清，账龄 open 归零。
+    const settle = await post(app, "/api/v1/financial-payments", {
+      relatedFactId: invoice.id,
+      documentType: "PAYMENT",
+      amount: "190.00",
+    });
+    expect(settle.statusCode).toBe(201);
+
+    const settledAging = await aging(app, LEGAL_ENTITY, asOf);
+    expect(settledAging.invoices[0]).toMatchObject({
+      payments: "1190",
+      openAmount: "0",
+      status: "SETTLED",
+    });
+    expect(settledAging.totals[0]?.openAmount).toBe("0");
+  });
+
+  it("keeps legacy single-rate invoices working alongside multi-tax", async () => {
+    const app = buildAppFor();
+    const legacy = await post(
+      app,
+      "/api/v1/financial-invoices",
+      invoiceBody("INV-MT-LEGACY", "1000.00", "2026-11-20T00:00:00.000Z", {
+        taxRate: 13,
+      }),
+    );
+    expect(legacy.statusCode).toBe(201);
+    const legacyInvoice = envelope(legacy).data;
+    expect(legacyInvoice.taxRate).toBe("13");
+    expect(legacyInvoice.taxAmount).toBe("130");
+    // 单税率发票不写 taxBreakdown，避免两种口径同时出现。
+    expect(legacyInvoice.payload?.taxBreakdown).toBeUndefined();
   });
 });

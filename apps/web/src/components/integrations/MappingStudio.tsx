@@ -35,7 +35,7 @@ import {
   Textarea,
 } from "../ui.js";
 import { useToast } from "../../contexts/ToastContext.js";
-import { api } from "../../lib/api.js";
+import { api, ApiError } from "../../lib/api.js";
 import { formatDateTime, shortId } from "../../lib/format.js";
 import type {
   IntegrationConnection,
@@ -86,6 +86,19 @@ interface SyncRunCounters {
 
 type SyncRunWithCounters = SyncRun & SyncRunCounters;
 
+/** POST /api/v1/sync-runs/:id/replay 的返回体。 */
+interface SyncRunReplayResult {
+  replayed: number;
+  skipped: number;
+  failed: number;
+  rawRecordIds: string[];
+}
+
+/** FAILED / PARTIAL 的 run 才允许重放，其余状态后端会返回 409。 */
+function isReplayableRun(run: SyncRun): boolean {
+  return run.status === "FAILED" || run.status === "PARTIAL";
+}
+
 function errorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : "未知错误";
 }
@@ -129,6 +142,53 @@ function SyncFailurePanel({
   const latestQuarantined = latest
     ? numberOrNull(latest.recordsQuarantined)
     : null;
+
+  const toast = useToast();
+  const [replaying, setReplaying] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [replaySummary, setReplaySummary] = useState<string | null>(null);
+  /** 最近一次可重放的运行；没有则按钮保持禁用并说明原因。 */
+  const replayable = useMemo(
+    () =>
+      [...runs]
+        .filter(isReplayableRun)
+        .sort(
+          (left, right) =>
+            Date.parse(right.createdAt) - Date.parse(left.createdAt),
+        )[0],
+    [runs],
+  );
+
+  async function replayFailedRecords(): Promise<void> {
+    if (!replayable || replaying) return;
+    setReplaying(true);
+    setReplayError(null);
+    try {
+      const result = await api<SyncRunReplayResult>(
+        `/api/v1/sync-runs/${replayable.id}/replay`,
+        { method: "POST" },
+      );
+      const summary = `replayed ${result.replayed} · skipped ${result.skipped} · failed ${result.failed}`;
+      setReplaySummary(summary);
+      if (result.failed > 0) {
+        toast.error("重放部分失败", summary);
+      } else if (result.replayed > 0) {
+        toast.success("重放完成", summary);
+      } else {
+        toast.success("没有需要重放的记录", summary);
+      }
+      reload?.();
+    } catch (caught) {
+      const message =
+        caught instanceof ApiError && caught.status === 403
+          ? "当前账号没有重放权限（需要 admin 或 integration 角色）"
+          : errorMessage(caught);
+      setReplayError(message);
+      toast.error("重放失败", message);
+    } finally {
+      setReplaying(false);
+    }
+  }
 
   return (
     <section
@@ -254,27 +314,38 @@ function SyncFailurePanel({
           size="sm"
           variant="secondary"
           icon="play"
-          disabled
-          aria-describedby="mapping-replay-unavailable"
+          loading={replaying}
+          disabled={!replayable}
+          aria-describedby="mapping-replay-scope"
+          onClick={() => void replayFailedRecords()}
         >
           重放失败记录
         </Button>
         <span
-          id="mapping-replay-unavailable"
+          id="mapping-replay-scope"
           className="muted"
           style={{ fontSize: 12, maxWidth: "78ch", lineHeight: 1.5 }}
         >
-          后端暂无 sync-run 级重放接口：现有{" "}
-          <span className="mono">
-            POST /api/v1/raw-source-records/{"{id}"}/replay
-          </span>{" "}
-          只能按单条原始记录（带 mappingId）重放。批量重放需后端新增{" "}
-          <span className="mono">
-            POST /api/v1/integration-connections/{"{id}"}/sync-runs/{"{runId}"}/replay
-          </span>{" "}
-          或等价端点；在此之前前端不提供操作，以免重复投影或绕过审计。
+          {replayable ? (
+            <>
+              将重放{" "}
+              <span className="mono">{shortId(replayable.id, 12)}</span>（
+              {replayable.status}）运行期间落地的原始记录：只重做目标写入，
+              不重置 checkpoint、不新建 run；已重放记录自动跳过。
+            </>
+          ) : (
+            "最近没有 FAILED / PARTIAL 的同步运行，暂无可重放的失败记录。"
+          )}
         </span>
       </div>
+      {replayError ? (
+        <ErrorNotice title="重放失败" error={new Error(replayError)} />
+      ) : null}
+      {replaySummary ? (
+        <p className="muted" role="status" style={{ fontSize: 12, margin: 0 }}>
+          最近一次重放：{replaySummary}
+        </p>
+      ) : null}
     </section>
   );
 }

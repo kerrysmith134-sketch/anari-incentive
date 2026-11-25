@@ -119,6 +119,11 @@
 | Accounting Period 审批人/通知 | 关闭 | 迁移 113 + 审批人目录 + 创建/结果站内通知 + UI。 |
 | Integrations Mapping Studio | 关闭（前端） | 映射编辑/预览/版本化保存/失败面板；sync-run 级重放后端仍缺。 |
 | 坏账部分核销 | 关闭 | write-off 支持部分金额，累计不超 open，GL 平衡。 |
+| Agent 辅助 | 关闭（确定性） | 映射建议/同步异常/对账差异解释 3 个 API，纯规则无外部 LLM。 |
+| Sync-run 重放 | 关闭 | 新增 `/sync-runs/:id/replay`，Mapping Studio 按钮启用；幂等/跨租户/状态门禁。 |
+| KMS 轮换健康 | 关闭 | `/integration-keys/health` + 超龄/失败告警 webhook；不泄露密钥。 |
+| 发票多税种 | 关闭 | taxes[] 多税种、tax breakdown、GL 汇总税额仍平衡。 |
+| PG 并发回归 | 关闭 | 合同确认/终止、重复确认、关期/入账并发，124 PG tests。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -144,10 +149,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：138 files passed / 2 skipped；1410 tests passed / 108 skipped。
+- `npm test`：139 files passed / 2 skipped；1475 tests passed / 111 skipped。
 - `npm run typecheck`：API + web 全绿。
-- `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
-- `npm run test:pg-upgrade`：89 → 114 migrations，107 tests passed。
+- `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
+- `npm run test:pg-upgrade`：89 → 115 migrations，110 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

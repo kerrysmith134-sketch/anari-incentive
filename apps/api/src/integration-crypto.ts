@@ -39,6 +39,18 @@
  * Until then, rows written under a retired keyId are not decryptable and are
  * surfaced as `RAW_PAYLOAD_KEY_MISSING` so the caller can quarantine/alert
  * rather than silently treating the payload as empty.
+ *
+ * Rotation health (observability):
+ * ---------------------------------
+ * `keyHealth()` returns a key-material-free snapshot (active keyId, key ids,
+ * source, process-local load timestamp, age in days, rotationDue) for the admin
+ * health endpoint. The process remembers when each key *material* was first
+ * observed: a reload that does not change the material keeps the original
+ * timestamp, so a periodic reload cannot mask an overdue rotation. Over-age
+ * keys and failed reloads are alerted, never fatal: the startup/periodic check
+ * only logs, and the optional `WEBHOOK_KEY_ALERT_URL` receives one JSON POST
+ * per state change. A failed alert POST is logged and never retried inline, so
+ * alerting cannot recurse.
  */
 
 import {
@@ -58,6 +70,24 @@ export const RAW_PAYLOAD_ENVELOPE_VERSION = "v2";
 
 /** Key id used when neither the caller nor `WEBHOOK_KEY_ID` names one. */
 export const DEFAULT_WEBHOOK_KEY_ID = "v1";
+
+/** Default age (days) after which a key counts as due for rotation. */
+export const DEFAULT_WEBHOOK_KEY_MAX_AGE_DAYS = 90;
+
+/** Accepted `WEBHOOK_KEY_MAX_AGE_DAYS` range. */
+export const MIN_WEBHOOK_KEY_MAX_AGE_DAYS = 1;
+export const MAX_WEBHOOK_KEY_MAX_AGE_DAYS = 3650;
+
+/** Rotation alert POST timeout (requirement: 5s). */
+export const KEY_ALERT_TIMEOUT_MS = 5_000;
+
+/** Default interval of the in-process rotation check (1 hour). */
+export const DEFAULT_KEY_HEALTH_INTERVAL_MS = 3_600_000;
+
+/** Never check more often than once a minute. */
+export const MIN_KEY_HEALTH_INTERVAL_MS = 60_000;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Development-only fallbacks. They are public by design and keep local runs
@@ -134,6 +164,16 @@ export interface IntegrationCryptoOptions {
   rawKeys?: Record<string, string>;
   /** Verification keyring: keyId -> signing secret (dual-signature window). */
   signingKeys?: Record<string, string>;
+  /**
+   * Clock injection (tests / deterministic health ages). Defaults to the real
+   * clock; only used for load timestamps, age and alert timestamps.
+   */
+  now?: () => Date;
+  /**
+   * Maximum key age in days; defaults to `env.WEBHOOK_KEY_MAX_AGE_DAYS`
+   * (default 90, valid range 1-3650).
+   */
+  maxAgeDays?: number;
 }
 
 export interface ResolvedIntegrationKeys {
@@ -149,6 +189,43 @@ export interface ResolvedIntegrationKeys {
   rawKeys: Record<string, string>;
   /** All signing secrets available for verification (active first). */
   signingKeys: Record<string, string>;
+  /**
+   * Where the key material came from: `FILE` for the KMS/Vault projected
+   * keyring file, `ENV` for environment / explicit injection.
+   */
+  source: IntegrationKeySource;
+}
+
+/** Source of the keyring material (never includes the material itself). */
+export type IntegrationKeySource = "FILE" | "ENV";
+
+/**
+ * Keyless rotation-health snapshot. It must never carry key material; the
+ * admin endpoint returns it verbatim, so every field is safe to publish.
+ */
+export interface IntegrationKeyHealth {
+  /** False when the active key is over age or the last reload failed. */
+  ok: boolean;
+  /** Key id used for new ciphertexts. */
+  activeKeyId: string;
+  /** Number of raw keys currently in the keyring. */
+  keyCount: number;
+  /** Raw key ids in the keyring (ids only, never values). */
+  keyIds: string[];
+  /** FILE when the keyring came from WEBHOOK_KEYRING_FILE, else ENV. */
+  source: IntegrationKeySource;
+  /** ISO timestamp of the last successful keyring load (process-local). */
+  lastLoadedAt: string;
+  /** Age of the active key material in days (2 decimals). */
+  ageDays: number;
+  /** True when ageDays > the configured maximum age. */
+  rotationDue: boolean;
+  /** The maximum age in force (WEBHOOK_KEY_MAX_AGE_DAYS, default 90). */
+  maxAgeDays: number;
+  /** True when the process fell back to public development keys. */
+  usedDevDefaults: boolean;
+  /** Sanitized reason of the last failed reload; never contains key material. */
+  lastError?: string;
 }
 
 export interface IntegrationCrypto {
@@ -166,6 +243,11 @@ export interface IntegrationCrypto {
   signatureKeysFor(routingKey: string): string[];
   /** Re-reads the keyring file / env and swaps keys atomically. */
   reload(): void;
+  /**
+   * Keyless rotation-health snapshot (age, rotationDue, lastError, source).
+   * `at` overrides the clock for the age computation.
+   */
+  keyHealth(at?: Date): IntegrationKeyHealth;
   readonly keyId: string;
   readonly keyIds: string[];
   readonly usedDevDefaults: boolean;
@@ -181,6 +263,54 @@ interface ParsedCiphertext {
 
 function hasText(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Resolves `WEBHOOK_KEY_MAX_AGE_DAYS` (default 90, valid range 1-3650).
+ *
+ * An unusable value never blocks startup (rotation health is advisory); it is
+ * reported as a warning so the API can log it once and keep the default.
+ */
+export function resolveWebhookKeyMaxAgeDays(
+  env: NodeJS.ProcessEnv = process.env,
+): { days: number; warning?: string } {
+  const raw = env.WEBHOOK_KEY_MAX_AGE_DAYS;
+  if (!hasText(raw)) return { days: DEFAULT_WEBHOOK_KEY_MAX_AGE_DAYS };
+  const parsed = Number(raw.trim());
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < MIN_WEBHOOK_KEY_MAX_AGE_DAYS ||
+    parsed > MAX_WEBHOOK_KEY_MAX_AGE_DAYS
+  ) {
+    return {
+      days: DEFAULT_WEBHOOK_KEY_MAX_AGE_DAYS,
+      warning:
+        `WEBHOOK_KEY_MAX_AGE_DAYS must be an integer between ` +
+        `${MIN_WEBHOOK_KEY_MAX_AGE_DAYS} and ${MAX_WEBHOOK_KEY_MAX_AGE_DAYS} ` +
+        `(got ${JSON.stringify(raw)}); using ${DEFAULT_WEBHOOK_KEY_MAX_AGE_DAYS}`,
+    };
+  }
+  return { days: parsed };
+}
+
+/**
+ * Turns a failed keyring load into a publishable reason.
+ *
+ * `IntegrationKeyConfigError.problems` describe configuration names and key
+ * ids only, never values; any other error is reduced to a generic message so a
+ * future error shape (or a file read failure) cannot leak material through
+ * `GET /api/v1/integration-keys/health`.
+ */
+function describeKeyLoadError(error: unknown): string {
+  const message =
+    error instanceof IntegrationKeyConfigError
+      ? error.problems.join("; ") || "integration key configuration is invalid"
+      : "integration key reload failed; see server logs for details";
+  return message.length > 500 ? `${message.slice(0, 497)}...` : message;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function formatError(message: string): RawPayloadDecryptError {
@@ -310,6 +440,15 @@ export function resolveIntegrationKeys(
     ),
   };
 
+  // Source is provenance only: FILE when the KMS/Vault projection supplied at
+  // least one key, ENV for env vars / explicit injection.
+  const fileKeyringHasKeys = Boolean(
+    fileKeyring &&
+      (Object.keys(fileKeyring.rawKeys).length > 0 ||
+        Object.keys(fileKeyring.signingKeys).length > 0),
+  );
+  const source: IntegrationKeySource = fileKeyringHasKeys ? "FILE" : "ENV";
+
   let signingKey: string | undefined = hasText(options.signingSecret)
     ? options.signingSecret
     : hasText(env.WEBHOOK_SIGNING_SECRET)
@@ -420,6 +559,7 @@ export function resolveIntegrationKeys(
     usedDevDefaults,
     rawKeys: allRaw,
     signingKeys: allSigning,
+    source,
   };
 }
 
@@ -457,8 +597,12 @@ function loadKeyringFile(
       ),
     };
   } catch (error) {
+    // Never echo error.message: a JSON.parse error embeds a snippet of the
+    // file, which may be raw key material. errno codes are safe.
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
     problems.push(
-      `WEBHOOK_KEYRING_FILE cannot be read: ${error instanceof Error ? error.message : "unknown error"}`,
+      "WEBHOOK_KEYRING_FILE cannot be read: " +
+        (typeof code === "string" ? code : "invalid JSON or unreadable file"),
     );
     return undefined;
   }
@@ -523,15 +667,66 @@ export function createIntegrationCrypto(
   let activeRawKey: Buffer = Buffer.alloc(32);
   let keyId = keys.keyId;
 
+  const env = options.env ?? process.env;
+  const clock = options.now ?? (() => new Date());
+  /** keyId -> when this process first saw that key material. */
+  let keyLoads = new Map<string, { fingerprint: string; loadedAt: number }>();
+  let lastLoadedAt = 0;
+  let source: IntegrationKeySource = keys.source;
+  let maxAgeDays = DEFAULT_WEBHOOK_KEY_MAX_AGE_DAYS;
+  let lastError: string | undefined;
+
+  const resolveMaxAge = (): number => {
+    if (options.maxAgeDays === undefined) {
+      return resolveWebhookKeyMaxAgeDays(env).days;
+    }
+    const value = options.maxAgeDays;
+    if (
+      !Number.isInteger(value) ||
+      value < MIN_WEBHOOK_KEY_MAX_AGE_DAYS ||
+      value > MAX_WEBHOOK_KEY_MAX_AGE_DAYS
+    ) {
+      throw new TypeError(
+        `maxAgeDays must be an integer between ${MIN_WEBHOOK_KEY_MAX_AGE_DAYS} ` +
+          `and ${MAX_WEBHOOK_KEY_MAX_AGE_DAYS} (got ${String(value)})`,
+      );
+    }
+    return value;
+  };
+
   const apply = (next: ResolvedIntegrationKeys): void => {
+    // Validate plus derive everything before mutating, so a failed reload keeps
+    // the previous keyring fully intact (atomic swap).
+    const nextMaxAge = resolveMaxAge();
+    const loadedAtMs = clock().getTime();
     const nextKeys: Record<string, Buffer> = {};
+    const nextLoads = new Map<
+      string,
+      { fingerprint: string; loadedAt: number }
+    >();
     for (const [id, value] of Object.entries(next.rawKeys)) {
-      nextKeys[id] = createHash("sha256").update(value, "utf8").digest();
+      const derived = createHash("sha256").update(value, "utf8").digest();
+      nextKeys[id] = derived;
+      const fingerprint = derived.toString("hex");
+      const previous = keyLoads.get(id);
+      // Same material => keep the original load time: a no-op reload must not
+      // hide an overdue rotation. New/rotated material starts its own clock.
+      nextLoads.set(
+        id,
+        previous && previous.fingerprint === fingerprint
+          ? previous
+          : { fingerprint, loadedAt: loadedAtMs },
+      );
     }
     keys = next;
     rawKeys = nextKeys;
+    keyLoads = nextLoads;
     activeRawKey = rawKeys[next.keyId]!;
     keyId = next.keyId;
+    source = next.source;
+    lastLoadedAt = loadedAtMs;
+    maxAgeDays = nextMaxAge;
+    lastError = undefined;
   };
   apply(keys);
 
@@ -565,7 +760,36 @@ export function createIntegrationCrypto(
     },
 
     reload(): void {
-      apply(resolveIntegrationKeys(options));
+      try {
+        apply(resolveIntegrationKeys(options));
+      } catch (error) {
+        // Keep serving the previous keyring, but publish why the new one was
+        // rejected. describeKeyLoadError never echoes key material.
+        lastError = describeKeyLoadError(error);
+        throw error;
+      }
+    },
+
+    keyHealth(at?: Date): IntegrationKeyHealth {
+      const nowMs = (at ?? clock()).getTime();
+      const active = keyLoads.get(keyId);
+      const ageDays = round2(
+        active ? Math.max(0, (nowMs - active.loadedAt) / DAY_MS) : 0,
+      );
+      const rotationDue = ageDays > maxAgeDays;
+      return {
+        ok: !rotationDue && lastError === undefined,
+        activeKeyId: keyId,
+        keyCount: Object.keys(rawKeys).length,
+        keyIds: Object.keys(rawKeys),
+        source,
+        lastLoadedAt: new Date(lastLoadedAt).toISOString(),
+        ageDays,
+        rotationDue,
+        maxAgeDays,
+        usedDevDefaults: keys.usedDevDefaults,
+        ...(lastError === undefined ? {} : { lastError }),
+      };
     },
 
     signatureKeysFor,
@@ -646,6 +870,285 @@ export function createIntegrationCrypto(
         "legacy v1 raw payload could not be decrypted with any key in the keyring",
         { cause: lastError },
       );
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Rotation health alerting (WEBHOOK_KEY_ALERT_URL) / startup + periodic check
+// ---------------------------------------------------------------------------
+
+export type IntegrationKeyAlertEvent = "rotation_due" | "reload_failed";
+
+/**
+ * Exact JSON body POSTed to `WEBHOOK_KEY_ALERT_URL`. It contains key *ids* and
+ * ages only; key material must never appear here.
+ */
+export interface IntegrationKeyAlertPayload {
+  event: IntegrationKeyAlertEvent;
+  activeKeyId: string;
+  ageDays: number;
+  at: string;
+}
+
+export interface IntegrationKeyAlertResult {
+  sent: boolean;
+  status?: number;
+  error?: string;
+}
+
+export interface SendIntegrationKeyAlertOptions {
+  url: string;
+  payload: IntegrationKeyAlertPayload;
+  /** fetch injection for tests; defaults to the runtime global fetch. */
+  fetchImpl?: typeof fetch;
+  /** Timeout in ms; defaults to KEY_ALERT_TIMEOUT_MS (5s). */
+  timeoutMs?: number;
+}
+
+/**
+ * POSTs one rotation alert.
+ *
+ * Contract:
+ *   - the URL must be an absolute http(s) URL; anything else is refused;
+ *   - the request is aborted after `timeoutMs` (default 5s);
+ *   - it NEVER throws and NEVER retries, so alerting cannot recurse into
+ *     another alert; the failure is returned for the caller to log once.
+ */
+export async function sendIntegrationKeyAlert(
+  options: SendIntegrationKeyAlertOptions,
+): Promise<IntegrationKeyAlertResult> {
+  const timeoutMs = Math.max(1, options.timeoutMs ?? KEY_ALERT_TIMEOUT_MS);
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    return { sent: false, error: "fetch is unavailable in this runtime" };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(String(options.url).trim());
+  } catch {
+    return { sent: false, error: "WEBHOOK_KEY_ALERT_URL is not a valid URL" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return {
+      sent: false,
+      error: "WEBHOOK_KEY_ALERT_URL must be an absolute http(s) URL",
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(options.payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return {
+        sent: false,
+        status: response.status,
+        error: `alert endpoint returned ${response.status}`,
+      };
+    }
+    return { sent: true, status: response.status };
+  } catch (error) {
+    return {
+      sent: false,
+      error: controller.signal.aborted
+        ? `alert POST timed out after ${timeoutMs}ms`
+        : error instanceof Error
+          ? error.message
+          : "alert POST failed",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Minimal logger surface the health monitor needs (Fastify's `app.log` fits). */
+export interface KeyRotationLogger {
+  warn(message: string, meta?: Record<string, unknown>): void;
+}
+
+export interface KeyRotationMonitorOptions {
+  /** Anything that can answer `keyHealth()` (a crypto instance or a stub). */
+  crypto: Pick<IntegrationCrypto, "keyHealth">;
+  /** `WEBHOOK_KEY_ALERT_URL`; blank/omitted disables POSTing (health still works). */
+  alertUrl?: string;
+  fetchImpl?: typeof fetch;
+  /** Alert POST timeout; defaults to KEY_ALERT_TIMEOUT_MS (5s). */
+  timeoutMs?: number;
+  logger?: KeyRotationLogger;
+  countEvent?: (event: string) => void;
+  now?: () => Date;
+  /** Check interval; <= 0 runs the startup check only. Default 1h. */
+  intervalMs?: number;
+}
+
+export interface KeyRotationMonitor {
+  /**
+   * Runs one check and resolves with the health snapshot. Alert delivery and
+   * logging failures never throw (an over-age key is never fatal).
+   */
+  check(): Promise<IntegrationKeyHealth>;
+  /**
+   * Records (logs + alerts) a failed reload. Call it from the rotate/reload
+   * routes after the crypto instance rejected the new keyring. Never throws.
+   */
+  reportReloadFailure(): Promise<void>;
+  /** Startup check (not awaited) plus the periodic timer; never blocks startup. */
+  start(): void;
+  stop(): void;
+}
+
+/**
+ * Builds the rotation health monitor used by the integration routes.
+ *
+ * Behaviour (deliberately non-fatal):
+ *   - the startup check runs without blocking listen(); an over-age key only
+ *     produces a logger warning + counter, never an exception;
+ *   - an over-age key POSTs `rotation_due` at most once per (event, activeKeyId)
+ *     per process — a later rotation changes activeKeyId and re-arms it;
+ *   - every failed reload POSTs `reload_failed` (it is an operation, not a
+ *     recurring state);
+ *   - a failed alert POST is logged and counted, never retried inline.
+ */
+export function createKeyRotationMonitor(
+  options: KeyRotationMonitorOptions,
+): KeyRotationMonitor {
+  const clock = options.now ?? (() => new Date());
+  const intervalMs = options.intervalMs ?? DEFAULT_KEY_HEALTH_INTERVAL_MS;
+  const alertUrl = hasText(options.alertUrl) ? options.alertUrl.trim() : undefined;
+  const alertedStates = new Set<string>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let running = false;
+  let stopped = false;
+
+  const warn = (message: string, meta?: Record<string, unknown>): void => {
+    try {
+      options.logger?.warn(message, meta);
+    } catch {
+      /* logging must never break the check */
+    }
+  };
+
+  const send = async (
+    event: IntegrationKeyAlertEvent,
+    health: IntegrationKeyHealth,
+  ): Promise<void> => {
+    if (!alertUrl) return;
+    const payload: IntegrationKeyAlertPayload = {
+      event,
+      activeKeyId: health.activeKeyId,
+      ageDays: health.ageDays,
+      at: clock().toISOString(),
+    };
+    let result: IntegrationKeyAlertResult;
+    try {
+      result = await sendIntegrationKeyAlert({
+        url: alertUrl,
+        payload,
+        fetchImpl: options.fetchImpl,
+        timeoutMs: options.timeoutMs,
+      });
+    } catch (error) {
+      // sendIntegrationKeyAlert never throws; keep the monitor total anyway.
+      result = {
+        sent: false,
+        error: error instanceof Error ? error.message : "alert POST failed",
+      };
+    }
+    if (result.sent) {
+      options.countEvent?.("integration_keys_alert_sent");
+      return;
+    }
+    options.countEvent?.("integration_keys_alert_failed");
+    // 告警投递失败只记日志：不重试、不再触发新的告警（不递归）。
+    warn("integration key rotation alert delivery failed", {
+      event,
+      activeKeyId: payload.activeKeyId,
+      error: result.error,
+    });
+  };
+
+  /** Applies the alerting policy for one snapshot; never throws. */
+  const evaluate = async (health: IntegrationKeyHealth): Promise<void> => {
+    if (!health.rotationDue) return;
+    warn("integration webhook key rotation is overdue", {
+      activeKeyId: health.activeKeyId,
+      ageDays: health.ageDays,
+      maxAgeDays: health.maxAgeDays,
+    });
+    options.countEvent?.("integration_keys_rotation_due");
+    const state = `rotation_due:${health.activeKeyId}`;
+    if (alertedStates.has(state)) return;
+    alertedStates.add(state);
+    await send("rotation_due", health);
+  };
+
+  const guardedCheck = async (): Promise<void> => {
+    if (running || stopped) return;
+    running = true;
+    try {
+      const health = options.crypto.keyHealth(clock());
+      await evaluate(health);
+    } catch (error) {
+      // 健康检查绝不阻断启动或进程。
+      warn("integration key health check failed", {
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+    } finally {
+      running = false;
+    }
+  };
+
+  return {
+    async check(): Promise<IntegrationKeyHealth> {
+      const health = options.crypto.keyHealth(clock());
+      await evaluate(health);
+      return health;
+    },
+
+    async reportReloadFailure(): Promise<void> {
+      let health: IntegrationKeyHealth;
+      try {
+        health = options.crypto.keyHealth(clock());
+      } catch {
+        return;
+      }
+      warn(
+        "integration webhook keyring reload failed; previous keys stay active",
+        {
+          activeKeyId: health.activeKeyId,
+          error: health.lastError ?? "unknown keyring error",
+        },
+      );
+      options.countEvent?.("integration_keys_reload_failed");
+      await send("reload_failed", health);
+    },
+
+    start(): void {
+      if (stopped || timer !== undefined) return;
+      // 启动检查不阻塞 listen()：超龄只告警日志，不阻断启动。
+      void guardedCheck();
+      if (intervalMs > 0) {
+        timer = setInterval(() => {
+          void guardedCheck();
+        }, intervalMs);
+        timer.unref?.();
+      }
+    },
+
+    stop(): void {
+      stopped = true;
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
     },
   };
 }

@@ -329,7 +329,8 @@
         "orderId",
         "sourceVersion",
         "taxAmount",
-        "taxRate"
+        "taxRate",
+        "taxes"
       ]
     },
     "CreateFinancialPayment": {
@@ -560,6 +561,13 @@
         "weight"
       ]
     },
+    "MappingSuggestions": {
+      "required": [
+        "sample",
+        "targetType"
+      ],
+      "optional": []
+    },
     "ModelSummary": {
       "required": [
         "dimensions",
@@ -618,6 +626,12 @@
         "scope"
       ]
     },
+    "ReconciliationExplain": {
+      "required": [
+        "rows"
+      ],
+      "optional": []
+    },
     "RecordConfirmation": {
       "required": [
         "decision",
@@ -673,6 +687,12 @@
         "personIds"
       ],
       "optional": []
+    },
+    "ReplaySyncRun": {
+      "required": [],
+      "optional": [
+        "rawRecordIds"
+      ]
     },
     "ResolveAppeal": {
       "required": [
@@ -741,6 +761,12 @@
       "required": [
         "approvedBy",
         "deferredInstallmentMonths"
+      ],
+      "optional": []
+    },
+    "SyncAnomalies": {
+      "required": [
+        "runs"
       ],
       "optional": []
     },

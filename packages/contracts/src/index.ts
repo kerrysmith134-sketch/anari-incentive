@@ -1073,6 +1073,25 @@ const percentSchema = z
   );
 
 /**
+ * 迁移 115：多税种发票的单一税种（code + rate）。
+ *
+ * - code 1-32 字符（首尾空白由服务端 trim，全空白视为空）；
+ * - rate 与旧 taxRate 同一口径（0-100，≤6 位小数）；
+ * - 数组本身由 createFinancialInvoiceSchema 限定 1-5 条并做唯一性校验
+ *   （与 @anari/domain 的 FinancialTaxBreakdownLine / 迁移 115 约定对齐；
+ *   contracts 不依赖 domain，故在此重复字面量）。
+ */
+export const invoiceTaxesItemSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(1, "tax code must not be empty")
+    .max(32, "tax code supports at most 32 characters"),
+  rate: percentSchema,
+});
+export type InvoiceTaxesItem = z.infer<typeof invoiceTaxesItemSchema>;
+
+/**
  * 2026-11-21 审计 Sprint 5：Financial Fact 不再是“金额 + payload”。
  *
  * 兼容策略：DRAFT（未确认）事实可以只带金额/币种；POSTED（已入账）事实
@@ -1187,6 +1206,10 @@ export type CreateFinancialFactBody = z.infer<
  * - 迁移 112：taxRate（百分比 0-100）可选，taxAmount 由服务端按
  *   amount × taxRate / 100 计算；客户端传入不一致的 taxAmount 会被 409 拒绝，
  *   发票 total = amount + taxAmount。
+ * - 迁移 115：多税种发票用 taxes[{code,rate}]（1-5 条，code 1-32 字符、
+ *   同一发票内唯一），与 taxRate 互斥（同时传 → 400）。服务端逐税种用
+ *   1e6 定点计算 taxAmount 并汇总，明细写 payload.taxBreakdown；
+ *   发票 total = amount + Σ taxAmount。
  */
 export const createFinancialInvoiceSchema = z
   .object({
@@ -1201,11 +1224,38 @@ export const createFinancialInvoiceSchema = z
     functionalCurrency: isoCurrency,
     functionalAmount: subledgerDecimal.optional(),
     taxRate: percentSchema.optional(),
+    taxes: z
+      .array(invoiceTaxesItemSchema)
+      .min(1, "taxes must contain between 1 and 5 items")
+      .max(5, "taxes must contain between 1 and 5 items")
+      .optional(),
     taxAmount: subledgerDecimal.optional(),
     sourceVersion: z.string().min(1).max(256).default("1"),
     issuedAt: z.string().datetime().optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.taxes !== undefined && value.taxRate !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["taxes"],
+        message:
+          "MUTUALLY_EXCLUSIVE_TAX_INPUT: send either taxRate (single rate) or taxes[{code,rate}] (multi-tax), not both",
+      });
+    }
+    if (value.taxes !== undefined) {
+      const seen = new Set<string>();
+      value.taxes.forEach((tax, index) => {
+        const key = tax.code.toUpperCase();
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["taxes", index, "code"],
+            message: `DUPLICATE_TAX_CODE: ${tax.code} appears more than once (merge it into a single rate)`,
+          });
+        }
+        seen.add(key);
+      });
+    }
     if (!value.orderId && !value.contractRef) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -1922,6 +1972,18 @@ export const finishSyncRunSchema = z.object({
   errorSummary: z.string().optional(),
 });
 export type FinishSyncRunBody = z.infer<typeof finishSyncRunSchema>;
+
+/**
+ * sync-run 级重放（Mapping Studio 失败面板）：只重放目标写入，不重置
+ * checkpoint、不创建新 run。缺省范围 = 该 run 期间落地的原始记录；
+ * 显式 rawRecordIds 用于精确重放（仍受租户与所属连接约束）。
+ */
+export const replaySyncRunSchema = z
+  .object({
+    rawRecordIds: z.array(uuidSchema).min(1).max(500).optional(),
+  })
+  .strict();
+export type ReplaySyncRunBody = z.infer<typeof replaySyncRunSchema>;
 
 /**
  * NP-001（2026-11-21 审计 Wave 1）：资源流、检查点与隔离区契约。
@@ -3348,7 +3410,93 @@ export const importWorkItemSchema = z
   });
 export type ImportWorkItemBody = z.infer<typeof importWorkItemSchema>;
 
+/**
+ * 确定性 Agent 辅助（不调用外部 LLM）：字段映射建议 / 同步异常诊断 /
+ * 对账差异解释。三个端点都只做纯函数计算——不写库、不调用模型。
+ */
+export const agentAssistTargetTypeSchema = z.enum([
+  "COMMERCIAL_OPPORTUNITY",
+  "WORK_ITEM",
+  "FINANCIAL_FACT",
+]);
+
+export const mappingSuggestionsRequestSchema = z.object({
+  targetType: agentAssistTargetTypeSchema,
+  /** 单条样例记录；只读取顶层字段名与值类型，不递归。 */
+  sample: z
+    .record(z.unknown())
+    .refine(
+      (sample) => Object.keys(sample).length <= 200,
+      "sample must contain at most 200 top-level fields",
+    ),
+});
+export type MappingSuggestionsBody = z.infer<
+  typeof mappingSuggestionsRequestSchema
+>;
+
+const agentAssistCountSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(1_000_000_000);
+
+export const syncAnomalyRunSchema = z.object({
+  status: z.string().min(1).max(64),
+  fetched: agentAssistCountSchema,
+  created: agentAssistCountSchema,
+  updated: agentAssistCountSchema,
+  duplicate: agentAssistCountSchema,
+  quarantined: agentAssistCountSchema,
+  failed: agentAssistCountSchema,
+});
+export type SyncAnomalyRunInput = z.infer<typeof syncAnomalyRunSchema>;
+
+export const syncAnomaliesRequestSchema = z.object({
+  runs: z.array(syncAnomalyRunSchema).max(500),
+});
+export type SyncAnomaliesBody = z.infer<typeof syncAnomaliesRequestSchema>;
+
+/**
+ * 对账金额一律用十进制定点字符串；超过 6 位有效小数在协议层拒绝
+ * （与 @anari/policy-dsl 的 1e6 标度一致，避免静默截断）。
+ */
+export const agentAssistDecimalSchema = decimal.refine(
+  (value) =>
+    (value.split(".")[1] ?? "").replace(/0+$/, "").length <= 6,
+  "expected at most 6 significant decimal places",
+);
+
+export const reconciliationExplainRowSchema = z
+  .object({
+    key: z.string().min(1).max(256),
+    source: agentAssistDecimalSchema.nullable().optional(),
+    target: agentAssistDecimalSchema.nullable().optional(),
+    delta: agentAssistDecimalSchema,
+  })
+  .superRefine((row, ctx) => {
+    if (row.source == null && row.target == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "at least one of source/target must be present",
+        path: ["source"],
+      });
+    }
+  });
+export type ReconciliationExplainRowInput = z.infer<
+  typeof reconciliationExplainRowSchema
+>;
+
+export const reconciliationExplainRequestSchema = z.object({
+  rows: z.array(reconciliationExplainRowSchema).max(1000),
+});
+export type ReconciliationExplainBody = z.infer<
+  typeof reconciliationExplainRequestSchema
+>;
+
 export const requestSchemaRegistry = {
+  MappingSuggestions: mappingSuggestionsRequestSchema,
+  SyncAnomalies: syncAnomaliesRequestSchema,
+  ReconciliationExplain: reconciliationExplainRequestSchema,
   AmendEmploymentContract: amendEmploymentContractSchema,
   ApprovePayrollRun: approvePayrollRunSchema,
   CreateAiScoreProposal: createAiScoreProposalSchema,
@@ -3409,6 +3557,7 @@ export const requestSchemaRegistry = {
   ResolveAppeal: resolveAppealSchema,
   UpdateFieldAccessPolicies: updateFieldAccessPoliciesSchema,
   ImportWorkItem: importWorkItemSchema,
+  ReplaySyncRun: replaySyncRunSchema,
 } as const;
 
 /**

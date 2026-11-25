@@ -1,12 +1,12 @@
 /**
- * 财务子账（迁移 111/112）：发票 / 收款 / 退款 / 冲销 / FX 重估 /
- * 账龄 / 税额 / 坏账 / ERP 对账 / 复式记账。
+ * 财务子账（迁移 111/112/115）：发票 / 收款 / 退款 / 冲销 / FX 重估 /
+ * 账龄 / 税额（单一税率 + 多税种）/ 坏账 / ERP 对账 / 复式记账。
  *
  * 设计约束（与 Sprint 5 一致）：
  * - 所有写入都以 recognitionStatus=POSTED 落库，因此完整复用
  *   createFinancialFact 的会计期间门禁（关闭期间 / reopeningRef）；
  * - 金额（含税额、坏账、凭证）全部走 1e6 定点 BigInt，服务端重算并拒绝
- *   不一致；
+ *   不一致；多税种逐税种取整后再汇总（迁移 115）；
  * - 业务文档 (document_type, document_id) 在租户内唯一，冲销/重估/坏账用
  *   relatedFactId 串起可追溯链；
  * - 每张子账事实在同一请求内自动生成借贷平衡的 journal；借贷不等时
@@ -18,6 +18,7 @@ import { divRound, formatDecimal, parseDecimal } from "@anari/policy-dsl";
 import type {
   FinancialAgingBucket,
   FinancialFact,
+  FinancialTaxBreakdownLine,
 } from "@anari/domain";
 import { FINANCIAL_AGING_BUCKETS, GL_ACCOUNT_CODES } from "@anari/domain";
 import {
@@ -83,6 +84,32 @@ function computeTaxAmount(amount: string, taxRate: number): string {
   return percentOf(amount, taxRate);
 }
 
+/**
+ * 迁移 115：多税种发票的逐税种税额。
+ *
+ * 每条都独立按 1e6 定点计算并 HALF_UP 取整，再汇总（先逐条取整、后求和），
+ * 因此与“汇总税率一次取整”可能相差 1 个最小单位——这是按税种申报所需的
+ * 正确口径。base 统一取发票 amount（原币）。
+ */
+function computeInvoiceTaxes(
+  amount: string,
+  taxes: ReadonlyArray<{ code: string; rate: number }>,
+): FinancialTaxBreakdownLine[] {
+  const base = normalizeAmount(amount);
+  return taxes.map((tax) => ({
+    code: tax.code,
+    rate: normalizePercent(tax.rate),
+    base,
+    taxAmount: percentOf(amount, tax.rate),
+  }));
+}
+
+function sumAmounts(amounts: readonly string[]): string {
+  return formatDecimal(
+    amounts.reduce((sum, value) => sum + parseDecimal(value), 0n),
+  );
+}
+
 function normalizePercent(percent: number): string {
   return formatDecimal(parseDecimal(String(percent)));
 }
@@ -99,6 +126,11 @@ function negate(value: string): string {
   return formatDecimal(-parseDecimal(value));
 }
 
+/**
+ * 发票总额 = 不含税金额 + 汇总税额。
+ * 迁移 115 起 taxAmount 可能是多税种逐条计算的汇总，因此账龄 open、
+ * 收款可核销上限与 GL 的 AR 借方天然都是“含税总额”。
+ */
 function invoiceTotal(fact: FinancialFact): string {
   return formatDecimal(
     parseDecimal(fact.amount) + parseDecimal(fact.taxAmount ?? "0"),
@@ -443,6 +475,13 @@ interface JournalLinePlan {
   credit?: string;
 }
 
+/**
+ * 发票凭证：借 AR（含税总额）/ 贷 REVENUE（不含税金额）/ 贷 TAX_PAYABLE（汇总税额）。
+ *
+ * 迁移 115：多税种发票不新增科目，逐税种明细只保留在 payload.taxBreakdown
+ * 供税务申报/分账下钻；凭证仍用单一 TAX_PAYABLE 贷记汇总税额，
+ * 因此任意税种数量下借贷都平衡。
+ */
 function planInvoiceJournal(fact: FinancialFact): JournalLinePlan[] {
   const total = invoiceTotal(fact);
   const tax = formatDecimal(parseDecimal(fact.taxAmount ?? "0"));
@@ -653,20 +692,40 @@ export function registerFinancialSubledgerRoutes(deps: {
       const body = parse(createFinancialInvoiceSchema, request.body);
       const tenantId = tenantOf(request);
       const documentId = body.documentId ?? `INV-${randomUUID()}`;
-      // 迁移 112：税额由服务端 1e6 定点计算，客户端 taxAmount 必须一致。
-      const taxAmount =
-        body.taxRate === undefined
+      // 迁移 112/115：税额由服务端 1e6 定点计算，客户端 taxAmount 必须一致。
+      // 多税种（taxes[]）与旧单一 taxRate 在契约层互斥（400）；这里再防御
+      // 一次，保证绕过 schema 的调用方也不会写出两种口径混用的发票。
+      if (body.taxes !== undefined && body.taxRate !== undefined) {
+        throw new ConflictError(
+          "MUTUALLY_EXCLUSIVE_TAX_INPUT: send either taxRate (single rate) or taxes[{code,rate}] (multi-tax), not both",
+        );
+      }
+      const taxBreakdown =
+        body.taxes === undefined
           ? undefined
-          : computeTaxAmount(body.amount, body.taxRate);
+          : computeInvoiceTaxes(body.amount, body.taxes);
+      const taxAmount =
+        taxBreakdown !== undefined
+          ? sumAmounts(taxBreakdown.map((line) => line.taxAmount))
+          : body.taxRate === undefined
+            ? undefined
+            : computeTaxAmount(body.amount, body.taxRate);
+      // 旧单税率的报错文案保持不变（"at taxRate 13%"），多税种追加逐 code 口径。
+      const taxSource =
+        taxBreakdown === undefined
+          ? `taxRate ${body.taxRate}%`
+          : `taxes ${taxBreakdown
+              .map((line) => `${line.code}@${line.rate}%`)
+              .join("+")}`;
       if (body.taxAmount !== undefined) {
         if (taxAmount === undefined) {
           throw new ConflictError(
-            "TAX_RATE_REQUIRED: taxAmount cannot be supplied without taxRate",
+            "TAX_RATE_REQUIRED: taxAmount cannot be supplied without taxRate or taxes",
           );
         }
         if (normalizeAmount(body.taxAmount) !== taxAmount) {
           throw new ConflictError(
-            `TAX_AMOUNT_INCONSISTENT: expected ${taxAmount} for amount ${body.amount} at taxRate ${body.taxRate}%, got ${body.taxAmount}`,
+            `TAX_AMOUNT_INCONSISTENT: expected ${taxAmount} for amount ${body.amount} at ${taxSource}, got ${body.taxAmount}`,
           );
         }
       }
@@ -692,6 +751,9 @@ export function registerFinancialSubledgerRoutes(deps: {
           taxRate:
             body.taxRate === undefined ? undefined : normalizePercent(body.taxRate),
           taxAmount,
+          // 迁移 115：多税种明细（1-5 条）只存 payload，不新增列；汇总税额
+          // 走 financial_facts.tax_amount，账龄/GL 无需感知税种数量。
+          ...(taxBreakdown === undefined ? {} : { taxBreakdown }),
         },
         legalEntityId: body.legalEntityId,
         orderId: body.orderId,
@@ -779,6 +841,12 @@ export function registerFinancialSubledgerRoutes(deps: {
           documentId,
           relatedFactId: invoice.id,
           invoiceDocumentId: invoice.documentId,
+          // 迁移 115：收付事实落库时记录被核销发票的含税总额口径，
+          // 多税种发票下 total = amount + Σ taxAmount，避免对账时把
+          // “不含税额的收款”误读成已结清。
+          invoiceAmount: formatDecimal(parseDecimal(invoice.amount)),
+          invoiceTaxAmount: formatDecimal(parseDecimal(invoice.taxAmount ?? "0")),
+          invoiceTotalAmount: invoiceTotal(invoice),
           paidAt: body.paidAt,
         },
         legalEntityId: body.legalEntityId ?? invoice.legalEntityId,

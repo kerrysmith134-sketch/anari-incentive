@@ -1260,6 +1260,7 @@ export interface IntegrationPort {
     tenantId: string,
     connectionId?: string,
   ): Promise<SyncRun[]>;
+  getSyncRun(tenantId: string, syncRunId: string): Promise<SyncRun>;
   finishSyncRun(input: {
     tenantId: string;
     syncRunId: string;

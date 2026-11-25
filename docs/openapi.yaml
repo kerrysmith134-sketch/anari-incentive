@@ -3886,6 +3886,10 @@ paths:
         创建财务子账发票事实（documentType=INVOICE）。必须追溯到订单或合同；
         跨币种（currency != functionalCurrency）必须带 fxRate，服务端用
         1e6 定点 BigInt 计算 functionalAmount 并拒绝不一致。
+        税额支持两种互斥口径（迁移 112/115）：旧 taxRate（单一税率）或
+        taxes[{code,rate}]（1-5 条多税种）。多税种逐条 1e6 定点计算后汇总到
+        financial_facts.tax_amount，明细写 payload.taxBreakdown；发票总额 =
+        amount + 汇总税额，账龄 open 与 GL 的 AR/TAX_PAYABLE 直接使用该总额。
       requestBody:
         required: true
         content:
@@ -3915,6 +3919,9 @@ paths:
       description: |
         登记收款（PAYMENT）或退款（REFUND）。请求金额始终为正数，退款由
         服务端写入负金额；relatedFactId 必须指向一张 POSTED 发票。
+        账龄按发票含税总额 = amount + 汇总税额（含多税种的各税种税额）计算
+        open，收付事实 payload 记录 invoiceTotalAmount / invoiceTaxAmount
+        作为核销口径的审计快照（迁移 115）。
       requestBody:
         required: true
         content:
@@ -5919,6 +5926,15 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          description: >-
+            Rotation rejected (INTEGRATION_KEY_ROTATION_FAILED). The previous
+            keyring keeps serving; the sanitized reason is exposed by the health
+            endpoint as data.lastError.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /api/v1/integration-keys/reload:
     post:
@@ -5931,6 +5947,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: >-
+            Reload rejected (INTEGRATION_KEY_RELOAD_FAILED). The previous
+            keyring keeps serving; the sanitized reason is exposed by the health
+            endpoint as data.lastError.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/integration-keys/health:
+    get:
+      tags: [Ingestion]
+      summary: Webhook/KMS keyring rotation health (admin only; never returns key material)
+      description: >-
+        Process-local rotation health. `ok` is false when the active key is
+        older than `WEBHOOK_KEY_MAX_AGE_DAYS` (default 90, 1-3650) or the last
+        reload failed. `source` is FILE when the keyring came from
+        `WEBHOOK_KEYRING_FILE`, else ENV. `lastError` is the sanitized reason of
+        the last rejected reload and never contains key material.
+      responses:
+        "200":
+          description: Rotation health snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/IntegrationKeyHealth"
+                  meta:
+                    type: object
+                    properties:
+                      correlation_id:
+                        type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -8245,6 +8301,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/sync-runs/{id}/replay:
+    post:
+      tags: [Ingestion]
+      summary: Replay failed/quarantined raw records of a sync run
+      description: >
+        Replays target writes for raw records landed during the run without
+        resetting the checkpoint or creating a new run. Only FAILED or PARTIAL
+        runs are replayable. Raw records already replayed are counted as
+        skipped (idempotent). The original run row and its counters are kept
+        unchanged; the replay itself is audited.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaySyncRun"
+      responses:
+        "200":
+          description: Replay result (replayed/skipped/failed counts and record ids)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -12596,6 +12688,88 @@ paths:
             application/json:
               schema: { type: object, additionalProperties: true }
 
+  /api/v1/agent-assist/mapping-suggestions:
+    post:
+      tags: [Agent]
+      summary: 集成字段映射建议（确定性、无 LLM）
+      description: |
+        根据样例记录的顶层键名/值类型，对目标字段给出 sourceField→targetField
+        启发式建议（confidence/reason/required）。只读计算，不执行写入。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MappingSuggestions"
+      responses:
+        "200":
+          description: 字段映射建议（data.suggestions[]，含 confidence 0-1）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/agent-assist/sync-anomalies:
+    post:
+      tags: [Agent]
+      summary: 同步运行异常诊断（确定性规则）
+      description: |
+        检测隔离率>5%、重复率>50%、连续失败>=3、抓取量突增/骤降与计数不平。
+        返回 data.anomalies[]（severity/explanation/evidence）。只读计算。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncAnomalies"
+      responses:
+        "200":
+          description: 异常列表（无异常时为空数组）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/agent-assist/reconciliation-explain:
+    post:
+      tags: [Agent]
+      summary: 对账差异解释（确定性、无 LLM）
+      description: |
+        对每行 delta 分类为 ROUNDING/FX/TIMING/MISSING_SOURCE/MISSING_TARGET/
+        AMOUNT_MISMATCH，并给出可执行下一步；delta 为 0 的行不报。
+        金额按十进制定点字符串处理，不写库、不生成调整分录。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReconciliationExplain"
+      responses:
+        "200":
+          description: 差异解释（data.explanations[]）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -12735,6 +12909,67 @@ components:
       properties:
         correlation_id:
           type: string
+
+    IntegrationKeyHealth:
+      type: object
+      description: >-
+        Keyless rotation-health snapshot. It never contains key material; the
+        only key-related values are key ids.
+      required:
+        - ok
+        - activeKeyId
+        - keyCount
+        - keyIds
+        - source
+        - lastLoadedAt
+        - ageDays
+        - rotationDue
+        - maxAgeDays
+        - usedDevDefaults
+      properties:
+        ok:
+          type: boolean
+          description: >-
+            False when rotationDue is true or the last reload failed.
+        activeKeyId:
+          type: string
+          description: Key id used for new v2 ciphertexts.
+        keyCount:
+          type: integer
+          description: Number of raw keys currently in the keyring.
+        keyIds:
+          type: array
+          description: Raw key ids in the keyring (ids only, never values).
+          items:
+            type: string
+        source:
+          type: string
+          enum: [FILE, ENV]
+          description: >-
+            FILE when the keyring came from WEBHOOK_KEYRING_FILE, otherwise ENV.
+        lastLoadedAt:
+          type: string
+          format: date-time
+          description: Process-local timestamp of the last successful keyring load.
+        ageDays:
+          type: number
+          description: >-
+            Age of the active key material in days (2 decimals). A reload that
+            does not change the material keeps the original age.
+        rotationDue:
+          type: boolean
+          description: True when ageDays exceeds maxAgeDays.
+        maxAgeDays:
+          type: integer
+          description: WEBHOOK_KEY_MAX_AGE_DAYS in force (default 90, 1-3650).
+        usedDevDefaults:
+          type: boolean
+          description: True when public development keys are in use.
+        lastError:
+          type: string
+          description: >-
+            Sanitized reason of the last rejected reload; never contains key
+            material. Absent when the last load succeeded.
 
     CreateWorkPackage:
       type: object
@@ -14018,11 +14253,41 @@ components:
           type: number
           minimum: 0
           maximum: 100
-          description: Tax percentage (0-100). taxAmount is computed server-side with 1e6 fixed point.
+          description: |
+            Single-rate invoice tax percentage (0-100, <= 6 decimals). Mutually
+            exclusive with `taxes`; sending both is a 400. taxAmount is computed
+            server-side with 1e6 fixed point.
+        taxes:
+          type: array
+          minItems: 1
+          maxItems: 5
+          description: |
+            Multi-tax invoice lines (migration 115), mutually exclusive with
+            `taxRate`. Each rate is computed independently at 1e6 fixed point
+            (HALF_UP) and summed into financial_facts.tax_amount; the per-code
+            detail is persisted in payload.taxBreakdown and does not create
+            extra GL accounts (the journal still credits TAX_PAYABLE in
+            aggregate). Codes are trimmed and must be unique per invoice.
+          items:
+            type: object
+            required: [code, rate]
+            properties:
+              code:
+                type: string
+                minLength: 1
+                maxLength: 32
+              rate:
+                type: number
+                minimum: 0
+                maximum: 100
+                description: Percent, same precision as taxRate (<= 6 decimals).
         taxAmount:
           type: string
           pattern: "^\\d+(\\.\\d{1,6})?$"
-          description: Optional client-supplied tax amount; must match amount x taxRate / 100.
+          description: |
+            Optional client-supplied tax total. Must equal amount x taxRate / 100
+            (single rate) or the sum of per-tax amounts (multi-tax); mismatch is
+            a 409.
         sourceVersion:
           type: string
           default: "1"
@@ -15589,6 +15854,20 @@ components:
         errorSummary:
           type: string
 
+    ReplaySyncRun:
+      type: object
+      additionalProperties: false
+      description: >
+        Optional explicit raw record selection; when omitted the replay covers
+        raw records landed during the sync run that belong to its connection.
+      properties:
+        rawRecordIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/Uuid"
+
     UpsertExternalIdentity:
       type: object
       required: [sourceSystem, externalId, objectType]
@@ -16769,3 +17048,78 @@ components:
           type: string
           enum: [READER, ACTOR]
           description: READER tasks cannot execute WRITE tools.
+
+    MappingSuggestions:
+      type: object
+      required: [targetType, sample]
+      properties:
+        targetType:
+          type: string
+          enum: [COMMERCIAL_OPPORTUNITY, WORK_ITEM, FINANCIAL_FACT]
+          description: Integration sync target type.
+        sample:
+          type: object
+          additionalProperties: true
+          description: |
+            One sample source record. Only top-level field names and value types
+            are inspected (at most 200 fields); no nested recursion.
+
+    SyncAnomalies:
+      type: object
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          maxItems: 500
+          description: Sync run summaries in chronological order.
+          items:
+            type: object
+            required:
+              [status, fetched, created, updated, duplicate, quarantined, failed]
+            properties:
+              status:
+                type: string
+                description: Run status; FAILED/ERROR count toward failure streaks.
+              fetched:
+                type: integer
+                minimum: 0
+              created:
+                type: integer
+                minimum: 0
+              updated:
+                type: integer
+                minimum: 0
+              duplicate:
+                type: integer
+                minimum: 0
+              quarantined:
+                type: integer
+                minimum: 0
+              failed:
+                type: integer
+                minimum: 0
+
+    ReconciliationExplain:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          maxItems: 1000
+          description: Reconciliation rows; delta=0 rows are skipped.
+          items:
+            type: object
+            required: [key, delta]
+            properties:
+              key:
+                type: string
+              source:
+                type: string
+                nullable: true
+                description: Decimal string; null/absent means missing source.
+              target:
+                type: string
+                nullable: true
+                description: Decimal string; null/absent means missing target.
+              delta:
+                $ref: "#/components/schemas/Decimal"

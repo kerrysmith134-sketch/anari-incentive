@@ -935,6 +935,29 @@ export const FINANCIAL_AGING_BUCKETS: readonly FinancialAgingBucket[] = [
   "90+",
 ];
 
+/**
+ * 迁移 115：多税种发票的单一税种明细。
+ *
+ * 明细不新增列，持久化在 `financial_facts.payload.taxBreakdown`（JSON 数组，
+ * 1-5 条、code 1-32 字符且同一发票内唯一）；汇总税额写入既有列
+ * `financial_facts.tax_amount`，因此账龄、AR 借方与 GL 的 TAX_PAYABLE
+ * 全部继续读同一列。
+ *
+ * 计算口径（全部 1e6 定点 BigInt，客户端传入值只用于比对）：
+ *   taxAmount = base × rate / 100，**逐税种 HALF_UP 取整后再求和**；
+ *   base = 发票 amount；rate 为百分比（0-100，最多 6 位小数）。
+ */
+export interface FinancialTaxBreakdownLine {
+  /** 税种代码（1-32 字符；同一张发票内唯一）。 */
+  code: string;
+  /** 税率百分比（0-100，6 位小数定点）。 */
+  rate: DecimalString;
+  /** 计税基数 = 发票金额（原币）。 */
+  base: DecimalString;
+  /** 该税种税额 = base × rate / 100（逐条 HALF_UP）。 */
+  taxAmount: DecimalString;
+}
+
 /** 会计期间（按法人隔离；CLOSED 期间拒绝新的 POSTED 事实）。 */
 export interface AccountingPeriod {
   id: UUID;
@@ -1047,8 +1070,13 @@ export interface FinancialFact {
   /** 功能币金额，应用层用 1e6 BigInt 计算并校验。 */
   functionalAmount?: DecimalString;
   /**
-   * 迁移 112：税额。taxRate 为百分比（0-100，最多 6 位小数），
-   * taxAmount = amount × taxRate / 100，服务端 1e6 定点计算。
+   * 迁移 112 / 115：税额。
+   * - 单一税率发票：taxRate 为百分比（0-100，最多 6 位小数），
+   *   taxAmount = amount × taxRate / 100；
+   * - 多税种发票（迁移 115）：taxRate 为空，逐税种明细保存在
+   *   `payload.taxBreakdown`（FinancialTaxBreakdownLine[]），taxAmount 为
+   *   各条 taxAmount 之和。
+   * 两种形态都由服务端用 1e6 定点 BigInt 计算并校验客户端传入值。
    */
   taxRate?: DecimalString;
   taxAmount?: DecimalString;

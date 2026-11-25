@@ -577,6 +577,16 @@ export function PgIntegrationMixin(Base: abstract new (...args: ConstructorParam
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapSyncRun(row));
     }
+
+    async getSyncRun(tenantId: string, syncRunId: string): Promise<SyncRun> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        "SELECT * FROM sync_runs WHERE tenant_id=$1 AND id=$2",
+        [tenantId, syncRunId],
+      );
+      if (!rows[0]) notFound("SyncRun", syncRunId);
+      return this.mapSyncRun(rows[0]);
+    }
     
     async finishSyncRun(input: {
       tenantId: string;
