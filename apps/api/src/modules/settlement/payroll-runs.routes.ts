@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import type { PayrollRun } from "@anari/domain";
 import { calculatePayroll, payrollCsv, payrollBankFileCsv, payrollTaxFilingCsv, payrollPayslipHtml } from "../../payroll.js";
 import { calculateCumulativeIit } from "@anari/payroll-tax";
-import { formatDecimal, parseDecimal } from "@anari/policy-dsl";
+import { formatDecimal, normalizeCurrency, parseDecimal } from "@anari/policy-dsl";
 import type { PlatformStore } from "../../platform-store.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError, NotFoundError } from "../../store.js";
@@ -105,6 +105,17 @@ export function registerPayrollRunRoutes(deps: {
       body.preparedBy,
       "preparing a payroll run",
     );
+    let currency: string;
+    try {
+      // Fail closed on unknown/non-ISO codes instead of treating arbitrary
+      // three-letter text as a currency.
+      currency = normalizeCurrency(body.currency ?? "CNY");
+    } catch (error) {
+      throw new BadRequestError(
+        "INVALID_CURRENCY",
+        error instanceof Error ? error.message : "invalid currency",
+      );
+    }
     return reply.status(201).send(
       data(
         await platformStore.createPayrollRun({
@@ -112,7 +123,7 @@ export function registerPayrollRunRoutes(deps: {
           cycleId: body.cycleId,
           periodStart: body.periodStart,
           periodEnd: body.periodEnd,
-          currency: body.currency,
+          currency,
           preparedBy,
         }),
         request,
@@ -238,6 +249,13 @@ export function registerPayrollRunRoutes(deps: {
         ),
         meta: { correlation_id: request.id },
       });
+    }
+    // ICBC/CMB templates express RMB amounts in fen/yuan. Applying them to a
+    // JPY/KWD run would silently mis-scale the money, so fail closed.
+    if (format !== "GENERIC" && run.currency !== "CNY") {
+      throw new ConflictError(
+        `PAYROLL_BANK_FILE_CURRENCY_UNSUPPORTED: ${format} template is only defined for CNY runs, got ${run.currency}`,
+      );
     }
     const csv = payrollBankFileCsv(
       run,

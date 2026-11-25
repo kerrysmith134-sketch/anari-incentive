@@ -3,7 +3,10 @@
   "policyFamily": "017/018 绩效管理",
   "unit": "S/100",
   "approvedSource": "docs/POLICY_CAPABILITY_MATRIX_2026.md",
-  "approvedClauses": ["第三条", "B.4/B.5"],
+  "approvedClauses": [
+    "第三条",
+    "B.4/B.5"
+  ],
   "caps": {
     "MONTHLY": {
       "score": "110",
@@ -36,8 +39,10 @@
           "multiplier": "1.50"
         }
       },
-      "status": "PENDING_BUSINESS_WRITTEN_CONFIRMATION",
-      "notAppliedReason": "审计口径（季度 130 / 年度 150）与仓库现行制度矩阵及实现（季度 150 / 年度 105）冲突，尚无业务书面确认；在书面确认前不得由代码、基线或文档单方面变更。"
+      "status": "RESOLVED_KEEP_CURRENT",
+      "notAppliedReason": "审计口径（季度 130 / 年度 150）与仓库现行制度矩阵及实现（季度 150 / 年度 105）冲突，尚无业务书面确认；在书面确认前不得由代码、基线或文档单方面变更。",
+      "resolvedAt": "2026-11-25",
+      "resolution": "业务确认按现行季度 150 / 年度 105 执行；审计提议的季度 130 / 年度 150 不采用。"
     }
   ]
 }

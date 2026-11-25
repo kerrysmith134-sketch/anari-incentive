@@ -373,3 +373,70 @@ describe("LG-06 court order / consent gate", () => {
     expect(result.blockedCount).toBe(0);
   });
 });
+
+describe("multi-currency payroll", () => {
+  it("rounds JPY to whole yen and disables China statutory deductions", () => {
+    const result = calculatePayroll({
+      contracts: [
+        {
+          ...contract,
+          currency: "JPY",
+          fixedMonthlySalary: "8000.6",
+          minimumMonthlyWage: "0",
+        },
+      ],
+      ledger: [],
+      taxMode: "STATUTORY_CN",
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "JPY",
+      periodStart: "2026-11-01T00:00:00.000Z",
+      periodEnd: "2026-11-30T23:59:59.000Z",
+    });
+    const line = result.lines[0]!;
+    expect(line.currency).toBe("JPY");
+    expect(line.grossAmount).toBe("8001");
+    expect(line.netAmount).toBe("8001");
+    expect(line.taxAmount).toBe("0");
+    expect(line.socialInsuranceAmount).toBe("0");
+    expect(line.statutoryCurrencyUnsupported).toBe(true);
+    expect(line.taxCalculationMode).toBeUndefined();
+    expect(result.totalGross).toBe("8001");
+    expect(result.totalTax).toBe("0");
+    expect(result.totalSocialInsurance).toBe("0");
+  });
+
+  it("rounds KWD to 3 decimals and disables China statutory deductions", () => {
+    const result = calculatePayroll({
+      contracts: [
+        {
+          ...contract,
+          currency: "KWD",
+          fixedMonthlySalary: "1000.1236",
+          minimumMonthlyWage: "0",
+        },
+      ],
+      ledger: [],
+      cycleId: "00000000-0000-4000-8000-000000000020",
+      currency: "KWD",
+      periodStart: "2026-11-01T00:00:00.000Z",
+      periodEnd: "2026-11-30T23:59:59.000Z",
+    });
+    const line = result.lines[0]!;
+    expect(line.currency).toBe("KWD");
+    expect(line.grossAmount).toBe("1000.124");
+    expect(line.netAmount).toBe("1000.124");
+    expect(line.taxAmount).toBe("0");
+    expect(line.socialInsuranceAmount).toBe("0");
+    expect(line.statutoryCurrencyUnsupported).toBe(true);
+    expect(result.totalGross).toBe("1000.124");
+  });
+
+  it("keeps CNY on the statutory path without the unsupported marker", () => {
+    const line = calculate("-1000").lines[0]!;
+    expect(line.currency).toBe("CNY");
+    expect(line.statutoryCurrencyUnsupported).toBeUndefined();
+    // 8000 gross at 10% declared tax and 5% social insurance.
+    expect(line.taxAmount).toBe("800");
+    expect(line.socialInsuranceAmount).toBe("400");
+  });
+});

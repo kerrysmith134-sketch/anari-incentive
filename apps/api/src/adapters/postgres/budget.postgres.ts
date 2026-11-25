@@ -497,6 +497,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
       sourceVersion?: string;
       reversalOf?: string;
       reopeningRef?: string;
+      documentType?: FinancialFact["documentType"];
+      documentId?: string;
+      relatedFactId?: string;
+      fxRate?: string;
+      functionalCurrency?: string;
+      functionalAmount?: string;
     }): Promise<FinancialFact> {
       const recognitionStatus = input.recognitionStatus ?? "DRAFT";
       if (
@@ -514,6 +520,50 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         throw new ConflictError(
           "FACT_NOT_TRACEABLE: POSTED facts require orderId or contractRef",
         );
+      }
+      if (input.documentId && !input.documentType) {
+        throw new ConflictError(
+          "DOCUMENT_TYPE_REQUIRED: documentId requires documentType",
+        );
+      }
+      // 迁移 111：跨币种 POSTED 事实必须带汇率与功能币金额。服务端用
+      // 1e6 定点 BigInt 重算功能币金额，客户端传入值不一致即拒绝。
+      if (recognitionStatus === "POSTED" && input.functionalCurrency) {
+        const functionalCurrency = input.functionalCurrency.trim();
+        if (!/^[A-Z]{3}$/.test(functionalCurrency)) {
+          throw new ConflictError(
+            `INVALID_FUNCTIONAL_CURRENCY: ${input.functionalCurrency}`,
+          );
+        }
+        if (input.currency !== functionalCurrency) {
+          if (!input.fxRate || !input.functionalAmount) {
+            throw new ConflictError(
+              "FX_FIELDS_REQUIRED: POSTED facts whose currency differs from functionalCurrency require fxRate and functionalAmount",
+            );
+          }
+          if (parseDecimal(input.fxRate) <= 0n) {
+            throw new ConflictError(`INVALID_FX_RATE: ${input.fxRate}`);
+          }
+          const expected = formatDecimal(
+            divRound(
+              parseDecimal(input.amount) * parseDecimal(input.fxRate),
+              1_000_000n,
+              "HALF_UP",
+            ),
+          );
+          if (expected !== formatDecimal(parseDecimal(input.functionalAmount))) {
+            throw new ConflictError(
+              `FUNCTIONAL_AMOUNT_INCONSISTENT: expected ${expected} ${functionalCurrency} for ${input.amount} ${input.currency} @ ${input.fxRate}, got ${input.functionalAmount}`,
+            );
+          }
+        } else if (
+          input.functionalAmount !== undefined &&
+          parseDecimal(input.functionalAmount) !== parseDecimal(input.amount)
+        ) {
+          throw new ConflictError(
+            `FUNCTIONAL_AMOUNT_INCONSISTENT: same-currency fact must have functionalAmount equal to amount (${input.amount}), got ${input.functionalAmount}`,
+          );
+        }
       }
       try {
         return await this.transactionFor(input.tenantId, async (client) => {
@@ -610,6 +660,20 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
               );
             }
           }
+          // 迁移 111：同一租户内 (document_type, document_id) 唯一。
+          if (input.documentId) {
+            const { rows: duplicate } = await client.query(
+              `SELECT id FROM financial_facts
+                WHERE tenant_id=$1 AND document_type=$2 AND document_id=$3
+                LIMIT 1`,
+              [input.tenantId, input.documentType, input.documentId],
+            );
+            if (duplicate[0] && duplicate[0].id !== existing?.id) {
+              throw new ConflictError(
+                `DUPLICATE_FINANCIAL_DOCUMENT: ${input.documentType ?? "DOCUMENT"}/${input.documentId} already exists`,
+              );
+            }
+          }
           if (
             existing &&
             input.sourceUpdatedAt &&
@@ -635,9 +699,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                   source_updated_at, payload,
                   legal_entity_id, order_id, contract_ref, instrument_type,
                   recognition_status, accounting_period, fx_snapshot,
-                  source_version, reversal_of, reopening_ref)
+                  source_version, reversal_of, reopening_ref,
+                  document_type, document_id, related_fact_id,
+                  fx_rate, functional_currency, functional_amount)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
-                       $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20)`,
+                       $11, $12, $13, $14, $15, $16, $17::jsonb, $18, $19, $20,
+                       $21, $22, $23, $24, $25, $26)`,
               [
                 input.tenantId,
                 existing.id,
@@ -659,6 +726,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                 existing.source_version ?? null,
                 existing.reversal_of ?? null,
                 existing.reopening_ref ?? null,
+                existing.document_type ?? null,
+                existing.document_id ?? null,
+                existing.related_fact_id ?? null,
+                existing.fx_rate ?? null,
+                existing.functional_currency ?? null,
+                existing.functional_amount ?? null,
               ],
             );
           }
@@ -669,9 +742,12 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                source_updated_at, payload,
                legal_entity_id, order_id, contract_ref, instrument_type,
                recognition_status, accounting_period, fx_snapshot,
-               source_version, reversal_of, reopening_ref)
+               source_version, reversal_of, reopening_ref,
+               document_type, document_id, related_fact_id,
+               fx_rate, functional_currency, functional_amount)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
-                    $13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$22)
+                    $13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$22,
+                    $23,$24,$25,$26,$27,$28)
             ON CONFLICT (tenant_id, source_system, source_record_id, fact_type)
             DO UPDATE SET period_start=EXCLUDED.period_start,
                           period_end=EXCLUDED.period_end,
@@ -690,7 +766,13 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
                           fx_snapshot=EXCLUDED.fx_snapshot,
                           source_version=EXCLUDED.source_version,
                           reversal_of=EXCLUDED.reversal_of,
-                          reopening_ref=EXCLUDED.reopening_ref
+                          reopening_ref=EXCLUDED.reopening_ref,
+                          document_type=EXCLUDED.document_type,
+                          document_id=EXCLUDED.document_id,
+                          related_fact_id=EXCLUDED.related_fact_id,
+                          fx_rate=EXCLUDED.fx_rate,
+                          functional_currency=EXCLUDED.functional_currency,
+                          functional_amount=EXCLUDED.functional_amount
             RETURNING *`,
             [
               existing?.id ?? randomUUID(),
@@ -715,16 +797,41 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
               input.sourceVersion ?? null,
               input.reversalOf ?? null,
               input.reopeningRef ?? null,
+              input.documentType ?? null,
+              input.documentId ?? null,
+              input.relatedFactId ?? null,
+              input.fxRate ?? null,
+              input.functionalCurrency?.trim() ?? null,
+              input.functionalAmount ?? null,
             ],
           );
-          return this.mapFinancialFact(rows[0]);
+          return this.mapSubledgerFact(rows[0]);
         });
       } catch (error) {
         if ((error as { code?: string }).code === "23503") {
           throw new NotFoundError(`Tenant ${input.tenantId} not found`);
         }
+        if ((error as { code?: string }).code === "23505") {
+          throw new ConflictError(
+            `DUPLICATE_FINANCIAL_DOCUMENT: ${input.documentType ?? "DOCUMENT"}/${input.documentId ?? input.sourceRecordId} already exists`,
+          );
+        }
         throw error;
       }
+    }
+
+    async getFinancialFact(
+      tenantId: string,
+      factId: string,
+    ): Promise<FinancialFact> {
+      await this.assertTenant(tenantId);
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM financial_facts WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, factId],
+      );
+      if (!rows[0]) notFound("FinancialFact", factId);
+      return this.mapSubledgerFact(rows[0]);
     }
 
     async listFinancialFacts(
@@ -735,6 +842,11 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         legalEntityId?: string;
         accountingPeriod?: string;
         recognitionStatus?: FinancialFact["recognitionStatus"];
+        orderId?: string;
+        contractRef?: string;
+        documentType?: FinancialFact["documentType"];
+        documentId?: string;
+        relatedFactId?: string;
       },
     ): Promise<FinancialFact[]> {
       await this.assertTenant(tenantId);
@@ -760,9 +872,29 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         params.push(filter.recognitionStatus);
         sql += ` AND recognition_status=$${params.length}`;
       }
+      if (filter?.orderId) {
+        params.push(filter.orderId);
+        sql += ` AND order_id=$${params.length}`;
+      }
+      if (filter?.contractRef) {
+        params.push(filter.contractRef);
+        sql += ` AND contract_ref=$${params.length}`;
+      }
+      if (filter?.documentType) {
+        params.push(filter.documentType);
+        sql += ` AND document_type=$${params.length}`;
+      }
+      if (filter?.documentId) {
+        params.push(filter.documentId);
+        sql += ` AND document_id=$${params.length}`;
+      }
+      if (filter?.relatedFactId) {
+        params.push(filter.relatedFactId);
+        sql += ` AND related_fact_id=$${params.length}`;
+      }
       sql += " ORDER BY ingested_at DESC, created_at DESC";
       const { rows } = await this.tenantQuery(tenantId, sql, params);
-      return rows.map((row: QueryResultRow) => this.mapFinancialFact(row));
+      return rows.map((row: QueryResultRow) => this.mapSubledgerFact(row));
     }
 
     async listAccountingPeriods(
@@ -1073,6 +1205,32 @@ export function PgBudgetMixin(Base: abstract new (...args: ConstructorParameters
         );
       }
       return this.mapAccountingPeriod(rows[0]);
+    }
+
+    /**
+     * 迁移 111：base.mapFinancialFact 只认识 105 的列；子账新列在本 mixin
+     * 内补映射，避免改动共享 base（行为保持）。
+     */
+    private mapSubledgerFact(row: QueryResultRow): FinancialFact {
+      const fact = this.mapFinancialFact(row);
+      const functionalCurrency = row.functional_currency
+        ? String(row.functional_currency).trim()
+        : undefined;
+      return {
+        ...fact,
+        documentType: row.document_type ?? undefined,
+        documentId: row.document_id ?? undefined,
+        relatedFactId: row.related_fact_id ?? undefined,
+        fxRate:
+          row.fx_rate === null || row.fx_rate === undefined
+            ? undefined
+            : (decimalText(String(row.fx_rate)) ?? undefined),
+        functionalCurrency: functionalCurrency || undefined,
+        functionalAmount:
+          row.functional_amount === null || row.functional_amount === undefined
+            ? undefined
+            : (decimalText(String(row.functional_amount)) ?? undefined),
+      };
     }
   };
 }

@@ -4,7 +4,13 @@ import type {
   PayrollLine,
   PayrollRun,
 } from "@anari/domain";
-import { divRound, formatDecimal, parseDecimal } from "@anari/policy-dsl";
+import {
+  divRound,
+  formatCurrencyAmount,
+  formatDecimal,
+  parseDecimal,
+  roundToCurrency,
+} from "@anari/policy-dsl";
 import {
   CHINA_IIT_MONTHLY_BASIC_DEDUCTION,
   calculateCumulativeIit,
@@ -80,6 +86,20 @@ export function calculatePayroll(input: {
   periodEnd: string;
 }): PayrollCalculation {
   const taxMode: PayrollTaxMode = input.taxMode ?? "DECLARED";
+  // China IIT/social-insurance rules are statutory only for CNY. Non-CNY runs
+  // are paid gross of China statutory deductions and flagged on every line so
+  // the omission is visible, never a silent RMB calculation.
+  const statutoryCnSupported = input.currency === "CNY";
+  /**
+   * Non-CNY amounts are rounded to the ISO 4217 minor unit (JPY 0, KWD 3).
+   * CNY keeps the legacy formatting path so existing output stays identical.
+   */
+  const moneyValue = (value: bigint): bigint =>
+    statutoryCnSupported ? value : roundToCurrency(value, input.currency);
+  const money = (value: bigint): string =>
+    statutoryCnSupported
+      ? formatDecimal(value)
+      : formatCurrencyAmount(moneyValue(value), input.currency);
   const basicDeduction = parseDecimal(CHINA_IIT_MONTHLY_BASIC_DEDUCTION);
   const periodStart = Date.parse(input.periodStart);
   const periodEnd = Date.parse(input.periodEnd);
@@ -106,7 +126,6 @@ export function calculatePayroll(input: {
         entry.status === "LOCKED",
     );
     let incentive = 0n;
-    let deductions = 0n;
     const deductionOrder =
       contract.deductionOrder.length > 0
         ? contract.deductionOrder
@@ -139,9 +158,7 @@ export function calculatePayroll(input: {
       const amount = parseDecimal(entry.amount);
       if (amount >= 0n) {
         incentive += amount;
-        continue;
       }
-      deductions += -amount;
     }
     for (const entry of negativeEntries) {
       const mapped = classify(entry.entryType);
@@ -183,16 +200,22 @@ export function calculatePayroll(input: {
     incentive = smoothedIncentive;
     const fixed = parseDecimal(contract.fixedMonthlySalary);
     const gross = fixed + incentive;
-    const socialInsurance =
-      (gross * parseDecimal(contract.socialInsuranceRate || "0")) /
-      1_000_000n;
+    const socialInsurance = statutoryCnSupported
+      ? (gross * parseDecimal(contract.socialInsuranceRate || "0")) /
+        1_000_000n
+      : 0n;
     let tax: bigint;
-    let taxCalculationMode: PayrollTaxMode = taxMode;
+    let taxCalculationMode: PayrollTaxMode | undefined;
     let ytdTaxableIncome: bigint | undefined;
     let ytdTaxWithheld: bigint | undefined;
     let iitRatePercent: number | undefined;
     let iitQuickDeduction: string | undefined;
-    if (taxMode === "STATUTORY_CN") {
+    if (!statutoryCnSupported) {
+      // No China IIT for a non-CNY payroll; the line marker explains why.
+      tax = 0n;
+      taxCalculationMode = undefined;
+    } else if (taxMode === "STATUTORY_CN") {
+      taxCalculationMode = "STATUTORY_CN";
       // Cumulative withholding method for resident comprehensive income:
       // cumulative taxable = prior YTD + (gross - social insurance - basic).
       const prior = input.priorYtd?.[contract.personId];
@@ -214,20 +237,41 @@ export function calculatePayroll(input: {
       tax =
         (gross * parseDecimal(contract.taxRate || "0")) / 1_000_000n;
     }
-    const net = gross - deductions - tax - socialInsurance;
+    const fixedValue = moneyValue(fixed);
+    const rawIncentiveValue = moneyValue(rawIncentive);
+    const smoothedIncentiveValue = moneyValue(smoothedIncentive);
+    // Round each deduction bucket before summing so the line total equals the
+    // sum of its displayed breakdown (accounting invariant).
+    const deductionsValue = [...breakdown.values()].reduce(
+      (total, value) => total + moneyValue(value.amount),
+      0n,
+    );
+    const taxValue = moneyValue(tax);
+    const socialInsuranceValue = moneyValue(socialInsurance);
+    const grossValue = fixedValue + smoothedIncentiveValue;
+    const netValue =
+      grossValue - deductionsValue - taxValue - socialInsuranceValue;
     const minimum = parseDecimal(contract.minimumMonthlyWage);
+    const minimumValue = moneyValue(minimum);
     const deductionCapRate = parseDecimal(
       contract.deductionCapRate || "0.2",
     );
-    const deductionCapAmount = (gross * deductionCapRate) / 1_000_000n;
-    const deductionCapPassed = deductions <= deductionCapAmount;
-    const variableShareRate = gross > 0n ? (incentive * 1_000_000n) / gross : 0n;
+    const deductionCapAmount = moneyValue(
+      (grossValue * deductionCapRate) / 1_000_000n,
+    );
+    const deductionCapPassed = deductionsValue <= deductionCapAmount;
+    const variableShareRate =
+      grossValue > 0n
+        ? (smoothedIncentiveValue * 1_000_000n) / grossValue
+        : 0n;
     const variableShareCapRate = parseDecimal(
       contract.variableShareCapRate || "1",
     );
-    const variableShareCapAmount =
-      (gross * variableShareCapRate) / 1_000_000n;
-    const variableSharePassed = incentive <= variableShareCapAmount;
+    const variableShareCapAmount = moneyValue(
+      (grossValue * variableShareCapRate) / 1_000_000n,
+    );
+    const variableSharePassed =
+      smoothedIncentiveValue <= variableShareCapAmount;
     const deductionTypeCapBreaches: string[] = [];
     const deductionLegalBasisMissing: string[] = [];
     for (const [type, value] of breakdown.entries()) {
@@ -250,8 +294,10 @@ export function calculatePayroll(input: {
       const rate = contract.deductionTypeCaps[type] ?? rule?.capRate;
       if (!rate) continue;
       const capRate = parseDecimal(rate);
-      const capAmount = (gross * capRate) / 1_000_000n;
-      if (value.amount > capAmount) {
+      const capAmount = moneyValue(
+        (grossValue * capRate) / 1_000_000n,
+      );
+      if (moneyValue(value.amount) > capAmount) {
         deductionTypeCapBreaches.push(type);
       }
     }
@@ -259,24 +305,25 @@ export function calculatePayroll(input: {
       deductionTypeCapBreaches.length === 0;
     const deductionLegalBasisPassed =
       deductionLegalBasisMissing.length === 0;
+    const priorIncentiveValue = moneyValue(priorIncentive);
     const incentiveChangeRate =
-      priorIncentive === 0n
-        ? rawIncentive > 0n
+      priorIncentiveValue === 0n
+        ? rawIncentiveValue > 0n
           ? 1_000_000n
           : 0n
-        : ((rawIncentive >= priorIncentive
-            ? rawIncentive - priorIncentive
-            : priorIncentive - rawIncentive) *
+        : ((rawIncentiveValue >= priorIncentiveValue
+            ? rawIncentiveValue - priorIncentiveValue
+            : priorIncentiveValue - rawIncentiveValue) *
             1_000_000n) /
-          priorIncentive;
+          priorIncentiveValue;
     const smoothingThresholdRate = parseDecimal(
       contract.smoothingThresholdRate || "1",
     );
     const smoothingPassed =
       smoothingMode !== "BLOCK" ||
-      priorIncentive === 0n ||
+      priorIncentiveValue === 0n ||
       incentiveChangeRate <= smoothingThresholdRate;
-    const minimumWagePassed = net >= minimum;
+    const minimumWagePassed = netValue >= minimumValue;
     const noticeAcknowledgementMissing =
       input.unacknowledgedNoticesByPerson?.[contract.personId] ?? [];
     const noticeAcknowledgementPassed =
@@ -290,40 +337,42 @@ export function calculatePayroll(input: {
       smoothingPassed &&
       noticeAcknowledgementPassed;
     if (!passed) blockedCount += 1;
-    totalGross += gross;
-    totalDeductions += deductions + tax + socialInsurance;
-    totalTax += tax;
-    totalSocialInsurance += socialInsurance;
-    totalNet += net;
+    totalGross += grossValue;
+    totalDeductions += deductionsValue + taxValue + socialInsuranceValue;
+    totalTax += taxValue;
+    totalSocialInsurance += socialInsuranceValue;
+    totalNet += netValue;
     lines.push({
       personId: contract.personId,
       contractId: contract.id,
-      currency: contract.currency,
-      fixedAmount: formatDecimal(fixed),
-      incentiveAmount: formatDecimal(smoothedIncentive),
-      rawIncentiveAmount: formatDecimal(rawIncentive),
-      smoothedIncentiveAmount: formatDecimal(smoothedIncentive),
-      smoothingDelta: formatDecimal(smoothedIncentive - rawIncentive),
+      currency: input.currency,
+      fixedAmount: money(fixed),
+      incentiveAmount: money(smoothedIncentive),
+      rawIncentiveAmount: money(rawIncentive),
+      smoothedIncentiveAmount: money(smoothedIncentive),
+      smoothingDelta: money(smoothedIncentiveValue - rawIncentiveValue),
       smoothingMode,
-      grossAmount: formatDecimal(gross),
-      deductionAmount: formatDecimal(deductions),
-      taxAmount: formatDecimal(tax),
-      socialInsuranceAmount: formatDecimal(socialInsurance),
-      netAmount: formatDecimal(net),
-      minimumMonthlyWage: contract.minimumMonthlyWage,
+      grossAmount: money(grossValue),
+      deductionAmount: money(deductionsValue),
+      taxAmount: money(taxValue),
+      socialInsuranceAmount: money(socialInsuranceValue),
+      netAmount: money(netValue),
+      minimumMonthlyWage: statutoryCnSupported
+        ? contract.minimumMonthlyWage
+        : money(minimumValue),
       minimumWagePassed,
       deductionCapRate: formatDecimal(deductionCapRate),
-      deductionCapAmount: formatDecimal(deductionCapAmount),
+      deductionCapAmount: money(deductionCapAmount),
       deductionCapPassed,
       variableShareRate: formatDecimal(variableShareRate),
       variableShareCapRate: formatDecimal(variableShareCapRate),
-      variableShareCapAmount: formatDecimal(variableShareCapAmount),
+      variableShareCapAmount: money(variableShareCapAmount),
       variableSharePassed,
       deductionTypeCapPassed,
       deductionTypeCapBreaches,
       deductionLegalBasisPassed,
       deductionLegalBasisMissing,
-      priorIncentiveAmount: formatDecimal(priorIncentive),
+      priorIncentiveAmount: money(priorIncentive),
       incentiveChangeRate: formatDecimal(incentiveChangeRate),
       smoothingThresholdRate: formatDecimal(smoothingThresholdRate),
       smoothingPassed,
@@ -333,7 +382,7 @@ export function calculatePayroll(input: {
         .sort((a, b) => a[1].priority - b[1].priority)
         .map(([type, value]) => ({
           type,
-          amount: formatDecimal(value.amount),
+          amount: money(value.amount),
           priority: value.priority,
           statutory: value.statutory,
           requiresCourtOrder: value.requiresCourtOrder,
@@ -351,16 +400,19 @@ export function calculatePayroll(input: {
           : formatDecimal(ytdTaxWithheld),
       iitRatePercent,
       iitQuickDeduction,
+      ...(statutoryCnSupported
+        ? {}
+        : { statutoryCurrencyUnsupported: true }),
     });
   }
 
   return {
     lines,
-    totalGross: formatDecimal(totalGross),
-    totalDeductions: formatDecimal(totalDeductions),
-    totalTax: formatDecimal(totalTax),
-    totalSocialInsurance: formatDecimal(totalSocialInsurance),
-    totalNet: formatDecimal(totalNet),
+    totalGross: money(totalGross),
+    totalDeductions: money(totalDeductions),
+    totalTax: money(totalTax),
+    totalSocialInsurance: money(totalSocialInsurance),
+    totalNet: money(totalNet),
     blockedCount,
   };
 }
@@ -500,9 +552,18 @@ export function payrollTaxFilingCsv(run: PayrollRun): string {
     "iit_quick_deduction",
     "tax_withheld_this_period",
   ].join(",");
-  const basicDeduction = CHINA_IIT_MONTHLY_BASIC_DEDUCTION;
+  const chinaBasicDeduction = CHINA_IIT_MONTHLY_BASIC_DEDUCTION;
   const rows = (run.lines ?? []).map((line) => {
-    const mode = line.taxCalculationMode ?? "DECLARED";
+    const unsupportedCurrency =
+      line.statutoryCurrencyUnsupported === true || line.currency !== "CNY";
+    const mode =
+      line.taxCalculationMode ??
+      (unsupportedCurrency ? "UNSUPPORTED_CURRENCY" : "DECLARED");
+    // China IIT columns are meaningless for a non-CNY line; emit zeros and an
+    // explicit UNSUPPORTED_CURRENCY mode instead of implying RMB withholding.
+    const basicDeduction = unsupportedCurrency
+      ? "0"
+      : chinaBasicDeduction;
     const social = parseDecimal(line.socialInsuranceAmount);
     const gross = parseDecimal(line.grossAmount);
     const monthlyTaxable = gross - social - parseDecimal(basicDeduction);
@@ -542,6 +603,10 @@ export function payrollPayslipHtml(
   run: PayrollRun,
   line: PayrollLine,
 ): string {
+  const statutoryNote =
+    line.statutoryCurrencyUnsupported === true || line.currency !== "CNY"
+      ? `\n<tr><th>Statutory deductions</th><td>Not applied: China IIT/social insurance are only supported for CNY payroll.</td></tr>`
+      : "";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
 <title>Payslip ${escapeHtml(line.personId)}</title>
@@ -561,7 +626,7 @@ export function payrollPayslipHtml(
 <tr><th>Net</th><td><strong>${escapeHtml(line.netAmount)}</strong></td></tr>
 <tr><th>Minimum wage</th><td>${escapeHtml(line.minimumMonthlyWage)} (${line.minimumWagePassed ? "passed" : "FAILED"})</td></tr>
 <tr><th>Deduction cap</th><td>${escapeHtml(line.deductionCapAmount)} at ${escapeHtml(line.deductionCapRate)} (${line.deductionCapPassed ? "passed" : "FAILED"})</td></tr>
-<tr><th>Variable share</th><td>${escapeHtml(line.variableShareRate)} at cap ${escapeHtml(line.variableShareCapRate)} (${line.variableSharePassed ? "passed" : "FAILED"})</td></tr>
+<tr><th>Variable share</th><td>${escapeHtml(line.variableShareRate)} at cap ${escapeHtml(line.variableShareCapRate)} (${line.variableSharePassed ? "passed" : "FAILED"})</td></tr>${statutoryNote}
 </table>
 </body></html>`;
 }

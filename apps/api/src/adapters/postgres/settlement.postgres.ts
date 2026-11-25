@@ -714,6 +714,17 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
         if (!["DRAFT", "CALCULATED", "BLOCKED"].includes(rows[0].status)) {
           throw new ConflictError(`payroll run is ${rows[0].status}`);
         }
+        const runCurrency = String(rows[0].currency).trim();
+        // Fail closed: every line must use the run currency. A missing line
+        // currency inherits it for backward compatibility.
+        const mismatched = input.lines.find(
+          (line) => (line.currency ?? runCurrency) !== runCurrency,
+        );
+        if (mismatched) {
+          throw new ConflictError(
+            `PAYROLL_LINE_CURRENCY_MISMATCH: line ${mismatched.personId} is ${mismatched.currency} but run ${input.runId} is ${runCurrency}`,
+          );
+        }
         await client.query(
           "DELETE FROM payroll_lines WHERE tenant_id=$1 AND run_id=$2",
           [input.tenantId, input.runId],
@@ -744,7 +755,7 @@ export function PgSettlementMixin(Base: abstract new (...args: ConstructorParame
               input.runId,
               line.personId,
               line.contractId,
-              line.currency,
+              line.currency ?? runCurrency,
               line.fixedAmount,
               line.incentiveAmount,
               line.grossAmount,

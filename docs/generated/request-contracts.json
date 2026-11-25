@@ -289,6 +289,11 @@
       "optional": [
         "accountingPeriod",
         "contractRef",
+        "documentId",
+        "documentType",
+        "functionalAmount",
+        "functionalCurrency",
+        "fxRate",
         "fxSnapshot",
         "instrumentType",
         "legalEntityId",
@@ -298,21 +303,69 @@
         "periodStart",
         "qualityStatus",
         "recognitionStatus",
+        "relatedFactId",
         "reopeningRef",
         "reversalOf",
         "sourceUpdatedAt",
         "sourceVersion"
       ]
     },
+    "CreateFinancialInvoice": {
+      "required": [
+        "accountingPeriod",
+        "amount",
+        "currency",
+        "functionalCurrency",
+        "legalEntityId"
+      ],
+      "optional": [
+        "contractRef",
+        "documentId",
+        "functionalAmount",
+        "fxRate",
+        "issuedAt",
+        "orderId",
+        "sourceVersion"
+      ]
+    },
+    "CreateFinancialPayment": {
+      "required": [
+        "amount",
+        "relatedFactId"
+      ],
+      "optional": [
+        "accountingPeriod",
+        "currency",
+        "documentId",
+        "documentType",
+        "functionalAmount",
+        "functionalCurrency",
+        "fxRate",
+        "legalEntityId",
+        "paidAt",
+        "sourceVersion"
+      ]
+    },
+    "CreateFinancialRevaluation": {
+      "required": [
+        "factId",
+        "functionalCurrency",
+        "fxRate"
+      ],
+      "optional": [
+        "reason"
+      ]
+    },
     "CreatePayrollRun": {
       "required": [
-        "currency",
         "cycleId",
         "periodEnd",
         "periodStart",
         "preparedBy"
       ],
-      "optional": []
+      "optional": [
+        "currency"
+      ]
     },
     "CreateRetentionPolicy": {
       "required": [
@@ -556,6 +609,15 @@
         "reviewerPersonId"
       ],
       "optional": []
+    },
+    "ReverseFinancialFact": {
+      "required": [],
+      "optional": [
+        "accountingPeriod",
+        "legalEntityId",
+        "reason",
+        "sourceVersion"
+      ]
     },
     "RunsFromIngestion": {
       "required": [

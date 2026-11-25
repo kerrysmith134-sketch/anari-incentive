@@ -8,8 +8,8 @@
  * - 验收文档（docs/acceptance/policy-caps.md）
  * - 运行时行为（scorePerformance 的实际封顶值）
  *
- * 任一来源被单独修改，门禁即失败。2026-11-21 外部审计提出的
- * 季度 1.30 / 年度 1.50 尚未获得业务书面确认，本门禁断言其未被擅自应用。
+ * 任一来源被单独修改，门禁即失败。2026-11-25 业务确认按季度 150 /
+ * 年度 105 执行；审计提议的 130/150 作为历史提案保留，本门禁断言其未被应用。
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,8 @@ interface PolicyCapsBaseline {
     proposal: Record<string, CapEntry>;
     status: string;
     notAppliedReason: string;
+    resolvedAt?: string;
+    resolution?: string;
   }>;
 }
 
@@ -130,11 +132,9 @@ describe("POLICY ACCEPTANCE GATE: performance cycle caps (绩效周期上限单�
     );
   });
 
-  it("GATE-03 审计提出的 1.30/1.50 仍为待确认冲突，未被代码或基线应用", () => {
+  it("GATE-03 审计 1.30/1.50 已决议不采用，未被代码或基线应用", () => {
     expect(AUDIT_PROPOSAL).toBeDefined();
-    expect(AUDIT_PROPOSAL!.status).toBe(
-      "PENDING_BUSINESS_WRITTEN_CONFIRMATION",
-    );
+    expect(AUDIT_PROPOSAL!.status).toBe("RESOLVED_KEEP_CURRENT");
     expect(AUDIT_PROPOSAL!.proposal.QUARTERLY?.score).toBe("130");
     expect(AUDIT_PROPOSAL!.proposal.QUARTERLY?.multiplier).toBe("1.30");
     expect(AUDIT_PROPOSAL!.proposal.ANNUAL?.score).toBe("150");
@@ -152,10 +152,10 @@ describe("POLICY ACCEPTANCE GATE: performance cycle caps (绩效周期上限单�
     expect(baseline.caps.ANNUAL?.score).not.toBe(
       AUDIT_PROPOSAL!.proposal.ANNUAL?.score,
     );
-    expect(PERFORMANCE_CYCLE_CAP_APPROVAL.pendingConflictId).toBe(
+    expect(PERFORMANCE_CYCLE_CAP_APPROVAL.resolvedConflictId).toBe(
       AUDIT_PROPOSAL!.id,
     );
-    expect(AUDIT_PROPOSAL!.notAppliedReason).toMatch(/书面确认/);
+    expect(AUDIT_PROPOSAL!.resolution).toMatch(/150/);
   });
 
   it("GATE-04 制度矩阵与验收文档记录同一现行口径", () => {
@@ -172,7 +172,7 @@ describe("POLICY ACCEPTANCE GATE: performance cycle caps (绩效周期上限单�
     expect(acceptanceDoc).toContain("CAP-AUDIT-2026-11-21");
     expect(acceptanceDoc).toContain("PENDING_BUSINESS_WRITTEN_CONFIRMATION");
     expect(acceptanceDoc).toContain("1.30");
-    expect(acceptanceDoc).toContain("待业务书面确认");
+    expect(acceptanceDoc).toContain("2026-11-25 业务确认");
   });
 
   it("GATE-05 scorePerformance 实际封顶值与基线一致（政策不是文档里的死数字）", () => {

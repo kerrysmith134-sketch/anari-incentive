@@ -1001,6 +1001,44 @@ export const fxSnapshotSchema = z.object({
 });
 export type FxSnapshotBody = z.infer<typeof fxSnapshotSchema>;
 
+// ----------------------------------------------------------------------
+// 财务子账（迁移 111）：业务文档身份 + 原币/功能币双金额。
+// 金额与汇率统一 6 位小数定点，币种严格 ISO 4217（三位大写字母）。
+// ----------------------------------------------------------------------
+export const financialDocumentTypeSchema = z.enum([
+  "INVOICE",
+  "PAYMENT",
+  "REFUND",
+  "FX_REVALUATION",
+  "REVERSAL",
+  "CREDIT_NOTE",
+]);
+export type FinancialDocumentTypeBody = z.infer<
+  typeof financialDocumentTypeSchema
+>;
+
+const isoCurrency = z
+  .string()
+  .regex(/^[A-Z]{3}$/, "expected an ISO 4217 currency code (three uppercase letters)");
+
+const subledgerDecimal = z
+  .string()
+  .regex(/^\d+(\.\d{1,6})?$/, "expected a non-negative decimal with <= 6 fraction digits");
+
+const positiveSubledgerDecimal = subledgerDecimal.refine(
+  (value) => Number(value) > 0,
+  "amount must be greater than zero",
+);
+
+const positiveFxRate = subledgerDecimal.refine(
+  (value) => Number(value) > 0,
+  "fxRate must be greater than zero",
+);
+
+const accountingPeriodSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM");
+
 /**
  * 2026-11-21 审计 Sprint 5：Financial Fact 不再是“金额 + payload”。
  *
@@ -1043,6 +1081,13 @@ export const createFinancialFactSchema = z
     sourceVersion: z.string().min(1).max(256).optional(),
     reversalOf: z.string().min(1).optional(),
     reopeningRef: z.string().min(1).optional(),
+    /** 财务子账语义（迁移 111，全部可选，兼容既有调用方）。 */
+    documentType: financialDocumentTypeSchema.optional(),
+    documentId: z.string().min(1).max(128).optional(),
+    relatedFactId: z.string().min(1).max(128).optional(),
+    fxRate: positiveFxRate.optional(),
+    functionalCurrency: isoCurrency.optional(),
+    functionalAmount: subledgerDecimal.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.recognitionStatus !== "POSTED") return;
@@ -1069,9 +1114,156 @@ export const createFinancialFactSchema = z
           "POSTED facts require orderId or contractRef for business traceability",
       });
     }
+    // 跨币种入账必须带汇率与功能币金额，服务端仍会重算并拒绝不一致。
+    if (
+      value.functionalCurrency &&
+      value.currency !== value.functionalCurrency
+    ) {
+      if (!value.fxRate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fxRate"],
+          message:
+            "fxRate is required when currency differs from functionalCurrency",
+        });
+      }
+      if (!value.functionalAmount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["functionalAmount"],
+          message:
+            "functionalAmount is required when currency differs from functionalCurrency",
+        });
+      }
+    }
   });
 export type CreateFinancialFactBody = z.infer<
   typeof createFinancialFactSchema
+>;
+
+/**
+ * POST /api/v1/financial-invoices：开具一张 INVOICE 子账事实。
+ *
+ * - 必须能追溯到订单或合同；
+ * - 币种严格 ISO 4217，金额/汇率最多 6 位小数且必须为正；
+ * - 跨币种（currency != functionalCurrency）必须带 fxRate，服务端用
+ *   1e6 BigInt 计算 functionalAmount 并拒绝不一致。
+ */
+export const createFinancialInvoiceSchema = z
+  .object({
+    documentId: z.string().min(1).max(128).optional(),
+    legalEntityId: z.string().min(1),
+    accountingPeriod: accountingPeriodSchema,
+    orderId: z.string().min(1).optional(),
+    contractRef: z.string().min(1).optional(),
+    currency: isoCurrency,
+    amount: positiveSubledgerDecimal,
+    fxRate: positiveFxRate.optional(),
+    functionalCurrency: isoCurrency,
+    functionalAmount: subledgerDecimal.optional(),
+    sourceVersion: z.string().min(1).max(256).default("1"),
+    issuedAt: z.string().datetime().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.orderId && !value.contractRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orderId"],
+        message: "orderId or contractRef is required for an invoice",
+      });
+    }
+    if (value.currency !== value.functionalCurrency && !value.fxRate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fxRate"],
+        message:
+          "fxRate is required when currency differs from functionalCurrency",
+      });
+    }
+    if (
+      value.currency === value.functionalCurrency &&
+      value.fxRate !== undefined &&
+      Number(value.fxRate) !== 1
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fxRate"],
+        message:
+          "fxRate must be 1 when currency equals functionalCurrency",
+      });
+    }
+  });
+export type CreateFinancialInvoiceBody = z.infer<
+  typeof createFinancialInvoiceSchema
+>;
+
+/**
+ * POST /api/v1/financial-payments：登记收款（PAYMENT）或退款（REFUND）。
+ * 请求金额始终为正数；REFUND 由服务端写入负金额。关联发票必填。
+ */
+export const createFinancialPaymentSchema = z.object({
+  relatedFactId: uuidSchema,
+  documentType: z.enum(["PAYMENT", "REFUND"]).default("PAYMENT"),
+  documentId: z.string().min(1).max(128).optional(),
+  legalEntityId: z.string().min(1).optional(),
+  accountingPeriod: accountingPeriodSchema.optional(),
+  currency: isoCurrency.optional(),
+  amount: positiveSubledgerDecimal,
+  fxRate: positiveFxRate.optional(),
+  functionalCurrency: isoCurrency.optional(),
+  functionalAmount: subledgerDecimal.optional(),
+  paidAt: z.string().datetime().optional(),
+  sourceVersion: z.string().min(1).max(256).default("1"),
+});
+export type CreateFinancialPaymentBody = z.infer<
+  typeof createFinancialPaymentSchema
+>;
+
+/**
+ * POST /api/v1/financial-facts/:id/reverse：冲销原事实（金额取反）。
+ * 期间默认沿用原事实，可通过 body 显式指定入账期间。
+ */
+export const reverseFinancialFactSchema = z.object({
+  legalEntityId: z.string().min(1).optional(),
+  accountingPeriod: accountingPeriodSchema.optional(),
+  reason: z.string().min(1).max(512).optional(),
+  sourceVersion: z.string().min(1).max(256).default("1"),
+});
+export type ReverseFinancialFactBody = z.infer<
+  typeof reverseFinancialFactSchema
+>;
+
+/**
+ * POST /api/v1/financial-revaluations：按新汇率重估原事实。
+ * 金额 = 原币金额 × (新汇率 - 原汇率)，由服务端 1e6 BigInt 计算。
+ */
+export const createFinancialRevaluationSchema = z.object({
+  factId: uuidSchema,
+  fxRate: positiveFxRate,
+  functionalCurrency: isoCurrency,
+  reason: z.string().min(1).max(512).optional(),
+});
+export type CreateFinancialRevaluationBody = z.infer<
+  typeof createFinancialRevaluationSchema
+>;
+
+/** GET /api/v1/financial-subledger：按订单或合同回读整条子账链。 */
+export const financialSubledgerQuerySchema = z
+  .object({
+    orderId: z.string().min(1).optional(),
+    contractRef: z.string().min(1).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.orderId && !value.contractRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orderId"],
+        message: "orderId or contractRef is required",
+      });
+    }
+  });
+export type FinancialSubledgerQueryBody = z.infer<
+  typeof financialSubledgerQuerySchema
 >;
 
 const commercialCurrency = z.string().length(3);
@@ -1946,7 +2138,8 @@ export const createPayrollRunSchema = z.object({
   cycleId: uuidSchema,
   periodStart: z.string().datetime(),
   periodEnd: z.string().datetime(),
-  currency: z.string().length(3),
+  /** ISO 4217 code; defaults to CNY to keep existing callers unchanged. */
+  currency: z.string().length(3).default("CNY"),
   preparedBy: uuidSchema,
 });
 export type CreatePayrollRunBody = z.infer<typeof createPayrollRunSchema>;
@@ -1967,6 +2160,12 @@ export type CalculateCnIitBody = z.infer<typeof calculateCnIitSchema>;
 export const payrollLineInputSchema = z.object({
   personId: uuidSchema,
   contractId: uuidSchema,
+  /**
+   * ISO 4217 code for this line. Optional for backward compatibility; when
+   * omitted the store inherits the run currency. A provided value must match
+   * the run currency (fail-closed 409 otherwise).
+   */
+  currency: z.string().length(3).optional(),
   fixedAmount: decimal,
   incentiveAmount: decimal,
   grossAmount: decimal,
@@ -2956,6 +3155,10 @@ export const requestSchemaRegistry = {
   CreateEmploymentContract: createEmploymentContractSchema,
   CreateEvidence: createEvidenceSchema,
   CreateFinancialFact: createFinancialFactSchema,
+  CreateFinancialInvoice: createFinancialInvoiceSchema,
+  CreateFinancialPayment: createFinancialPaymentSchema,
+  CreateFinancialRevaluation: createFinancialRevaluationSchema,
+  ReverseFinancialFact: reverseFinancialFactSchema,
   CreateCommercialAccount: createCommercialAccountSchema,
   CreateCommercialOpportunity: createCommercialOpportunitySchema,
   CreateCommercialQuote: createCommercialQuoteSchema,

@@ -436,6 +436,12 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       sourceVersion?: string;
       reversalOf?: string;
       reopeningRef?: string;
+      documentType?: FinancialFact["documentType"];
+      documentId?: string;
+      relatedFactId?: string;
+      fxRate?: string;
+      functionalCurrency?: string;
+      functionalAmount?: string;
     }): Promise<FinancialFact> {
       if (!this.tenants.has(input.tenantId)) notFound("Tenant", input.tenantId);
       const recognitionStatus = input.recognitionStatus ?? "DRAFT";
@@ -454,6 +460,52 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
         throw new ConflictError(
           "FACT_NOT_TRACEABLE: POSTED facts require orderId or contractRef",
         );
+      }
+      if (input.documentId && !input.documentType) {
+        throw new ConflictError(
+          "DOCUMENT_TYPE_REQUIRED: documentId requires documentType",
+        );
+      }
+      // 迁移 111：跨币种 POSTED 事实必须带汇率与功能币金额。服务端用
+      // 1e6 定点 BigInt 重算功能币金额，客户端传入值不一致即拒绝。
+      if (recognitionStatus === "POSTED" && input.functionalCurrency) {
+        const functionalCurrency = input.functionalCurrency.trim();
+        if (!/^[A-Z]{3}$/.test(functionalCurrency)) {
+          throw new ConflictError(
+            `INVALID_FUNCTIONAL_CURRENCY: ${input.functionalCurrency}`,
+          );
+        }
+        if (input.currency !== functionalCurrency) {
+          if (!input.fxRate || !input.functionalAmount) {
+            throw new ConflictError(
+              "FX_FIELDS_REQUIRED: POSTED facts whose currency differs from functionalCurrency require fxRate and functionalAmount",
+            );
+          }
+          if (parseDecimal(input.fxRate) <= 0n) {
+            throw new ConflictError(
+              `INVALID_FX_RATE: ${input.fxRate}`,
+            );
+          }
+          const expected = formatDecimal(
+            divRound(
+              parseDecimal(input.amount) * parseDecimal(input.fxRate),
+              1_000_000n,
+              "HALF_UP",
+            ),
+          );
+          if (expected !== formatDecimal(parseDecimal(input.functionalAmount))) {
+            throw new ConflictError(
+              `FUNCTIONAL_AMOUNT_INCONSISTENT: expected ${expected} ${functionalCurrency} for ${input.amount} ${input.currency} @ ${input.fxRate}, got ${input.functionalAmount}`,
+            );
+          }
+        } else if (
+          input.functionalAmount !== undefined &&
+          parseDecimal(input.functionalAmount) !== parseDecimal(input.amount)
+        ) {
+          throw new ConflictError(
+            `FUNCTIONAL_AMOUNT_INCONSISTENT: same-currency fact must have functionalAmount equal to amount (${input.amount}), got ${input.functionalAmount}`,
+          );
+        }
       }
       if (recognitionStatus === "POSTED") {
         if (!input.legalEntityId || !input.accountingPeriod) {
@@ -532,6 +584,21 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           );
         }
       }
+      // 迁移 111：同一租户内 (document_type, document_id) 唯一。
+      if (input.documentId) {
+        const duplicate = [...this.financialFacts.values()].find(
+          (fact) =>
+            fact.tenantId === input.tenantId &&
+            fact.documentType === input.documentType &&
+            fact.documentId === input.documentId &&
+            fact.id !== existing?.id,
+        );
+        if (duplicate) {
+          throw new ConflictError(
+            `DUPLICATE_FINANCIAL_DOCUMENT: ${input.documentType ?? "DOCUMENT"}/${input.documentId} already exists`,
+          );
+        }
+      }
       // INT-208（Sprint 2.1 财务红线）：迟到的旧快照不得覆盖新快照——
       // 同键且两侧均携带 sourceUpdatedAt 时，旧时间戳 → 409 STALE_FINANCIAL_FACT。
       if (
@@ -544,10 +611,11 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           `STALE_FINANCIAL_FACT: incoming snapshot (${input.sourceUpdatedAt}) is older than current (${existing.sourceUpdatedAt}) for ${input.sourceSystem}/${input.sourceRecordId}/${input.factType}`,
         );
       }
-      // 旧值进修订账本（append-only 语义：Memory 用数组模拟 101/105 表）。
+      // 旧值进修订账本（append-only 语义：Memory 用数组模拟 101/105/111 表）。
       if (existing) {
         const revisions = this.financialFactRevisions.get(existing.id) ?? [];
-        revisions.push({
+        // 用变量承载 111 新列，避免修改 base.memory 的修订账本类型。
+        const revisionEntry = {
           revision: revisions.length + 1,
           amount: existing.amount,
           currency: existing.currency,
@@ -567,7 +635,14 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
           sourceVersion: existing.sourceVersion,
           reversalOf: existing.reversalOf,
           reopeningRef: existing.reopeningRef,
-        });
+          documentType: existing.documentType,
+          documentId: existing.documentId,
+          relatedFactId: existing.relatedFactId,
+          fxRate: existing.fxRate,
+          functionalCurrency: existing.functionalCurrency,
+          functionalAmount: existing.functionalAmount,
+        };
+        revisions.push(revisionEntry);
         this.financialFactRevisions.set(existing.id, revisions);
       }
       const timestamp = now();
@@ -603,7 +678,30 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
       fact.sourceVersion = input.sourceVersion;
       fact.reversalOf = input.reversalOf;
       fact.reopeningRef = input.reopeningRef;
+      fact.documentType = input.documentType;
+      fact.documentId = input.documentId;
+      fact.relatedFactId = input.relatedFactId;
+      fact.fxRate = input.fxRate === undefined
+        ? undefined
+        : formatDecimal(parseDecimal(input.fxRate));
+      fact.functionalCurrency = input.functionalCurrency?.trim();
+      fact.functionalAmount = input.functionalAmount === undefined
+        ? undefined
+        : formatDecimal(parseDecimal(input.functionalAmount));
       this.financialFacts.set(key, fact);
+      return fact;
+    }
+
+    async getFinancialFact(
+      tenantId: string,
+      factId: string,
+    ): Promise<FinancialFact> {
+      if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
+      const fact = [...this.financialFacts.values()].find(
+        (candidate) =>
+          candidate.tenantId === tenantId && candidate.id === factId,
+      );
+      if (!fact) notFound("FinancialFact", factId);
       return fact;
     }
     
@@ -615,6 +713,11 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
         legalEntityId?: string;
         accountingPeriod?: string;
         recognitionStatus?: FinancialFact["recognitionStatus"];
+        orderId?: string;
+        contractRef?: string;
+        documentType?: FinancialFact["documentType"];
+        documentId?: string;
+        relatedFactId?: string;
       },
     ): Promise<FinancialFact[]> {
       if (!this.tenants.has(tenantId)) notFound("Tenant", tenantId);
@@ -630,7 +733,15 @@ export function MemoryBudgetMixin(Base: abstract new (...args: ConstructorParame
             (!filter?.accountingPeriod ||
               fact.accountingPeriod === filter.accountingPeriod) &&
             (!filter?.recognitionStatus ||
-              fact.recognitionStatus === filter.recognitionStatus),
+              fact.recognitionStatus === filter.recognitionStatus) &&
+            (!filter?.orderId || fact.orderId === filter.orderId) &&
+            (!filter?.contractRef ||
+              fact.contractRef === filter.contractRef) &&
+            (!filter?.documentType ||
+              fact.documentType === filter.documentType) &&
+            (!filter?.documentId || fact.documentId === filter.documentId) &&
+            (!filter?.relatedFactId ||
+              fact.relatedFactId === filter.relatedFactId),
         )
         .sort((a, b) => b.ingestedAt.localeCompare(a.ingestedAt));
     }

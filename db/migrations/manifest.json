@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T20:42:15.152Z",
+  "generatedAt": "2026-11-25T11:21:03.303Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -550,6 +550,11 @@
       "file": "110_commercial_contract_order_import.sql",
       "bytes": 876,
       "sha256": "d5bff96ed3634158f63e0465d8a4fd4aca14424c32b1a9b29dcd562b29840ca0"
+    },
+    {
+      "file": "111_financial_subledger.sql",
+      "bytes": 4071,
+      "sha256": "3d00af91221cca461958eec64aa097f21b9c7c945a6041417b7b20bc2ea82b6c"
     }
   ]
 }

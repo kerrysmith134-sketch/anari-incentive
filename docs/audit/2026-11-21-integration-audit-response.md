@@ -108,6 +108,9 @@
 | Raw Ledger 不可变性 | 关闭 | 迁移 108 更新触发器，覆盖 source_version/payload_hash/resource_id/fetched_at/source_updated_at；服务端重新计算并核对 payloadHash。 |
 | Financial Fact DB/API 一致性 | 关闭 | 迁移 108 CHECK 增加 order/contract 必填；runner/parser 透传 reopeningRef；ISO 4217 改用运行时 registry。 |
 | Commercial 完整性 | 关闭 | 已接受/已拒绝 Quote 不可修订；Contract 金额/币种必须等于 Quote；Order 币种/行金额/总额校验；confirm 先锁 contract 再锁 order。 |
+| 财务子账 | 关闭（最小闭环） | 迁移 111 + 发票/收款/退款/冲销/FX 重估 API；document/related/fx/functional 字段落库，POSTED 期间门禁复用。 |
+| payroll 多币种 | 关闭 | run/line currency 一致；非 CNY 法定扣除置 0 并标记；JPY/KWD 精度测试。 |
+| 绩效上限 | 关闭 | 2026-11-25 业务确认按 110/150/105，不采用 130/150；政策门禁更新。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -133,10 +136,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：134 files passed / 2 skipped；1353 tests passed / 108 skipped。
+- `npm test`：135 files passed / 2 skipped；1369 tests passed / 108 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 121 tests passed（迁移 102–108；含 Commercial 导入/upsert、Financial Fact DB 约束、Raw 全字段不可变）。
-- `npm run test:pg-upgrade`：89 → 110 migrations，107 tests passed。
+- `npm run test:pg-upgrade`：89 → 111 migrations，107 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

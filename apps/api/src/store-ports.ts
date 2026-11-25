@@ -377,7 +377,18 @@ export interface BudgetPort {
     sourceVersion?: string;
     reversalOf?: string;
     reopeningRef?: string;
+    /** 财务子账（迁移 111）。 */
+    documentType?: FinancialFact["documentType"];
+    documentId?: string;
+    relatedFactId?: string;
+    fxRate?: string;
+    functionalCurrency?: string;
+    functionalAmount?: string;
   }): Promise<FinancialFact>;
+  getFinancialFact(
+    tenantId: string,
+    factId: string,
+  ): Promise<FinancialFact>;
   listFinancialFacts(
     tenantId: string,
     filter?: {
@@ -386,6 +397,12 @@ export interface BudgetPort {
       legalEntityId?: string;
       accountingPeriod?: string;
       recognitionStatus?: FinancialFact["recognitionStatus"];
+      /** 财务子账回读维度（迁移 111）。 */
+      orderId?: string;
+      contractRef?: string;
+      documentType?: FinancialFact["documentType"];
+      documentId?: string;
+      relatedFactId?: string;
     },
   ): Promise<FinancialFact[]>;
   // 2026-11-21 审计 Sprint 5：会计期间关闭/重开（POSTED 事实前置门禁）。

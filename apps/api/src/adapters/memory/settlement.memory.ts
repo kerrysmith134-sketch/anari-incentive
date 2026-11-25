@@ -580,6 +580,9 @@ export function MemorySettlementMixin(Base: abstract new (...args: ConstructorPa
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
         currency: input.currency,
+        ...(input.currency !== "CNY"
+          ? { statutoryCurrencyUnsupported: true }
+          : {}),
         status: "DRAFT",
         preparedBy: input.preparedBy,
         totalGross: "0",
@@ -613,6 +616,9 @@ export function MemorySettlementMixin(Base: abstract new (...args: ConstructorPa
           ...run,
           lines: (this.payrollLines.get(run.id) ?? []).map((line) => ({
             ...line,
+            ...(line.currency !== "CNY"
+              ? { statutoryCurrencyUnsupported: true }
+              : {}),
           })),
         }));
     }
@@ -629,6 +635,9 @@ export function MemorySettlementMixin(Base: abstract new (...args: ConstructorPa
         ...run,
         lines: (this.payrollLines.get(run.id) ?? []).map((line) => ({
           ...line,
+          ...(line.currency !== "CNY"
+            ? { statutoryCurrencyUnsupported: true }
+            : {}),
         })),
       };
     }
@@ -655,9 +664,23 @@ export function MemorySettlementMixin(Base: abstract new (...args: ConstructorPa
       ) {
         throw new ConflictError(`payroll run is ${run.status}`);
       }
+      // Fail closed: a payroll line may never carry a different currency from
+      // its run. A missing line currency inherits the run currency.
+      const mismatched = input.lines.find(
+        (line) => (line.currency ?? run.currency) !== run.currency,
+      );
+      if (mismatched) {
+        throw new ConflictError(
+          `PAYROLL_LINE_CURRENCY_MISMATCH: line ${mismatched.personId} is ${mismatched.currency} but run ${run.id} is ${run.currency}`,
+        );
+      }
       const timestamp = now();
       const lines: PayrollLine[] = input.lines.map((line) => ({
         ...line,
+        currency: run.currency,
+        ...(run.currency !== "CNY"
+          ? { statutoryCurrencyUnsupported: true }
+          : {}),
         id: randomUUID(),
         tenantId: input.tenantId,
         runId: input.runId,

@@ -899,6 +899,23 @@ export type FinancialInstrumentType =
 
 export type FinancialRecognitionStatus = "DRAFT" | "POSTED";
 
+/**
+ * 财务子账业务文档类型（迁移 111）。
+ *
+ * - INVOICE：应收发票；
+ * - PAYMENT / REFUND：收款 / 退款（退款金额为负）；
+ * - FX_REVALUATION：汇率重估，金额 = 原币金额 × (新汇率 - 原汇率)；
+ * - REVERSAL：冲销，金额为原事实取反；
+ * - CREDIT_NOTE：预留贷项通知单。
+ */
+export type FinancialDocumentType =
+  | "INVOICE"
+  | "PAYMENT"
+  | "REFUND"
+  | "FX_REVALUATION"
+  | "REVERSAL"
+  | "CREDIT_NOTE";
+
 /** 会计期间（按法人隔离；CLOSED 期间拒绝新的 POSTED 事实）。 */
 export interface AccountingPeriod {
   id: UUID;
@@ -970,6 +987,20 @@ export interface FinancialFact {
   sourceVersion?: string;
   reversalOf?: string;
   reopeningRef?: string;
+  /**
+   * 财务子账（迁移 111）：业务文档身份、关联事实与功能币金额。
+   * 全部可选，既有事实保持原样。
+   */
+  documentType?: FinancialDocumentType;
+  documentId?: string;
+  /** 收款/退款指向发票；重估/冲销指向被调整事实。 */
+  relatedFactId?: string;
+  /** 原币 → 功能币汇率，6 位小数定点（1.000000 表示同币种）。 */
+  fxRate?: DecimalString;
+  /** ISO 4217 功能币种。 */
+  functionalCurrency?: string;
+  /** 功能币金额，应用层用 1e6 BigInt 计算并校验。 */
+  functionalAmount?: DecimalString;
 }
 
 export type RuleChangeStatus = "DRAFT" | "APPROVED" | "PUBLICIZED" | "REJECTED";
@@ -1379,11 +1410,20 @@ export type PayrollRunStatus =
   | "CANCELLED";
 
 export interface PayrollLine extends PayrollLinePersisted {
+  /**
+   * Present (true) when the run currency is not CNY, so China IIT/social
+   * insurance were intentionally not applied. This is derived from the line
+   * currency at calculation/read time; it is not a persisted column because
+   * the persisted `currency` already carries the truth.
+   */
+  statutoryCurrencyUnsupported?: boolean;
   /** Present when tenant field-access policies hid fields from this viewer. */
   redactedFields?: string[];
 }
 
 export interface PayrollRun extends PayrollRunPersisted {
+  /** Derived marker for non-CNY runs whose statutory CN deductions are off. */
+  statutoryCurrencyUnsupported?: boolean;
   lines?: PayrollLine[];
 }
 

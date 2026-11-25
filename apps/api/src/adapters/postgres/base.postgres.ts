@@ -1932,6 +1932,9 @@ export class PgPlatformStoreBase {
         row.iit_quick_deduction === null || row.iit_quick_deduction === undefined
           ? undefined
           : decimalText(String(row.iit_quick_deduction)) ?? "0",
+      ...(String(row.currency).trim() !== "CNY"
+        ? { statutoryCurrencyUnsupported: true }
+        : {}),
       createdAt: iso(row.created_at) ?? new Date().toISOString(),
     };
   }
@@ -1947,6 +1950,9 @@ export class PgPlatformStoreBase {
       periodStart: iso(row.period_start) ?? new Date().toISOString(),
       periodEnd: iso(row.period_end) ?? new Date().toISOString(),
       currency: String(row.currency).trim(),
+      ...(String(row.currency).trim() !== "CNY"
+        ? { statutoryCurrencyUnsupported: true }
+        : {}),
       status: row.status,
       preparedBy: row.prepared_by,
       approvedBy: row.approved_by ?? undefined,

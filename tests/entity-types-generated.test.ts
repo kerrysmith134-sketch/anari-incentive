@@ -22,8 +22,8 @@ const typesSource = readFileSync(typesPath, "utf8");
 /** Fields that exist only on the read model, never in the database. */
 const VIEW_ONLY_FIELDS: Record<string, string[]> = {
   EmploymentContract: ["redactedFields"],
-  PayrollRun: ["lines"],
-  PayrollLine: ["redactedFields"],
+  PayrollRun: ["lines", "statutoryCurrencyUnsupported"],
+  PayrollLine: ["redactedFields", "statutoryCurrencyUnsupported"],
   CalculationRun: ["lines"],
   CalculationLine: [],
   AmountLedgerEntry: [],

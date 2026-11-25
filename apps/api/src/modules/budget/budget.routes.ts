@@ -21,6 +21,7 @@ import {
   requireActor,
   requireActorRequired,
 } from "../../http-helpers.js";
+import { registerFinancialSubledgerRoutes } from "./financial-subledger.routes.js";
 
 export function registerBudgetRoutes(deps: {
   platformStore: BudgetPort;
@@ -28,6 +29,8 @@ export function registerBudgetRoutes(deps: {
 }): FastifyPluginAsync {
   const { platformStore, storeFor } = deps;
   return async (app: FastifyInstance) => {
+  // 迁移 111：财务子账路由（发票/收款/退款/冲销/FX 重估/子账回读）。
+  app.register(registerFinancialSubledgerRoutes({ platformStore }));
   app.post("/api/v1/budget-pools/:id/discretionary-reviews", async (request, reply) => {
       requireRoles(request, "manager", "finance");
       const body = parse(
@@ -144,6 +147,12 @@ export function registerBudgetRoutes(deps: {
           sourceVersion: body.sourceVersion,
           reversalOf: body.reversalOf,
           reopeningRef: body.reopeningRef,
+          documentType: body.documentType,
+          documentId: body.documentId,
+          relatedFactId: body.relatedFactId,
+          fxRate: body.fxRate,
+          functionalCurrency: body.functionalCurrency,
+          functionalAmount: body.functionalAmount,
         }),
         request,
       ),

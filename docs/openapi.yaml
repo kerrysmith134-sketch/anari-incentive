@@ -3832,6 +3832,158 @@ paths:
         "409":
           $ref: "#/components/responses/StateConflict"
 
+  /api/v1/financial-invoices:
+    post:
+      tags: [Budget]
+      summary: Create a POSTED INVOICE subledger fact
+      description: |
+        创建财务子账发票事实（documentType=INVOICE）。必须追溯到订单或合同；
+        跨币种（currency != functionalCurrency）必须带 fxRate，服务端用
+        1e6 定点 BigInt 计算 functionalAmount 并拒绝不一致。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFinancialInvoice"
+      responses:
+        "201":
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-payments:
+    post:
+      tags: [Budget]
+      summary: Record a PAYMENT or REFUND against an invoice
+      description: |
+        登记收款（PAYMENT）或退款（REFUND）。请求金额始终为正数，退款由
+        服务端写入负金额；relatedFactId 必须指向一张 POSTED 发票。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFinancialPayment"
+      responses:
+        "201":
+          description: Payment or refund created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-facts/{id}/reverse:
+    post:
+      tags: [Budget]
+      summary: Create a REVERSAL fact for an existing fact
+      description: |
+        冲销原事实：金额取反，reversalOf/relatedFactId 指向原事实。默认沿用
+        原事实的会计期间，因此关闭期间会被 PERIOD_CLOSED 拒绝。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReverseFinancialFact"
+      responses:
+        "201":
+          description: Reversal created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-revaluations:
+    post:
+      tags: [Budget]
+      summary: Create an FX_REVALUATION fact
+      description: |
+        按新汇率重估原事实：金额 = 原币金额 × (新汇率 - 原汇率)，以功能币
+        计价，并链接 relatedFactId。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFinancialRevaluation"
+      responses:
+        "201":
+          description: Revaluation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/financial-subledger:
+    get:
+      tags: [Budget]
+      summary: Read the invoice/payment/refund/revaluation/reversal chain
+      parameters:
+        - name: orderId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: contractRef
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Subledger chain grouped by document type, plus per-currency totals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/commercial/accounts:
     get:
       tags: [Commercial]
@@ -13456,6 +13608,129 @@ components:
           type: string
         reopeningRef:
           type: string
+        documentType:
+          type: string
+          enum: [INVOICE, PAYMENT, REFUND, FX_REVALUATION, REVERSAL, CREDIT_NOTE]
+        documentId:
+          type: string
+        relatedFactId:
+          type: string
+        fxRate:
+          type: string
+        functionalCurrency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        functionalAmount:
+          type: string
+
+    CreateFinancialInvoice:
+      type: object
+      required: [legalEntityId, accountingPeriod, currency, amount, functionalCurrency]
+      properties:
+        documentId:
+          type: string
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        orderId:
+          type: string
+        contractRef:
+          type: string
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        amount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        fxRate:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        functionalCurrency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        functionalAmount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        sourceVersion:
+          type: string
+          default: "1"
+        issuedAt:
+          type: string
+          format: date-time
+
+    CreateFinancialPayment:
+      type: object
+      required: [relatedFactId, amount]
+      properties:
+        relatedFactId:
+          type: string
+          format: uuid
+        documentType:
+          type: string
+          enum: [PAYMENT, REFUND]
+          default: PAYMENT
+        documentId:
+          type: string
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        amount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        fxRate:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        functionalCurrency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        functionalAmount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        paidAt:
+          type: string
+          format: date-time
+        sourceVersion:
+          type: string
+          default: "1"
+
+    ReverseFinancialFact:
+      type: object
+      properties:
+        legalEntityId:
+          type: string
+        accountingPeriod:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        reason:
+          type: string
+          maxLength: 512
+        sourceVersion:
+          type: string
+          default: "1"
+
+    CreateFinancialRevaluation:
+      type: object
+      required: [factId, fxRate, functionalCurrency]
+      properties:
+        factId:
+          type: string
+          format: uuid
+        fxRate:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        functionalCurrency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        reason:
+          type: string
+          maxLength: 512
 
     DecideAccountingPeriodChange:
       type: object
@@ -14566,7 +14841,7 @@ components:
 
     CreatePayrollRun:
       type: object
-      required: [cycleId, periodStart, periodEnd, currency, preparedBy]
+      required: [cycleId, periodStart, periodEnd, preparedBy]
       properties:
         cycleId:
           $ref: "#/components/schemas/Uuid"
@@ -14580,6 +14855,7 @@ components:
           type: string
           minLength: 3
           maxLength: 3
+          default: CNY
         preparedBy:
           $ref: "#/components/schemas/Uuid"
 
