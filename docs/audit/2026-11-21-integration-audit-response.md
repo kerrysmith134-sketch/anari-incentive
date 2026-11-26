@@ -127,6 +127,10 @@
 | 本地系统 Provider | 关闭（代码） | Anari ERP/Commercial/CRM/Ticketing/HR/Finance + PingCode 官方 v2 适配器 + import CLI；真实联调需启动本地服务并配置 token。 |
 | P0 金额安全 | 关闭（核心） | 年度/技术池 Hamilton、悬赏币种精度、海外资格 fail-closed、输入边界；11 个定向测试。 |
 | 奖励批次来源占用 | 关闭（并发） | 迁移 116 原子唯一占用，PG 事务内先占位再建批次。 |
+| JEV 决策记录 | 关闭（模块） | 迁移 118：case/evidence/judgment/verification/record；AI/人工分表、自决拒绝、决定不可改；vLLM 通过 DecisionAiAdapter 接入。 |
+| 奖励批次财务闭环 | 关闭（行级） | 迁移 117：行级支付回执/FAILED/RETURNED、对账、ACK 门禁、每笔 PAID 生成平衡 GL 凭证。 |
+| 绩效权威事实链 | 关闭（评分入口） | `score-from-facts` 只读锁定卡+FROZEN 快照，覆盖输入 409，factsHash 可重放；旧 /score 标记 CLIENT_INPUT。 |
+| Cycle Readiness | 关闭 | DRAFT/SUBMITTED 阻断、open appeal 阻断、全部 FORMAL run 必须 APPROVED/LOCKED 且至少一个 LOCKED。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -152,10 +156,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：148 files passed / 2 skipped；1660 tests passed / 111 skipped。
+- `npm test`：148 files passed / 2 skipped；1713 tests passed / 111 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
-- `npm run test:pg-upgrade`：89 → 116 migrations，110 tests passed。
+- `npm run test:pg-upgrade`：89 → 118 migrations，110 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

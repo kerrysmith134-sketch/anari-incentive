@@ -10,7 +10,7 @@
  */
 import type { Pool } from "pg";
 import type {
-  ApprovalPort, AssessmentPort, BudgetPort, CommercialPort, CommsPort, DatagovPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort, WorkItemPort
+  ApprovalPort, AssessmentPort, BudgetPort, CommercialPort, CommsPort, DatagovPort, DecisionPort, DeliveryPort, DirectoryPort, IdentityPort, IncentivePort, IntegrationPort, ModelgovPort, PolicygovPort, SettlementPort, TenantPort, WorkItemPort
 } from "./store-ports.js";
 import { MemoryPlatformStoreBase, type MemoryPlatformStoreBaseShape } from "./adapters/memory/base.memory.js";
 import { MemoryApprovalMixin } from "./adapters/memory/approval.memory.js";
@@ -19,6 +19,7 @@ import { MemoryBudgetMixin } from "./adapters/memory/budget.memory.js";
 import { MemoryCommercialMixin } from "./adapters/memory/commercial.memory.js";
 import { MemoryCommsMixin } from "./adapters/memory/comms.memory.js";
 import { MemoryDatagovMixin } from "./adapters/memory/datagov.memory.js";
+import { MemoryDecisionMixin } from "./adapters/memory/decision.memory.js";
 import { MemoryDeliveryMixin } from "./adapters/memory/delivery.memory.js";
 import { MemoryDirectoryMixin } from "./adapters/memory/directory.memory.js";
 import { MemoryIdentityMixin } from "./adapters/memory/identity.memory.js";
@@ -36,6 +37,7 @@ import { PgBudgetMixin } from "./adapters/postgres/budget.postgres.js";
 import { PgCommercialMixin } from "./adapters/postgres/commercial.postgres.js";
 import { PgCommsMixin } from "./adapters/postgres/comms.postgres.js";
 import { PgDatagovMixin } from "./adapters/postgres/datagov.postgres.js";
+import { PgDecisionMixin } from "./adapters/postgres/decision.postgres.js";
 import { PgDeliveryMixin } from "./adapters/postgres/delivery.postgres.js";
 import { PgDirectoryMixin } from "./adapters/postgres/directory.postgres.js";
 import { PgIdentityMixin } from "./adapters/postgres/identity.postgres.js";
@@ -54,6 +56,7 @@ export interface PlatformStore extends
   CommercialPort,
   CommsPort,
   DatagovPort,
+  DecisionPort,
   DeliveryPort,
   DirectoryPort,
   IdentityPort,
@@ -85,7 +88,9 @@ export class MemoryPlatformStore
     (MemoryAssessmentMixin(
     (MemoryApprovalMixin(
     (MemoryWorkItemMixin(
+    (MemoryDecisionMixin(
     (MemoryPlatformStoreBase) as unknown as MemoryBaseCtor
+  )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
   )) as unknown as MemoryBaseCtor
@@ -121,7 +126,9 @@ export class PgPlatformStore
     (PgAssessmentMixin(
     (PgApprovalMixin(
     (PgWorkItemMixin(
+    (PgDecisionMixin(
     (PgPlatformStoreBase) as unknown as PgBaseCtor
+  )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor
   )) as unknown as PgBaseCtor

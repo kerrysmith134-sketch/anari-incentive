@@ -44,6 +44,7 @@ tags:
   - name: Budget
   - name: Ledger
   - name: Appeals
+  - name: Decisions
   - name: Evidence
   - name: Ingestion
   - name: Agent
@@ -4795,6 +4796,194 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/decision-cases:
+    post:
+      tags: [Decisions]
+      summary: Create a decision case
+      description: |
+        One case model serves PERFORMANCE, CONTRIBUTION, APPEAL,
+        INCENTIVE_ELIGIBILITY and BUDGET decisions. `context` records the
+        business snapshot; the decision-chain invariants are identical for
+        every kind.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDecisionCase"
+      responses:
+        "201":
+          description: Case created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/decision-cases/{id}:
+    get:
+      tags: [Decisions]
+      summary: Decision case with evidence, separated judgments, verifications and record
+      description: |
+        Human judgments and AI suggestions are returned in separate arrays
+        (`judgments.human` / `judgments.ai`) so a suggestion can never be
+        mistaken for an authorized decision.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Decision case detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/decision-cases/{id}/evidence:
+    post:
+      tags: [Decisions]
+      summary: Append evidence with a verifiable content hash
+      description: |
+        The server recomputes the canonical sha256 of `content` and rejects a
+        mismatch with 409 EVIDENCE_HASH_MISMATCH. Evidence is append-only and
+        the same source/content pair cannot be appended twice.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendDecisionEvidence"
+      responses:
+        "201":
+          description: Evidence appended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/decision-cases/{id}/judgments:
+    post:
+      tags: [Decisions]
+      summary: Submit an independent judgment (human or AI suggestion)
+      description: |
+        `HUMAN` judgments must use the authenticated person as `actorId`.
+        `AI_MODEL` judgments record `modelRef` and remain advisory. The same
+        actor may submit only one judgment per case; a second attempt returns
+        409 JUDGMENT_IMMUTABLE and never rewrites the first.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitDecisionJudgment"
+      responses:
+        "201":
+          description: Judgment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/decision-cases/{id}/verify:
+    post:
+      tags: [Decisions]
+      summary: Record a verification (conflict of interest, evidence coverage, rules)
+      description: |
+        The latest verification decides whether the case is READY. A decision
+        is rejected with 409 while no verification exists or the latest one
+        did not pass.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordDecisionVerification"
+      responses:
+        "201":
+          description: Verification recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/decision-cases/{id}/decide:
+    post:
+      tags: [Decisions]
+      summary: Authorize the final, immutable decision
+      description: |
+        Requires a human independent judgment, a passing verification, and a
+        decider distinct from every HUMAN judgment actor (self-decision returns
+        409 SELF_DECISION_FORBIDDEN). An AI_MODEL actor can never decide. The
+        record is one-per-case and cannot be rewritten; a second decision
+        returns 409 DECISION_RECORD_IMMUTABLE.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideDecisionCase"
+      responses:
+        "200":
+          description: Final decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
 
   /api/v1/rule-change-orders:
     get:
@@ -11552,8 +11741,12 @@ paths:
   /api/v1/policy/performance/score:
     post:
       tags: [Policy]
-      summary: 计算绩效得分
-      description: 按锁定指标与测量值计算综合得分、Kp 与 N/A 归一化结果
+      summary: 计算绩效得分（兼容旧客户端）
+      description: >-
+        按客户端提交的指标与测量值计算综合得分、Kp 与 N/A 归一化结果。
+        兼容保留：分数完全来自客户端自报输入，响应标记 source=CLIENT_INPUT
+        并给出 warnings，不得作为正式评价依据；正式评分请使用
+        /api/v1/policy/performance/score-from-facts。
       requestBody:
         required: false
         content:
@@ -11569,6 +11762,38 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/policy/performance/score-from-facts:
+    post:
+      tags: [Policy]
+      summary: 基于锁定事实计算绩效得分
+      description: >-
+        只从已锁定目标卡（指标/权重/目标）与已通过 contentHash 复核的冻结计量
+        快照（metricId/value）构造评分输入，客户端不得提交测量值。缺锁定卡或
+        无有效快照返回 409 PERFORMANCE_FACTS_NOT_READY；metricInputs 试图提供
+        或覆盖 rawValue/value/applicable/acceptanceScore/eventAdjustment 等权威
+        字段返回 409 PERFORMANCE_INPUT_OVERRIDES_FACTS。响应含
+        source=LOCKED_FACTS 与 factsHash（锁定卡 + 快照 id/version/hash 的稳定
+        sha256，同输入重放一致）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScorePerformanceFromFacts"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "409":
+          description: PERFORMANCE_FACTS_NOT_READY 或 PERFORMANCE_INPUT_OVERRIDES_FACTS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /api/v1/policy/performance/scores:
     get:
       tags: [Policy]
@@ -11718,7 +11943,10 @@ paths:
     post:
       tags: [Policy]
       summary: 创建季度目标卡
-      description: 校验指标权重合计 100% 并保存草稿
+      description: >-
+        校验指标权重合计 100% 并保存草稿。可选 cycleId 把目标卡绑定到具体
+        评价周期（周期必须与目标卡一致），供
+        /api/v1/policy/performance/score-from-facts 精确定位该周期的锁定卡。
       requestBody:
         required: false
         content:
@@ -12347,6 +12575,72 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/incentive-award-batches/{id}/payments:
+    post:
+      tags: [Policy]
+      summary: 记录制度激励发放支付回执
+      description: >-
+        记录单行（可批量 payments[]）支付回执。批次必须 LOCKED/EXPORTED/ACKNOWLEDGED，
+        行必须属于该批次，金额与批次行一致、币种一致（否则 409）。
+        唯一键 (batch, line, payment_ref) 幂等：重复回执返回原记录（200），
+        每笔 PAID 生成借贷平衡的 GL 凭证（借 INCENTIVE_EXPENSE / 贷 CASH 或 PAYABLE），
+        FAILED/RETURNED 只留痕不记账。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordIncentiveAwardPayments"
+      responses:
+        "201":
+          description: 已记录新的支付回执
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "200":
+          description: 幂等重放（没有新的回执落库）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: 批次不存在或属于其他租户
+        "409":
+          description: 批次状态/行归属/金额/币种不符，或同一 payment_ref 载荷冲突
+  /api/v1/incentive-award-batches/{id}/reconciliation:
+    get:
+      tags: [Policy]
+      summary: 查询制度激励发放批次对账
+      description: >-
+        返回每行已付/未付/差异、总数与批次对账状态
+        （RECONCILED=全部足额，PARTIAL=少付，VARIANCE=多付或行级错配）。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: 批次不存在或属于其他租户
   /api/v1/incentive-award-batches/{id}/export:
     get:
       tags: [Policy]
@@ -13440,6 +13734,52 @@ components:
         frozenBy:
           $ref: "#/components/schemas/Uuid"
 
+    ScorePerformanceFromFacts:
+      type: object
+      required: [cycleId, personId, policyVersionId]
+      properties:
+        cycleId:
+          $ref: "#/components/schemas/Uuid"
+        personId:
+          $ref: "#/components/schemas/Uuid"
+        policyVersionId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 本次评分绑定的制度版本；必须与评价周期绑定的版本一致
+        metricInputs:
+          type: array
+          maxItems: 200
+          description: >-
+            仅用于补充说明性字段（naReason / sampleSize / evidenceRefs）。
+            携带 rawValue / value / applicable / acceptanceScore /
+            eventAdjustment 等权威字段，或引入快照中没有的指标，均返回
+            409 PERFORMANCE_INPUT_OVERRIDES_FACTS。
+          items:
+            type: object
+            required: [metricId]
+            additionalProperties: true
+            properties:
+              metricId:
+                type: string
+                minLength: 1
+                maxLength: 64
+              naReason:
+                type: string
+                minLength: 1
+                maxLength: 512
+              sampleSize:
+                type: integer
+                minimum: 0
+                maximum: 1000000
+              evidenceRefs:
+                type: array
+                maxItems: 50
+                items:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+
     CreateContributionAssessmentDraft:
       type: object
       required: [claimId, generatedByType, uncertainty]
@@ -14486,6 +14826,54 @@ components:
               credit:
                 type: string
                 pattern: "^\\d+(\\.\\d{1,6})?$"
+
+    RecordIncentiveAwardPayments:
+      type: object
+      required: [payments]
+      properties:
+        payments:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            required: [lineId, paymentRef, status, amount, currency]
+            properties:
+              lineId:
+                type: string
+                format: uuid
+              paymentRef:
+                type: string
+                minLength: 1
+                maxLength: 200
+              status:
+                type: string
+                enum: [PAID, FAILED, RETURNED]
+              amount:
+                type: string
+                pattern: "^\\d{1,14}(\\.\\d{1,6})?$"
+              currency:
+                type: string
+                minLength: 3
+                maxLength: 3
+                pattern: "^[A-Za-z]{3}$"
+              paidAt:
+                type: string
+                format: date-time
+              failureCode:
+                type: string
+                minLength: 1
+                maxLength: 100
+              legalEntityId:
+                type: string
+                minLength: 1
+                maxLength: 64
+              accountingPeriod:
+                type: string
+                pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+              creditAccount:
+                type: string
+                enum: [CASH, PAYABLE]
 
     DecideAccountingPeriodChange:
       type: object
@@ -16103,6 +16491,131 @@ components:
         dueAt:
           type: string
           format: date-time
+
+    CreateDecisionCase:
+      type: object
+      required: [kind, subjectType, subjectId]
+      properties:
+        kind:
+          type: string
+          enum: [PERFORMANCE, CONTRIBUTION, APPEAL, INCENTIVE_ELIGIBILITY, BUDGET]
+        subjectType:
+          type: string
+          minLength: 1
+          maxLength: 64
+        subjectId:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Subject identifier; may be an external system id.
+        context:
+          type: object
+          additionalProperties: true
+          default: {}
+        createdBy:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Defaults to the authenticated person.
+
+    AppendDecisionEvidence:
+      type: object
+      required: [sourceType, sourceId, content, contentHash, supports]
+      properties:
+        sourceType:
+          type: string
+          minLength: 1
+          maxLength: 64
+        sourceId:
+          type: string
+          minLength: 1
+          maxLength: 256
+        content:
+          description: Evidence payload; used only to recompute the hash, never stored.
+        contentHash:
+          type: string
+          pattern: "^(sha256:)?[0-9a-fA-F]{64}$"
+        supports:
+          type: string
+          enum: [FOR, AGAINST, NEUTRAL]
+        weight:
+          oneOf:
+            - $ref: "#/components/schemas/Decimal"
+            - type: number
+              exclusiveMinimum: 0
+          description: Optional positive relative weight; stored as a decimal string.
+
+    SubmitDecisionJudgment:
+      type: object
+      required: [actorType, actorId, independentRationale]
+      properties:
+        actorType:
+          type: string
+          enum: [HUMAN, AI_MODEL]
+        actorId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Person id for HUMAN; model identifier for AI_MODEL.
+        modelRef:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Required for AI_MODEL in practice; defaults to actorId server-side.
+        independentScores:
+          type: object
+          additionalProperties: true
+        independentRationale:
+          type: string
+          minLength: 1
+        dimensionStates:
+          type: object
+          additionalProperties: true
+          default: {}
+        confidence:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: string
+              pattern: "^(0(\\.\\d+)?|1(\\.0+)?)$"
+
+    RecordDecisionVerification:
+      type: object
+      required: [checks, passed]
+      properties:
+        checks:
+          type: object
+          additionalProperties: true
+          description: Machine-readable results for conflict/coverage/rule checks.
+        findings:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: true
+          default: []
+        passed:
+          type: boolean
+        verifiedBy:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Defaults to the authenticated person.
+
+    DecideDecisionCase:
+      type: object
+      required: [rationale]
+      properties:
+        decidedBy:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Defaults to the authenticated person; must differ from every HUMAN judgment actor.
+        rationale:
+          type: string
+          minLength: 1
+        finalJudgmentId:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Optional HUMAN judgment to cite; defaults to the latest human judgment.
 
     ResolveAppeal:
       type: object

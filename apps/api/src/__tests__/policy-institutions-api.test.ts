@@ -839,6 +839,25 @@ describe("incentive award batches", () => {
     expect(csv.statusCode).toBe(200);
     expect(csv.body).toContain("批次号");
     expect(csv.body).toContain("月明星");
+    // 迁移 117：回执前必须所有行足额 PAID（金额/币种/line id 取真实批次行）。
+    const line = created.body.data.lines[0];
+    const paid = await call(
+      "POST",
+      `/api/v1/incentive-award-batches/${id}/payments`,
+      {
+        payments: [
+          {
+            lineId: line.id,
+            paymentRef: "BANK-2026-11-L1",
+            status: "PAID",
+            amount: line.amount,
+            currency: line.currency,
+          },
+        ],
+      },
+    );
+    expect(paid.status).toBe(201);
+    expect(paid.body.data.reconciliation.status).toBe("RECONCILED");
     const acknowledged = await call(
       "POST",
       `/api/v1/incentive-award-batches/${id}/commands`,

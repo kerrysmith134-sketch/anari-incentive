@@ -71,6 +71,9 @@ import type {
   ModelProviderPolicy,
   PolicyEngineRecord,
   IncentiveAwardBatch,
+  IncentiveAwardBatchReconciliation,
+  IncentiveAwardPayment,
+  IncentiveAwardPaymentStatus,
   IncentiveAwardType,
   NoticeAcknowledgementOverview,
   NoticeType,
@@ -125,6 +128,17 @@ import type {
   WorkItemFilter,
   WorkItemImportInput,
   WorkItemImportResult,
+  AppendDecisionEvidenceInput,
+  CreateDecisionCaseInput,
+  DecideDecisionCaseInput,
+  DecisionCase,
+  DecisionCaseDetail,
+  DecisionEvidence,
+  DecisionJudgment,
+  DecisionRecord,
+  DecisionVerification,
+  RecordDecisionVerificationInput,
+  SubmitDecisionJudgmentInput,
 } from "@anari/domain";
 
 /** 审批域端口：审批请求/决策/消费。 */
@@ -1113,6 +1127,46 @@ export interface IncentivePort {
     actorPersonId: string;
     paymentRef?: string;
   }): Promise<IncentiveAwardBatch>;
+
+  /**
+   * 迁移 117：记录奖励批次单行支付回执（`payments` 可批量）。
+   *
+   * - 批次必须存在且属于该租户（跨租户 → NotFoundError/404）；
+   * - 批次状态必须 LOCKED/EXPORTED/ACKNOWLEDGED，否则 ConflictError/409；
+   * - 行必须属于该批次、金额 = 行金额、币种一致，否则 ConflictError/409；
+   * - (lineId, paymentRef) 重复提交幂等：返回原回执，不重复累计；
+   *   同一 ref 携带不同金额/状态 → ConflictError/409（幂等冲突）；
+   * - 每笔 PAID 生成借贷平衡的 GL 凭证
+   *   （借 INCENTIVE_EXPENSE / 贷 CASH 或 PAYABLE）；FAILED/RETURNED 不生成。
+   */
+  recordIncentiveAwardPayments(input: {
+    tenantId: string;
+    batchId: string;
+    actorPersonId: string;
+    payments: Array<{
+      lineId: string;
+      paymentRef: string;
+      status: IncentiveAwardPaymentStatus;
+      amount: string;
+      currency: string;
+      paidAt?: string;
+      failureCode?: string;
+      legalEntityId?: string;
+      accountingPeriod?: string;
+      creditAccount?: "CASH" | "PAYABLE";
+    }>;
+  }): Promise<{
+    payments: IncentiveAwardPayment[];
+    reconciliation: IncentiveAwardBatchReconciliation;
+    /** 本次真正新落库的支付回执 id（幂等重放时为空）。 */
+    createdPaymentIds: string[];
+  }>;
+
+  /** 行级已付/未付/差异与批次对账状态（RECONCILED/PARTIAL/VARIANCE）。 */
+  getIncentiveAwardBatchReconciliation(
+    tenantId: string,
+    batchId: string,
+  ): Promise<IncentiveAwardBatchReconciliation>;
 
   createAdverseAction(input: {
     tenantId: string;
@@ -2111,4 +2165,31 @@ export interface WorkItemPort {
     events: WorkItemEvent[];
     contributions: WorkItemContribution[];
   }>;
+}
+
+/**
+ * 通用 JEV Decision Record 端口（118）：五类决策（绩效/贡献/申诉/激励资格/
+ * 预算）共用一条链路，kind 只改变上下文，不改变不变量。
+ *
+ * - 证据 append-only，contentHash 由服务端重算校验；
+ * - 判断 append-only，同一 (case, actorType, actorId) 一人一判；
+ * - 校验记录 append-only，只有最新一次 passed=true 才允许决定；
+ * - record 一案一条，不可改；重复决定必须失败。
+ */
+export interface DecisionPort {
+  createDecisionCase(input: CreateDecisionCaseInput): Promise<DecisionCase>;
+  appendDecisionEvidence(
+    input: AppendDecisionEvidenceInput,
+  ): Promise<DecisionEvidence>;
+  submitDecisionJudgment(
+    input: SubmitDecisionJudgmentInput,
+  ): Promise<DecisionJudgment>;
+  recordDecisionVerification(
+    input: RecordDecisionVerificationInput,
+  ): Promise<DecisionVerification>;
+  decideDecisionCase(input: DecideDecisionCaseInput): Promise<DecisionRecord>;
+  getDecisionCase(
+    tenantId: string,
+    caseId: string,
+  ): Promise<DecisionCaseDetail>;
 }

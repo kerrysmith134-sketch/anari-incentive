@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-25T22:43:35.505Z",
+  "generatedAt": "2026-11-26T22:34:24.854Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -580,6 +580,16 @@
       "file": "116_award_source_reservations.sql",
       "bytes": 862,
       "sha256": "463fd4792e697a67b5791c87a42e636124af0f6d2ea4a75457c3c3103621203a"
+    },
+    {
+      "file": "117_award_payments.sql",
+      "bytes": 3049,
+      "sha256": "c1038a274efeb334c3cb4a538be579d56756b3cb63b3867863625f842db9cdd6"
+    },
+    {
+      "file": "118_jev_decisions.sql",
+      "bytes": 8611,
+      "sha256": "fc0b8a76f6dbf3c509c5143c5bc74941f1b2653f3f53de082d07b38ee03a4799"
     }
   ]
 }

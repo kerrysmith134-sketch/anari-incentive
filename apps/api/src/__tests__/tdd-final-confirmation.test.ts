@@ -85,6 +85,31 @@ async function moveTo(id: string, target: string) {
   }
 }
 
+/** 迁移 117：ACK 前必须所有行足额 PAID（金额/币种取真实批次行）。 */
+async function payAll(id: string, refPrefix: string) {
+  const batch = await call("GET", `/api/v1/incentive-award-batches/${id}`);
+  expect(batch.status).toBe(200);
+  const response = await call(
+    "POST",
+    `/api/v1/incentive-award-batches/${id}/payments`,
+    {
+      payments: batch.body.data.lines.map(
+        (
+          line: { id: string; amount: string; currency: string },
+          index: number,
+        ) => ({
+          lineId: line.id,
+          paymentRef: `${refPrefix}-${index + 1}`,
+          status: "PAID",
+          amount: line.amount,
+          currency: line.currency,
+        }),
+      ),
+    },
+  );
+  expect(response.status).toBe(201);
+}
+
 const contract: EmploymentContract = {
   id: "00000000-0000-4000-8000-0000000000d1",
   tenantId: "tenant-demo",
@@ -163,6 +188,7 @@ describe("final confirmation rounds 45-64", () => {
   it("47: acknowledging twice is refused", async () => {
     const id = await award("R47", "s47");
     await moveTo(id, "EXPORT");
+    await payAll(id, "R47-BANK");
     expect(
       (await cmd(id, "ACKNOWLEDGE", { paymentRef: "BANK-1" })).status,
     ).toBe(200);

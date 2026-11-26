@@ -62,6 +62,9 @@ import type {
   ModelProviderPolicy,
   PolicyEngineRecord,
   IncentiveAwardBatch,
+  IncentiveAwardBatchReconciliation,
+  IncentiveAwardPayment,
+  IncentiveAwardPaymentStatus,
   IncentiveAwardType,
   NoticeAcknowledgementOverview,
   NoticeType,
@@ -105,16 +108,82 @@ import type {
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
-import { adverseActionTransitions, assertTransition } from "@anari/domain";
+import {
+  adverseActionTransitions,
+  assertTransition,
+  GL_ACCOUNT_CODES,
+  reconcileIncentiveAwardBatch,
+} from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
 import type { PlatformStore } from "../../platform-store.js";
 import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
 import type { IncentivePort } from "../../store-ports.js";
 import type { PgPlatformStoreBase, PgPlatformStoreBaseShape } from "./base.postgres.js";
 
+/** 迁移 117：支付金额必须是可解析的正定点金额（1e6 标度）。 */
+function awardPaymentAmount(value: string): bigint {
+  try {
+    const amount = parseDecimal(value);
+    if (amount <= 0n) throw new Error("non-positive");
+    return amount;
+  } catch {
+    throw new ConflictError(`AWARD_PAYMENT_AMOUNT_INVALID: ${value}`);
+  }
+}
+
+/** 会计期间：显式值优先，否则取支付时间的 YYYY-MM（GL 表 CHECK 同规则）。 */
+function awardPaymentAccountingPeriod(
+  value: string | undefined,
+  paidAt: string,
+): string {
+  const period = value?.trim() || paidAt.slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_ACCOUNTING_PERIOD_INVALID: ${period}`,
+    );
+  }
+  return period;
+}
+
+function mapAwardPaymentRow(row: QueryResultRow): IncentiveAwardPayment {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    batchId: row.batch_id,
+    lineId: row.line_id,
+    personId: row.person_id,
+    amount: decimalText(String(row.amount)) ?? "0",
+    currency: String(row.currency).trim(),
+    paymentRef: row.payment_ref,
+    status: row.status,
+    paidAt: iso(row.paid_at),
+    failureCode: row.failure_code ?? undefined,
+    createdAt: iso(row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+/**
+ * 幂等回执必须携带完全相同的载荷；同 ref 不同金额/状态说明调用方把两笔
+ * 不同的银行流水塞进了同一个 ref，必须 409 让人工介入，不能静默取旧值。
+ */
+function assertIdempotentAwardPayment(
+  existing: IncentiveAwardPayment,
+  expected: { status: IncentiveAwardPaymentStatus; amount: bigint; currency: string },
+): void {
+  if (
+    existing.status !== expected.status ||
+    awardPaymentAmount(existing.amount) !== expected.amount ||
+    existing.currency.trim().toUpperCase() !== expected.currency
+  ) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_IDEMPOTENCY_CONFLICT: ref ${existing.paymentRef} already recorded with a different payload`,
+    );
+  }
+}
+
 export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParameters<typeof PgPlatformStoreBase>) => PgPlatformStoreBaseShape) {
   return class extends Base implements IncentivePort {
-    
+
     async createStrategicPoolCase(input: {
       tenantId: string;
       cycleId: string;
@@ -125,7 +194,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       rationale: string;
       requestedBy: string;
     }): Promise<StrategicPoolCase> {
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `INSERT INTO strategic_pool_cases
            (tenant_id, cycle_id, pool_amount, cap_amount, currency,
             budget_pool_id, rationale, requested_by)
@@ -144,17 +213,17 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       );
       return this.mapStrategicPoolCase(rows[0]);
     }
-    
+
     async listStrategicPoolCases(
       tenantId: string,
     ): Promise<StrategicPoolCase[]> {
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM strategic_pool_cases WHERE tenant_id=$1 ORDER BY created_at DESC",
         [tenantId],
       );
       return rows.map((row: QueryResultRow) => this.mapStrategicPoolCase(row));
     }
-    
+
     async updateStrategicPoolCase(input: {
       tenantId: string;
       caseId: string;
@@ -164,7 +233,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const current = record.find((candidate) => candidate.id === input.caseId);
       if (!current) notFound("StrategicPoolCase", input.caseId);
       const next = { ...current, ...input.patch };
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `UPDATE strategic_pool_cases SET
            units=$3, unit_standard_cost=$4, total_standard_cost=$5,
            transfer_pricing_ref=$6, cost_reviewed_by=$7, cost_reviewed_at=$8,
@@ -196,7 +265,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       );
       return this.mapStrategicPoolCase(rows[0]);
     }
-    
+
     async createClawbackCase(input: {
       tenantId: string;
       personId: string;
@@ -223,7 +292,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw new ConflictError("CLAWBACK_HARDSHIP_REASON_REQUIRED");
       }
       try {
-        const { rows } = await this.tenantQuery(input.tenantId, 
+        const { rows } = await this.tenantQuery(input.tenantId,
           `INSERT INTO clawback_cases
             (id, tenant_id, person_id, amount, currency, reason_code,
              explanation, consent_signature_ref, installment_months,
@@ -255,7 +324,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw error;
       }
     }
-    
+
     async listClawbackCases(
       tenantId: string,
       personId?: string,
@@ -271,7 +340,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapClawbackCase(row));
     }
-    
+
     async approveClawbackCase(input: {
       tenantId: string;
       caseId: string;
@@ -305,7 +374,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapClawbackCase(updated[0]);
       });
     }
-    
+
     async excludeLedgerFromSettlement(input: {
       tenantId: string;
       ledgerIds: string[];
@@ -313,7 +382,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actorPersonId: string;
     }): Promise<number> {
       if (input.ledgerIds.length === 0) return 0;
-      const { rowCount } = await this.tenantQuery(input.tenantId, 
+      const { rowCount } = await this.tenantQuery(input.tenantId,
         `INSERT INTO ledger_exclusions (tenant_id, ledger_id, reason, created_by)
          SELECT $1, unnest($2::uuid[]), $3, $4
          ON CONFLICT (tenant_id, ledger_id) DO NOTHING`,
@@ -321,12 +390,12 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       );
       return rowCount ?? 0;
     }
-    
+
     async markClawbackRecoveryGenerated(input: {
       tenantId: string;
       caseId: string;
     }): Promise<ClawbackCase> {
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `UPDATE clawback_cases
             SET status='RECOVERY_GENERATED', updated_at=now()
           WHERE tenant_id=$1 AND id=$2 AND status='APPROVED'
@@ -334,7 +403,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         [input.tenantId, input.caseId],
       );
       if (!rows[0]) {
-        const current = await this.tenantQuery(input.tenantId, 
+        const current = await this.tenantQuery(input.tenantId,
           "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.caseId],
         );
@@ -343,7 +412,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       return this.mapClawbackCase(rows[0]);
     }
-    
+
     async closeClawbackCase(input: {
       tenantId: string;
       caseId: string;
@@ -352,7 +421,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actorPersonId: string;
     }): Promise<ClawbackCase> {
       const status = input.action === "WAIVE" ? "WAIVED" : "CANCELLED";
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `UPDATE clawback_cases
             SET status=$3,
                 waived_at=CASE WHEN $4 THEN now() ELSE waived_at END,
@@ -372,7 +441,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         ],
       );
       if (!rows[0]) {
-        const current = await this.tenantQuery(input.tenantId, 
+        const current = await this.tenantQuery(input.tenantId,
           "SELECT status FROM clawback_cases WHERE tenant_id=$1 AND id=$2",
           [input.tenantId, input.caseId],
         );
@@ -383,7 +452,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       return this.mapClawbackCase(rows[0]);
     }
-    
+
     async createEquityGrant(input: {
       tenantId: string;
       personId: string;
@@ -408,7 +477,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       await this.assertTenant(input.tenantId);
       try {
-        const { rows } = await this.tenantQuery(input.tenantId, 
+        const { rows } = await this.tenantQuery(input.tenantId,
           `INSERT INTO equity_grants
             (id, tenant_id, person_id, grant_code, grant_type, total_units,
              strike_price, currency, grant_date, vesting_start, cliff_months,
@@ -443,7 +512,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw error;
       }
     }
-    
+
     async listEquityGrants(
       tenantId: string,
       personId?: string,
@@ -459,19 +528,19 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapEquityGrant(row));
     }
-    
+
     async getEquityGrant(
       tenantId: string,
       grantId: string,
     ): Promise<EquityGrant> {
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM equity_grants WHERE tenant_id=$1 AND id=$2",
         [tenantId, grantId],
       );
       if (!rows[0]) notFound("EquityGrant", grantId);
       return this.mapEquityGrant(rows[0]);
     }
-    
+
     async updateEquityGrant(input: {
       tenantId: string;
       grantId: string;
@@ -557,14 +626,14 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapEquityGrant(updated[0]);
       });
     }
-    
+
     async getEquityVesting(
       tenantId: string,
       grantId: string,
       asOf = new Date().toISOString(),
     ): Promise<EquityVesting> {
       const grant = await this.getEquityGrant(tenantId, grantId);
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM equity_exercises WHERE tenant_id=$1 AND grant_id=$2",
         [tenantId, grantId],
       );
@@ -574,7 +643,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         asOf,
       );
     }
-    
+
     async createEquityExercise(input: {
       tenantId: string;
       grantId: string;
@@ -640,7 +709,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapEquityExercise(rows[0]);
       });
     }
-    
+
     async listEquityExercises(
       tenantId: string,
       grantId?: string,
@@ -656,7 +725,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapEquityExercise(row));
     }
-    
+
     async approveEquityExercise(input: {
       tenantId: string;
       exerciseId: string;
@@ -699,7 +768,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapEquityExercise(updated[0]);
       });
     }
-    
+
     async settleEquityExercise(input: {
       tenantId: string;
       exerciseId: string;
@@ -752,7 +821,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapEquityExercise(updated[0]);
       });
     }
-    
+
     async createBounty(input: {
       tenantId: string;
       title: string;
@@ -766,7 +835,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw new ConflictError("BOUNTY_REWARD_MUST_BE_POSITIVE");
       }
       try {
-        const { rows } = await this.tenantQuery(input.tenantId, 
+        const { rows } = await this.tenantQuery(input.tenantId,
           `INSERT INTO bounties
             (id, tenant_id, title, description, reward_amount, currency,
              status, created_by, due_at, version)
@@ -791,7 +860,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         throw error;
       }
     }
-    
+
     async listBounties(
       tenantId: string,
       status?: Bounty["status"],
@@ -807,16 +876,16 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapBounty(row));
     }
-    
+
     async getBounty(tenantId: string, bountyId: string): Promise<Bounty> {
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM bounties WHERE tenant_id=$1 AND id=$2",
         [tenantId, bountyId],
       );
       if (!rows[0]) notFound("Bounty", bountyId);
       return this.mapBounty(rows[0]);
     }
-    
+
     async claimBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -850,7 +919,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapBounty(updated[0]);
       });
     }
-    
+
     async submitBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -883,7 +952,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapBounty(updated[0]);
       });
     }
-    
+
     async acceptBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -928,12 +997,12 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapBounty(updated[0]);
       });
     }
-    
+
     async cancelBounty(input: {
       tenantId: string;
       bountyId: string;
     }): Promise<Bounty> {
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `UPDATE bounties
             SET status='CANCELLED', cancelled_at=now(), updated_at=now(),
                 version=version+1
@@ -948,7 +1017,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       return this.mapBounty(rows[0]);
     }
-    
+
     async createAdverseAction(input: {
       tenantId: string;
       personId: string;
@@ -958,7 +1027,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       evidenceRefs: string[];
       requestedBy: string;
     }): Promise<AdverseActionCase> {
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      const { rows } = await this.tenantQuery(input.tenantId,
         `INSERT INTO adverse_action_cases
           (tenant_id, person_id, action_type, status, reason, performance_basis,
            evidence_refs, requested_by)
@@ -976,7 +1045,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       );
       return this.mapAdverseAction(rows[0]);
     }
-    
+
     async listAdverseActions(
       tenantId: string,
       personId?: string,
@@ -991,19 +1060,19 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       const { rows } = await this.tenantQuery(tenantId, sql, params);
       return rows.map((row: QueryResultRow) => this.mapAdverseAction(row));
     }
-    
+
     async getAdverseAction(
       tenantId: string,
       actionId: string,
     ): Promise<AdverseActionCase> {
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM adverse_action_cases WHERE tenant_id=$1 AND id=$2",
         [tenantId, actionId],
       );
       if (!rows[0]) notFound("AdverseActionCase", actionId);
       return this.mapAdverseAction(rows[0]);
     }
-    
+
     async reviewAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1058,7 +1127,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapAdverseAction(updated[0]);
       });
     }
-    
+
     async approveAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1097,7 +1166,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapAdverseAction(updated[0]);
       });
     }
-    
+
     async activateAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1127,7 +1196,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapAdverseAction(updated[0]);
       });
     }
-    
+
     async completeAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1156,7 +1225,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapAdverseAction(updated[0]);
       });
     }
-    
+
     async cancelAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1186,7 +1255,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         return this.mapAdverseAction(updated[0]);
       });
     }
-    
+
     async createIncentiveAwardBatch(input: {
       tenantId: string;
       batchNo: string;
@@ -1217,7 +1286,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         ]),
       ];
       if (sourceRecordIds.length > 0) {
-        const { rows } = await this.tenantQuery(input.tenantId, 
+        const { rows } = await this.tenantQuery(input.tenantId,
           `SELECT batch_no FROM incentive_award_batches
             WHERE tenant_id=$1 AND status <> 'CANCELLED'
               AND source_record_ids ?| $2::text[]
@@ -1310,7 +1379,7 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         }
       });
     }
-    
+
     async listIncentiveAwardBatches(
       tenantId: string,
       filter?: { awardType?: string; period?: string; status?: string },
@@ -1338,20 +1407,20 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       }
       return batches;
     }
-    
+
     async getIncentiveAwardBatch(
       tenantId: string,
       batchId: string,
     ): Promise<IncentiveAwardBatch> {
       await this.assertTenant(tenantId);
-      const { rows } = await this.tenantQuery(tenantId, 
+      const { rows } = await this.tenantQuery(tenantId,
         "SELECT * FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
         [tenantId, batchId],
       );
       if (!rows[0]) notFound("IncentiveAwardBatch", batchId);
       return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
     }
-    
+
     async commandIncentiveAwardBatch(input: {
       tenantId: string;
       batchId: string;
@@ -1402,7 +1471,22 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
         throw new ConflictError("payment reference is required to acknowledge");
       }
-      const { rows } = await this.tenantQuery(input.tenantId, 
+      // 迁移 117：回执前必须所有行足额 PAID 且已付合计 = 批次 total_amount。
+      // 读检查与 UPDATE 之间最多一个并发支付窗口；UPDATE 仍以 status=$7
+      // 做乐观门禁，回执本身不会把未对账批次推进到 ACKNOWLEDGED。
+      if (input.command === "ACKNOWLEDGE") {
+        const reconciliation = await this.getIncentiveAwardBatchReconciliation(
+          input.tenantId,
+          input.batchId,
+        );
+        if (reconciliation.status !== "RECONCILED") {
+          throw new ConflictError(
+            `AWARD_BATCH_NOT_RECONCILED: paid ${reconciliation.paidAmount}/${reconciliation.totalAmount} ` +
+              `(status ${reconciliation.status}, unpaid ${reconciliation.unpaidAmount})`,
+          );
+        }
+      }
+      const { rows } = await this.tenantQuery(input.tenantId,
         `UPDATE incentive_award_batches
             SET status=$3,
                 approved_by = CASE WHEN $4='APPROVE' THEN $5 ELSE approved_by END,
@@ -1432,6 +1516,217 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         );
       }
       return this.loadIncentiveAwardBatch(this.pool, rows[0]);
+    }
+
+    async getIncentiveAwardBatchReconciliation(
+      tenantId: string,
+      batchId: string,
+    ): Promise<IncentiveAwardBatchReconciliation> {
+      await this.assertTenant(tenantId);
+      const batch = await this.getIncentiveAwardBatch(tenantId, batchId);
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM incentive_award_payments
+          WHERE tenant_id=$1 AND batch_id=$2
+          ORDER BY created_at, id`,
+        [tenantId, batchId],
+      );
+      return reconcileIncentiveAwardBatch({
+        batchId: batch.id,
+        batchNo: batch.batchNo,
+        batchStatus: batch.status,
+        currency: batch.currency,
+        totalAmount: batch.totalAmount,
+        lines: batch.lines.map((line) => ({
+          id: line.id,
+          personId: line.personId,
+          amount: line.amount,
+          currency: line.currency,
+        })),
+        payments: rows.map((row: QueryResultRow) => {
+          const payment = mapAwardPaymentRow(row);
+          return {
+            id: payment.id,
+            lineId: payment.lineId,
+            amount: payment.amount,
+            paymentRef: payment.paymentRef,
+            status: payment.status,
+          };
+        }),
+      });
+    }
+
+    async recordIncentiveAwardPayments(input: {
+      tenantId: string;
+      batchId: string;
+      actorPersonId: string;
+      payments: Array<{
+        lineId: string;
+        paymentRef: string;
+        status: IncentiveAwardPaymentStatus;
+        amount: string;
+        currency: string;
+        paidAt?: string;
+        failureCode?: string;
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        creditAccount?: "CASH" | "PAYABLE";
+      }>;
+    }): Promise<{
+      payments: IncentiveAwardPayment[];
+      reconciliation: IncentiveAwardBatchReconciliation;
+      createdPaymentIds: string[];
+    }> {
+      await this.assertTenant(input.tenantId);
+      const batch = await this.getIncentiveAwardBatch(
+        input.tenantId,
+        input.batchId,
+      );
+      if (!["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status)) {
+        throw new ConflictError(
+          `AWARD_BATCH_NOT_PAYABLE: batch ${batch.batchNo} is ${batch.status}; ` +
+            "payments are accepted only after LOCK/EXPORT/ACKNOWLEDGE",
+        );
+      }
+      const lineById = new Map(batch.lines.map((line) => [line.id, line]));
+      const batchCurrency = batch.currency.trim().toUpperCase();
+      const results: IncentiveAwardPayment[] = [];
+      const createdPaymentIds: string[] = [];
+      const seenInRequest = new Map<string, IncentiveAwardPayment>();
+      for (const raw of input.payments) {
+        const paymentRef = raw.paymentRef.trim();
+        if (!paymentRef) {
+          throw new ConflictError("AWARD_PAYMENT_REF_REQUIRED");
+        }
+        const line = lineById.get(raw.lineId);
+        if (!line) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_LINE_NOT_IN_BATCH: line ${raw.lineId} is not part of batch ${batch.batchNo}`,
+          );
+        }
+        const amount = awardPaymentAmount(raw.amount);
+        const lineAmount = awardPaymentAmount(line.amount);
+        if (amount !== lineAmount) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_AMOUNT_MISMATCH: ${formatDecimal(amount)} != line amount ${formatDecimal(lineAmount)} (${line.id})`,
+          );
+        }
+        const currency = raw.currency.trim().toUpperCase();
+        if (
+          currency !== line.currency.trim().toUpperCase() ||
+          currency !== batchCurrency
+        ) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_CURRENCY_MISMATCH: ${currency} != ${line.currency}`,
+          );
+        }
+        const paidAt =
+          raw.status === "PAID" ? (raw.paidAt ?? now()) : raw.paidAt;
+        if (paidAt && Number.isNaN(Date.parse(paidAt))) {
+          throw new ConflictError(`AWARD_PAYMENT_PAID_AT_INVALID: ${paidAt}`);
+        }
+        const expectedPayload = { status: raw.status, amount, currency };
+        const idempotencyKey = `${line.id}:${paymentRef}`;
+        let payment = seenInRequest.get(idempotencyKey);
+        if (!payment) {
+          const { rows: existingRows } = await this.tenantQuery(
+            input.tenantId,
+            `SELECT * FROM incentive_award_payments
+              WHERE tenant_id=$1 AND batch_id=$2 AND line_id=$3
+                AND payment_ref=$4`,
+            [input.tenantId, input.batchId, line.id, paymentRef],
+          );
+          if (existingRows[0]) {
+            payment = mapAwardPaymentRow(existingRows[0]);
+            assertIdempotentAwardPayment(payment, expectedPayload);
+          }
+        } else {
+          assertIdempotentAwardPayment(payment, expectedPayload);
+        }
+        if (!payment) {
+          const paymentId = randomUUID();
+          const { rows } = await this.tenantQuery(
+            input.tenantId,
+            `INSERT INTO incentive_award_payments
+               (id, tenant_id, batch_id, line_id, person_id, amount, currency,
+                payment_ref, status, paid_at, failure_code)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT (tenant_id, batch_id, line_id, payment_ref)
+             DO NOTHING
+             RETURNING *`,
+            [
+              paymentId,
+              input.tenantId,
+              input.batchId,
+              line.id,
+              line.personId,
+              formatDecimal(amount),
+              currency,
+              paymentRef,
+              raw.status,
+              paidAt ?? null,
+              raw.failureCode?.trim() || null,
+            ],
+          );
+          if (rows[0]) {
+            payment = mapAwardPaymentRow(rows[0]);
+            createdPaymentIds.push(payment.id);
+          } else {
+            // 并发写入同一幂等键：读回既有回执并校验载荷一致。
+            const { rows: raced } = await this.tenantQuery(
+              input.tenantId,
+              `SELECT * FROM incentive_award_payments
+                WHERE tenant_id=$1 AND batch_id=$2 AND line_id=$3
+                  AND payment_ref=$4`,
+              [input.tenantId, input.batchId, line.id, paymentRef],
+            );
+            if (!raced[0]) {
+              throw new ConflictError(
+                `AWARD_PAYMENT_CONFLICT: ${paymentRef} could not be recorded`,
+              );
+            }
+            payment = mapAwardPaymentRow(raced[0]);
+            assertIdempotentAwardPayment(payment, expectedPayload);
+          }
+        }
+        // 只有 PAID 才是会计事实：借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE。
+        // FAILED/RETURNED 只留痕，不生成凭证。createJournalEntry 以
+        // (PAYMENT, payment.id) 幂等，因此补记/重放都不会重复出凭证。
+        if (payment.status === "PAID") {
+          await this.createJournalEntry({
+            tenantId: input.tenantId,
+            documentType: "PAYMENT",
+            documentId: payment.id,
+            legalEntityId: raw.legalEntityId?.trim() || "DEFAULT",
+            accountingPeriod: awardPaymentAccountingPeriod(
+              raw.accountingPeriod,
+              payment.paidAt ?? payment.createdAt,
+            ),
+            currency,
+            description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
+            lines: [
+              {
+                accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
+                debit: payment.amount,
+              },
+              {
+                accountCode: raw.creditAccount ?? GL_ACCOUNT_CODES.CASH,
+                credit: payment.amount,
+              },
+            ],
+          });
+        }
+        seenInRequest.set(idempotencyKey, payment);
+        results.push(payment);
+      }
+      return {
+        payments: results,
+        reconciliation: await this.getIncentiveAwardBatchReconciliation(
+          input.tenantId,
+          input.batchId,
+        ),
+        createdPaymentIds,
+      };
     }
   };
 }

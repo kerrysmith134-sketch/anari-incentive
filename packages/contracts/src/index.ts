@@ -2801,6 +2801,53 @@ export type ReverseLedgerEntryBody = z.infer<
   typeof reverseLedgerEntrySchema
 >;
 
+/**
+ * 迁移 117：奖励批次支付回执。
+ *
+ * - (lineId, paymentRef) 是幂等键：同一银行流水重复回传只落一条；
+ * - amount / currency 必须与批次行一致（服务端再校验，不一致 → 409）；
+ * - 只有 PAID 计入已付并生成 GL 凭证，FAILED/RETURNED 只留痕；
+ * - creditAccount 决定贷方科目（CASH=已付款，PAYABLE=挂应付），缺省 CASH。
+ */
+const awardPaymentAmountSchema = z
+  .string()
+  .regex(
+    /^\d{1,14}(\.\d{1,6})?$/,
+    "expected a positive decimal with <= 14 integer digits",
+  )
+  .refine((value) => Number(value) > 0, "must be greater than 0");
+
+export const incentiveAwardPaymentSchema = z.object({
+  lineId: uuidSchema,
+  paymentRef: z.string().min(1).max(200),
+  status: z.enum(["PAID", "FAILED", "RETURNED"]),
+  amount: awardPaymentAmountSchema,
+  currency: z
+    .string()
+    .length(3)
+    .regex(/^[A-Za-z]{3}$/, "expected an ISO 4217 code"),
+  paidAt: z.string().datetime({ offset: true }).optional(),
+  failureCode: z.string().min(1).max(100).optional(),
+  legalEntityId: z.string().min(1).max(64).optional(),
+  accountingPeriod: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM")
+    .optional(),
+  creditAccount: z.enum(["CASH", "PAYABLE"]).optional(),
+});
+export type IncentiveAwardPaymentBody = z.infer<
+  typeof incentiveAwardPaymentSchema
+>;
+
+export const recordIncentiveAwardPaymentsSchema = z
+  .object({
+    payments: z.array(incentiveAwardPaymentSchema).min(1).max(500),
+  })
+  .strict();
+export type RecordIncentiveAwardPaymentsBody = z.infer<
+  typeof recordIncentiveAwardPaymentsSchema
+>;
+
 export const createSettlementBatchSchema = z.object({
   cycleId: uuidSchema,
   kind: z.enum(["STANDARD", "RECOVERY"]).default("STANDARD"),
@@ -3493,6 +3540,151 @@ export type ReconciliationExplainBody = z.infer<
   typeof reconciliationExplainRequestSchema
 >;
 
+/**
+ * 118：通用 JEV Decision Record 请求契约。
+ *
+ * - 证据必须同时提交内容和 sha256 承诺，服务端重算后不一致即 409；
+ * - 判断 actor 只有 HUMAN / AI_MODEL 两类，同一 actor 一人一判（不可改写）；
+ * - 最终决定由授权人提交，服务端另行校验独立判断、校验通过、非自决。
+ */
+export const decisionCaseKindSchema = z.enum([
+  "PERFORMANCE",
+  "CONTRIBUTION",
+  "APPEAL",
+  "INCENTIVE_ELIGIBILITY",
+  "BUDGET",
+]);
+
+export const decisionEvidenceSupportSchema = z.enum([
+  "FOR",
+  "AGAINST",
+  "NEUTRAL",
+]);
+
+export const decisionJudgmentActorTypeSchema = z.enum(["HUMAN", "AI_MODEL"]);
+
+export const decisionContentHashSchema = z
+  .string()
+  .trim()
+  .regex(/^(sha256:)?[0-9a-fA-F]{64}$/, "expected a sha256 content hash");
+
+export const createDecisionCaseSchema = z
+  .object({
+    kind: decisionCaseKindSchema,
+    /** 被决策对象类型；不限定枚举，由各 kind 的模板解释。 */
+    subjectType: z.string().min(1).max(64),
+    /** 允许外部系统标识，因此不强制 uuid。 */
+    subjectId: z.string().min(1).max(256),
+    context: z.record(z.unknown()).default({}),
+    createdBy: uuidSchema.optional(),
+  })
+  .strict();
+export type CreateDecisionCaseBody = z.infer<typeof createDecisionCaseSchema>;
+
+const decisionWeightSchema = z
+  .union([
+    decimal.refine((value) => Number(value) > 0, "weight must be positive"),
+    z.number().positive(),
+  ])
+  .transform((value) => String(value));
+
+export const appendDecisionEvidenceSchema = z
+  .object({
+    sourceType: z.string().min(1).max(64),
+    sourceId: z.string().min(1).max(256),
+    /** 证据原文：服务端只用于重算 hash，不落库。 */
+    content: z
+      .unknown()
+      .refine((value) => value !== undefined, "content is required"),
+    contentHash: decisionContentHashSchema,
+    supports: decisionEvidenceSupportSchema,
+    /** 允许 decimal string 或 number；落库统一为 decimal string。 */
+    weight: decisionWeightSchema.optional(),
+  })
+  .strict();
+export type AppendDecisionEvidenceBody = z.infer<
+  typeof appendDecisionEvidenceSchema
+>;
+
+const decisionConfidenceSchema = z
+  .union([
+    z.number().min(0).max(1),
+    z.string().regex(/^(0(\.\d+)?|1(\.0+)?)$/, "expected a confidence in [0,1]"),
+  ])
+  .transform((value) => (typeof value === "number" ? value : Number(value)));
+
+export const submitDecisionJudgmentSchema = z
+  .object({
+    actorType: decisionJudgmentActorTypeSchema,
+    /** HUMAN 时为人员 id；AI_MODEL 时为模型标识（允许非 uuid）。 */
+    actorId: z.string().min(1).max(128),
+    modelRef: z.string().min(1).max(256).optional(),
+    independentScores: z.record(z.unknown()).default({}),
+    independentRationale: z.string().min(1).max(20_000),
+    dimensionStates: z.record(z.unknown()).default({}),
+    confidence: decisionConfidenceSchema.optional(),
+  })
+  .strict();
+export type SubmitDecisionJudgmentBody = z.infer<
+  typeof submitDecisionJudgmentSchema
+>;
+
+export const recordDecisionVerificationSchema = z
+  .object({
+    /** 校验项：利益冲突 / 证据覆盖 / 规则命中，由调用方给出机器可读结果。 */
+    checks: z.record(z.unknown()),
+    findings: z.array(z.record(z.unknown())).max(200).default([]),
+    passed: z.boolean(),
+    verifiedBy: uuidSchema.optional(),
+  })
+  .strict();
+export type RecordDecisionVerificationBody = z.infer<
+  typeof recordDecisionVerificationSchema
+>;
+
+export const decideDecisionCaseSchema = z
+  .object({
+    decidedBy: uuidSchema.optional(),
+    rationale: z.string().min(1).max(20_000),
+    finalJudgmentId: uuidSchema.optional(),
+  })
+  .strict();
+export type DecideDecisionCaseBody = z.infer<
+  typeof decideDecisionCaseSchema
+>;
+
+/**
+ * 绩效评分权威化契约：
+ *
+ * 分数只能由「已锁定目标卡（指标/权重/目标）+ 已核验计量快照（metricId/value）」
+ * 推出，客户端不得自行提交测量值。`metricInputs` 仅用于补充说明性字段
+ * （naReason / sampleSize / evidenceRefs）；一旦携带 rawValue / value /
+ * applicable / acceptanceScore / eventAdjustment 等权威字段，路由返回
+ * 409 PERFORMANCE_INPUT_OVERRIDES_FACTS。故此处对条目 passthrough，
+ * 由路由层显式判定并给出稳定错误码，而不是在协议层静默剥离。
+ */
+export const performanceMetricInputSchema = z
+  .object({
+    metricId: z.string().min(1).max(64),
+    /** 仅对快照中不可用的测量生效（解释 N/A 原因）。 */
+    naReason: z.string().min(1).max(512).optional(),
+    sampleSize: z.number().int().nonnegative().max(1_000_000).optional(),
+    evidenceRefs: z.array(z.string().min(1).max(256)).max(50).optional(),
+  })
+  .passthrough();
+
+export const scorePerformanceFromFactsSchema = z
+  .object({
+    cycleId: uuidSchema,
+    personId: uuidSchema,
+    policyVersionId: z.string().min(1).max(128),
+    metricInputs: z.array(performanceMetricInputSchema).max(200).optional(),
+  })
+  .strict();
+export type ScorePerformanceFromFactsBody = z.infer<
+  typeof scorePerformanceFromFactsSchema
+>;
+
 export const requestSchemaRegistry = {
   MappingSuggestions: mappingSuggestionsRequestSchema,
   SyncAnomalies: syncAnomaliesRequestSchema,
@@ -3536,6 +3728,7 @@ export const requestSchemaRegistry = {
   FinancialBadDebtProvision: financialBadDebtProvisionSchema,
   FinancialBadDebtWriteOff: financialBadDebtWriteOffSchema,
   CreateGlJournal: createGlJournalSchema,
+  RecordIncentiveAwardPayments: recordIncentiveAwardPaymentsSchema,
   CreateCommercialAccount: createCommercialAccountSchema,
   CreateCommercialOpportunity: createCommercialOpportunitySchema,
   CreateCommercialQuote: createCommercialQuoteSchema,
@@ -3558,6 +3751,12 @@ export const requestSchemaRegistry = {
   UpdateFieldAccessPolicies: updateFieldAccessPoliciesSchema,
   ImportWorkItem: importWorkItemSchema,
   ReplaySyncRun: replaySyncRunSchema,
+  CreateDecisionCase: createDecisionCaseSchema,
+  AppendDecisionEvidence: appendDecisionEvidenceSchema,
+  SubmitDecisionJudgment: submitDecisionJudgmentSchema,
+  RecordDecisionVerification: recordDecisionVerificationSchema,
+  DecideDecisionCase: decideDecisionCaseSchema,
+  ScorePerformanceFromFacts: scorePerformanceFromFactsSchema,
 } as const;
 
 /**

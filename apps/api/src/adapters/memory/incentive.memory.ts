@@ -62,6 +62,9 @@ import type {
   ModelProviderPolicy,
   PolicyEngineRecord,
   IncentiveAwardBatch,
+  IncentiveAwardBatchReconciliation,
+  IncentiveAwardPayment,
+  IncentiveAwardPaymentStatus,
   IncentiveAwardType,
   NoticeAcknowledgementOverview,
   NoticeType,
@@ -105,16 +108,48 @@ import type {
   WebhookInboxMessage,
   WorkflowRun,
 } from "@anari/domain";
-import { adverseActionTransitions, assertTransition } from "@anari/domain";
+import {
+  adverseActionTransitions,
+  assertTransition,
+  GL_ACCOUNT_CODES,
+  reconcileIncentiveAwardBatch,
+} from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
 import type { PlatformStore } from "../../platform-store.js";
 import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
 import type { IncentivePort } from "../../store-ports.js";
 import type { MemoryPlatformStoreBase, MemoryPlatformStoreBaseShape } from "./base.memory.js";
 
+/** 迁移 117：支付金额必须是可解析的正定点金额（1e6 标度）。 */
+function awardPaymentAmount(value: string): bigint {
+  try {
+    const amount = parseDecimal(value);
+    if (amount <= 0n) throw new Error("non-positive");
+    return amount;
+  } catch {
+    throw new ConflictError(`AWARD_PAYMENT_AMOUNT_INVALID: ${value}`);
+  }
+}
+
+/** 会计期间：显式值优先，否则取支付时间的 YYYY-MM（GL 表 CHECK 同规则）。 */
+function awardPaymentAccountingPeriod(
+  value: string | undefined,
+  paidAt: string,
+): string {
+  const period = value?.trim() || paidAt.slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_ACCOUNTING_PERIOD_INVALID: ${period}`,
+    );
+  }
+  return period;
+}
+
 export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorParameters<typeof MemoryPlatformStoreBase>) => MemoryPlatformStoreBaseShape) {
   return class extends Base implements IncentivePort {
-    
+    /** 迁移 117：奖励批次单行支付回执（幂等键 = batch+line+payment_ref）。 */
+    private readonly incentiveAwardPayments = new Map<string, IncentiveAwardPayment>();
+
     async createStrategicPoolCase(input: {
       tenantId: string;
       cycleId: string;
@@ -143,7 +178,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.strategicPoolCases.set(record.id, record);
       return record;
     }
-    
+
     async listStrategicPoolCases(
       tenantId: string,
     ): Promise<StrategicPoolCase[]> {
@@ -151,7 +186,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         .filter((record) => record.tenantId === tenantId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    
+
     async updateStrategicPoolCase(input: {
       tenantId: string;
       caseId: string;
@@ -169,7 +204,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.strategicPoolCases.set(record.id, updated);
       return updated;
     }
-    
+
     async createClawbackCase(input: {
       tenantId: string;
       personId: string;
@@ -223,7 +258,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.clawbackCases.set(clawback.id, clawback);
       return clawback;
     }
-    
+
     async listClawbackCases(
       tenantId: string,
       personId?: string,
@@ -237,7 +272,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    
+
     async approveClawbackCase(input: {
       tenantId: string;
       caseId: string;
@@ -265,7 +300,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       clawback.updatedAt = clawback.approvedAt;
       return clawback;
     }
-    
+
     async excludeLedgerFromSettlement(input: {
       tenantId: string;
       ledgerIds: string[];
@@ -276,7 +311,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       void input;
       return 0;
     }
-    
+
     async markClawbackRecoveryGenerated(input: {
       tenantId: string;
       caseId: string;
@@ -292,7 +327,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       clawback.updatedAt = now();
       return clawback;
     }
-    
+
     async closeClawbackCase(input: {
       tenantId: string;
       caseId: string;
@@ -324,7 +359,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return clawback;
     }
-    
+
     async createEquityGrant(input: {
       tenantId: string;
       personId: string;
@@ -387,7 +422,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.equityGrants.set(grant.id, grant);
       return grant;
     }
-    
+
     async listEquityGrants(
       tenantId: string,
       personId?: string,
@@ -401,7 +436,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((a, b) => b.grantDate.localeCompare(a.grantDate));
     }
-    
+
     async updateEquityGrant(input: {
       tenantId: string;
       grantId: string;
@@ -475,7 +510,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.equityGrants.set(updated.id, updated);
       return updated;
     }
-    
+
     async getEquityGrant(
       tenantId: string,
       grantId: string,
@@ -486,7 +521,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return grant;
     }
-    
+
     async getEquityVesting(
       tenantId: string,
       grantId: string,
@@ -500,7 +535,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       );
       return computeEquityVesting(grant, exercises, asOf);
     }
-    
+
     async createEquityExercise(input: {
       tenantId: string;
       grantId: string;
@@ -551,7 +586,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.equityExercises.set(exercise.id, exercise);
       return exercise;
     }
-    
+
     async listEquityExercises(
       tenantId: string,
       grantId?: string,
@@ -565,7 +600,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    
+
     async approveEquityExercise(input: {
       tenantId: string;
       exerciseId: string;
@@ -596,7 +631,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       exercise.version += 1;
       return exercise;
     }
-    
+
     async settleEquityExercise(input: {
       tenantId: string;
       exerciseId: string;
@@ -633,7 +668,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return exercise;
     }
-    
+
     async createBounty(input: {
       tenantId: string;
       title: string;
@@ -671,7 +706,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.bounties.set(bounty.id, bounty);
       return bounty;
     }
-    
+
     async listBounties(
       tenantId: string,
       status?: Bounty["status"],
@@ -685,7 +720,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    
+
     async getBounty(tenantId: string, bountyId: string): Promise<Bounty> {
       const bounty = this.bounties.get(bountyId);
       if (!bounty || bounty.tenantId !== tenantId) {
@@ -693,7 +728,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return bounty;
     }
-    
+
     async claimBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -714,7 +749,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       bounty.version += 1;
       return bounty;
     }
-    
+
     async submitBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -735,7 +770,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       bounty.version += 1;
       return bounty;
     }
-    
+
     async acceptBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -763,7 +798,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       bounty.version += 1;
       return bounty;
     }
-    
+
     async cancelBounty(input: {
       tenantId: string;
       bountyId: string;
@@ -778,7 +813,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       bounty.version += 1;
       return bounty;
     }
-    
+
     async createIncentiveAwardBatch(input: {
       tenantId: string;
       batchNo: string;
@@ -875,7 +910,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.incentiveAwardBatches.set(batch.id, batch);
       return batch;
     }
-    
+
     async listIncentiveAwardBatches(
       tenantId: string,
       filter?: { awardType?: string; period?: string; status?: string },
@@ -890,7 +925,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     }
-    
+
     async getIncentiveAwardBatch(
       tenantId: string,
       batchId: string,
@@ -901,7 +936,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return batch;
     }
-    
+
     async commandIncentiveAwardBatch(input: {
       tenantId: string;
       batchId: string;
@@ -915,11 +950,221 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       actorPersonId: string;
       paymentRef?: string;
     }): Promise<IncentiveAwardBatch> {
-      return this.withCommandLock(`award:${input.tenantId}:${input.batchId}`, () =>
-        this.commandIncentiveAwardBatchUnlocked(input),
+      return this.withCommandLock(`award:${input.tenantId}:${input.batchId}`, async () => {
+        // 迁移 117：回执前必须所有行足额 PAID 且已付合计 = 批次 total_amount。
+        if (input.command === "ACKNOWLEDGE") {
+          const reconciliation = await this.getIncentiveAwardBatchReconciliation(
+            input.tenantId,
+            input.batchId,
+          );
+          if (reconciliation.status !== "RECONCILED") {
+            throw new ConflictError(
+              `AWARD_BATCH_NOT_RECONCILED: paid ${reconciliation.paidAmount}/${reconciliation.totalAmount} ` +
+                `(status ${reconciliation.status}, unpaid ${reconciliation.unpaidAmount})`,
+            );
+          }
+        }
+        return this.commandIncentiveAwardBatchUnlocked(input);
+      });
+    }
+
+    private awardPaymentsForBatch(
+      tenantId: string,
+      batchId: string,
+    ): IncentiveAwardPayment[] {
+      return [...this.incentiveAwardPayments.values()]
+        .filter(
+          (payment) =>
+            payment.tenantId === tenantId && payment.batchId === batchId,
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    }
+
+    private reconcileAwardBatch(
+      batch: IncentiveAwardBatch,
+      payments: IncentiveAwardPayment[],
+    ): IncentiveAwardBatchReconciliation {
+      return reconcileIncentiveAwardBatch({
+        batchId: batch.id,
+        batchNo: batch.batchNo,
+        batchStatus: batch.status,
+        currency: batch.currency,
+        totalAmount: batch.totalAmount,
+        lines: batch.lines.map((line) => ({
+          id: line.id,
+          personId: line.personId,
+          amount: line.amount,
+          currency: line.currency,
+        })),
+        payments: payments.map((payment) => ({
+          id: payment.id,
+          lineId: payment.lineId,
+          amount: payment.amount,
+          paymentRef: payment.paymentRef,
+          status: payment.status,
+        })),
+      });
+    }
+
+    async getIncentiveAwardBatchReconciliation(
+      tenantId: string,
+      batchId: string,
+    ): Promise<IncentiveAwardBatchReconciliation> {
+      const batch = await this.getIncentiveAwardBatch(tenantId, batchId);
+      return this.reconcileAwardBatch(
+        batch,
+        this.awardPaymentsForBatch(tenantId, batchId),
       );
     }
-    
+
+    async recordIncentiveAwardPayments(input: {
+      tenantId: string;
+      batchId: string;
+      actorPersonId: string;
+      payments: Array<{
+        lineId: string;
+        paymentRef: string;
+        status: IncentiveAwardPaymentStatus;
+        amount: string;
+        currency: string;
+        paidAt?: string;
+        failureCode?: string;
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        creditAccount?: "CASH" | "PAYABLE";
+      }>;
+    }): Promise<{
+      payments: IncentiveAwardPayment[];
+      reconciliation: IncentiveAwardBatchReconciliation;
+      createdPaymentIds: string[];
+    }> {
+      const batch = await this.getIncentiveAwardBatch(
+        input.tenantId,
+        input.batchId,
+      );
+      if (!["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status)) {
+        throw new ConflictError(
+          `AWARD_BATCH_NOT_PAYABLE: batch ${batch.batchNo} is ${batch.status}; ` +
+            "payments are accepted only after LOCK/EXPORT/ACKNOWLEDGE",
+        );
+      }
+      const lineById = new Map(batch.lines.map((line) => [line.id, line]));
+      const batchCurrency = batch.currency.trim().toUpperCase();
+      const results: IncentiveAwardPayment[] = [];
+      const createdPaymentIds: string[] = [];
+      const seenInRequest = new Map<string, IncentiveAwardPayment>();
+      for (const raw of input.payments) {
+        const paymentRef = raw.paymentRef.trim();
+        if (!paymentRef) {
+          throw new ConflictError("AWARD_PAYMENT_REF_REQUIRED");
+        }
+        const line = lineById.get(raw.lineId);
+        if (!line) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_LINE_NOT_IN_BATCH: line ${raw.lineId} is not part of batch ${batch.batchNo}`,
+          );
+        }
+        const amount = awardPaymentAmount(raw.amount);
+        const lineAmount = awardPaymentAmount(line.amount);
+        if (amount !== lineAmount) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_AMOUNT_MISMATCH: ${formatDecimal(amount)} != line amount ${formatDecimal(lineAmount)} (${line.id})`,
+          );
+        }
+        const currency = raw.currency.trim().toUpperCase();
+        if (
+          currency !== line.currency.trim().toUpperCase() ||
+          currency !== batchCurrency
+        ) {
+          throw new ConflictError(
+            `AWARD_PAYMENT_CURRENCY_MISMATCH: ${currency} != ${line.currency}`,
+          );
+        }
+        const paidAt =
+          raw.status === "PAID" ? (raw.paidAt ?? now()) : raw.paidAt;
+        if (paidAt && Number.isNaN(Date.parse(paidAt))) {
+          throw new ConflictError(`AWARD_PAYMENT_PAID_AT_INVALID: ${paidAt}`);
+        }
+        const idempotencyKey = `${line.id}:${paymentRef}`;
+        const existing =
+          seenInRequest.get(idempotencyKey) ??
+          [...this.incentiveAwardPayments.values()].find(
+            (payment) =>
+              payment.tenantId === input.tenantId &&
+              payment.batchId === input.batchId &&
+              payment.lineId === line.id &&
+              payment.paymentRef === paymentRef,
+          );
+        if (existing) {
+          const samePayload =
+            existing.status === raw.status &&
+            awardPaymentAmount(existing.amount) === amount &&
+            existing.currency === currency;
+          if (!samePayload) {
+            throw new ConflictError(
+              `AWARD_PAYMENT_IDEMPOTENCY_CONFLICT: ref ${paymentRef} already recorded with a different payload`,
+            );
+          }
+          seenInRequest.set(idempotencyKey, existing);
+          results.push(existing);
+          continue;
+        }
+        const timestamp = now();
+        const payment: IncentiveAwardPayment = {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          batchId: input.batchId,
+          lineId: line.id,
+          personId: line.personId,
+          amount: formatDecimal(amount),
+          currency,
+          paymentRef,
+          status: raw.status,
+          paidAt: paidAt || undefined,
+          failureCode: raw.failureCode?.trim() || undefined,
+          createdAt: timestamp,
+        };
+        // 只有 PAID 才是会计事实：借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE。
+        // FAILED/RETURNED 只留痕，不生成凭证。
+        if (payment.status === "PAID") {
+          await this.createJournalEntry({
+            tenantId: input.tenantId,
+            documentType: "PAYMENT",
+            documentId: payment.id,
+            legalEntityId: raw.legalEntityId?.trim() || "DEFAULT",
+            accountingPeriod: awardPaymentAccountingPeriod(
+              raw.accountingPeriod,
+              payment.paidAt ?? timestamp,
+            ),
+            currency,
+            description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
+            lines: [
+              {
+                accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
+                debit: payment.amount,
+              },
+              {
+                accountCode: raw.creditAccount ?? GL_ACCOUNT_CODES.CASH,
+                credit: payment.amount,
+              },
+            ],
+          });
+        }
+        this.incentiveAwardPayments.set(payment.id, payment);
+        seenInRequest.set(idempotencyKey, payment);
+        results.push(payment);
+        createdPaymentIds.push(payment.id);
+      }
+      return {
+        payments: results,
+        reconciliation: this.reconcileAwardBatch(
+          batch,
+          this.awardPaymentsForBatch(input.tenantId, input.batchId),
+        ),
+        createdPaymentIds,
+      };
+    }
+
     async createAdverseAction(input: {
       tenantId: string;
       personId: string;
@@ -956,7 +1201,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       this.adverseActions.set(action.id, action);
       return action;
     }
-    
+
     async listAdverseActions(
       tenantId: string,
       personId?: string,
@@ -969,7 +1214,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
-    
+
     async getAdverseAction(
       tenantId: string,
       actionId: string,
@@ -980,7 +1225,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return action;
     }
-    
+
     async reviewAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1025,7 +1270,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       }
       return action;
     }
-    
+
     async approveAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1060,7 +1305,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       action.version += 1;
       return action;
     }
-    
+
     async activateAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1082,7 +1327,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       action.version += 1;
       return action;
     }
-    
+
     async completeAdverseAction(input: {
       tenantId: string;
       actionId: string;
@@ -1103,7 +1348,7 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       action.version += 1;
       return action;
     }
-    
+
     async cancelAdverseAction(input: {
       tenantId: string;
       actionId: string;

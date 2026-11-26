@@ -404,6 +404,7 @@ import { registerPayrollRoutes } from "./modules/settlement/payroll.routes.js";
 import { registerRewardsRoutes } from "./modules/rewards/rewards.routes.js";
 import { registerSettlementRoutes } from "./modules/settlement/settlement-budget.routes.js";
 import { registerWorkPackageRoutes } from "./modules/workpackages/work-packages.routes.js";
+import { registerDecisionRoutes } from "./modules/decisions/decision.routes.js";
 
 type IdParams = { id: string };
 
@@ -1404,6 +1405,8 @@ export function buildApp(
   );
 
   app.register(registerApprovalRoutes({ platformStore, countEvent }));
+  // 118：通用 JEV Decision Record（五类决策共用；AI 仅建议，人工授权决定）。
+  app.register(registerDecisionRoutes({ platformStore }));
   app.register(registerClawbackRoutes({ platformStore, storeFor, countEvent, notifyBestEffort }));
   app.register(registerEvaluationRoutes({ platformStore, storeFor, countEvent }));
   app.register(registerNotificationRoutes({ storeFor }));

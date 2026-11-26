@@ -33,6 +33,18 @@
         "smoothingWindowPeriods"
       ]
     },
+    "AppendDecisionEvidence": {
+      "required": [
+        "content",
+        "contentHash",
+        "sourceId",
+        "sourceType",
+        "supports"
+      ],
+      "optional": [
+        "weight"
+      ]
+    },
     "ApprovePayrollRun": {
       "required": [
         "approvedBy"
@@ -221,6 +233,17 @@
         "crossBorderTransfers",
         "lastReviewedAt",
         "processorRefs"
+      ]
+    },
+    "CreateDecisionCase": {
+      "required": [
+        "kind",
+        "subjectId",
+        "subjectType"
+      ],
+      "optional": [
+        "context",
+        "createdBy"
       ]
     },
     "CreateDsar": {
@@ -457,6 +480,15 @@
         "packageType"
       ]
     },
+    "DecideDecisionCase": {
+      "required": [
+        "rationale"
+      ],
+      "optional": [
+        "decidedBy",
+        "finalJudgmentId"
+      ]
+    },
     "FeishuSync": {
       "required": [],
       "optional": [
@@ -643,6 +675,22 @@
         "reason"
       ]
     },
+    "RecordDecisionVerification": {
+      "required": [
+        "checks",
+        "passed"
+      ],
+      "optional": [
+        "findings",
+        "verifiedBy"
+      ]
+    },
+    "RecordIncentiveAwardPayments": {
+      "required": [
+        "payments"
+      ],
+      "optional": []
+    },
     "RecordLegalGate": {
       "required": [
         "minimumWageChecked",
@@ -722,6 +770,16 @@
         "mode"
       ]
     },
+    "ScorePerformanceFromFacts": {
+      "required": [
+        "cycleId",
+        "personId",
+        "policyVersionId"
+      ],
+      "optional": [
+        "metricInputs"
+      ]
+    },
     "SetPassword": {
       "required": [
         "password",
@@ -763,6 +821,19 @@
         "deferredInstallmentMonths"
       ],
       "optional": []
+    },
+    "SubmitDecisionJudgment": {
+      "required": [
+        "actorId",
+        "actorType",
+        "independentRationale"
+      ],
+      "optional": [
+        "confidence",
+        "dimensionStates",
+        "independentScores",
+        "modelRef"
+      ]
     },
     "SyncAnomalies": {
       "required": [

@@ -40,6 +40,10 @@ import {
 import {
   dataGovernanceCoverage,
   type AiMember,
+  type MetricMeasurement,
+  type MetricMeasurementSnapshot,
+  type PerformanceMetricSpec,
+  type PerformancePeriod,
   type PersonalTaskInventory,
   type EquityGrantCase,
   type PerformanceGoalCard,
@@ -49,6 +53,7 @@ import {
   businessUnitCommissionCalculationSchema,
   dbcpCalculationSchema,
   internalSplitCalculationSchema,
+  scorePerformanceFromFactsSchema,
   techCenterPoolCalculationSchema,
 } from "@anari/contracts";
 import { ConflictError } from "../../store.js";
@@ -79,6 +84,94 @@ class BadRequestError extends Error {
     super(message);
   }
 }
+
+/**
+ * 权威绩效事实缺失：没有已锁定目标卡，或没有通过 contentHash 重算的冻结
+ * 计量快照。fail-closed——绝不退回到「客户端输入」继续算分。
+ */
+class PerformanceFactsNotReadyError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_FACTS_NOT_READY";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * 客户端 metricInputs 试图提供/覆盖权威字段（rawValue/value/applicable/
+ * acceptanceScore/eventAdjustment 等），或引入快照中没有的测量。
+ */
+class PerformanceInputOverridesFactsError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_INPUT_OVERRIDES_FACTS";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 评分来源标记：只有 LOCKED_FACTS 可作为正式评价依据。 */
+const PERFORMANCE_SOURCE_LOCKED_FACTS = "LOCKED_FACTS";
+const PERFORMANCE_SOURCE_CLIENT_INPUT = "CLIENT_INPUT";
+
+/** 旧 /score 的兼容告警：分数来自客户端自报输入，不是权威事实。 */
+const CLIENT_INPUT_SCORE_WARNING =
+  "该评分直接采用客户端提交的指标与测量值（source=CLIENT_INPUT），未绑定已锁定目标卡与已核验计量快照，不得作为正式评价依据；正式评分请使用 POST /api/v1/policy/performance/score-from-facts";
+
+/**
+ * 目标卡与评价周期的绑定周期：cycleType 优先，其次按起止跨度推断。
+ * 目标卡本身只有 MONTHLY/QUARTERLY/ANNUAL，没有 cycleId，故由周期决定
+ * 哪张锁定卡是该周期的事实来源。
+ */
+function performancePeriodOfCycle(cycle: {
+  cycleType?: string;
+  startsAt?: string;
+  endsAt?: string;
+}): PerformancePeriod {
+  const type = (cycle.cycleType ?? "").toUpperCase();
+  if (type.includes("ANNUAL") || type.includes("YEAR")) return "ANNUAL";
+  if (type.includes("QUARTER")) return "QUARTERLY";
+  if (type.includes("MONTH")) return "MONTHLY";
+  const startsAt = Date.parse(cycle.startsAt ?? "");
+  const endsAt = Date.parse(cycle.endsAt ?? "");
+  if (Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt) {
+    const days = (endsAt - startsAt) / 86_400_000;
+    if (days > 200) return "ANNUAL";
+    if (days > 45) return "QUARTERLY";
+  }
+  return "MONTHLY";
+}
+
+/**
+ * 客户端在 metricInputs 中唯一允许出现的字段：说明性、非权威。
+ * 任何其他字段都意味着客户端想自己决定被评分的值。
+ */
+const NON_AUTHORITATIVE_METRIC_INPUT_FIELDS = new Set([
+  "metricId",
+  "naReason",
+  "sampleSize",
+  "evidenceRefs",
+]);
+
+/** 快照值按评分函数落到对应的权威字段，客户端无权再改写。 */
+function measurementSlotForMetricType(
+  metricType: PerformanceMetricSpec["metricType"] | undefined,
+  value: string,
+): Partial<MetricMeasurement> {
+  if (metricType === "INTERVAL_EVENT") return { eventAdjustment: value };
+  if (metricType === "WEIGHTED_ACCEPTANCE") return { acceptanceScore: value };
+  return { rawValue: value };
+}
+
+const DECIMAL_VALUE_PATTERN = /^-?\d+(\.\d+)?$/;
+
+/**
+ * 目标卡记录负载：租户与周期绑定写在 payload 里（目标卡类型本身没有
+ * cycleId），因此这里按「字段都可能缺失」读取，再显式校验。
+ */
+type LockedGoalCardPayload = Omit<PerformanceGoalCard, "tenantId"> & {
+  tenantId?: string;
+  cycleId?: string;
+};
 
 
 export interface PolicyEngineDeps {
@@ -128,6 +221,42 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       return value;
     };
 
+    /**
+     * 目标卡可选绑定到评价周期：目标卡类型本身没有 cycleId，绑定信息存进
+     * payload，供 score-from-facts 精确定位该周期的锁定卡。
+     */
+    const bindGoalCardToCycle = async (
+      request: FastifyRequest,
+      body: Record<string, unknown>,
+      period: PerformanceGoalCard["period"],
+    ): Promise<{ id: string } | undefined> => {
+      const raw = body.cycleId;
+      if (raw === undefined || raw === null) return undefined;
+      if (typeof raw !== "string" || raw.trim() === "") {
+        throw new BadRequestError(
+          "INVALID_INPUT",
+          "字段 cycleId 必须为非空字符串",
+        );
+      }
+      let cycle;
+      try {
+        cycle = await storeFor(request).getEvaluationCycle(raw);
+      } catch (error) {
+        if (error instanceof NotFoundError) {
+          throw new BadRequestError("CYCLE_NOT_FOUND", `评价周期 ${raw} 不存在`);
+        }
+        throw error;
+      }
+      const cyclePeriod = performancePeriodOfCycle(cycle);
+      if (cyclePeriod !== period) {
+        throw new BadRequestError(
+          "CYCLE_PERIOD_MISMATCH",
+          `目标卡周期 ${period} 与评价周期 ${raw} 的周期 ${cyclePeriod} 不一致`,
+        );
+      }
+      return { id: cycle.id };
+    };
+
     app.get("/api/v1/policy/performance/templates", async (request) => {
       const query = request.query as { period?: string; role?: string };
       const period = (query.period ?? "MONTHLY").toUpperCase();
@@ -166,15 +295,29 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         throw new ForbiddenError("员工只能发起本人绩效评分");
       }
       const result = runPolicyInput(() => scorePerformance(input));
+      // 兼容保留：分值完全来自客户端自报，明确标注来源并给出告警，避免被
+      // 当成与 score-from-facts 等价的形式评价依据。
       const record = await platformStore.savePolicyEngineRecord({
         tenantId: tenantOf(request),
         recordType: "PERFORMANCE_SCORE",
         personId: input.personId,
         period: input.period,
         status: result.complete ? "COMPUTED" : "INCOMPLETE",
-        payload: { request: input, result },
+        payload: {
+          request: input,
+          result,
+          source: PERFORMANCE_SOURCE_CLIENT_INPUT,
+        },
       });
-      return data({ ...result, recordId: record.id }, request);
+      return data(
+        {
+          ...result,
+          source: PERFORMANCE_SOURCE_CLIENT_INPUT,
+          warnings: [CLIENT_INPUT_SCORE_WARNING],
+          recordId: record.id,
+        },
+        request,
+      );
     });
 
     app.get("/api/v1/policy/performance/scores", async (request) => {
@@ -964,6 +1107,9 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         );
       }
       const nowIso = new Date().toISOString();
+      // 可选的评价周期绑定：写入目标卡 payload，使 score-from-facts 能精确
+      // 找到「该 cycle 的锁定卡」，而不是只靠 MONTHLY/QUARTERLY/ANNUAL 匹配。
+      const binding = await bindGoalCardToCycle(request, body, period);
       const card: PerformanceGoalCard = {
         id: randomUUID(),
         tenantId: tenantOf(request),
@@ -976,17 +1122,18 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         updatedAt: nowIso,
         version: 1,
       };
+      const boundCard = binding ? { ...card, cycleId: binding.id } : card;
       const record = await platformStore.savePolicyEngineRecord({
         tenantId: tenantOf(request),
         recordType: "PERFORMANCE_GOAL_CARD",
         personId,
         period,
         status: card.status,
-        payload: card as unknown as Record<string, unknown>,
+        payload: boundCard as unknown as Record<string, unknown>,
       });
       return reply
         .status(201)
-        .send(data({ ...card, recordId: record.id, totalWeight: validation.totalWeight }, request));
+        .send(data({ ...boundCard, recordId: record.id, totalWeight: validation.totalWeight }, request));
     });
 
     app.get("/api/v1/policy/performance/goal-cards", async (request) => {
@@ -1049,6 +1196,276 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         return data(updated, request);
       },
     );
+
+    // -------------------------------------------------------------------------
+    // 权威绩效评分（018）：分值只能来自「已锁定目标卡 + 已核验计量快照」。
+    // 客户端 metricInputs 仅可补充说明性字段；覆盖权威字段一律 409。
+    // -------------------------------------------------------------------------
+    app.post("/api/v1/policy/performance/score-from-facts", async (request) => {
+      requireRoles(request, "manager");
+      const body = parse(scorePerformanceFromFactsSchema, request.body);
+      if (!isPrivileged(request) && body.personId !== ownPersonId(request)) {
+        throw new ForbiddenError("员工只能发起本人绩效评分");
+      }
+      const tenantId = tenantOf(request);
+      const store = storeFor(request);
+      const metricInputs = body.metricInputs ?? [];
+      const suppliedMetricIds = new Set<string>();
+      for (const input of metricInputs) {
+        if (suppliedMetricIds.has(input.metricId)) {
+          throw new BadRequestError(
+            "INVALID_INPUT",
+            `metricInputs 中指标 ${input.metricId} 重复`,
+          );
+        }
+        suppliedMetricIds.add(input.metricId);
+      }
+
+      const cycle = await store.getEvaluationCycle(body.cycleId);
+      if (
+        cycle.policyVersionId &&
+        cycle.policyVersionId !== body.policyVersionId
+      ) {
+        throw new PerformanceFactsNotReadyError(
+          `评价周期 ${cycle.id} 绑定制度版本 ${cycle.policyVersionId}，与请求的 ${body.policyVersionId} 不一致：不存在该版本下的锁定事实`,
+        );
+      }
+      const period = performancePeriodOfCycle(cycle);
+
+      // 权威指标集：已锁定目标卡（cycleId 精确绑定优先，其次按周期匹配）。
+      const goalCardRecords = await platformStore.listPolicyEngineRecords(
+        tenantId,
+        { recordType: "PERFORMANCE_GOAL_CARD", personId: body.personId },
+      );
+      const lockedCards = goalCardRecords
+        .map(
+          (record) => record.payload as unknown as LockedGoalCardPayload,
+        )
+        .filter(
+          (card) =>
+            card?.status === "LOCKED" &&
+            card.personId === body.personId &&
+            // 存储层已按租户过滤；负载里的 tenantId 只做防御性核对。
+            (card.tenantId === undefined || card.tenantId === tenantId) &&
+            (card.cycleId
+              ? card.cycleId === cycle.id
+              : card.period === period),
+        );
+      if (lockedCards.length === 0) {
+        throw new PerformanceFactsNotReadyError(
+          `人员 ${body.personId} 在评价周期 ${cycle.id}（${period}）没有已锁定的目标卡：缺少权威指标集与权重`,
+        );
+      }
+      if (lockedCards.length > 1) {
+        throw new PerformanceFactsNotReadyError(
+          `人员 ${body.personId} 在评价周期 ${cycle.id} 存在 ${lockedCards
+            .map((card) => card.id)
+            .join("、")} 共 ${lockedCards.length} 张已锁定目标卡，无法确定唯一权威事实`,
+        );
+      }
+      const goalCard = lockedCards[0]!;
+
+      // 权威测量：只认已通过 contentHash 复核的冻结快照；已消费（CONSUMED）
+      // 或复核失败的快照不得再次作为评分事实。
+      const snapshots = await store.listMetricMeasurementSnapshots({
+        cycleId: cycle.id,
+        personId: body.personId,
+      });
+      const frozenCandidates = snapshots
+        .filter(
+          (candidate) =>
+            candidate.status === "FROZEN" &&
+            candidate.measurements.length > 0,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      let snapshot: MetricMeasurementSnapshot | undefined;
+      const rejectedSnapshotIds: string[] = [];
+      for (const candidate of frozenCandidates) {
+        const verification = await store.verifyMetricMeasurementSnapshot(
+          candidate.id,
+        );
+        if (verification.valid) {
+          snapshot = candidate;
+          break;
+        }
+        rejectedSnapshotIds.push(candidate.id);
+      }
+      if (!snapshot) {
+        throw new PerformanceFactsNotReadyError(
+          snapshots.length === 0
+            ? `评价周期 ${cycle.id} / 人员 ${body.personId} 没有冻结的指标计量快照`
+            : rejectedSnapshotIds.length > 0
+              ? `指标计量快照 contentHash 复核失败（${rejectedSnapshotIds.join(
+                  "、",
+                )}），不得作为评分事实`
+              : `评价周期 ${cycle.id} / 人员 ${body.personId} 没有可用冻结快照（仅存在已消费快照）`,
+        );
+      }
+      const activeSnapshot = snapshot;
+
+      const metricById = new Map(
+        goalCard.metrics.map((metric) => [metric.metricId, metric]),
+      );
+      const snapshotMetricIds = new Set(
+        activeSnapshot.measurements.map((record) => record.metricId),
+      );
+      const supplements = new Map(metricInputs.map((input) => [input.metricId, input]));
+      for (const input of metricInputs) {
+        // 说明性字段之外的一切都必须被拒绝：否则客户端就能决定分值的来源。
+        const authoritativeFields = Object.keys(input).filter(
+          (key) => !NON_AUTHORITATIVE_METRIC_INPUT_FIELDS.has(key),
+        );
+        if (authoritativeFields.length > 0) {
+          throw new PerformanceInputOverridesFactsError(
+            `metricInputs.${input.metricId} 提供了权威字段 ${authoritativeFields.join(
+              "、",
+            )}；指标值只能来自已核验的计量快照`,
+          );
+        }
+        if (!snapshotMetricIds.has(input.metricId)) {
+          throw new PerformanceInputOverridesFactsError(
+            `metricInputs.${input.metricId} 不在已冻结快照中：不得以客户端输入补齐测量事实`,
+          );
+        }
+      }
+
+      const measurements: MetricMeasurement[] = activeSnapshot.measurements.map(
+        (record) => {
+          const supplement = supplements.get(record.metricId);
+          const value = (record.value ?? "").trim();
+          const usable =
+            record.qualityStatus === "VALID" &&
+            DECIMAL_VALUE_PATTERN.test(value);
+          const evidenceRefs = [
+            ...new Set([
+              `metric-snapshot:${activeSnapshot.id}:${record.metricId}`,
+              ...(record.sourceRef ? [record.sourceRef] : []),
+              ...(supplement?.evidenceRefs ?? []),
+            ]),
+          ];
+          const measurement: MetricMeasurement = {
+            metricId: record.metricId,
+            applicable: usable,
+            evidenceRefs,
+          };
+          if (usable) {
+            Object.assign(
+              measurement,
+              measurementSlotForMetricType(
+                metricById.get(record.metricId)?.metricType,
+                value,
+              ),
+            );
+          } else {
+            measurement.naReason =
+              supplement?.naReason ??
+              (record.qualityStatus !== "VALID"
+                ? `快照质量状态 ${record.qualityStatus}，不作为评分依据`
+                : `快照值 ${JSON.stringify(record.value)} 不是可解析的十进制数，不作为评分依据`);
+          }
+          if (supplement?.sampleSize !== undefined) {
+            measurement.sampleSize = supplement.sampleSize;
+          }
+          return measurement;
+        },
+      );
+
+      const missingMetricIds = goalCard.metrics
+        .map((metric) => metric.metricId)
+        .filter((metricId) => !snapshotMetricIds.has(metricId));
+      const coverageComplete = missingMetricIds.length === 0;
+
+      const result = runPolicyInput(() =>
+        scorePerformance({
+          personId: body.personId,
+          period: goalCard.period,
+          metrics: goalCard.metrics,
+          measurements,
+          coverageComplete,
+        }),
+      );
+
+      const facts = {
+        source: PERFORMANCE_SOURCE_LOCKED_FACTS,
+        cycleId: cycle.id,
+        cycleType: cycle.cycleType,
+        personId: body.personId,
+        policyVersionId: body.policyVersionId,
+        period: goalCard.period,
+        goalCardId: goalCard.id,
+        goalCardVersion: goalCard.version,
+        goalCardStatus: goalCard.status,
+        goalCardLockedAt: goalCard.lockedAt ?? null,
+        goalCardMetricsHash: sha256(goalCard.metrics),
+        snapshotId: activeSnapshot.id,
+        snapshotContentHash: activeSnapshot.contentHash,
+        snapshotStatus: activeSnapshot.status,
+        snapshotFrozenAt: activeSnapshot.frozenAt,
+        snapshotCreatedAt: activeSnapshot.createdAt,
+        measurementCount: activeSnapshot.measurements.length,
+      };
+      // 事实哈希：同输入重放必须一致；补充字段也纳入绑定，避免「同 hash 不同解释」。
+      const factsHash = sha256({
+        kind: "PERFORMANCE_SCORE_FROM_FACTS/v1",
+        tenantId,
+        facts,
+        supplements: metricInputs
+          .map((input) => ({
+            metricId: input.metricId,
+            naReason: input.naReason ?? null,
+            sampleSize: input.sampleSize ?? null,
+            evidenceRefs: [...(input.evidenceRefs ?? [])].sort(),
+          }))
+          .sort((left, right) => left.metricId.localeCompare(right.metricId)),
+      });
+
+      const warnings: string[] = [];
+      if (!coverageComplete) {
+        warnings.push(
+          `指标覆盖不完整：快照缺少 ${missingMetricIds.join(
+            "、",
+          )}，结果仅供复核参考，不得作为正式评价依据`,
+        );
+      }
+      if (metricInputs.length > 0) {
+        warnings.push(
+          "客户端 metricInputs 仅补充说明性字段（naReason/sampleSize/evidenceRefs），未参与评分取值",
+        );
+      }
+
+      const record = await platformStore.savePolicyEngineRecord({
+        tenantId,
+        recordType: "PERFORMANCE_SCORE",
+        personId: body.personId,
+        period: goalCard.period,
+        status: result.complete ? "COMPUTED" : "INCOMPLETE",
+        payload: {
+          source: PERFORMANCE_SOURCE_LOCKED_FACTS,
+          factsHash,
+          facts,
+          request: {
+            cycleId: body.cycleId,
+            personId: body.personId,
+            policyVersionId: body.policyVersionId,
+            metricInputs,
+          },
+          measurements,
+          result,
+        },
+      });
+      return data(
+        {
+          ...result,
+          source: PERFORMANCE_SOURCE_LOCKED_FACTS,
+          factsHash,
+          facts,
+          coverage: { complete: coverageComplete, missingMetricIds },
+          warnings,
+          recordId: record.id,
+        },
+        request,
+      );
+    });
 
     app.post("/api/v1/policy/equity/tax", async (request) => {
       requireRoles(request, "finance");

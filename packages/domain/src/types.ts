@@ -1152,6 +1152,10 @@ export const GL_ACCOUNT_SEED: ReadonlyArray<{
   { code: "FX_GAIN_LOSS", name: "FX Gain/Loss", accountType: "REVENUE", normalBalance: "CREDIT" },
   { code: "BAD_DEBT_EXPENSE", name: "Bad Debt Expense", accountType: "EXPENSE", normalBalance: "DEBIT" },
   { code: "ALLOWANCE", name: "Allowance for Doubtful Accounts", accountType: "ASSET", normalBalance: "CREDIT" },
+  // 迁移 117：奖励批次支付回执记账（借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE）。
+  // 既有租户由各 adapter 的 ensureGlAccounts 在首次记账时补齐，无需回填历史。
+  { code: "INCENTIVE_EXPENSE", name: "Incentive Expense", accountType: "EXPENSE", normalBalance: "DEBIT" },
+  { code: "PAYABLE", name: "Accounts Payable", accountType: "LIABILITY", normalBalance: "CREDIT" },
 ];
 
 export const GL_ACCOUNT_CODES = {
@@ -1162,7 +1166,227 @@ export const GL_ACCOUNT_CODES = {
   FX_GAIN_LOSS: "FX_GAIN_LOSS",
   BAD_DEBT_EXPENSE: "BAD_DEBT_EXPENSE",
   ALLOWANCE: "ALLOWANCE",
+  INCENTIVE_EXPENSE: "INCENTIVE_EXPENSE",
+  PAYABLE: "PAYABLE",
 } as const;
+
+// ----------------------------------------------------------------------
+// 奖励批次支付回执与对账（迁移 117）。
+//
+// 一笔支付回执只覆盖批次的一行；唯一键 (batch, line, payment_ref) 是幂等键。
+// 金额仍是 1e6 定点 DecimalString，对账投影用 BigInt 加减，绝不使用浮点。
+// 只有 PAID 计入“已付”并生成 GL 凭证；FAILED/RETURNED 只留痕。
+// ----------------------------------------------------------------------
+
+export type IncentiveAwardPaymentStatus = "PAID" | "FAILED" | "RETURNED";
+
+/** 单行支付回执（银行流水/内部转账凭证的一行）。 */
+export interface IncentiveAwardPayment {
+  id: UUID;
+  tenantId: UUID;
+  batchId: UUID;
+  lineId: UUID;
+  personId: UUID;
+  amount: DecimalString;
+  currency: string;
+  paymentRef: string;
+  status: IncentiveAwardPaymentStatus;
+  /** 仅在 PAID 时必填（服务端缺省为记录时间）。 */
+  paidAt?: string;
+  failureCode?: string;
+  createdAt: string;
+}
+
+/** 行级对账状态：PAID=足额，PARTIAL=部分，UNPAID=未付，OVERPAID=超出。 */
+export type IncentiveAwardLineReconciliationStatus =
+  | "PAID"
+  | "PARTIAL"
+  | "UNPAID"
+  | "OVERPAID";
+
+export interface IncentiveAwardReconciliationLine {
+  lineId: UUID;
+  personId: UUID;
+  currency: string;
+  /** 批次行应付金额。 */
+  amount: DecimalString;
+  /** 该行 PAID 回执累计已付金额。 */
+  paidAmount: DecimalString;
+  /** 未付金额 = max(0, amount - paidAmount)。 */
+  unpaidAmount: DecimalString;
+  /** 差异 = paidAmount - amount（负数=少付，正数=多付）。 */
+  variance: DecimalString;
+  status: IncentiveAwardLineReconciliationStatus;
+  /** 计入已付的银行流水号（PAID only）。 */
+  paymentRefs: string[];
+}
+
+export type IncentiveAwardBatchReconciliationStatus =
+  | "RECONCILED"
+  | "PARTIAL"
+  | "VARIANCE";
+
+export interface IncentiveAwardBatchReconciliation {
+  batchId: UUID;
+  batchNo: string;
+  /** 批次状态（IncentiveAwardBatchStatus，此处用 string 避免与 policy-types 循环依赖）。 */
+  batchStatus: string;
+  currency: string;
+  /** 批次应付合计（incentive_award_batches.total_amount）。 */
+  totalAmount: DecimalString;
+  paidAmount: DecimalString;
+  unpaidAmount: DecimalString;
+  /** 差异 = paidAmount - totalAmount。 */
+  variance: DecimalString;
+  totalLines: number;
+  paidLines: number;
+  unpaidLines: number;
+  partialLines: number;
+  overpaidLines: number;
+  status: IncentiveAwardBatchReconciliationStatus;
+  lines: IncentiveAwardReconciliationLine[];
+}
+
+const AWARD_AMOUNT_SCALE = 1_000_000n;
+
+/** 1e6 定点解析：只接受非负、最多 6 位小数的十进制字符串。 */
+function awardAmountToMicros(value: DecimalString): bigint {
+  const text = String(value).trim();
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(text);
+  if (!match) {
+    throw new Error(`INVALID_AWARD_AMOUNT: ${value}`);
+  }
+  return BigInt(match[1]!) * AWARD_AMOUNT_SCALE +
+    BigInt((match[2] ?? "").padEnd(6, "0") || "0");
+}
+
+function awardMicrosToAmount(value: bigint): DecimalString {
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const integer = absolute / AWARD_AMOUNT_SCALE;
+  const fraction = (absolute % AWARD_AMOUNT_SCALE)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return `${negative ? "-" : ""}${integer}${fraction ? `.${fraction}` : ""}`;
+}
+
+/**
+ * 奖励批次对账投影（纯函数，Memory 与 PG adapter 共用，保证两条存储路径
+ * 给出完全相同的已付/未付/差异与状态）。
+ *
+ * 状态判定：
+ * - RECONCILED：每行差异为 0，且已付合计 = 批次 total_amount；
+ * - VARIANCE：存在多付行，或已付合计 > total_amount，或合计相等但行级错配；
+ * - PARTIAL：其余（少付，含完全未付）。
+ */
+export function reconcileIncentiveAwardBatch(input: {
+  batchId: string;
+  batchNo: string;
+  batchStatus: string;
+  currency: string;
+  totalAmount: DecimalString;
+  lines: ReadonlyArray<{
+    id: string;
+    personId: string;
+    amount: DecimalString;
+    currency: string;
+  }>;
+  payments: ReadonlyArray<{
+    id: string;
+    lineId: string;
+    amount: DecimalString;
+    paymentRef: string;
+    status: string;
+  }>;
+}): IncentiveAwardBatchReconciliation {
+  const paidByLine = new Map<string, bigint>();
+  const refsByLine = new Map<string, string[]>();
+  for (const payment of input.payments) {
+    if (payment.status !== "PAID") continue;
+    const micros = awardAmountToMicros(payment.amount);
+    paidByLine.set(payment.lineId, (paidByLine.get(payment.lineId) ?? 0n) + micros);
+    const refs = refsByLine.get(payment.lineId) ?? [];
+    refs.push(payment.paymentRef);
+    refsByLine.set(payment.lineId, refs);
+  }
+
+  let paidTotal = 0n;
+  let unpaidTotal = 0n;
+  let paidLines = 0;
+  let unpaidLines = 0;
+  let partialLines = 0;
+  let overpaidLines = 0;
+  let allLinesExact = true;
+
+  const lines: IncentiveAwardReconciliationLine[] = input.lines.map((line) => {
+    const amount = awardAmountToMicros(line.amount);
+    const paid = paidByLine.get(line.id) ?? 0n;
+    const outstanding = amount - paid;
+    paidTotal += paid;
+
+    let status: IncentiveAwardLineReconciliationStatus;
+    if (paid === 0n) {
+      status = "UNPAID";
+      unpaidLines += 1;
+    } else if (outstanding === 0n) {
+      status = "PAID";
+      paidLines += 1;
+    } else if (outstanding > 0n) {
+      status = "PARTIAL";
+      partialLines += 1;
+    } else {
+      status = "OVERPAID";
+      overpaidLines += 1;
+    }
+    if (outstanding !== 0n) allLinesExact = false;
+    if (outstanding > 0n) unpaidTotal += outstanding;
+
+    return {
+      lineId: line.id,
+      personId: line.personId,
+      currency: line.currency,
+      amount: awardMicrosToAmount(amount),
+      paidAmount: awardMicrosToAmount(paid),
+      unpaidAmount: awardMicrosToAmount(outstanding > 0n ? outstanding : 0n),
+      variance: awardMicrosToAmount(paid - amount),
+      status,
+      paymentRefs: refsByLine.get(line.id) ?? [],
+    };
+  });
+
+  const totalAmount = awardAmountToMicros(input.totalAmount);
+  const variance = paidTotal - totalAmount;
+  let status: IncentiveAwardBatchReconciliationStatus;
+  if (allLinesExact && variance === 0n) {
+    status = "RECONCILED";
+  } else if (variance > 0n || overpaidLines > 0) {
+    status = "VARIANCE";
+  } else if (variance < 0n) {
+    status = "PARTIAL";
+  } else {
+    // 合计相等但行级仍有差异（一行多付、另一行少付）→ 不是可回执的对账。
+    status = "VARIANCE";
+  }
+
+  return {
+    batchId: input.batchId,
+    batchNo: input.batchNo,
+    batchStatus: input.batchStatus,
+    currency: input.currency,
+    totalAmount: awardMicrosToAmount(totalAmount),
+    paidAmount: awardMicrosToAmount(paidTotal),
+    unpaidAmount: awardMicrosToAmount(unpaidTotal),
+    variance: awardMicrosToAmount(variance),
+    totalLines: lines.length,
+    paidLines,
+    unpaidLines,
+    partialLines,
+    overpaidLines,
+    status,
+    lines,
+  };
+}
 
 export type RuleChangeStatus = "DRAFT" | "APPROVED" | "PUBLICIZED" | "REJECTED";
 
@@ -2961,3 +3185,9 @@ export interface AgentTodoFilter {
  * 独立模块保证规范模型 + 纯解析函数不散落在适配层。
  */
 export * from "./work-item.js";
+
+/**
+ * JEV Decision Record（118 迁移）：通用决策模型 + hash/状态纯函数。
+ * 与 work-item 一样经 types.ts 聚合导出，保持 `@anari/domain` 单一包面。
+ */
+export * from "./decision.js";

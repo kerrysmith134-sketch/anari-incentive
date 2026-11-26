@@ -132,13 +132,19 @@ export class CycleReadinessWorkflow {
       });
     }
 
-    // 4) 评价门禁：SUBMITTED 未决草案 = 阻断；全部已决 = 通过。
+    // 4) 评价门禁：DRAFT/SUBMITTED 未决草案 = 阻断；全部已决 = 通过。
+    // 审计缺陷修复：DRAFT（未提交草案）同样未决——金额仍可能被改写，
+    // 不能因"尚未提交"就放行。判定取"已决才放行"（fail-closed）：只有
+    // APPROVED/REJECTED 算已决，其余状态（含未来新增状态）一律视为未决。
     const drafts = await this.context.listEvaluationDrafts({
       cycleId: input.cycleId,
     });
     const pendingDrafts = drafts.filter(
-      (draft) => draft.status === "SUBMITTED",
+      (draft) => draft.status !== "APPROVED" && draft.status !== "REJECTED",
     );
+    const pendingStatuses = [
+      ...new Set(pendingDrafts.map((draft) => draft.status)),
+    ];
     checks.push({
       gate: "EVALUATION",
       status:
@@ -149,7 +155,7 @@ export class CycleReadinessWorkflow {
             : "PASS",
       detail:
         pendingDrafts.length > 0
-          ? `${pendingDrafts.length} submitted draft(s) awaiting decision`
+          ? `${pendingDrafts.length} undecided draft(s) awaiting decision (${pendingStatuses.join(", ")})`
           : drafts.length === 0
             ? "no evaluation drafts in this cycle"
             : "all evaluation drafts decided",
@@ -159,17 +165,19 @@ export class CycleReadinessWorkflow {
       })),
     });
 
-    // 5) 申诉门禁：未结申诉 = 警告（不阻断，但须披露）。
+    // 5) 申诉门禁：未结申诉 = 阻断（审计缺陷修复：申诉可改判归属与金额，
+    // 在它结案前最终金额不确定，WARN 放行等于让未定金额进入结算）。
+    // 只有 DECIDED/CLOSED 视为已结。
     const appeals = await this.context.listAppeals();
     const openAppeals = appeals.filter(
       (appeal) => appeal.status !== "DECIDED" && appeal.status !== "CLOSED",
     );
     checks.push({
       gate: "APPEAL",
-      status: openAppeals.length > 0 ? "WARN" : "PASS",
+      status: openAppeals.length > 0 ? "BLOCKED" : "PASS",
       detail:
         openAppeals.length > 0
-          ? `${openAppeals.length} open appeal(s) may affect attributed amounts`
+          ? `${openAppeals.length} open appeal(s) undecided — final amount settlement stays open until they are decided/closed`
           : "no open appeals",
       // 来源引用全部已扫描申诉（含已决）——证明扫描确实发生过。
       sources: appeals.map((appeal) => ({
@@ -178,26 +186,39 @@ export class CycleReadinessWorkflow {
       })),
     });
 
-    // 6) 计算门禁：周期内存在 APPROVED/LOCKED 的 **FORMAL** 运行
-    // （AUD-012：影子/草稿运行不得充当正式计算门禁）。
+    // 6) 计算门禁：周期内 **所有** FORMAL 运行都必须已 APPROVED/LOCKED，
+    // 且其中至少一个 LOCKED（AUD-012：影子/草稿运行不得充当正式计算门禁；
+    // 审计缺陷修复：只看"存在一个已审批 run"会放过同日另一条被驳回/待审的
+    // 正式运行，正式金额可能由未定稿 run 产生）。
     const formalRuns = runs.filter((run) => run.mode === "FORMAL");
-    const settledRuns = formalRuns.filter(
+    const finalisedRuns = formalRuns.filter(
       (run) => run.status === "APPROVED" || run.status === "LOCKED",
     );
+    const lockedRuns = formalRuns.filter((run) => run.status === "LOCKED");
+    const unfinalisedRuns = formalRuns.filter(
+      (run) => run.status !== "APPROVED" && run.status !== "LOCKED",
+    );
+    const unfinalisedStatuses = [
+      ...new Set(unfinalisedRuns.map((run) => run.status)),
+    ];
     checks.push({
       gate: "CALCULATION",
       status:
         formalRuns.length === 0
           ? "NOT_MEASURABLE"
-          : settledRuns.length > 0
-            ? "PASS"
-            : "BLOCKED",
+          : unfinalisedRuns.length > 0 || lockedRuns.length === 0
+            ? "BLOCKED"
+            : "PASS",
       detail:
         formalRuns.length === 0
           ? runs.length === 0
             ? "no calculation runs in this cycle"
             : "no FORMAL calculation run in this cycle (shadow runs do not satisfy the gate)"
-          : `${settledRuns.length}/${formalRuns.length} FORMAL run(s) approved or locked`,
+          : unfinalisedRuns.length > 0
+            ? `${unfinalisedRuns.length}/${formalRuns.length} FORMAL run(s) not approved/locked (${unfinalisedStatuses.join(", ")})`
+            : lockedRuns.length === 0
+              ? `${finalisedRuns.length}/${formalRuns.length} FORMAL run(s) approved but none locked`
+              : `${lockedRuns.length}/${formalRuns.length} FORMAL run(s) locked`,
       sources: runs.map((run) => ({ type: "CALCULATION_RUN", id: run.id })),
     });
 
@@ -223,8 +244,11 @@ export class CycleReadinessWorkflow {
     });
 
     // AUD-012：必需门禁（政策/法务/计算/审批）NOT_MEASURABLE 视同未就绪——
-    // 只有无阻断且全部必需门禁 PASS 才可判 ready。DATA/APPEAL 保持披露不阻断。
+    // 只有无阻断且全部必需门禁 PASS 才可判 ready。DATA 保持披露不阻断；
+    // LEGAL 的 NOT_MEASURABLE 仍按既有策略（必需门禁 → 不可就绪）。
     // NP-007：评价门禁同样必需——没有评价草案/决定的周期不得判 ready。
+    // 申诉门禁现在只会 PASS/BLOCKED（不再 WARN），BLOCKED 已由下面的
+    // "无任何 BLOCKED" 条件拦住，无需重复列入必需门禁。
     const requiredGates: ReadonlyArray<ReadinessCheck["gate"]> = [
       "POLICY",
       "LEGAL",

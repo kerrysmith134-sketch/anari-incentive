@@ -11,6 +11,7 @@ import {
   adjustLedgerEntrySchema,
   createIncentiveAwardBatchSchema,
   importIncentiveAwardBatchSchema,
+  recordIncentiveAwardPaymentsSchema,
   reverseLedgerEntrySchema,
 } from "@anari/contracts";
 import {
@@ -393,6 +394,53 @@ export function registerLedgerRoutes(deps: {
       return data(batch, request);
     },
   );
+
+  // ------------------------------------------------------------------
+  // 迁移 117：支付回执 + 对账 + 回执前置门禁。
+  // POST /payments 记录单行（可批量）支付回执；重复 payment_ref 幂等，
+  // 每笔 PAID 由 store 在同一写入链路内生成借贷平衡的 GL 凭证。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/incentive-award-batches/:id/payments", async (request, reply) => {
+    requireRoles(request, "finance");
+    const body = parse(recordIncentiveAwardPaymentsSchema, request.body);
+    const result = await platformStore.recordIncentiveAwardPayments({
+      tenantId: tenantOf(request),
+      batchId: idOf(request),
+      actorPersonId: ownPersonId(request) ?? "system",
+      payments: body.payments,
+    });
+    try {
+      await storeFor(request).recordAuditEvent({
+        actorType: "USER",
+        actorId: ownPersonId(request),
+        action: "INCENTIVE_AWARD_PAYMENTS_RECORDED",
+        objectType: "INCENTIVE_AWARD_BATCH",
+        objectId: result.reconciliation.batchId,
+        reason:
+          `created=${result.createdPaymentIds.length}/` +
+          `${result.payments.length} paid=${result.reconciliation.paidAmount}/` +
+          `${result.reconciliation.totalAmount} status=${result.reconciliation.status}`,
+      });
+    } catch {
+      /* audit is best-effort for legacy stores */
+    }
+    countEvent("award_payments_recorded");
+    // 纯幂等重放（没有任何新回执）返回 200，新落库返回 201。
+    return reply
+      .status(result.createdPaymentIds.length > 0 ? 201 : 200)
+      .send(data(result, request));
+  });
+
+  app.get("/api/v1/incentive-award-batches/:id/reconciliation", async (request) => {
+    requireRoles(request, "manager", "finance");
+    return data(
+      await platformStore.getIncentiveAwardBatchReconciliation(
+        tenantOf(request),
+        idOf(request),
+      ),
+      request,
+    );
+  });
 
   app.get("/api/v1/incentive-award-batches/:id/export", async (request, reply) => {
     requireRoles(request, "finance");
