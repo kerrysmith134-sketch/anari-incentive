@@ -261,19 +261,20 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   }
   let runMicros = 0n;
   let runError: string | undefined;
+  const benchmarkRun = input.benchmarkRun;
   const eligibleRun =
-    input.benchmarkRun &&
-    input.benchmarkRun.mode === "FORMAL" &&
-    (input.benchmarkRun.status === "APPROVED" || input.benchmarkRun.status === "LOCKED");
-  if (!eligibleRun) {
+    benchmarkRun !== undefined &&
+    benchmarkRun.mode === "FORMAL" &&
+    (benchmarkRun.status === "APPROVED" || benchmarkRun.status === "LOCKED");
+  if (!eligibleRun || !benchmarkRun) {
     runError = "no FORMAL APPROVED/LOCKED calculation run for this cycle";
-  } else if (!input.benchmarkRun.currency?.trim()) {
+  } else if (!benchmarkRun.currency?.trim()) {
     runError = "benchmark run has no currency";
-  } else if (typeof input.benchmarkRun.orderGrossProfit !== "string") {
+  } else if (typeof benchmarkRun.orderGrossProfit !== "string") {
     runError = "benchmark run has no grossProfit in its input snapshot";
   } else {
     try {
-      runMicros = amountToMicros(input.benchmarkRun.orderGrossProfit);
+      runMicros = amountToMicros(benchmarkRun.orderGrossProfit);
     } catch (error) {
       runError = (error as Error).message;
     }
