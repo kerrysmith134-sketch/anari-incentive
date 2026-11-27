@@ -4806,6 +4806,12 @@ paths:
         INCENTIVE_ELIGIBILITY and BUDGET decisions. `context` records the
         business snapshot; the decision-chain invariants are identical for
         every kind.
+
+        Creation is idempotent per `(kind, subjectType, subjectId)` (migration
+        122). A concurrent or repeated create does not open a second case: it
+        returns the already existing active case (201 with that case). Cases
+        archived as CANCELLED by the upgrade cleanup are not considered, and
+        the same subject may still hold separate cases for different kinds.
       requestBody:
         required: true
         content:
@@ -10522,6 +10528,14 @@ paths:
     get:
       tags: [Evaluation]
       summary: List evaluation drafts
+      description: |
+        NP-004 blind review is enforced here, not in the client. An AGENT/SYSTEM
+        draft stays `contentHidden: true` (payload, strengths, counter-evidence,
+        missing information and uncertainty stripped) while it is `SUBMITTED`,
+        unless the requester is a reviewer (manager/admin/finance) who already
+        recorded an independent judgment for that draft, or the requester is the
+        evaluated person (always hidden). USER drafts and drafts past `SUBMITTED`
+        are returned in full.
       parameters:
         - name: cycleId
           in: query
@@ -10568,6 +10582,10 @@ paths:
     get:
       tags: [Evaluation]
       summary: Get an evaluation draft
+      description: |
+        Same NP-004 blind-review rule as the list endpoint: AGENT/SYSTEM content
+        is stripped while the draft is `SUBMITTED` unless the requester is a
+        reviewer who already recorded an independent judgment for it.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -10628,6 +10646,51 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/evaluation-drafts/{id}/independent-judgment:
+    post:
+      tags: [Evaluation]
+      summary: Record the reviewer's independent judgment before AI advice is shown
+      description: |
+        NP-004 requires the reviewer to judge independently *before* seeing the
+        AI draft. This endpoint persists that judgment as an append-only HUMAN
+        judgment on a JEV case (kind PERFORMANCE, subjectType `EVALUATION_DRAFT`,
+        subjectId = draft id), one per reviewer. After it exists, the server
+        releases the AGENT content of the `SUBMITTED` draft to that reviewer
+        (and only that reviewer). Re-submitting returns the already recorded
+        judgment (200) instead of overwriting it; the evaluated person cannot
+        review their own draft, and the draft must be `SUBMITTED`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluationDraftIndependentJudgment"
+      responses:
+        "201":
+          description: Independent judgment recorded; AI advice is now visible to the reviewer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "200":
+          description: The reviewer already recorded this judgment (idempotent replay)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/StateConflict"
 
@@ -17791,6 +17854,23 @@ components:
         rationale:
           type: string
           minLength: 3
+
+    EvaluationDraftIndependentJudgment:
+      type: object
+      required: [independentRationale]
+      properties:
+        independentScores:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 5
+          default: {}
+          description: Per-dimension score recorded before the AI advice is visible.
+        independentRationale:
+          type: string
+          minLength: 3
+          description: Why the reviewer scored it that way, written before seeing the AI draft.
 
     CreateSettlementBatch:
       type: object

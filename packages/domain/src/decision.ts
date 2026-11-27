@@ -218,6 +218,15 @@ export interface CreateDecisionCaseInput {
   subjectId: string;
   context?: DecisionJsonObject;
   createdBy: string;
+  /**
+   * 可选的调用方生成 id（幂等建案）。
+   *
+   * 122 起 (tenant_id, kind, subject_type, subject_id) 只有一条活跃案件：
+   * 并发/重试插入时 adapter 返回已有案件而不是再开一案。调用方如果自己
+   * 生成 id，可以用「返回的 id 是否等于自己提交的 id」判断本次调用是否
+   * 真的创建了案件（HTTP 201 vs 200），不需要再读一次。
+   */
+  id?: string;
 }
 
 export interface AppendDecisionEvidenceInput {
@@ -857,4 +866,37 @@ export function decisionCaseStatusAfterVerification(
   hasHumanJudgment: boolean,
 ): DecisionCaseStatus {
   return passed && hasHumanJudgment ? "READY" : "COLLECTING";
+}
+
+/**
+ * 盲审可见性（NP-004 的服务端判据）。
+ *
+ * AI 建议必须先经过人工独立判断才能被同一复核人看到；否则「先看 AI 再
+ * 打分」的锚定效应会让独立判断变成事后合理化。前端可以配合隐藏，但唯一
+ * 权威判据在这里，输入全部来自服务端事实：
+ *
+ * - `generatedByUser`：人写的草案不是 AI 建议，不属于盲审范围；
+ * - `pendingIndependentJudgment`：仍在等待独立判断（如 SUBMITTED）；
+ * - `isReviewer`：请求者具备复核资格（服务端角色判断，不信任前端声明）；
+ * - `hasIndependentJudgment`：请求者已提交独立判断（append-only 事实）；
+ * - `isSubject`：请求者就是被评价人——本人永远不能解锁 AI 建议。
+ *
+ * 任一条件不满足都回到遮蔽状态；只有「非本人 + 有复核资格 + 已独立判断」
+ * 才揭示内容。
+ */
+export interface DecisionBlindReviewVisibilityInput {
+  generatedByUser: boolean;
+  pendingIndependentJudgment: boolean;
+  isReviewer: boolean;
+  hasIndependentJudgment: boolean;
+  isSubject?: boolean;
+}
+
+export function decisionBlindReviewContentVisible(
+  input: DecisionBlindReviewVisibilityInput,
+): boolean {
+  if (input.generatedByUser) return true;
+  if (!input.pendingIndependentJudgment) return true;
+  if (input.isSubject) return false;
+  return input.isReviewer && input.hasIndependentJudgment;
 }

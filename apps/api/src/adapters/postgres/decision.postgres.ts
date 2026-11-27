@@ -4,6 +4,7 @@
  * 与内存 Adapter 同语义；所有查询带 tenant_id，事务内设置 app.tenant_id
  * 以满足 RLS。证据/判断/校验/决定在数据库层另有 append-only 触发器兜底。
  */
+import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import {
   DECISION_LINK_KIND_BY_RESOURCE_TYPE,
@@ -234,23 +235,60 @@ export function PgDecisionMixin(
     async createDecisionCase(
       input: CreateDecisionCaseInput,
     ): Promise<DecisionCase> {
-      const { rows } = await this.tenantQuery(
-        input.tenantId,
-        `INSERT INTO decision_cases
-           (tenant_id, kind, subject_type, subject_id, context, status,
-            version, created_by)
-         VALUES ($1,$2,$3,$4,$5::jsonb,'DRAFT',1,$6)
-         RETURNING *`,
-        [
+      const caseId = input.id ?? randomUUID();
+      try {
+        const { rows } = await this.tenantQuery(
           input.tenantId,
-          input.kind,
-          input.subjectType,
-          input.subjectId,
-          JSON.stringify(input.context ?? {}),
-          input.createdBy,
-        ],
-      );
-      return this.mapDecisionCase(rows[0] as QueryResultRow);
+          `INSERT INTO decision_cases
+             (id, tenant_id, kind, subject_type, subject_id, context, status,
+              version, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6::jsonb,'DRAFT',1,$7)
+           RETURNING *`,
+          [
+            caseId,
+            input.tenantId,
+            input.kind,
+            input.subjectType,
+            input.subjectId,
+            JSON.stringify(input.context ?? {}),
+            input.createdBy,
+          ],
+        );
+        return this.mapDecisionCase(rows[0] as QueryResultRow);
+      } catch (error) {
+        if ((error as { code?: string }).code !== "23505") throw error;
+        // 122 唯一建案：并发/重试时另一个请求已经插入同一
+        // (tenant_id, kind, subject_type, subject_id) 的活跃案件（或调用方
+        // 重放了同一个 id）。返回已有案件，保证幂等，而不是抛 500。
+        const { rows: existing } = await this.tenantQuery(
+          input.tenantId,
+          `SELECT * FROM decision_cases
+            WHERE tenant_id=$1 AND kind=$2 AND subject_type=$3 AND subject_id=$4
+              AND status <> 'CANCELLED'
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1`,
+          [
+            input.tenantId,
+            input.kind,
+            input.subjectType,
+            input.subjectId,
+          ],
+        );
+        if (existing[0]) {
+          return this.mapDecisionCase(existing[0] as QueryResultRow);
+        }
+        const { rows: byId } = await this.tenantQuery(
+          input.tenantId,
+          `SELECT * FROM decision_cases WHERE tenant_id=$1 AND id=$2`,
+          [input.tenantId, caseId],
+        );
+        if (byId[0]) return this.mapDecisionCase(byId[0] as QueryResultRow);
+        // 既不是本租户的同一对象，也不是本租户的同一个 id：id 被其他租户
+        // 占用（或出现了未知唯一键）。409 而不是把原始 23505 暴露成 500。
+        throw decisionConflict(
+          `DECISION_CASE_ID_CONFLICT: case id ${caseId} is already in use`,
+        );
+      }
     }
 
     async appendDecisionEvidence(
@@ -653,7 +691,7 @@ export function PgDecisionMixin(
       });
     }
 
-    /** 只读幂等查询：同一 (subjectType, subjectId) 只返回最早创建的案件。 */
+    /** 只读幂等查询：同一 (subjectType, subjectId) 优先返回最早创建的活跃案件。 */
     async findDecisionCaseBySubject(
       tenantId: string,
       subjectType: string,
@@ -661,9 +699,11 @@ export function PgDecisionMixin(
     ): Promise<DecisionCase | undefined> {
       const { rows } = await this.tenantQuery(
         tenantId,
+        // 122 会把历史重复案件标记为 CANCELLED 并保留审计行：活跃案件优先，
+        // 只有全部已归档时才回退到最早的那条。
         `SELECT * FROM decision_cases
           WHERE tenant_id=$1 AND subject_type=$2 AND subject_id=$3
-          ORDER BY created_at ASC, id ASC
+          ORDER BY (status = 'CANCELLED') ASC, created_at ASC, id ASC
           LIMIT 1`,
         [tenantId, subjectType, subjectId],
       );

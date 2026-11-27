@@ -1,0 +1,180 @@
+name: Security & supply chain
+
+# 供应链门禁。与 ci.yml 的分工（避免重复跑全量测试）：
+#   - ci.yml 已覆盖 `npm run typecheck`（= tsc --noEmit + web typecheck）与 `npm test`，
+#     本 workflow 不再重复执行；`ci-gate-coverage` job 只断言这两个门禁仍留在 ci.yml，
+#     防止有人删掉它们后供应链 workflow 依然"绿"。
+#   - 本 workflow 只管供应链面：依赖漏洞审计（npm audit）、锁文件完整性、
+#     Dockerfile 构建与镜像扫描（Trivy，HIGH/CRITICAL 有修复即 fail）。
+# 不需要任何 secrets：全部使用 GitHub 托管的 GITHUB_TOKEN（只读）。
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # 每周一 03:17 UTC 重扫：依赖树没变，但漏洞库每天在变。
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dependency-audit:
+    name: Dependency audit + lockfile integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Verify lockfile is pinned and complete
+        # 三道检查：lockfile 版本 >= 2（有 integrity/workspace 元数据）、
+        # 每个 node_modules 条目都带 integrity 哈希、package.json 与 lock 的根 metadata 一致。
+        run: |
+          set -euo pipefail
+          test -f package-lock.json || {
+            echo "::error::package-lock.json 缺失 —— 不允许引入未锁定的依赖树"
+            exit 1
+          }
+          node -e '
+          const { readFileSync } = require("node:fs");
+          const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          let failed = false;
+          const fail = (msg) => {
+            console.error("::error::" + msg);
+            failed = true;
+          };
+          if (!lock.lockfileVersion || lock.lockfileVersion < 2) {
+            fail("package-lock.json lockfileVersion=" + lock.lockfileVersion + "，需要 >= 2 才带 integrity/workspace 元数据");
+          }
+          const entries = Object.entries(lock.packages ?? {});
+          const root = lock.packages?.[""] ?? {};
+          if (root.name !== pkg.name) fail("lock 根条目 name=" + root.name + " 与 package.json name=" + pkg.name + " 不一致");
+          const linked = entries.filter(([, v]) => v.link === true).map(([k]) => k);
+          const installed = entries.filter(([k, v]) => k.includes("node_modules/") && v.link !== true);
+          const unpinned = installed.filter(([, v]) => !v.integrity).map(([k]) => k);
+          if (unpinned.length > 0) {
+            fail("以下依赖缺少 integrity 哈希（未锁定）：" + unpinned.slice(0, 10).join(", "));
+          }
+          for (const prefix of ["packages/", "apps/"]) {
+            const ok = linked.some((k) => k.startsWith(prefix)) || entries.some(([k]) => k.startsWith(prefix));
+            if (!ok) fail("workspace " + prefix + "* 未记录在 package-lock.json 中");
+          }
+          if (installed.length < 100) fail("lock 中只有 " + installed.length + " 个依赖条目，疑似 lockfile 被截断");
+          console.log("lockfileVersion " + lock.lockfileVersion + "，" + installed.length + " 个锁定依赖，" + linked.length + " 个 workspace 链接");
+          if (failed) process.exit(1);
+          '
+
+      - name: npm ci must accept the lockfile unchanged
+        # npm ci 在 package.json 与 lock 不同步时直接失败；随后检查它没有偷偷改写 lock。
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          if ! git diff --quiet -- package-lock.json; then
+            echo "::error::npm ci 改写了 package-lock.json —— 请把重新生成的 lockfile 一起提交"
+            git --no-pager diff --stat -- package-lock.json
+            exit 1
+          fi
+
+      - name: npm audit --audit-level=high
+        # 阻断门禁：high / critical 直接 fail。等价于 `npm run audit`。
+        run: npm audit --audit-level=high
+
+      - name: npm audit JSON report (always)
+        if: always()
+        run: npm audit --json > npm-audit.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  ci-gate-coverage:
+    name: Typecheck/test gates still owned by ci.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert ci.yml still runs typecheck and npm test
+        # 本 workflow 故意不重复 ci.yml 的类型/测试门禁；这里只保证它们没有被静默删除。
+        run: |
+          set -euo pipefail
+          status=0
+          if ! grep -q 'npm run typecheck' .github/workflows/ci.yml; then
+            echo "::error file=.github/workflows/ci.yml::缺少 'npm run typecheck' —— 类型门禁（tsc --noEmit 含 web）已丢失"
+            status=1
+          fi
+          if ! grep -q 'npm test' .github/workflows/ci.yml; then
+            echo "::error file=.github/workflows/ci.yml::缺少 'npm test' —— 测试门禁已丢失"
+            status=1
+          fi
+          echo "ci.yml 门禁检查完成（status=${status}）"
+          exit "$status"
+
+  container-scan:
+    name: Docker build + Trivy image scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build image (no push)
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --load \
+            --tag "anari-incentive:scan" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --provenance=false \
+            .
+
+      - name: Trivy image scan (fail on fixable HIGH/CRITICAL)
+        # --ignore-unfixed: 只对"有修复版本"的 HIGH/CRITICAL 失败，
+        # 避免上游还没发补丁的 CVE 把所有人长期卡红（策略见 docs/runbooks/release-governance.md）。
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: anari-incentive:scan
+          format: table
+          output: trivy-image.txt
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln
+          exit-code: "1"
+
+      - name: Show Trivy report
+        if: always()
+        run: cat trivy-image.txt 2>/dev/null || echo "no trivy report produced"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-report
+          path: trivy-image.txt
+          retention-days: 30
+          if-no-files-found: ignore

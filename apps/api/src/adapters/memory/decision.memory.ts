@@ -52,6 +52,26 @@ function decisionConflict(message: string): ConflictError {
   return error;
 }
 
+/**
+ * 建案幂等键：与迁移 122 的唯一键 (tenant_id, kind, subject_type, subject_id)
+ * 保持一致。转义各段，避免 subject 内容里出现分隔符时互相碰撞。
+ */
+function decisionCaseSubjectKey(
+  input: Pick<
+    CreateDecisionCaseInput,
+    "tenantId" | "kind" | "subjectType" | "subjectId"
+  >,
+): string {
+  return [
+    input.tenantId,
+    input.kind,
+    input.subjectType,
+    input.subjectId,
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join("|");
+}
+
 export function MemoryDecisionMixin(
   Base: abstract new (
     ...args: ConstructorParameters<typeof MemoryPlatformStoreBase>
@@ -59,6 +79,14 @@ export function MemoryDecisionMixin(
 ) {
   return class extends Base implements DecisionPort {
     private readonly decisionCases = new Map<string, DecisionCase>();
+    /**
+     * 建案幂等索引：`tenant|kind|subjectType|subjectId` → caseId。
+     *
+     * 与 122 的 UNIQUE (tenant_id, kind, subject_type, subject_id)（仅活跃
+     * 案件）同语义：同一对象同一 kind 只允许一条活跃案件；重复/并发建案
+     * 返回已有案件，不再插入第二条。
+     */
+    private readonly decisionCaseBySubject = new Map<string, string>();
     private readonly decisionEvidence = new Map<string, DecisionEvidence[]>();
     private readonly decisionJudgments = new Map<
       string,
@@ -115,8 +143,28 @@ export function MemoryDecisionMixin(
     async createDecisionCase(
       input: CreateDecisionCaseInput,
     ): Promise<DecisionCase> {
+      // 幂等：同一 (tenant, kind, subject) 已有活跃案件时直接返回它。
+      // 本方法没有 await，检查与写入之间不会被其他请求交错，等价于数据库
+      // 上的唯一索引 + 23505 回填。
+      const subjectKey = decisionCaseSubjectKey(input);
+      const indexedId = this.decisionCaseBySubject.get(subjectKey);
+      if (indexedId) {
+        const indexed = this.decisionCases.get(indexedId);
+        if (indexed && indexed.status !== "CANCELLED") return indexed;
+      }
+      // 同一 id 的重放（例如调用方重试同一个幂等键）同样返回已有案件。
+      if (input.id) {
+        const reused = this.decisionCases.get(input.id);
+        if (reused) {
+          if (reused.tenantId === input.tenantId) return reused;
+          // id 全局唯一：跨租户复用同一个 id 是调用方错误，拒绝而不是覆盖。
+          throw decisionConflict(
+            `DECISION_CASE_ID_CONFLICT: case id ${input.id} is already used by another tenant`,
+          );
+        }
+      }
       const decisionCase: DecisionCase = {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         tenantId: input.tenantId,
         kind: input.kind,
         subjectType: input.subjectType,
@@ -128,6 +176,7 @@ export function MemoryDecisionMixin(
         createdAt: now(),
       };
       this.decisionCases.set(decisionCase.id, decisionCase);
+      this.decisionCaseBySubject.set(subjectKey, decisionCase.id);
       return decisionCase;
     }
 
@@ -442,7 +491,7 @@ export function MemoryDecisionMixin(
       );
     }
 
-    /** 只读幂等查询：同一 (subjectType, subjectId) 只返回最早创建的案件。 */
+    /** 只读幂等查询：同一 (subjectType, subjectId) 优先返回最早创建的活跃案件。 */
     async findDecisionCaseBySubject(
       tenantId: string,
       subjectType: string,
@@ -450,16 +499,24 @@ export function MemoryDecisionMixin(
     ): Promise<DecisionCase | undefined> {
       // Map 的插入顺序即创建顺序；同一对象理论上只有一案，取最早一条
       // 保证重复调用（含并发写入后的重放）返回稳定答案。
+      let archived: DecisionCase | undefined;
       for (const decisionCase of this.decisionCases.values()) {
         if (
-          decisionCase.tenantId === tenantId &&
-          decisionCase.subjectType === subjectType &&
-          decisionCase.subjectId === subjectId
+          decisionCase.tenantId !== tenantId ||
+          decisionCase.subjectType !== subjectType ||
+          decisionCase.subjectId !== subjectId
         ) {
-          return decisionCase;
+          continue;
         }
+        // 122 会把历史重复案件标记为 CANCELLED 并保留审计行：活跃案件优先，
+        // 只有全部已归档时才回退到最早的那条，避免把新证据写进归档案件。
+        if (decisionCase.status === "CANCELLED") {
+          archived ??= decisionCase;
+          continue;
+        }
+        return decisionCase;
       }
-      return undefined;
+      return archived;
     }
 
     async getDecisionCase(

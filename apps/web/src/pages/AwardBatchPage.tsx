@@ -493,6 +493,15 @@ export function AwardBatchPage() {
                                   : "secondary"
                               }
                               aria-expanded={selectedBatchId === batch.id}
+                              aria-label={
+                                selectedBatchId === batch.id
+                                  ? `收起对账：${batch.batchNo}`
+                                  : `${
+                                      batch.status === "ACKNOWLEDGED"
+                                        ? "退回与对账"
+                                        : "支付与对账"
+                                    }：${batch.batchNo}`
+                              }
                               aria-controls={
                                 selectedBatchId === batch.id
                                   ? `award-payment-${batch.id}`
@@ -502,7 +511,9 @@ export function AwardBatchPage() {
                             >
                               {selectedBatchId === batch.id
                                 ? "收起对账"
-                                : "支付与对账"}
+                                : batch.status === "ACKNOWLEDGED"
+                                  ? "退回/对账"
+                                  : "支付与对账"}
                             </Button>
                           ) : null}
                           {["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(

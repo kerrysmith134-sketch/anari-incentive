@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T15:43:06.823Z",
+  "generatedAt": "2026-11-27T17:44:04.309Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -605,6 +605,11 @@
       "file": "121_metric_snapshot_consumption.sql",
       "bytes": 7236,
       "sha256": "d108202caa643682313cddb84cf5d6d445efd85f38cee0ae7f4e8d5e9709b492"
+    },
+    {
+      "file": "122_decision_subject_unique.sql",
+      "bytes": 3603,
+      "sha256": "c480d393c210b10fc0991dd3d1f3128d59c8b121934d06f926f0b786ac1f0fc7"
     }
   ]
 }

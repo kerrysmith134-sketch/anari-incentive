@@ -141,6 +141,11 @@
 | 历史支付回执 | 关闭 | reconciliation.payments 返回全部 PAID/FAILED/RETURNED；工作台只读展示。 |
 | Agentic 周期编排 | 关闭（确定性） | Performance Cycle Agent 输出 blockers/actions/approvalPackage/escalations，不自动付款。 |
 | 匿名影子 E2E | 关闭（Memory） | 3 人/2 法人/CNY+USD，14 步 390 校验 PASS；真实 PG/Provider 仍待。 |
+| JEV 唯一案件/盲审 | 关闭 | 迁移 122 partial unique（含 kind）；服务端盲审按角色+独立判断；新独立判断端点。 |
+| PG 影子 E2E | 关闭 | 真实 PG 14 步/390 校验/7 测试，RLS/唯一约束/事务/GL/守恒；test-pg 131。 |
+| 备份恢复演练 | 关闭（122） | pg_dump→新库，迁移/RLS/触发器/GL/JEV/hash 链核验 PASS；RPO 为逻辑备份点。 |
+| 退回/冲正 UI | 关闭（前端） | ACK 后登记 RETURNED、历史回执、对账影响；不自动改批次。 |
+| CI 供应链治理 | 部分关闭 | security/release workflows、SBOM/Trivy/cosign；npm audit 与镜像 npm CLI 漏洞仍红。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -166,10 +171,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：148 files passed / 2 skipped；1794 tests passed / 111 skipped。
+- `npm test`：148 files passed / 2 skipped；1802 tests passed / 118 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
-- `npm run test:pg-upgrade`：89 → 121 migrations，110 tests passed。
+- `npm run test:pg-upgrade`：89 → 122 migrations，110 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

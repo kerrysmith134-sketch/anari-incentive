@@ -1,0 +1,179 @@
+name: Release (tag → image + SBOM + keyless signature)
+
+# 发布治理：打 `vX.Y.Z` / `vX.Y.Z-rc.1` tag 时触发。
+#   1. 依赖审计门禁（与 security.yml 同一策略）；
+#   2. 构建并推送镜像到 GHCR（`GITHUB_TOKEN`，packages: write）；
+#   3. 生成 SBOM：应用依赖 `npm sbom`（CycloneDX）+ 镜像内容 syft（SPDX JSON）；
+#   4. cosign keyless 签名镜像 digest、把镜像 SBOM 作为 attestation 绑定、签名两个 SBOM blob；
+#   5. 上传 SBOM / 签名 bundle / SHA256SUMS / release manifest 作为 artifact（90 天）。
+# 不需要任何 secrets 或付费服务：签名凭据来自 GitHub OIDC（id-token: write），
+# 推送凭据来自工作流内建的 GITHUB_TOKEN。验证方法见 docs/runbooks/release-governance.md。
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, publish supply-chain evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies from the pinned lockfile
+        run: npm ci --no-audit --no-fund
+
+      - name: Release gate — dependency audit (high/critical)
+        # tag push 不会触发 security.yml 的 branches 过滤，因此在发布路径上再断言一次。
+        run: npm audit --audit-level=high
+
+      - name: Generate application SBOM (npm sbom, CycloneDX)
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+          npm sbom --sbom-format=cyclonedx --omit=dev > sbom/app-runtime.cdx.json
+          node -e '
+          const bom = require("./sbom/app-runtime.cdx.json");
+          if (bom.bomFormat !== "CycloneDX") throw new Error("npm sbom 输出格式异常");
+          console.log("应用 SBOM: " + (bom.components ?? []).length + " 个组件（CycloneDX " + bom.specVersion + "）");
+          '
+
+      - name: Resolve image reference from the tag
+        run: |
+          set -euo pipefail
+          # GHCR 要求仓库名小写；tag 去掉前缀 v 作为 semver 版本。
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${GITHUB_REF_NAME#v}"
+          test -n "$image" || { echo "::error::无法解析镜像名"; exit 1; }
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "镜像: $image，版本: $version"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Log in to GHCR with GITHUB_TOKEN (no long-lived secrets)
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push image (max provenance)
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --push \
+            --provenance=mode=max \
+            --metadata-file build-metadata.json \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:sha-${GITHUB_SHA::12}" \
+            .
+          digest="$(node -e 'const m=require("./build-metadata.json");process.stdout.write(m["containerimage.digest"]||"")')"
+          if [ -z "$digest" ]; then
+            ref="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
+            digest="${ref##*@}"
+          fi
+          test -n "$digest" || { echo "::error::拿不到镜像 digest，无法签名"; exit 1; }
+          echo "DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "镜像 digest: $digest"
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0.24.4
+
+      - name: Generate image SBOM (syft, SPDX JSON)
+        run: |
+          set -euo pipefail
+          syft "$IMAGE@$DIGEST" -o "spdx-json=sbom/image.spdx.json" --quiet
+          node -e '
+          const bom = require("./sbom/image.spdx.json");
+          if (!bom.packages) throw new Error("syft 输出缺少 packages");
+          console.log("镜像 SBOM: " + bom.packages.length + " 个包（SPDX " + bom.spdxVersion + "）");
+          '
+
+      - name: Install cosign (keyless)
+        uses: sigstore/cosign-installer@v4.1.4
+
+      - name: Sign image digest with cosign keyless (GitHub OIDC)
+        run: |
+          set -euo pipefail
+          test -n "$DIGEST" || { echo "::error::缺少 digest"; exit 1; }
+          cosign sign --yes "$IMAGE@$DIGEST"
+          # SBOM 作为 attestation 绑到同一 digest：`cosign verify-attestation` 可校验。
+          cosign attest --yes --type spdxjson --predicate sbom/image.spdx.json "$IMAGE@$DIGEST"
+
+      - name: Sign SBOM blobs (keyless) and record checksums
+        run: |
+          set -euo pipefail
+          for f in sbom/app-runtime.cdx.json sbom/image.spdx.json; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+          ( cd sbom && sha256sum ./*.json > SHA256SUMS && sha256sum --check SHA256SUMS )
+
+      - name: Write release manifest
+        run: |
+          set -euo pipefail
+          node -e '
+          const { readFileSync, writeFileSync, readdirSync } = require("node:fs");
+          const { createHash } = require("node:crypto");
+          const hash = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
+          const sboms = readdirSync("sbom").filter((f) => f.endsWith(".json") && !f.endsWith(".sigstore.json"));
+          const manifest = {
+            project: "anari-incentive",
+            tag: process.env.GITHUB_REF_NAME,
+            version: process.env.VERSION,
+            commit: process.env.GITHUB_SHA,
+            image: process.env.IMAGE,
+            digest: process.env.DIGEST,
+            workflowRun: process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY + "/actions/runs/" + process.env.GITHUB_RUN_ID,
+            generatedAt: new Date().toISOString(),
+            sboms: sboms.map((f) => ({ file: "sbom/" + f, sha256: hash("sbom/" + f), signature: "sbom/" + f + ".sigstore.json" })),
+            signing: {
+              method: "cosign keyless (Fulcio certificate + Rekor transparency log)",
+              oidcIssuer: "https://token.actions.githubusercontent.com",
+              workflowRef: process.env.GITHUB_WORKFLOW_REF,
+              certificateIdentity: "https://github.com/" + process.env.GITHUB_REPOSITORY + "/.github/workflows/release.yml@refs/tags/" + process.env.GITHUB_REF_NAME
+            }
+          };
+          writeFileSync("sbom/release-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+          console.log("release-manifest.json 写入完成: " + manifest.image + "@" + manifest.digest);
+          '
+
+      - name: Upload supply-chain evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: |
+            sbom/
+            build-metadata.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Job summary
+        run: |
+          {
+            echo "### 发布证据"
+            echo ""
+            echo "- 镜像: \`$IMAGE:$VERSION\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- SBOM: \`sbom/app-runtime.cdx.json\`、\`sbom/image.spdx.json\`（均已 cosign 签名）"
+            echo "- 验证方式见 \`docs/runbooks/release-governance.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"

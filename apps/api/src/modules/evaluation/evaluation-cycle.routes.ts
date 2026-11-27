@@ -2,11 +2,16 @@
  * 评价周期域路由（周期/量规/草案/决议/指标定义/员工确认）（NPV2-011）：从 app.ts 拆出的域路由模块。
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import { randomUUID } from "node:crypto";
 import { notifyBestEffort } from "../../notify.js";
-import type { AssessmentPort } from "../../store-ports.js";
+import type { AssessmentPort, DecisionPort } from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { ConflictError } from "../../store.js";
 import { ForbiddenError } from "@anari/auth";
+import {
+  decisionBlindReviewContentVisible,
+  type DecisionJudgment,
+} from "@anari/domain";
 import {
   advanceCycleSchema,
   createEvaluationCycleSchema,
@@ -30,17 +35,102 @@ import {
   requireActorRequired,
 } from "../../http-helpers.js";
 
+/** 盲审待判断状态：AI/SYSTEM 草案处于 SUBMITTED 时尚未有人独立判断。 */
+const BLIND_REVIEW_PENDING_STATUS = "SUBMITTED";
+
 /**
- * NP-004：盲审掩码——AI/SYSTEM 生成且仍在 SUBMITTED（待独立判断）的草案，
- * 服务端剥离内容（仅返回元数据）。人工（USER）草案不受影响；决定后
- * 状态离开 SUBMITTED 即恢复内容。
+ * 复核人「独立判断」的 JEV 案件 subjectType。
+ *
+ * 独立判断必须先于 AI 建议生效，且不能靠前端按钮：这里的 HUMAN judgment
+ * 是 append-only、一人一判、不能代填的服务端事实，盲审可见性以它为准。
  */
-function maskDraftForBlindReview<T extends {
-  generatedByType: string;
-  status: string;
-}>(draft: T): T & { contentHidden?: boolean } {
-  if (draft.generatedByType === "USER") return draft;
-  if (draft.status !== "SUBMITTED") return draft;
+const EVALUATION_DRAFT_SUBJECT = "EVALUATION_DRAFT";
+
+/** 400：独立判断请求体不合法（本模块不引入新 Zod 契约，手工校验）。 */
+class EvaluationDraftInputError extends Error {
+  readonly statusCode = 400;
+  readonly code = "INVALID_INPUT";
+}
+
+/**
+ * 403 + 稳定机器码：ForbiddenError.code 固定为 FORBIDDEN，盲审拒绝需要
+ * 把 SELF_REVIEW_FORBIDDEN 这类可编程码暴露给调用方（与 JEV 路由同口径）。
+ */
+function blindReviewForbidden(code: string, message: string): ForbiddenError {
+  const error = new ForbiddenError(`${code}: ${message}`);
+  Object.defineProperty(error, "code", { value: code, configurable: true });
+  return error;
+}
+
+/** 409 + 稳定机器码（ConflictError.code 默认是 CONFLICT）。 */
+function blindReviewConflict(
+  code: string,
+  message: string,
+): ConflictError {
+  const error = new ConflictError(`${code}: ${message}`);
+  Object.defineProperty(error, "code", { value: code, configurable: true });
+  return error;
+}
+
+/**
+ * 独立判断请求体：0..5 的维度得分 + 至少 3 字的理由，与评价决定里的
+ * independentScores / independentRationale 同口径。
+ */
+function parseIndependentJudgmentBody(body: unknown): {
+  independentScores: Record<string, number>;
+  independentRationale: string;
+} {
+  const record =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const scores: Record<string, number> = {};
+  const rawScores = record.independentScores;
+  if (rawScores !== undefined) {
+    if (
+      rawScores === null ||
+      typeof rawScores !== "object" ||
+      Array.isArray(rawScores)
+    ) {
+      throw new EvaluationDraftInputError(
+        "independentScores must be an object of numbers between 0 and 5",
+      );
+    }
+    for (const [dimension, value] of Object.entries(rawScores)) {
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0 ||
+        value > 5
+      ) {
+        throw new EvaluationDraftInputError(
+          `independentScores.${dimension} must be a number between 0 and 5`,
+        );
+      }
+      scores[dimension] = value;
+    }
+  }
+  const rationale =
+    typeof record.independentRationale === "string"
+      ? record.independentRationale.trim()
+      : "";
+  if (rationale.length < 3) {
+    throw new EvaluationDraftInputError(
+      "independentRationale must be at least 3 characters",
+    );
+  }
+  return { independentScores: scores, independentRationale: rationale };
+}
+
+/**
+ * 盲审掩码（NP-004）：`visible=false` 时服务端剥离 AI/SYSTEM 草案内容，只
+ * 返回元数据并标记 contentHidden。人工（USER）草案与已离开 SUBMITTED 的
+ * 草案不由这里判定，见 draftContentVisible。
+ */
+function maskDraftForBlindReview<
+  T extends { generatedByType: string; status: string },
+>(draft: T, visible: boolean): T & { contentHidden?: boolean } {
+  if (visible) return draft;
   const masked = {
     ...draft,
     draftPayload: {},
@@ -53,8 +143,93 @@ function maskDraftForBlindReview<T extends {
   return masked;
 }
 
+/**
+ * 复核资格：与评价决定的角色门禁一致（manager；admin 一律放行）。
+ *
+ * finance 可以读草案列表（只读审计用途），但不是复核人，因而不能记录独立
+ * 判断、也解锁不了 AI 建议。角色判断只读服务端 authContext。
+ */
+function isDraftReviewer(request: FastifyRequest): boolean {
+  const roles = request.authContext?.roles ?? [];
+  return roles.includes("admin") || roles.includes("manager");
+}
+
+/**
+ * 复核人是否已提交独立判断（服务端事实，不信任前端声明）。
+ *
+ * 独立判断记录为 (kind=PERFORMANCE, subjectType=EVALUATION_DRAFT,
+ * subjectId=draftId) 案件上的一条 HUMAN judgment：append-only、一人一判，
+ * 因此「是否已经独立判断过」可以直接由存储层回答。
+ */
+async function hasDraftIndependentJudgment(
+  platformStore: DecisionPort,
+  tenantId: string,
+  draftId: string,
+  personId: string,
+): Promise<boolean> {
+  const decisionCase = await platformStore.findDecisionCaseBySubject(
+    tenantId,
+    EVALUATION_DRAFT_SUBJECT,
+    draftId,
+  );
+  if (!decisionCase) return false;
+  const detail = await platformStore.getDecisionCase(
+    tenantId,
+    decisionCase.id,
+  );
+  return detail.judgments.human.some(
+    (judgment) => judgment.actorId === personId,
+  );
+}
+
+/**
+ * 逐条草案计算内容可见性。
+ *
+ * 判据全部来自服务端：草案生成者与状态、请求者的服务端角色、请求者是否
+ * 就是被评价人、以及请求者是否已提交独立判断。非复核人（例如被评价人
+ * 本人）在 SUBMITTED 状态永远拿不到 AGENT 内容。
+ */
+async function draftContentVisible(input: {
+  platformStore: DecisionPort;
+  request: FastifyRequest;
+  draft: {
+    id: string;
+    personId: string;
+    generatedByType: string;
+    status: string;
+  };
+}): Promise<boolean> {
+  const { platformStore, request, draft } = input;
+  const generatedByUser = draft.generatedByType === "USER";
+  const pendingIndependentJudgment =
+    draft.status === BLIND_REVIEW_PENDING_STATUS;
+  // 不需要查询的两种确定情形：人写的草案 / 已离开待判断状态。
+  if (generatedByUser || !pendingIndependentJudgment) return true;
+  const actorPersonId = ownPersonId(request);
+  const isReviewer = isDraftReviewer(request);
+  const isSubject =
+    actorPersonId !== undefined && actorPersonId === draft.personId;
+  const hasIndependentJudgment =
+    isReviewer && !isSubject && actorPersonId !== undefined
+      ? await hasDraftIndependentJudgment(
+          platformStore,
+          tenantOf(request),
+          draft.id,
+          actorPersonId,
+        )
+      : false;
+  return decisionBlindReviewContentVisible({
+    generatedByUser,
+    pendingIndependentJudgment,
+    isReviewer,
+    hasIndependentJudgment,
+    isSubject,
+  });
+}
+
 export function registerEvaluationCycleRoutes(deps: {
-  platformStore: AssessmentPort;
+  /** 评价端口 + JEV 决策端口（盲审独立判断落在 JEV 案件上）。 */
+  platformStore: AssessmentPort & DecisionPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }): FastifyPluginAsync {
@@ -144,7 +319,16 @@ export function registerEvaluationCycleRoutes(deps: {
       cycleId: query.cycleId,
       personId: person ?? query.personId,
     });
-    return data(drafts.map(maskDraftForBlindReview), request);
+    // 逐条判定：非复核人（含被评价人本人）拿不到未独立判断的 AI 内容。
+    const masked = await Promise.all(
+      drafts.map(async (draft) =>
+        maskDraftForBlindReview(
+          draft,
+          await draftContentVisible({ platformStore, request, draft }),
+        ),
+      ),
+    );
+    return data(masked, request);
   });
 
   app.get("/api/v1/evaluation-drafts/:id", async (request) => {
@@ -153,7 +337,154 @@ export function registerEvaluationCycleRoutes(deps: {
     if (person && draft.personId !== person) {
       throw new ForbiddenError("evaluation draft is not visible to this person");
     }
-    return data(maskDraftForBlindReview(draft), request);
+    return data(
+      maskDraftForBlindReview(
+        draft,
+        await draftContentVisible({ platformStore, request, draft }),
+      ),
+      request,
+    );
+  });
+
+  // ------------------------------------------------------------------
+  // NP-004 盲审（服务端强制）：复核人先提交独立判断，服务端才揭示 AI 建议。
+  //
+  // 评价决定端点已经要求 independentScores / independentRationale，但那是
+  // 「看完 AI 再决定」的同一笔写；要让复核人「先独立判断、再看 AI、再决定」
+  // 真正成立，独立判断需要一个独立于决定、且不可改写的服务端落点。这里把
+  // 它记录成 JEV 案件（subjectType=EVALUATION_DRAFT, subjectId=draftId）上的
+  // 一条 HUMAN judgment：append-only、一人一判、不能代填；在它存在之前，
+  // 草案的 AI 内容不会返回给任何非本人请求者。
+  // ------------------------------------------------------------------
+  app.post("/api/v1/evaluation-drafts/:id/independent-judgment", async (request, reply) => {
+    requireRoles(request, "manager");
+    const tenantId = tenantOf(request);
+    const actorPersonId = requireActorRequired(
+      request,
+      ownPersonId(request),
+      "recording an independent judgment",
+    );
+    const store = storeFor(request);
+    const draft = await store.getEvaluationDraft(idOf(request));
+    if (draft.personId === actorPersonId) {
+      throw blindReviewForbidden(
+        "SELF_REVIEW_FORBIDDEN",
+        "the evaluated person cannot review their own draft",
+      );
+    }
+    if (draft.status !== BLIND_REVIEW_PENDING_STATUS) {
+      throw blindReviewConflict(
+        "DRAFT_NOT_SUBMITTED",
+        `independent judgment requires a SUBMITTED draft, got ${draft.status}`,
+      );
+    }
+    const body = parseIndependentJudgmentBody(request.body);
+
+    let decisionCase = await platformStore.findDecisionCaseBySubject(
+      tenantId,
+      EVALUATION_DRAFT_SUBJECT,
+      draft.id,
+    );
+    let created = false;
+    if (!decisionCase) {
+      const requestedId = randomUUID();
+      decisionCase = await platformStore.createDecisionCase({
+        id: requestedId,
+        tenantId,
+        kind: "PERFORMANCE",
+        subjectType: EVALUATION_DRAFT_SUBJECT,
+        subjectId: draft.id,
+        context: {
+          flow: "EVALUATION_DRAFT_INDEPENDENT_JUDGMENT",
+          cycleId: draft.cycleId,
+          personId: draft.personId,
+          generatedByType: draft.generatedByType,
+          evidenceSnapshotHash: draft.evidenceSnapshotHash,
+          // 独立判断发生在 AI 建议可见之前，这条案件本身不承载 AI 内容。
+          draftStatusAtJudgment: draft.status,
+        },
+        createdBy: actorPersonId,
+      });
+      // 并发：另一个复核人先建案时，adapter 幂等返回它建好的案件。
+      created = decisionCase.id === requestedId;
+    }
+
+    const detail = await platformStore.getDecisionCase(
+      tenantId,
+      decisionCase.id,
+    );
+    const existing = detail.judgments.human.find(
+      (judgment) => judgment.actorId === actorPersonId,
+    );
+    if (existing) {
+      // 幂等：一人一判，重复提交返回已记录的判断，绝不覆盖。
+      return reply.status(200).send(
+        data(
+          {
+            draft,
+            judgment: existing,
+            caseId: decisionCase.id,
+            created: false,
+            aiAdviceVisible: true,
+          },
+          request,
+        ),
+      );
+    }
+    let judgment: DecisionJudgment;
+    try {
+      judgment = await platformStore.submitDecisionJudgment({
+        tenantId,
+        caseId: decisionCase.id,
+        actorType: "HUMAN",
+        actorId: actorPersonId,
+        independentScores: body.independentScores,
+        independentRationale: body.independentRationale,
+        dimensionStates: {
+          source: "EVALUATION_DRAFT",
+          draftId: draft.id,
+          evidenceSnapshotHash: draft.evidenceSnapshotHash,
+          // 这条判断产生于 AI 建议可见之前。
+          aiAdviceViewed: false,
+        },
+      });
+    } catch (error) {
+      // 并发双提交：另一个请求先写入同一 actor 的判断（一人一判）。重新
+      // 读取并返回已记录的那条，语义仍是幂等，而不是把 409 暴露给调用方。
+      const raced = await platformStore.getDecisionCase(
+        tenantId,
+        decisionCase.id,
+      );
+      const recorded = raced.judgments.human.find(
+        (entry) => entry.actorId === actorPersonId,
+      );
+      if (!recorded) throw error;
+      return reply.status(200).send(
+        data(
+          {
+            draft,
+            judgment: recorded,
+            caseId: decisionCase.id,
+            created: false,
+            aiAdviceVisible: true,
+          },
+          request,
+        ),
+      );
+    }
+    countEvent("evaluation_draft_independent_judgment");
+    return reply.status(201).send(
+      data(
+        {
+          draft,
+          judgment,
+          caseId: decisionCase.id,
+          created,
+          aiAdviceVisible: true,
+        },
+        request,
+      ),
+    );
   });
 
   app.post("/api/v1/evaluation-drafts/:id/submit", async (request) => {

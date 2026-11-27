@@ -280,8 +280,11 @@ function performanceFactsBindingOf(
  * score-from-facts 的 JEV 衔接（幂等）：同一 recordId 只关联一个
  * PERFORMANCE 案件、只写一条 PERFORMANCE_SCORE 证据。
  *
- * - 幂等键是 (subjectType="PERFORMANCE_SCORE", subjectId=recordId)，通过
- *   findDecisionCaseBySubject 只读查询找到已有案件，不重复开案；
+ * - 幂等键是 (kind=PERFORMANCE, subjectType="PERFORMANCE_SCORE", subjectId=recordId)，
+ *   通过 findDecisionCaseBySubject 只读查询找到已有案件，不重复开案；
+ * - 建案用调用方生成的 id：122 的唯一建案在并发下只成功一次，输了竞争的
+ *   请求由 adapter 返回已有案件，「返回 id 是否等于本次生成的 id」即本次
+ *   是否真的创建（created=false），不需要额外再查一次；
  * - 证据 content 是可重算的事实绑定，contentHash 必须等于 factsHash；
  * - 已存在案件时只在证据缺失时补写（例如上次写到一半），不会重复追加。
  */
@@ -308,11 +311,18 @@ async function ensurePerformanceScoreDecisionCase(input: {
     "PERFORMANCE_SCORE",
     record.id,
   );
+  // 已归档（CANCELLED）的历史重复案件不算「已有案件」：允许补建一条新的
+  // 活跃案件，避免把新证据写进归档审计行。
+  if (decisionCase && decisionCase.status === "CANCELLED") {
+    decisionCase = undefined;
+  }
   let created = false;
   if (!decisionCase) {
     created = true;
     const facts = payload.facts ?? {};
+    const requestedId = randomUUID();
     decisionCase = await platformStore.createDecisionCase({
+      id: requestedId,
       tenantId,
       kind: "PERFORMANCE",
       subjectType: "PERFORMANCE_SCORE",
@@ -330,6 +340,8 @@ async function ensurePerformanceScoreDecisionCase(input: {
       },
       createdBy,
     });
+    // 并发：另一个请求先插入成功时，adapter 幂等返回它建好的案件。
+    created = decisionCase.id === requestedId;
   }
   let detail = await platformStore.getDecisionCase(tenantId, decisionCase.id);
   if (

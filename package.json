@@ -9,6 +9,7 @@
     "apps/*"
   ],
   "scripts": {
+    "audit": "npm audit --audit-level=high",
     "dev": "tsx apps/api/src/server.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,6 +24,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "test:pg": "./scripts/test-pg.sh",
     "test:pg-upgrade": "./scripts/test-pg-upgrade.sh",
+    "drill:backup-restore": "bash scripts/backup-restore-drill.sh",
     "contracts:manifest": "tsx scripts/generate-request-contracts.ts",
     "import:local": "tsx scripts/import-local.ts",
     "contracts:entities": "tsx scripts/generate-entity-contracts.ts && tsx scripts/generate-entity-types.ts && tsx scripts/generate-access-contracts.ts",
@@ -36,6 +38,8 @@
     "shadow:settle": "tsx scripts/shadow-settlement.ts",
     "shadow:consolidate": "tsx scripts/shadow-consolidation.ts",
     "shadow:e2e": "tsx scripts/shadow-e2e.ts",
+    "shadow:e2e:pg": "tsx scripts/shadow-e2e.ts --pg",
+    "test:pg-shadow": "vitest run apps/api/src/__tests__/shadow-e2e-pg.test.ts",
     "pilot:import": "tsx scripts/pilot-shadow-cycle.ts import",
     "pilot:report": "tsx scripts/pilot-shadow-cycle.ts report",
     "test:e2e": "playwright test",

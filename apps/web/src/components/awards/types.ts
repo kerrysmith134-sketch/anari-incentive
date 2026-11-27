@@ -228,6 +228,27 @@ function canonicalDecimal(value: string): string {
   }`;
 }
 
+/**
+ * 十进制字符串求和：按 1e-6 缩放后用 BigInt 累加，避免浮点漂移。
+ * 仅用于展示退回/冲正合计；非法项跳过（服务端已保证金额为合法十进制）。
+ */
+export function sumDecimalAmounts(values: readonly string[]): string {
+  const scale = 1_000_000n;
+  let total = 0n;
+  for (const value of values) {
+    const match = /^(\d{1,14})(?:\.(\d{1,6}))?$/.exec(value.trim());
+    if (!match) continue;
+    const fraction = (match[2] ?? "").padEnd(6, "0");
+    total += BigInt(match[1] ?? "0") * scale + BigInt(fraction);
+  }
+  const integer = total / scale;
+  const fraction = (total % scale)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${integer}.${fraction}` : integer.toString();
+}
+
 export function isValidAccountingPeriod(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value.trim());
 }
