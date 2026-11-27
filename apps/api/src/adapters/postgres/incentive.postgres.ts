@@ -1446,41 +1446,55 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       tenantId: string,
       filter?: { awardType?: string; period?: string; status?: string },
     ): Promise<IncentiveAwardBatch[]> {
-      await this.assertTenant(tenantId);
-      const params: string[] = [tenantId];
-      let sql = "SELECT * FROM incentive_award_batches WHERE tenant_id=$1";
-      if (filter?.awardType) {
-        params.push(filter.awardType);
-        sql += ` AND award_type=$${params.length}`;
-      }
-      if (filter?.period) {
-        params.push(filter.period);
-        sql += ` AND period=$${params.length}`;
-      }
-      if (filter?.status) {
-        params.push(filter.status);
-        sql += ` AND status=$${params.length}`;
-      }
-      sql += " ORDER BY created_at DESC";
-      const { rows } = await this.tenantQuery(tenantId, sql, params);
-      const batches: IncentiveAwardBatch[] = [];
-      for (const row of rows) {
-        batches.push(await this.loadIncentiveAwardBatch(this.pool, row));
-      }
-      return batches;
+      return this.transactionFor(tenantId, async (client) => {
+        const { rows: tenants } = await client.query(
+          "SELECT 1 FROM tenants WHERE id=$1",
+          [tenantId],
+        );
+        if (!tenants[0]) notFound("Tenant", tenantId);
+
+        const params: string[] = [tenantId];
+        let sql = "SELECT * FROM incentive_award_batches WHERE tenant_id=$1";
+        if (filter?.awardType) {
+          params.push(filter.awardType);
+          sql += ` AND award_type=${params.length}`;
+        }
+        if (filter?.period) {
+          params.push(filter.period);
+          sql += ` AND period=${params.length}`;
+        }
+        if (filter?.status) {
+          params.push(filter.status);
+          sql += ` AND status=${params.length}`;
+        }
+        sql += " ORDER BY created_at DESC";
+        const { rows } = await client.query(sql, params);
+        const batches: IncentiveAwardBatch[] = [];
+        for (const row of rows) {
+          batches.push(await this.loadIncentiveAwardBatch(client, row));
+        }
+        return batches;
+      });
     }
 
     async getIncentiveAwardBatch(
       tenantId: string,
       batchId: string,
     ): Promise<IncentiveAwardBatch> {
-      await this.assertTenant(tenantId);
-      const { rows } = await this.tenantQuery(tenantId,
-        "SELECT * FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
-        [tenantId, batchId],
-      );
-      if (!rows[0]) notFound("IncentiveAwardBatch", batchId);
-      return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
+      return this.transactionFor(tenantId, async (client) => {
+        const { rows: tenants } = await client.query(
+          "SELECT 1 FROM tenants WHERE id=$1",
+          [tenantId],
+        );
+        if (!tenants[0]) notFound("Tenant", tenantId);
+
+        const { rows } = await client.query(
+          "SELECT * FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
+          [tenantId, batchId],
+        );
+        if (!rows[0]) notFound("IncentiveAwardBatch", batchId);
+        return this.loadIncentiveAwardBatch(client, rows[0]!);
+      });
     }
 
     /**
