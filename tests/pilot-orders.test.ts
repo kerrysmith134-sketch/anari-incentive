@@ -114,6 +114,7 @@ describe("pilot order import preflight", () => {
         [order],
         ["试点订单 SO-001"],
         [{ sourceRecordId: order.orderId, amount: "128000.51", currency: "CNY", periodStart: "2026-10-01", periodEnd: "2026-10-31", orderId: order.orderId, qualityStatus: "VALID", payload: { orderId: order.orderId, cycleId: "cycle-1" } }],
+        "cycle-1",
       ),
     ).toThrow(/controlled finance correction/i);
   });
