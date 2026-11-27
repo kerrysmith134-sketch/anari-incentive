@@ -22,7 +22,8 @@ COPY examples ./examples
 COPY fixtures ./fixtures
 COPY db ./db
 COPY --from=build /app/apps/web/dist ./apps/web/dist
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev \
+ && npm install -g npm@latest
 USER node
 EXPOSE 3000 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

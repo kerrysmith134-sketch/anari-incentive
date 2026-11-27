@@ -7,7 +7,7 @@ import Fastify, {
   type FastifyRequest,
 } from "fastify";
 import fastifyStatic from "@fastify/static";
-import { ZodError, type ZodType } from "zod";
+import { ZodError, type ZodType } from "zod/v3";
 import {
   acceptWorkPackageSchema,
   acceptWorkPackagesBatchSchema,

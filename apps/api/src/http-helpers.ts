@@ -2,7 +2,7 @@
  * 共享 HTTP 适配工具（NPV2-011 第一步）：从 app.ts 抽出的协议层纯函数，
  * 供 app 与各域 route module 复用。不含业务逻辑。
  */
-import type { ZodType } from "zod";
+import type { ZodType } from "zod/v3";
 import type { FastifyRequest } from "fastify";
 import type { PlatformStore } from "./platform-store.js";
 import { ForbiddenError } from "@anari/auth";
