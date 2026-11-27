@@ -889,7 +889,7 @@ export function AgentOpsPage() {
                     </div>
                   </div>
                 </div>
-                <p className="subtle" style={{ fontSize: 11.5 }}>
+                <p className="subtle" style={{ fontSize: 12 }}>
                   {agentMetrics.data.note}
                 </p>
               </>
