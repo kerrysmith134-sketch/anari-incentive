@@ -16,10 +16,17 @@ import {
 } from "@anari/domain";
 import { sha256 } from "@anari/policy-dsl";
 import { ConflictError, NotFoundError } from "../store.js";
+import type {
+  ConsumedMetricMeasurementSnapshot,
+  MetricSnapshotConsumptionPort,
+} from "../store-ports.js";
 import { PgStoreEvaluation } from "./evaluation.js";
 import { notFound } from "../pg-store-support.js";
 
-export class PgStoreMeasurement extends PgStoreEvaluation {
+export class PgStoreMeasurement
+  extends PgStoreEvaluation
+  implements MetricSnapshotConsumptionPort
+{
   /** 服务端计算冻结哈希（与 Memory 实现同序同算法）。 */
   private computeSnapshotHash(
     measurements: MetricMeasurementSnapshot["measurements"],
@@ -157,7 +164,92 @@ export class PgStoreMeasurement extends PgStoreEvaluation {
     });
   }
 
-  private mapMetricSnapshot(row: QueryResultRow): MetricMeasurementSnapshot {
+  /**
+   * 评分消费快照：事务内锁行 → 校验仍为 FROZEN → 写入消费列。
+   * 同一快照只能被消费一次；已 CONSUMED（评价决定或评分记录）一律 409。
+   */
+  async consumeMetricMeasurementSnapshotForScore(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+    consumedByPersonId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM metric_measurement_snapshots
+          WHERE tenant_id = $1 AND id = $2
+          FOR UPDATE`,
+        [this.tenantId, input.snapshotId],
+      );
+      if (!rows[0]) notFound("MetricMeasurementSnapshot", input.snapshotId);
+      const snapshot = this.mapMetricSnapshot(rows[0]);
+      if (snapshot.status === "CONSUMED") {
+        throw new ConflictError(
+          `SNAPSHOT_ALREADY_CONSUMED: snapshot ${input.snapshotId} 已被${
+            snapshot.consumedByRecordId
+              ? `评分记录 ${snapshot.consumedByRecordId}`
+              : "正式评价决定"
+          }消费，不能再次评分`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE metric_measurement_snapshots
+            SET status = 'CONSUMED',
+                consumed_by_record_id = $3,
+                consumed_by_person_id = $4,
+                consumed_at = now()
+          WHERE tenant_id = $1 AND id = $2
+          RETURNING *`,
+        [
+          this.tenantId,
+          input.snapshotId,
+          input.consumedByRecordId,
+          input.consumedByPersonId,
+        ],
+      );
+      return this.mapMetricSnapshot(updated[0]);
+    });
+  }
+
+  /** 评分记录落库失败时的补偿：只回滚同一记录消费、且未绑定评价决定的快照。 */
+  async releaseMetricMeasurementSnapshotConsumption(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot> {
+    return this.tx(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM metric_measurement_snapshots
+          WHERE tenant_id = $1 AND id = $2
+          FOR UPDATE`,
+        [this.tenantId, input.snapshotId],
+      );
+      if (!rows[0]) notFound("MetricMeasurementSnapshot", input.snapshotId);
+      const snapshot = this.mapMetricSnapshot(rows[0]);
+      if (
+        snapshot.status !== "CONSUMED" ||
+        snapshot.consumedByRecordId !== input.consumedByRecordId ||
+        snapshot.evaluationDecisionId !== undefined
+      ) {
+        throw new ConflictError(
+          `SNAPSHOT_CONSUMPTION_MISMATCH: snapshot ${input.snapshotId} 当前不是由记录 ${input.consumedByRecordId} 消费的评分快照`,
+        );
+      }
+      const { rows: updated } = await client.query(
+        `UPDATE metric_measurement_snapshots
+            SET status = 'FROZEN',
+                consumed_by_record_id = NULL,
+                consumed_by_person_id = NULL,
+                consumed_at = NULL
+          WHERE tenant_id = $1 AND id = $2
+          RETURNING *`,
+        [this.tenantId, input.snapshotId],
+      );
+      return this.mapMetricSnapshot(updated[0]);
+    });
+  }
+
+  private mapMetricSnapshot(
+    row: QueryResultRow,
+  ): ConsumedMetricMeasurementSnapshot {
     return {
       id: row.id,
       tenantId: row.tenant_id,
@@ -172,6 +264,11 @@ export class PgStoreMeasurement extends PgStoreEvaluation {
       evaluationDecisionId: row.evaluation_decision_id ?? undefined,
       linkedByPersonId: row.linked_by_person_id ?? undefined,
       legacyLinkedActorUnknown: row.legacy_linked_actor_unknown === true,
+      consumedByRecordId: row.consumed_by_record_id ?? undefined,
+      consumedByPersonId: row.consumed_by_person_id ?? undefined,
+      consumedAt: row.consumed_at
+        ? new Date(row.consumed_at).toISOString()
+        : undefined,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }

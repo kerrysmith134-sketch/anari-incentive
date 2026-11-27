@@ -31,6 +31,10 @@ import {
   notFound,
 } from "../store-support.js";
 import type { IncentiveStore } from "../store-interface.js";
+import type {
+  ConsumedMetricMeasurementSnapshot,
+  MetricSnapshotConsumptionPort,
+} from "../store-ports.js";
 import type { AuditApi } from "./audit.js";
 import { StoreBase, type StoreCtor } from "./base.js";
 
@@ -79,7 +83,10 @@ export type EvaluationApi = Pick<
  * behaviour of the former monolithic Store implementation.
  */
 export function withEvaluation<TBase extends StoreCtor<StoreBase & AuditApi>>(Base: TBase) {
-  const Mixin = class EvaluationMixin extends Base implements EvaluationApi {
+  const Mixin = class EvaluationMixin
+    extends Base
+    implements EvaluationApi, MetricSnapshotConsumptionPort
+  {
 
   /** NPV2-020：Agent 待办 upsert（幂等：同 (tenant, idempotencyKey) 返回既有）。 */
   async upsertAgentTodo(input: UpsertAgentTodoInput): Promise<AgentTodo> {
@@ -365,6 +372,103 @@ export function withEvaluation<TBase extends StoreCtor<StoreBase & AuditApi>>(Ba
       measurements: structuredClone(snapshot.measurements),
     });
     return { ...snapshot, measurements: structuredClone(snapshot.measurements) };
+  }
+
+  /**
+   * 评分消费快照：同一同步临界区内完成「校验仍为 FROZEN + 写入消费凭证」，
+   * 消费记录 id 由调用方预先生成，保证快照与评分记录一一对应。
+   */
+  async consumeMetricMeasurementSnapshotForScore(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+    consumedByPersonId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot> {
+    const stored = this.metricSnapshots.get(input.snapshotId);
+    if (!stored) {
+      throw new NotFoundError(
+        `MetricMeasurementSnapshot ${input.snapshotId} not found`,
+      );
+    }
+    if (stored.status === "CONSUMED") {
+      const consumer = (stored as ConsumedMetricMeasurementSnapshot)
+        .consumedByRecordId;
+      throw new ConflictError(
+        `SNAPSHOT_ALREADY_CONSUMED: snapshot ${input.snapshotId} 已被${
+          consumer ? `评分记录 ${consumer}` : "正式评价决定"
+        }消费，不能再次评分`,
+      );
+    }
+    if (stored.status !== "FROZEN") {
+      throw new ConflictError(
+        `SNAPSHOT_NOT_FROZEN: snapshot is ${stored.status}`,
+      );
+    }
+    const consumed: ConsumedMetricMeasurementSnapshot = {
+      ...stored,
+      measurements: structuredClone(stored.measurements),
+      status: "CONSUMED",
+      consumedByRecordId: input.consumedByRecordId,
+      consumedByPersonId: input.consumedByPersonId,
+      consumedAt: now(),
+    };
+    this.metricSnapshots.set(input.snapshotId, {
+      ...consumed,
+      measurements: structuredClone(consumed.measurements),
+    });
+    return {
+      ...consumed,
+      measurements: structuredClone(consumed.measurements),
+    };
+  }
+
+  /**
+   * 评分记录落库失败时的补偿：只允许回滚「由同一评分记录消费」且未绑定
+   * 正式评价决定的快照，避免把决策绑定悄悄还原成可复用事实。
+   */
+  async releaseMetricMeasurementSnapshotConsumption(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot> {
+    const stored = this.metricSnapshots.get(input.snapshotId);
+    if (!stored) {
+      throw new NotFoundError(
+        `MetricMeasurementSnapshot ${input.snapshotId} not found`,
+      );
+    }
+    const consumed = stored as ConsumedMetricMeasurementSnapshot;
+    if (
+      stored.status !== "CONSUMED" ||
+      consumed.consumedByRecordId !== input.consumedByRecordId ||
+      consumed.evaluationDecisionId !== undefined
+    ) {
+      throw new ConflictError(
+        `SNAPSHOT_CONSUMPTION_MISMATCH: snapshot ${input.snapshotId} 当前不是由记录 ${input.consumedByRecordId} 消费的评分快照`,
+      );
+    }
+    const restored: MetricMeasurementSnapshot = {
+      id: consumed.id,
+      tenantId: consumed.tenantId,
+      cycleId: consumed.cycleId,
+      personId: consumed.personId,
+      rubricVersionId: consumed.rubricVersionId,
+      measurements: structuredClone(consumed.measurements),
+      contentHash: consumed.contentHash,
+      frozenAt: consumed.frozenAt,
+      frozenBy: consumed.frozenBy,
+      status: "FROZEN",
+      evaluationDecisionId: consumed.evaluationDecisionId,
+      linkedByPersonId: consumed.linkedByPersonId,
+      legacyLinkedActorUnknown: consumed.legacyLinkedActorUnknown,
+      createdAt: consumed.createdAt,
+    };
+    this.metricSnapshots.set(input.snapshotId, {
+      ...restored,
+      measurements: structuredClone(restored.measurements),
+    });
+    return {
+      ...restored,
+      measurements: structuredClone(restored.measurements),
+    };
   }
 
   async createNotification(input: {

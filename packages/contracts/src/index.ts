@@ -3629,13 +3629,22 @@ export type SubmitDecisionJudgmentBody = z.infer<
   typeof submitDecisionJudgmentSchema
 >;
 
+/**
+ * 120：校验结果由服务端 5 个 checker 产出。passed / checks / findings 仅为
+ * 向后兼容而接受，服务端一律忽略，绝不计入权威结果。`decidedBy` 只是可选的
+ * 拟授权人，用于在 verify 阶段提前发现利益冲突；最终仍以 decide 时的真实
+ * decidedBy 再校验一次。
+ */
 export const recordDecisionVerificationSchema = z
   .object({
-    /** 校验项：利益冲突 / 证据覆盖 / 规则命中，由调用方给出机器可读结果。 */
-    checks: z.record(z.unknown()),
-    findings: z.array(z.record(z.unknown())).max(200).default([]),
-    passed: z.boolean(),
+    /** @deprecated ignored; server computes the authoritative result. */
+    passed: z.boolean().optional(),
+    /** @deprecated ignored; server computes the authoritative result. */
+    checks: z.record(z.unknown()).optional(),
+    /** @deprecated ignored; server computes the authoritative result. */
+    findings: z.array(z.record(z.unknown())).max(200).optional(),
     verifiedBy: uuidSchema.optional(),
+    decidedBy: uuidSchema.optional(),
   })
   .strict();
 export type RecordDecisionVerificationBody = z.infer<
@@ -3652,6 +3661,27 @@ export const decideDecisionCaseSchema = z
 export type DecideDecisionCaseBody = z.infer<
   typeof decideDecisionCaseSchema
 >;
+
+/** 120：业务对象引用 caseId（评价/贡献/申诉/资格/预算）。 */
+export const decisionLinkResourceTypeSchema = z.enum([
+  "PERFORMANCE_EVALUATION",
+  "CONTRIBUTION_ASSESSMENT",
+  "APPEAL",
+  "INCENTIVE_ELIGIBILITY",
+  "BUDGET",
+]);
+
+export const linkDecisionCaseSchema = z
+  .object({
+    resourceType: decisionLinkResourceTypeSchema,
+    /** 业务对象 id；允许外部系统标识，因此不强制 uuid。 */
+    resourceId: z.string().min(1).max(256),
+    note: z.string().min(1).max(2000).optional(),
+    /** 默认回落到会话身份；不能代他人建立引用。 */
+    linkedBy: uuidSchema.optional(),
+  })
+  .strict();
+export type LinkDecisionCaseBody = z.infer<typeof linkDecisionCaseSchema>;
 
 /**
  * 绩效评分权威化契约：
@@ -3756,6 +3786,7 @@ export const requestSchemaRegistry = {
   SubmitDecisionJudgment: submitDecisionJudgmentSchema,
   RecordDecisionVerification: recordDecisionVerificationSchema,
   DecideDecisionCase: decideDecisionCaseSchema,
+  LinkDecisionCase: linkDecisionCaseSchema,
   ScorePerformanceFromFacts: scorePerformanceFromFactsSchema,
 } as const;
 
@@ -3863,7 +3894,12 @@ export const metricMeasurementRecordSchema = z.object({
   value: decimal,
   unit: z.string().max(16).optional(),
   source: z.string().min(1).max(64),
+  /** 来源记录引用（贡献事件/证据/摄取批次 id）。 */
   sourceRef: z.string().min(1).max(256).optional(),
+  /** 逐项来源追溯：正式评分要求四项齐全，否则 409 PERFORMANCE_SOURCE_TRACE_MISSING。 */
+  sourceSystem: z.string().min(1).max(64).optional(),
+  sourceRecordId: z.string().min(1).max(256).optional(),
+  sourceVersion: z.string().min(1).max(256).optional(),
   observedAt: z.string().datetime(),
   qualityStatus: z.enum(["VALID", "MISSING", "STALE", "CONFLICTED"]),
 });

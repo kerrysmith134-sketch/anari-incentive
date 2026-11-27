@@ -1180,6 +1180,9 @@ export const GL_ACCOUNT_CODES = {
 
 export type IncentiveAwardPaymentStatus = "PAID" | "FAILED" | "RETURNED";
 
+/** 迁移 119：PAID 回执的贷方科目（CASH=已付款，PAYABLE=挂应付）。 */
+export type IncentiveAwardPaymentCreditAccount = "CASH" | "PAYABLE";
+
 /** 单行支付回执（银行流水/内部转账凭证的一行）。 */
 export interface IncentiveAwardPayment {
   id: UUID;
@@ -1194,7 +1197,31 @@ export interface IncentiveAwardPayment {
   /** 仅在 PAID 时必填（服务端缺省为记录时间）。 */
   paidAt?: string;
   failureCode?: string;
+  /**
+   * 迁移 119：记账维度随回执持久化，并纳入 payment_ref 的幂等载荷。
+   * 同一 ref 重试时 legalEntityId / accountingPeriod / creditAccount
+   * 必须与原记录完全一致，否则 409（不能静默取旧值）。
+   */
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: IncentiveAwardPaymentCreditAccount;
   createdAt: string;
+}
+
+/**
+ * 迁移 119：支付审计事件（与支付回执同事务写入）。
+ * PG 落 audit_events；Memory 落 adapter 内的追加链（同样受事务回滚保护）。
+ */
+export interface IncentiveAwardPaymentAudit {
+  id: UUID;
+  tenantId: UUID;
+  batchId: UUID;
+  paymentId: UUID;
+  action: string;
+  actorType: "USER" | "AGENT" | "SYSTEM" | "INTEGRATION";
+  actorId?: string;
+  reason?: string;
+  occurredAt: string;
 }
 
 /** 行级对账状态：PAID=足额，PARTIAL=部分，UNPAID=未付，OVERPAID=超出。 */
@@ -1224,7 +1251,9 @@ export interface IncentiveAwardReconciliationLine {
 export type IncentiveAwardBatchReconciliationStatus =
   | "RECONCILED"
   | "PARTIAL"
-  | "VARIANCE";
+  | "VARIANCE"
+  /** 迁移 119：金额已足额，但仍有 PAID 回执缺少平衡的 GL 凭证。 */
+  | "GL_INCOMPLETE";
 
 export interface IncentiveAwardBatchReconciliation {
   batchId: UUID;
@@ -1243,8 +1272,31 @@ export interface IncentiveAwardBatchReconciliation {
   unpaidLines: number;
   partialLines: number;
   overpaidLines: number;
+  /**
+   * 迁移 119：每条 PAID 回执都存在按 documentId=payment.id 可查的、
+   * 借贷相等、金额为正且金额等于回执金额的 PAYMENT 凭证。
+   * FAILED/RETURNED 不要求凭证。
+   */
+  glComplete: boolean;
+  /**
+   * 迁移 119：有 PAID 回执但缺少平衡凭证的批次行 id（按批次行顺序去重）。
+   * 名字沿用「journal line」是因为每一行对应一条应记账的批次行。
+   */
+  missingJournalLineIds: UUID[];
+  /**
+   * RECONCILED 需要金额与 GL 同时一致；金额足额但凭证缺失时为
+   * GL_INCOMPLETE，其余金额口径不变（PARTIAL/VARIANCE）。
+   */
   status: IncentiveAwardBatchReconciliationStatus;
   lines: IncentiveAwardReconciliationLine[];
+}
+
+/** 对账用的 PAYMENT 凭证投影（按 gl_journals.document_id 关联支付回执）。 */
+export interface IncentiveAwardGlJournalRef {
+  /** = IncentiveAwardPayment.id */
+  documentId: string;
+  totalDebit: DecimalString;
+  totalCredit: DecimalString;
 }
 
 const AWARD_AMOUNT_SCALE = 1_000_000n;
@@ -1276,9 +1328,15 @@ function awardMicrosToAmount(value: bigint): DecimalString {
  * 给出完全相同的已付/未付/差异与状态）。
  *
  * 状态判定：
- * - RECONCILED：每行差异为 0，且已付合计 = 批次 total_amount；
+ * - RECONCILED：每行差异为 0，已付合计 = 批次 total_amount，且每条 PAID
+ *   都有按 documentId 可查、借贷平衡的 PAYMENT 凭证；
+ * - GL_INCOMPLETE：金额口径已满足 RECONCILED，但仍有 PAID 回执缺凭证；
  * - VARIANCE：存在多付行，或已付合计 > total_amount，或合计相等但行级错配；
  * - PARTIAL：其余（少付，含完全未付）。
+ *
+ * 迁移 119：`journals` 是同一事务内读到的 PAYMENT 凭证投影。缺省视为
+ * 没有任何凭证——只要存在 PAID 回执，glComplete 即为 false；这样任何
+ * 忘记传凭证的调用方都不会被误判成 RECONCILED。
  */
 export function reconcileIncentiveAwardBatch(input: {
   batchId: string;
@@ -1299,6 +1357,7 @@ export function reconcileIncentiveAwardBatch(input: {
     paymentRef: string;
     status: string;
   }>;
+  journals?: ReadonlyArray<IncentiveAwardGlJournalRef>;
 }): IncentiveAwardBatchReconciliation {
   const paidByLine = new Map<string, bigint>();
   const refsByLine = new Map<string, string[]>();
@@ -1357,9 +1416,39 @@ export function reconcileIncentiveAwardBatch(input: {
 
   const totalAmount = awardAmountToMicros(input.totalAmount);
   const variance = paidTotal - totalAmount;
+
+  // 迁移 119：每条 PAID 都必须有按 documentId=payment.id 可查的平衡凭证。
+  // 只有借贷相等、金额为正且与回执金额一致的凭证才算数（0/0、错配或
+  // 金额对不上都不能糊弄过去）。
+  const journalAmountByDocument = new Map<string, bigint>();
+  for (const journal of input.journals ?? []) {
+    let debit: bigint;
+    let credit: bigint;
+    try {
+      debit = awardAmountToMicros(journal.totalDebit);
+      credit = awardAmountToMicros(journal.totalCredit);
+    } catch {
+      continue;
+    }
+    if (debit > 0n && debit === credit) {
+      journalAmountByDocument.set(journal.documentId, debit);
+    }
+  }
+  const linesMissingGl = new Set<string>();
+  for (const payment of input.payments) {
+    if (payment.status !== "PAID") continue;
+    const paidAmount = awardAmountToMicros(payment.amount);
+    if (journalAmountByDocument.get(payment.id) === paidAmount) continue;
+    linesMissingGl.add(payment.lineId);
+  }
+  const missingJournalLineIds = input.lines
+    .filter((line) => linesMissingGl.has(line.id))
+    .map((line) => line.id);
+  const glComplete = missingJournalLineIds.length === 0;
+
   let status: IncentiveAwardBatchReconciliationStatus;
   if (allLinesExact && variance === 0n) {
-    status = "RECONCILED";
+    status = glComplete ? "RECONCILED" : "GL_INCOMPLETE";
   } else if (variance > 0n || overpaidLines > 0) {
     status = "VARIANCE";
   } else if (variance < 0n) {
@@ -1383,6 +1472,8 @@ export function reconcileIncentiveAwardBatch(input: {
     unpaidLines,
     partialLines,
     overpaidLines,
+    glComplete,
+    missingJournalLineIds,
     status,
     lines,
   };

@@ -131,6 +131,11 @@
 | 奖励批次财务闭环 | 关闭（行级） | 迁移 117：行级支付回执/FAILED/RETURNED、对账、ACK 门禁、每笔 PAID 生成平衡 GL 凭证。 |
 | 绩效权威事实链 | 关闭（评分入口） | `score-from-facts` 只读锁定卡+FROZEN 快照，覆盖输入 409，factsHash 可重放；旧 /score 标记 CLIENT_INPUT。 |
 | Cycle Readiness | 关闭 | DRAFT/SUBMITTED 阻断、open appeal 阻断、全部 FORMAL run 必须 APPROVED/LOCKED 且至少一个 LOCKED。 |
+| Payment/GL 原子性 | 关闭 | 支付+GL+审计同事务；批次行锁；ACK 同事务并发门禁；ACK 后普通支付 409；幂等维度含法人/期间/科目。 |
+| JEV 服务端校验 | 关闭 | 5 个 checker 服务端执行；verification 绑定 case/evidence/judgments hash；stale 拒绝；AI token；空证据门禁；业务引用 link。 |
+| 绩效正式资格门禁 | 关闭 | FORMAL/INCOMPLETE/BLOCKED；政策版本发布校验；快照 CONSUMED 原子消费；来源追溯必填。 |
+| 奖励支付工作台 | 关闭 | 行级支付录入/CSV/对账/GL 状态/ACK 门禁；ACK 后隐藏普通支付。 |
+| Payout Readiness | 关闭 | 7 项独立检查（人员决定/批次/审批/实付/GL/退回申诉/ACK 不可变）。 |
 | 连接器 Contract Test / 故障注入 | 部分关闭 | 新增 `fixtures/connectors/*` 脱敏样本 + `connector-contract-samples.test.ts`（HubSpot/Feishu/ERP 映射、500 重试、401 不重试、字段缺失 fail-closed）；真实 provider 样本仍未取得 |
 
 ## 3. 仍阻断正式接入的项
@@ -156,10 +161,10 @@ npm run test:pg-upgrade  # 迁移升级路径
 
 2026-11-24 本地实际结果：
 
-- `npm test`：148 files passed / 2 skipped；1713 tests passed / 111 skipped。
+- `npm test`：148 files passed / 2 skipped；1758 tests passed / 111 skipped。
 - `npm run typecheck`：API + web 全绿。
 - `npm run test:pg`：3 files / 124 tests passed（迁移 102–115；含 Commercial 并发、期间关闭并发、Work Item、子账/多税种）。
-- `npm run test:pg-upgrade`：89 → 118 migrations，110 tests passed。
+- `npm run test:pg-upgrade`：89 → 121 migrations，110 tests passed。
 - `npm run web:build`：通过（Integrations 页面拆分与工作台摘要）。
 - Playwright E2E 未在本轮运行（前端仅组件拆分 + 摘要，无交互逻辑变更）。
 

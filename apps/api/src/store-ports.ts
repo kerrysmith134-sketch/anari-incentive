@@ -63,6 +63,7 @@ import type {
   IntegrationMapping,
   InboxMessage,
   MetricDefinition,
+  MetricMeasurementSnapshot,
   ModelCanaryRun,
   ModelEvaluationDataset,
   ModelEvaluationRun,
@@ -73,6 +74,8 @@ import type {
   IncentiveAwardBatch,
   IncentiveAwardBatchReconciliation,
   IncentiveAwardPayment,
+  IncentiveAwardPaymentAudit,
+  IncentiveAwardPaymentCreditAccount,
   IncentiveAwardPaymentStatus,
   IncentiveAwardType,
   NoticeAcknowledgementOverview,
@@ -133,10 +136,12 @@ import type {
   DecideDecisionCaseInput,
   DecisionCase,
   DecisionCaseDetail,
+  DecisionCaseLink,
   DecisionEvidence,
   DecisionJudgment,
   DecisionRecord,
   DecisionVerification,
+  LinkDecisionCaseInput,
   RecordDecisionVerificationInput,
   SubmitDecisionJudgmentInput,
 } from "@anari/domain";
@@ -1129,15 +1134,23 @@ export interface IncentivePort {
   }): Promise<IncentiveAwardBatch>;
 
   /**
-   * 迁移 117：记录奖励批次单行支付回执（`payments` 可批量）。
+   * 迁移 117/119：记录奖励批次单行支付回执（`payments` 可批量）。
    *
+   * 原子性契约（迁移 119）：
+   * - PG 在**同一个 DB 事务**内锁批次行（SELECT ... FOR UPDATE）、写支付、
+   *   写 PAID 的 GL 凭证、写审计事件；任一步失败整体回滚，Memory 同样
+   *   全有或全无；
    * - 批次必须存在且属于该租户（跨租户 → NotFoundError/404）；
-   * - 批次状态必须 LOCKED/EXPORTED/ACKNOWLEDGED，否则 ConflictError/409；
+   * - ACK 前批次状态必须 LOCKED/EXPORTED；ACKNOWLEDGED 后只接受独立的
+   *   RETURNED（退款/退票）记录，普通支付 → ConflictError/409
+   *   AWARD_BATCH_ALREADY_ACKNOWLEDGED；
    * - 行必须属于该批次、金额 = 行金额、币种一致，否则 ConflictError/409；
    * - (lineId, paymentRef) 重复提交幂等：返回原回执，不重复累计；
-   *   同一 ref 携带不同金额/状态 → ConflictError/409（幂等冲突）；
-   * - 每笔 PAID 生成借贷平衡的 GL 凭证
-   *   （借 INCENTIVE_EXPENSE / 贷 CASH 或 PAYABLE）；FAILED/RETURNED 不生成。
+   *   同一 ref 的 status/amount/currency/legalEntityId/accountingPeriod/
+   *   creditAccount 任一不同 → ConflictError/409（幂等冲突）；
+   * - 每笔 PAID 在支付同一事务内生成借贷平衡的 GL 凭证
+   *   （借 INCENTIVE_EXPENSE / 贷 CASH 或 PAYABLE）；FAILED/RETURNED 不生成；
+   * - 支付审计事件与支付同事务写入，不允许 best-effort 吞掉。
    */
   recordIncentiveAwardPayments(input: {
     tenantId: string;
@@ -1153,7 +1166,7 @@ export interface IncentivePort {
       failureCode?: string;
       legalEntityId?: string;
       accountingPeriod?: string;
-      creditAccount?: "CASH" | "PAYABLE";
+      creditAccount?: IncentiveAwardPaymentCreditAccount;
     }>;
   }): Promise<{
     payments: IncentiveAwardPayment[];
@@ -1162,11 +1175,20 @@ export interface IncentivePort {
     createdPaymentIds: string[];
   }>;
 
-  /** 行级已付/未付/差异与批次对账状态（RECONCILED/PARTIAL/VARIANCE）。 */
+  /**
+   * 行级已付/未付/差异、GL 完整性与批次对账状态
+   * （RECONCILED/PARTIAL/VARIANCE/GL_INCOMPLETE）。
+   */
   getIncentiveAwardBatchReconciliation(
     tenantId: string,
     batchId: string,
   ): Promise<IncentiveAwardBatchReconciliation>;
+
+  /** 迁移 119：该批次的支付审计事件（与支付同事务写入，按时间正序）。 */
+  listIncentiveAwardPaymentAudits(
+    tenantId: string,
+    batchId: string,
+  ): Promise<IncentiveAwardPaymentAudit[]>;
 
   createAdverseAction(input: {
     tenantId: string;
@@ -1904,6 +1926,34 @@ export interface PolicygovPort {
   }): Promise<PolicyEngineRecord>;
 }
 
+/**
+ * 绩效评分快照消费端口（IncentiveStore 侧能力，policy 路由按需收窄）。
+ *
+ * 评分把「事实」从可复用快照变成一次性凭证：同一存储方法内完成
+ * FROZEN → CONSUMED 的状态校验与写入，并记录消费它的评分记录 id。
+ * 记录落库失败时由路由调用 release 回滚，保证「记录没写成，快照就不算消费」。
+ */
+export type ConsumedMetricMeasurementSnapshot = MetricMeasurementSnapshot & {
+  /** 消费该快照的 PERFORMANCE_SCORE 记录 id（物理列 consumed_by_record_id）。 */
+  consumedByRecordId?: string;
+  /** 执行消费的认证人员。 */
+  consumedByPersonId?: string;
+  /** 消费时间（ISO 8601）。 */
+  consumedAt?: string;
+};
+
+export interface MetricSnapshotConsumptionPort {
+  consumeMetricMeasurementSnapshotForScore(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+    consumedByPersonId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot>;
+  releaseMetricMeasurementSnapshotConsumption(input: {
+    snapshotId: string;
+    consumedByRecordId: string;
+  }): Promise<ConsumedMetricMeasurementSnapshot>;
+}
+
 /** 结算薪酬端口：工资单/薪酬模板/法定扣款/结算导出。 */
 export interface SettlementPort {
   createCompensationTemplate(input: {
@@ -2187,6 +2237,8 @@ export interface DecisionPort {
   recordDecisionVerification(
     input: RecordDecisionVerificationInput,
   ): Promise<DecisionVerification>;
+  /** 业务对象（评价/贡献/申诉/资格/预算）引用 caseId；GET 详情回传 links。 */
+  linkDecisionCase(input: LinkDecisionCaseInput): Promise<DecisionCaseLink>;
   decideDecisionCase(input: DecideDecisionCaseInput): Promise<DecisionRecord>;
   getDecisionCase(
     tenantId: string,

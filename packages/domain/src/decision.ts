@@ -70,7 +70,12 @@ export interface DecisionCase {
   createdAt: string;
 }
 
-/** 证据只有内容承诺（content_hash），原始内容留在来源系统。 */
+/**
+ * 证据内容承诺（content_hash）+ 服务端复核副本。
+ *
+ * 120 起服务端保留 canonical JSON 文本作为复核副本，校验时重算 hash，避免
+ * 只有承诺没有可验证对象；详情接口默认不返回 content，原始内容仍归来源系统。
+ */
 export interface DecisionEvidence {
   id: string;
   tenantId: string;
@@ -82,6 +87,8 @@ export interface DecisionEvidence {
   supports: DecisionEvidenceSupport;
   /** 可选相对权重；不使用浮点金额，保持 decimal string 约定。 */
   weight?: string;
+  /** 服务端复核副本；仅用于 EvidenceIntegrityChecker，不对外返回。 */
+  content?: unknown;
   createdAt: string;
 }
 
@@ -112,12 +119,23 @@ export interface DecisionVerification {
   id: string;
   tenantId: string;
   caseId: string;
-  /** 校验项（利益冲突 / 证据覆盖 / 规则命中）的机器可读结果。 */
+  /** 5 个 checker 的机器可读结果（Conflict/EvidenceIntegrity/Coverage/Rule/Freshness）。 */
   checks: DecisionJsonObject;
   /** 发现项：每条至少包含 code，由调用方扩展。 */
   findings: DecisionJsonObject[];
   passed: boolean;
   verifiedBy: string;
+  /**
+   * FreshnessChecker 绑定：校验完成时案件的新版本（校验本身会 +1）。
+   * 之后任何证据/判断写入都会推进版本，使这条校验失效。
+   */
+  verifiedCaseVersion: number;
+  /** 校验时全部证据 content_hash 的聚合承诺。 */
+  evidenceHash: string;
+  /** 校验时全部判断（人工 + AI）的聚合承诺。 */
+  judgmentsHash: string;
+  /** 读取时派生：绑定是否仍与当前案件一致（不落库，不改写审计行）。 */
+  stale?: boolean;
   verifiedAt: string;
 }
 
@@ -135,6 +153,50 @@ export interface DecisionRecord {
   decidedAt: string;
 }
 
+/** 业务对象引用 caseId 的唯一入口（不强行改绩效/贡献/申诉现有路由）。 */
+export const DECISION_LINK_RESOURCE_TYPES = [
+  "PERFORMANCE_EVALUATION",
+  "CONTRIBUTION_ASSESSMENT",
+  "APPEAL",
+  "INCENTIVE_ELIGIBILITY",
+  "BUDGET",
+] as const;
+export type DecisionLinkResourceType =
+  (typeof DECISION_LINK_RESOURCE_TYPES)[number];
+
+/** 业务资源类型 ↔ 唯一允许的 case kind。 */
+export const DECISION_LINK_KIND_BY_RESOURCE_TYPE: Record<
+  DecisionLinkResourceType,
+  DecisionCaseKind
+> = {
+  PERFORMANCE_EVALUATION: "PERFORMANCE",
+  CONTRIBUTION_ASSESSMENT: "CONTRIBUTION",
+  APPEAL: "APPEAL",
+  INCENTIVE_ELIGIBILITY: "INCENTIVE_ELIGIBILITY",
+  BUDGET: "BUDGET",
+};
+
+export interface DecisionCaseLink {
+  id: string;
+  tenantId: string;
+  caseId: string;
+  resourceType: DecisionLinkResourceType;
+  /** 业务对象 id；允许外部系统标识，因此是字符串。 */
+  resourceId: string;
+  note?: string;
+  linkedBy: string;
+  linkedAt: string;
+}
+
+export interface LinkDecisionCaseInput {
+  tenantId: string;
+  caseId: string;
+  resourceType: DecisionLinkResourceType;
+  resourceId: string;
+  note?: string;
+  linkedBy: string;
+}
+
 export interface DecisionCaseDetail {
   case: DecisionCase;
   evidence: DecisionEvidence[];
@@ -144,6 +206,8 @@ export interface DecisionCaseDetail {
     ai: DecisionJudgment[];
   };
   verifications: DecisionVerification[];
+  /** 引用该 caseId 的业务对象（评价/贡献/申诉/资格/预算）。 */
+  links: DecisionCaseLink[];
   record?: DecisionRecord;
 }
 
@@ -184,10 +248,21 @@ export interface SubmitDecisionJudgmentInput {
 export interface RecordDecisionVerificationInput {
   tenantId: string;
   caseId: string;
-  checks: DecisionJsonObject;
-  findings?: DecisionJsonObject[];
-  passed: boolean;
+  /**
+   * 客户端不再提交 checks/findings/passed；服务端 5 个 checker 产出权威结果。
+   * decidedBy 可选：提前声明拟授权人，让 ConflictChecker 在 verify 阶段
+   * 就能发现“决定人同时是人工判断者 / AI actor”的利益冲突；decide 时仍
+   * 以真实 decidedBy 再校验一次。
+   */
+  decidedBy?: string;
   verifiedBy: string;
+  /**
+   * @deprecated 120 起客户端 passed/checks/findings 一律忽略；仅为旧调用方
+   * 编译兼容保留，adapter 绝不读取它们决定 passed。
+   */
+  passed?: boolean;
+  checks?: DecisionJsonObject;
+  findings?: DecisionJsonObject[];
 }
 
 export interface DecideDecisionCaseInput {
@@ -301,6 +376,433 @@ export function decisionEvidenceAggregateHash(
     algorithm: "sha256",
     evidence: ordered.map((entry) => normalizeDecisionHash(entry.contentHash)),
   });
+}
+
+/**
+ * 全部判断的聚合承诺。顺序即写入顺序（adapter 按 seq / 追加顺序返回），
+ * 不按 createdAt 排序：同一毫秒内的两条判断仍必须稳定可区分。
+ */
+export function decisionJudgmentsAggregateHash(
+  judgments: DecisionJudgment[],
+): string {
+  return decisionEvidenceHash({
+    algorithm: "sha256",
+    judgments: judgments.map((judgment) => ({
+      id: judgment.id,
+      actorType: judgment.actorType,
+      actorId: judgment.actorId,
+      modelRef: judgment.modelRef ?? null,
+      independentScores: judgment.independentScores,
+      independentRationale: judgment.independentRationale,
+      dimensionStates: judgment.dimensionStates,
+      confidence: judgment.confidence ?? null,
+      createdAt: judgment.createdAt,
+    })),
+  });
+}
+
+/** 这些 kind 的案件必须有至少一条 FOR/AGAINST 证据才能进入校验。 */
+export const DECISION_EVIDENCE_REQUIRED_KINDS = [
+  "PERFORMANCE",
+  "CONTRIBUTION",
+  "APPEAL",
+] as const;
+
+/** 这些 kind 需要独立来源覆盖与正反两面（或显式 missing）。 */
+export const DECISION_COVERAGE_REQUIRED_KINDS = [
+  "PERFORMANCE",
+  "CONTRIBUTION",
+] as const;
+
+export function decisionCaseRequiresEvidence(
+  kind: DecisionCaseKind,
+): boolean {
+  return (DECISION_EVIDENCE_REQUIRED_KINDS as readonly string[]).includes(kind);
+}
+
+export function decisionCaseRequiresCoverage(
+  kind: DecisionCaseKind,
+): boolean {
+  return (DECISION_COVERAGE_REQUIRED_KINDS as readonly string[]).includes(kind);
+}
+
+export const DECISION_VERIFICATION_CHECKERS = [
+  "ConflictChecker",
+  "EvidenceIntegrityChecker",
+  "CoverageChecker",
+  "RuleChecker",
+  "FreshnessChecker",
+] as const;
+export type DecisionVerificationCheckerName =
+  (typeof DECISION_VERIFICATION_CHECKERS)[number];
+
+export interface DecisionVerificationFinding {
+  /** 允许附加领域细节，同时兼容 DecisionJsonObject 的序列化形状。 */
+  [key: string]: unknown;
+  checker: DecisionVerificationCheckerName;
+  /** 稳定机器码，例如 EVIDENCE_HASH_MISMATCH / HUMAN_JUDGMENT_REQUIRED。 */
+  code: string;
+  severity: "ERROR" | "WARNING";
+  message: string;
+  evidenceId?: string;
+  judgmentId?: string;
+  details?: DecisionJsonObject;
+}
+
+export interface DecisionVerificationCheck {
+  passed: boolean;
+  findings: DecisionVerificationFinding[];
+  /** 仅 FreshnessChecker 产出：本校验要绑定的事实承诺。 */
+  binding?: DecisionVerificationBinding;
+}
+
+export interface DecisionVerificationBinding {
+  /** 校验完成后的案件版本（校验动作本身会推进版本）。 */
+  caseVersion: number;
+  evidenceHash: string;
+  judgmentsHash: string;
+}
+
+export interface DecisionVerificationResult {
+  checks: Record<DecisionVerificationCheckerName, DecisionVerificationCheck>;
+  findings: DecisionVerificationFinding[];
+  passed: boolean;
+  binding: DecisionVerificationBinding;
+}
+
+export interface DecisionVerificationContext {
+  case: DecisionCase;
+  evidence: DecisionEvidence[];
+  judgments: DecisionJudgment[];
+  /** 可选拟授权人；verify 阶段传入时可提前发现利益冲突。 */
+  decidedBy?: string;
+}
+
+function verificationFinding(
+  checker: DecisionVerificationCheckerName,
+  code: string,
+  message: string,
+  extra: Partial<Omit<DecisionVerificationFinding, "checker" | "code" | "message">> = {},
+): DecisionVerificationFinding {
+  return { checker, code, severity: "ERROR", message, ...extra };
+}
+
+/** 从 context 读取调用方显式声明的缺失面（支持字符串/对象/映射三种写法）。 */
+export function declaredMissingEvidenceSupports(
+  context: DecisionJsonObject,
+): Set<"FOR" | "AGAINST"> {
+  const declared = new Set<"FOR" | "AGAINST">();
+  const record = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const normalized = value.trim().toUpperCase();
+    if (normalized === "FOR" || normalized === "AGAINST") {
+      declared.add(normalized);
+    }
+  };
+  const readCollection = (raw: unknown): void => {
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        if (typeof entry === "string") {
+          record(entry);
+        } else if (entry !== null && typeof entry === "object") {
+          const row = entry as Record<string, unknown>;
+          record(row.supports);
+          record(row.support);
+        }
+      }
+      return;
+    }
+    if (raw !== null && typeof raw === "object") {
+      for (const [key, value] of Object.entries(
+        raw as Record<string, unknown>,
+      )) {
+        if (value !== false && value !== null && value !== undefined) {
+          record(key);
+        }
+      }
+    }
+  };
+  readCollection(context.missingEvidence);
+  readCollection(context.evidenceGaps);
+  readCollection(context.missingSupports);
+  return declared;
+}
+
+/**
+ * 证据必填校验（decide 直接复用）：PERFORMANCE / CONTRIBUTION / APPEAL
+ * 至少一条 FOR/AGAINST 证据；BUDGET / INCENTIVE_ELIGIBILITY 可以为 0。
+ */
+export function decisionEvidenceRequirementFinding(
+  kind: DecisionCaseKind,
+  evidence: DecisionEvidence[],
+): DecisionVerificationFinding | undefined {
+  if (!decisionCaseRequiresEvidence(kind)) return undefined;
+  const hasDirectional = evidence.some(
+    (entry) => entry.supports === "FOR" || entry.supports === "AGAINST",
+  );
+  if (hasDirectional) return undefined;
+  return verificationFinding(
+    "EvidenceIntegrityChecker",
+    "EVIDENCE_REQUIRED",
+    `${kind} decision requires at least one FOR or AGAINST evidence`,
+    { details: { kind } },
+  );
+}
+
+function runConflictChecker(
+  context: DecisionVerificationContext,
+): DecisionVerificationCheck {
+  const findings: DecisionVerificationFinding[] = [];
+  const humanActors = new Set(
+    context.judgments
+      .filter(isHumanDecisionJudgment)
+      .map((judgment) => judgment.actorId),
+  );
+  const aiActors = new Set(
+    context.judgments
+      .filter((judgment) => judgment.actorType === "AI_MODEL")
+      .map((judgment) => judgment.actorId),
+  );
+  if (context.decidedBy) {
+    if (humanActors.has(context.decidedBy)) {
+      findings.push(
+        verificationFinding(
+          "ConflictChecker",
+          "SELF_DECISION_FORBIDDEN",
+          "the decider submitted a human judgment on this case",
+          { details: { decidedBy: context.decidedBy } },
+        ),
+      );
+    } else if (aiActors.has(context.decidedBy)) {
+      findings.push(
+        verificationFinding(
+          "ConflictChecker",
+          "AI_MODEL_CANNOT_DECIDE",
+          "an AI judgment actor cannot authorize the final decision",
+          { details: { decidedBy: context.decidedBy } },
+        ),
+      );
+    }
+  }
+  return { passed: findings.length === 0, findings };
+}
+
+function runEvidenceIntegrityChecker(
+  context: DecisionVerificationContext,
+): DecisionVerificationCheck {
+  const findings: DecisionVerificationFinding[] = [];
+  for (const entry of context.evidence) {
+    if (entry.content === undefined) {
+      findings.push(
+        verificationFinding(
+          "EvidenceIntegrityChecker",
+          "EVIDENCE_CONTENT_MISSING",
+          "evidence content is unavailable for hash recomputation",
+          { evidenceId: entry.id },
+        ),
+      );
+      continue;
+    }
+    if (!decisionEvidenceHashMatches(entry.content, entry.contentHash)) {
+      findings.push(
+        verificationFinding(
+          "EvidenceIntegrityChecker",
+          "EVIDENCE_HASH_MISMATCH",
+          "evidence content no longer matches its content hash",
+          { evidenceId: entry.id },
+        ),
+      );
+    }
+  }
+  const required = decisionEvidenceRequirementFinding(
+    context.case.kind,
+    context.evidence,
+  );
+  if (required) findings.push(required);
+  return { passed: findings.length === 0, findings };
+}
+
+function runCoverageChecker(
+  context: DecisionVerificationContext,
+): DecisionVerificationCheck {
+  if (!decisionCaseRequiresCoverage(context.case.kind)) {
+    return { passed: true, findings: [] };
+  }
+  const findings: DecisionVerificationFinding[] = [];
+  const sourceTypes = new Set(
+    context.evidence.map((entry) => entry.sourceType),
+  );
+  if (sourceTypes.size < 2) {
+    findings.push(
+      verificationFinding(
+        "CoverageChecker",
+        "EVIDENCE_SOURCE_COVERAGE_INSUFFICIENT",
+        "at least two independent source types are required",
+        {
+          details: {
+            sourceTypes: [...sourceTypes].sort(),
+            requiredSourceTypes: 2,
+          },
+        },
+      ),
+    );
+  }
+  const supports = new Set(
+    context.evidence
+      .map((entry) => entry.supports)
+      .filter((value) => value === "FOR" || value === "AGAINST"),
+  );
+  const declaredMissing = declaredMissingEvidenceSupports(
+    context.case.context,
+  );
+  for (const side of ["FOR", "AGAINST"] as const) {
+    if (supports.has(side) || declaredMissing.has(side)) continue;
+    findings.push(
+      verificationFinding(
+        "CoverageChecker",
+        `COVERAGE_MISSING_${side}`,
+        `${side} evidence is missing and not declared as explicitly missing`,
+        { details: { supports: side } },
+      ),
+    );
+  }
+  return { passed: findings.length === 0, findings };
+}
+
+function runRuleChecker(
+  context: DecisionVerificationContext,
+): DecisionVerificationCheck {
+  const findings: DecisionVerificationFinding[] = [];
+  if (!isDecisionCaseMutable(context.case.status)) {
+    findings.push(
+      verificationFinding(
+        "RuleChecker",
+        "DECISION_CASE_NOT_MUTABLE",
+        `case is ${context.case.status} and can no longer be verified`,
+        { details: { status: context.case.status } },
+      ),
+    );
+  }
+  const human = humanDecisionJudgments(context.judgments);
+  if (human.length === 0) {
+    findings.push(
+      verificationFinding(
+        "RuleChecker",
+        "HUMAN_JUDGMENT_REQUIRED",
+        "a human independent judgment is required before verification can pass",
+      ),
+    );
+  }
+  for (const judgment of context.judgments) {
+    if (judgment.actorType === "AI_MODEL" && !judgment.modelRef) {
+      findings.push(
+        verificationFinding(
+          "RuleChecker",
+          "AI_MODEL_REF_REQUIRED",
+          "an AI_MODEL judgment must be traceable to a model reference",
+          { judgmentId: judgment.id },
+        ),
+      );
+    }
+  }
+  // AI 判断只能建议：任何把 AI_MODEL judgment 当作最终依据的标记都拒绝。
+  for (const judgment of context.judgments) {
+    if (
+      judgment.actorType === "AI_MODEL" &&
+      judgment.dimensionStates.finalDecision === true
+    ) {
+      findings.push(
+        verificationFinding(
+          "RuleChecker",
+          "AI_MODEL_CANNOT_BE_FINAL",
+          "an AI_MODEL judgment cannot be marked as the final decision",
+          { judgmentId: judgment.id },
+        ),
+      );
+    }
+  }
+  if (context.decidedBy) {
+    const decider = context.judgments.find(
+      (judgment) => judgment.actorId === context.decidedBy,
+    );
+    if (decider?.actorType === "AI_MODEL") {
+      findings.push(
+        verificationFinding(
+          "RuleChecker",
+          "AI_MODEL_CANNOT_DECIDE",
+          "an AI judgment actor cannot authorize the final decision",
+        ),
+      );
+    }
+  }
+  return { passed: findings.length === 0, findings };
+}
+
+function runFreshnessChecker(
+  context: DecisionVerificationContext,
+): DecisionVerificationCheck {
+  // 绑定就是本 checker 的产物；案件可变性由 RuleChecker 统一判定。
+  const binding: DecisionVerificationBinding = {
+    caseVersion: context.case.version + 1,
+    evidenceHash: decisionEvidenceAggregateHash(context.evidence),
+    judgmentsHash: decisionJudgmentsAggregateHash(context.judgments),
+  };
+  return { passed: true, findings: [], binding };
+}
+
+/**
+ * 服务端权威校验：所有 passed 结论只来自本函数，客户端提交的 passed 无效。
+ * 5 个 checker 全部执行（不是短路），便于审计一次看到全部发现项。
+ */
+export function runDecisionVerification(
+  context: DecisionVerificationContext,
+): DecisionVerificationResult {
+  const checks: Record<
+    DecisionVerificationCheckerName,
+    DecisionVerificationCheck
+  > = {
+    ConflictChecker: runConflictChecker(context),
+    EvidenceIntegrityChecker: runEvidenceIntegrityChecker(context),
+    CoverageChecker: runCoverageChecker(context),
+    RuleChecker: runRuleChecker(context),
+    FreshnessChecker: runFreshnessChecker(context),
+  };
+  const findings = Object.values(checks).flatMap(
+    (check) => check.findings,
+  );
+  const binding = checks.FreshnessChecker.binding ?? {
+    caseVersion: context.case.version + 1,
+    evidenceHash: decisionEvidenceAggregateHash(context.evidence),
+    judgmentsHash: decisionJudgmentsAggregateHash(context.judgments),
+  };
+  return {
+    checks,
+    findings,
+    passed: findings.length === 0,
+    binding,
+  };
+}
+
+/**
+ * 校验绑定是否仍与当前案件一致。decide 用它判断 DECISION_STALE_VERIFICATION。
+ * 旧版（无绑定）校验一律视为过期，必须重新校验。
+ */
+export function decisionVerificationIsCurrent(
+  verification: Pick<
+    DecisionVerification,
+    "verifiedCaseVersion" | "evidenceHash" | "judgmentsHash"
+  >,
+  input: {
+    caseVersion: number;
+    evidenceHash: string;
+    judgmentsHash: string;
+  },
+): boolean {
+  return (
+    verification.verifiedCaseVersion === input.caseVersion &&
+    verification.evidenceHash === input.evidenceHash &&
+    verification.judgmentsHash === input.judgmentsHash
+  );
 }
 
 export function isHumanDecisionJudgment(

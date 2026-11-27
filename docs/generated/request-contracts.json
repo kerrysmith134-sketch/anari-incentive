@@ -593,6 +593,16 @@
         "weight"
       ]
     },
+    "LinkDecisionCase": {
+      "required": [
+        "resourceId",
+        "resourceType"
+      ],
+      "optional": [
+        "linkedBy",
+        "note"
+      ]
+    },
     "MappingSuggestions": {
       "required": [
         "sample",
@@ -676,12 +686,12 @@
       ]
     },
     "RecordDecisionVerification": {
-      "required": [
-        "checks",
-        "passed"
-      ],
+      "required": [],
       "optional": [
+        "checks",
+        "decidedBy",
         "findings",
+        "passed",
         "verifiedBy"
       ]
     },

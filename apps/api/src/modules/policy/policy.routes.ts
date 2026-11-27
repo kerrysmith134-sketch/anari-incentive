@@ -6,7 +6,10 @@ import type {
 import { randomUUID } from "node:crypto";
 import { sha256 } from "@anari/policy-dsl";
 import { ForbiddenError } from "@anari/auth";
-import type { PolicygovPort } from "../../store-ports.js";
+import type {
+  MetricSnapshotConsumptionPort,
+  PolicygovPort,
+} from "../../store-ports.js";
 import type { IncentiveStore } from "../../store-interface.js";
 import { NotFoundError } from "../../store.js";
 import {
@@ -41,6 +44,7 @@ import {
   dataGovernanceCoverage,
   type AiMember,
   type MetricMeasurement,
+  type MetricMeasurementRecord,
   type MetricMeasurementSnapshot,
   type PerformanceMetricSpec,
   type PerformancePeriod,
@@ -109,9 +113,171 @@ class PerformanceInputOverridesFactsError extends Error {
   }
 }
 
+/**
+ * 正式评分资格：
+ * - FORMAL：结果完整可评、指标全覆盖且逐项 quality=VALID、制度版本已发布
+ *   且与周期绑定一致；只有 FORMAL 才写 COMPUTED 并消费计量快照。
+ * - INCOMPLETE：缺指标/质量非 VALID，补齐测量后可重算。
+ * - BLOCKED：制度版本缺失/未发布/不适用于该周期；可算出参考分但不得作为
+ *   正式评价依据，记录状态写 BLOCKED。
+ */
+type PerformanceEligibility = "FORMAL" | "INCOMPLETE" | "BLOCKED";
+
+/** 事实唯一性被破坏（多张锁定卡/多张冻结快照）：fail-closed，不产生正式分。 */
+class PerformanceFactsAmbiguousError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_FACTS_AMBIGUOUS";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 快照逐项来源追溯缺失：没有来源就没有可复核的事实。 */
+class PerformanceSourceTraceMissingError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_SOURCE_TRACE_MISSING";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 快照已被正式评分/评价决定消费，事实不可复用。 */
+class SnapshotAlreadyConsumedError extends Error {
+  readonly statusCode = 409;
+  readonly code = "SNAPSHOT_ALREADY_CONSUMED";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 制度版本与评价周期绑定不一致（或版本不适用于该周期）。 */
+class PolicyVersionMismatchError extends Error {
+  readonly statusCode = 409;
+  readonly code = "POLICY_VERSION_MISMATCH";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 /** 评分来源标记：只有 LOCKED_FACTS 可作为正式评价依据。 */
 const PERFORMANCE_SOURCE_LOCKED_FACTS = "LOCKED_FACTS";
 const PERFORMANCE_SOURCE_CLIENT_INPUT = "CLIENT_INPUT";
+
+/** 快照逐项来源追溯字段：正式评分要求四项齐全。 */
+const REQUIRED_SNAPSHOT_SOURCE_FIELDS = [
+  "sourceRef",
+  "sourceSystem",
+  "sourceRecordId",
+  "sourceVersion",
+] as const;
+
+/** 快照测量记录的来源追溯扩展（domain 类型只声明了 sourceRef）。 */
+type TraceableMeasurementRecord = MetricMeasurementRecord & {
+  sourceSystem?: string;
+  sourceRecordId?: string;
+  sourceVersion?: string;
+};
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+type PerformancePolicyBinding = {
+  bound: boolean;
+  blocker?: string;
+  version?: {
+    policyVersionId: string;
+    status: string;
+    effectiveFrom?: string;
+    effectiveTo?: string;
+  };
+};
+
+/**
+ * 制度版本闸门：
+ * - 周期已绑定版本时，请求版本必须完全一致，否则 409；
+ * - 周期未绑定版本时以请求版本为准（无周期更新端口，不能写回，只把有效
+ *   版本固化进本次 facts/记录），并校验该版本在本周期内有效；
+ * - 版本不存在或未 PUBLISHED 不阻断算分，但资格只能是 BLOCKED。
+ */
+async function resolvePerformancePolicyBinding(
+  store: IncentiveStore,
+  cycle: {
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    policyVersionId?: string;
+  },
+  requestedPolicyVersionId: string,
+): Promise<PerformancePolicyBinding> {
+  if (cycle.policyVersionId && cycle.policyVersionId !== requestedPolicyVersionId) {
+    throw new PolicyVersionMismatchError(
+      `评价周期 ${cycle.id} 绑定制度版本 ${cycle.policyVersionId}，与请求的 ${requestedPolicyVersionId} 不一致：不存在该版本下的锁定事实`,
+    );
+  }
+  let version;
+  try {
+    version = await store.getPolicyVersion(requestedPolicyVersionId);
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return {
+        bound: false,
+        blocker: `制度版本 ${requestedPolicyVersionId} 不存在`,
+      };
+    }
+    throw error;
+  }
+  if (version.status !== "PUBLISHED") {
+    return {
+      bound: false,
+      blocker: `制度版本 ${requestedPolicyVersionId} 状态为 ${version.status}，未发布`,
+      version: {
+        policyVersionId: version.policyVersionId,
+        status: version.status,
+        effectiveFrom: version.effectiveFrom,
+        effectiveTo: version.effectiveTo,
+      },
+    };
+  }
+  if (!cycle.policyVersionId) {
+    // 周期未绑定：请求版本必须在该周期窗口内有效，否则视为不匹配。
+    const cycleStart = Date.parse(cycle.startsAt);
+    const cycleEnd = Date.parse(cycle.endsAt);
+    const effectiveFrom = version.effectiveFrom
+      ? Date.parse(version.effectiveFrom)
+      : Number.NaN;
+    const effectiveTo = version.effectiveTo
+      ? Date.parse(version.effectiveTo)
+      : Number.NaN;
+    if (
+      Number.isFinite(effectiveFrom) &&
+      Number.isFinite(cycleEnd) &&
+      effectiveFrom > cycleEnd
+    ) {
+      throw new PolicyVersionMismatchError(
+        `制度版本 ${requestedPolicyVersionId} 的生效时间 ${version.effectiveFrom} 晚于评价周期 ${cycle.id}，不能作为该周期的事实依据`,
+      );
+    }
+    if (
+      Number.isFinite(effectiveTo) &&
+      Number.isFinite(cycleStart) &&
+      effectiveTo <= cycleStart
+    ) {
+      throw new PolicyVersionMismatchError(
+        `制度版本 ${requestedPolicyVersionId} 在评价周期 ${cycle.id} 开始前已失效`,
+      );
+    }
+  }
+  return {
+    bound: true,
+    version: {
+      policyVersionId: version.policyVersionId,
+      status: version.status,
+      effectiveFrom: version.effectiveFrom,
+      effectiveTo: version.effectiveTo,
+    },
+  };
+}
 
 /** 旧 /score 的兼容告警：分数来自客户端自报输入，不是权威事实。 */
 const CLIENT_INPUT_SCORE_WARNING =
@@ -297,12 +463,14 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       const result = runPolicyInput(() => scorePerformance(input));
       // 兼容保留：分值完全来自客户端自报，明确标注来源并给出告警，避免被
       // 当成与 score-from-facts 等价的形式评价依据。
+      // 客户端自报分值永远不具备正式资格：记录状态固定 INCOMPLETE，
+      // 绝不写 COMPUTED（只有 FORMAL 才能写正式状态）。
       const record = await platformStore.savePolicyEngineRecord({
         tenantId: tenantOf(request),
         recordType: "PERFORMANCE_SCORE",
         personId: input.personId,
         period: input.period,
-        status: result.complete ? "COMPUTED" : "INCOMPLETE",
+        status: "INCOMPLETE",
         payload: {
           request: input,
           result,
@@ -1200,6 +1368,14 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
     // -------------------------------------------------------------------------
     // 权威绩效评分（018）：分值只能来自「已锁定目标卡 + 已核验计量快照」。
     // 客户端 metricInputs 仅可补充说明性字段；覆盖权威字段一律 409。
+    //
+    // 正式资格（eligibility）：
+    // - FORMAL：complete && scoreable、指标全覆盖且逐项 quality=VALID、
+    //   制度版本已发布且与周期绑定一致；只有 FORMAL 写 COMPUTED；
+    // - INCOMPLETE：缺指标/质量非 VALID，需补测量（新快照）后重算；
+    // - BLOCKED：制度版本缺失/未发布/不适用；分数仅作参考，记录写 BLOCKED。
+    // 任何成功保存的评分记录都会原子消费其快照（一次性事实凭证）；
+    // 记录落库失败则回滚消费。
     // -------------------------------------------------------------------------
     app.post("/api/v1/policy/performance/score-from-facts", async (request) => {
       requireRoles(request, "manager");
@@ -1209,6 +1385,9 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       }
       const tenantId = tenantOf(request);
       const store = storeFor(request);
+      const snapshotStore = store as IncentiveStore &
+        MetricSnapshotConsumptionPort;
+      const actorPersonId = ownPersonId(request) ?? body.personId;
       const metricInputs = body.metricInputs ?? [];
       const suppliedMetricIds = new Set<string>();
       for (const input of metricInputs) {
@@ -1222,15 +1401,27 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       }
 
       const cycle = await store.getEvaluationCycle(body.cycleId);
-      if (
-        cycle.policyVersionId &&
-        cycle.policyVersionId !== body.policyVersionId
-      ) {
-        throw new PerformanceFactsNotReadyError(
-          `评价周期 ${cycle.id} 绑定制度版本 ${cycle.policyVersionId}，与请求的 ${body.policyVersionId} 不一致：不存在该版本下的锁定事实`,
-        );
-      }
       const period = performancePeriodOfCycle(cycle);
+
+      // 制度版本闸门（409 只用于「绑定冲突/版本不适用于该周期」；缺失或
+      // 未发布降级为 BLOCKED，仍可算出参考分但绝不写正式）。
+      const policyBinding = await resolvePerformancePolicyBinding(
+        store,
+        cycle,
+        body.policyVersionId,
+      );
+      const policyFacts = {
+        policyVersionId: body.policyVersionId,
+        policyVersionStatus: policyBinding.version?.status ?? null,
+        policyVersionEffectiveFrom:
+          policyBinding.version?.effectiveFrom ?? null,
+        policyVersionEffectiveTo: policyBinding.version?.effectiveTo ?? null,
+        cyclePolicyVersionId: cycle.policyVersionId ?? null,
+        policyBindingSource: cycle.policyVersionId ? "CYCLE" : "REQUEST",
+        policyBound: policyBinding.bound,
+      };
+      const blockers: string[] = [];
+      if (policyBinding.blocker) blockers.push(policyBinding.blocker);
 
       // 权威指标集：已锁定目标卡（cycleId 精确绑定优先，其次按周期匹配）。
       const goalCardRecords = await platformStore.listPolicyEngineRecords(
@@ -1257,7 +1448,7 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         );
       }
       if (lockedCards.length > 1) {
-        throw new PerformanceFactsNotReadyError(
+        throw new PerformanceFactsAmbiguousError(
           `人员 ${body.personId} 在评价周期 ${cycle.id} 存在 ${lockedCards
             .map((card) => card.id)
             .join("、")} 共 ${lockedCards.length} 张已锁定目标卡，无法确定唯一权威事实`,
@@ -1265,51 +1456,77 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       }
       const goalCard = lockedCards[0]!;
 
-      // 权威测量：只认已通过 contentHash 复核的冻结快照；已消费（CONSUMED）
-      // 或复核失败的快照不得再次作为评分事实。
+      // 权威测量：只认唯一一张已通过 contentHash 复核的冻结快照；已消费
+      // （CONSUMED）的快照不得再次评分，存在多张冻结快照则事实不唯一。
       const snapshots = await store.listMetricMeasurementSnapshots({
         cycleId: cycle.id,
         personId: body.personId,
       });
-      const frozenCandidates = snapshots
-        .filter(
-          (candidate) =>
-            candidate.status === "FROZEN" &&
-            candidate.measurements.length > 0,
-        )
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-      let snapshot: MetricMeasurementSnapshot | undefined;
-      const rejectedSnapshotIds: string[] = [];
-      for (const candidate of frozenCandidates) {
-        const verification = await store.verifyMetricMeasurementSnapshot(
-          candidate.id,
+      const frozenCandidates = snapshots.filter(
+        (candidate) =>
+          candidate.status === "FROZEN" && candidate.measurements.length > 0,
+      );
+      if (frozenCandidates.length === 0) {
+        const consumed = snapshots.filter(
+          (candidate) => candidate.status === "CONSUMED",
         );
-        if (verification.valid) {
-          snapshot = candidate;
-          break;
+        if (consumed.length > 0) {
+          throw new SnapshotAlreadyConsumedError(
+            `评价周期 ${cycle.id} / 人员 ${body.personId} 的冻结快照已被消费（${consumed
+              .map((candidate) => candidate.id)
+              .join("、")}），不能再次评分`,
+          );
         }
-        rejectedSnapshotIds.push(candidate.id);
-      }
-      if (!snapshot) {
         throw new PerformanceFactsNotReadyError(
-          snapshots.length === 0
-            ? `评价周期 ${cycle.id} / 人员 ${body.personId} 没有冻结的指标计量快照`
-            : rejectedSnapshotIds.length > 0
-              ? `指标计量快照 contentHash 复核失败（${rejectedSnapshotIds.join(
-                  "、",
-                )}），不得作为评分事实`
-              : `评价周期 ${cycle.id} / 人员 ${body.personId} 没有可用冻结快照（仅存在已消费快照）`,
+          `评价周期 ${cycle.id} / 人员 ${body.personId} 没有冻结的指标计量快照`,
         );
       }
-      const activeSnapshot = snapshot;
+      if (frozenCandidates.length > 1) {
+        throw new PerformanceFactsAmbiguousError(
+          `评价周期 ${cycle.id} / 人员 ${body.personId} 存在 ${frozenCandidates.length} 张冻结快照（${frozenCandidates
+            .map((candidate) => candidate.id)
+            .join("、")}），无法确定唯一权威事实`,
+        );
+      }
+      const activeSnapshot = frozenCandidates[0]!;
+      const verification = await store.verifyMetricMeasurementSnapshot(
+        activeSnapshot.id,
+      );
+      if (!verification.valid) {
+        throw new PerformanceFactsNotReadyError(
+          `指标计量快照 ${activeSnapshot.id} contentHash 复核失败（期望 ${verification.expectedHash}，实际 ${verification.actualHash}），不得作为评分事实`,
+        );
+      }
+
+      // 来源追溯：每项测量都必须能回到 sourceRef/sourceSystem/
+      // sourceRecordId/sourceVersion，否则事实不可复核（fail-closed）。
+      const traceGaps: string[] = [];
+      for (const record of activeSnapshot.measurements) {
+        const missing = REQUIRED_SNAPSHOT_SOURCE_FIELDS.filter(
+          (field) => !hasText((record as TraceableMeasurementRecord)[field]),
+        );
+        if (missing.length > 0) {
+          traceGaps.push(`${record.metricId}: ${missing.join("/")}`);
+        }
+      }
+      if (traceGaps.length > 0) {
+        throw new PerformanceSourceTraceMissingError(
+          `计量快照 ${activeSnapshot.id} 的来源追溯不完整（${traceGaps.join(
+            "；",
+          )}）：每项快照必须提供 sourceRef/sourceSystem/sourceRecordId/sourceVersion`,
+        );
+      }
 
       const metricById = new Map(
         goalCard.metrics.map((metric) => [metric.metricId, metric]),
       );
-      const snapshotMetricIds = new Set(
-        activeSnapshot.measurements.map((record) => record.metricId),
+      const snapshotById = new Map(
+        activeSnapshot.measurements.map((record) => [record.metricId, record]),
       );
-      const supplements = new Map(metricInputs.map((input) => [input.metricId, input]));
+      const snapshotMetricIds = new Set(snapshotById.keys());
+      const supplements = new Map(
+        metricInputs.map((input) => [input.metricId, input]),
+      );
       for (const input of metricInputs) {
         // 说明性字段之外的一切都必须被拒绝：否则客户端就能决定分值的来源。
         const authoritativeFields = Object.keys(input).filter(
@@ -1374,6 +1591,18 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         .map((metric) => metric.metricId)
         .filter((metricId) => !snapshotMetricIds.has(metricId));
       const coverageComplete = missingMetricIds.length === 0;
+      // 逐项质量：目标卡上的每个指标都必须有 quality=VALID 且可解析的快照值。
+      const invalidQualityMetricIds = goalCard.metrics
+        .map((metric) => metric.metricId)
+        .filter((metricId) => {
+          const record = snapshotById.get(metricId);
+          if (!record) return false;
+          return (
+            record.qualityStatus !== "VALID" ||
+            !DECIMAL_VALUE_PATTERN.test((record.value ?? "").trim())
+          );
+        });
+      const qualityAllValid = invalidQualityMetricIds.length === 0;
 
       const result = runPolicyInput(() =>
         scorePerformance({
@@ -1385,12 +1614,41 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         }),
       );
 
+      const eligibility: PerformanceEligibility = !policyBinding.bound
+        ? "BLOCKED"
+        : result.complete &&
+            result.scoreable &&
+            coverageComplete &&
+            qualityAllValid
+          ? "FORMAL"
+          : "INCOMPLETE";
+      // 只有 FORMAL 才写 COMPUTED；其余写 INCOMPLETE/BLOCKED，绝不把算出
+      // 的参考分伪装成正式评分。
+      const recordStatus =
+        eligibility === "FORMAL" ? "COMPUTED" : eligibility;
+
+      const sources = activeSnapshot.measurements
+        .map((record) => {
+          const traceable = record as TraceableMeasurementRecord;
+          return {
+            metricId: record.metricId,
+            source: record.source,
+            sourceRef: record.sourceRef ?? null,
+            sourceSystem: traceable.sourceSystem ?? null,
+            sourceRecordId: traceable.sourceRecordId ?? null,
+            sourceVersion: traceable.sourceVersion ?? null,
+            observedAt: record.observedAt,
+            qualityStatus: record.qualityStatus,
+          };
+        })
+        .sort((left, right) => left.metricId.localeCompare(right.metricId));
+
       const facts = {
         source: PERFORMANCE_SOURCE_LOCKED_FACTS,
         cycleId: cycle.id,
         cycleType: cycle.cycleType,
         personId: body.personId,
-        policyVersionId: body.policyVersionId,
+        ...policyFacts,
         period: goalCard.period,
         goalCardId: goalCard.id,
         goalCardVersion: goalCard.version,
@@ -1403,10 +1661,13 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         snapshotFrozenAt: activeSnapshot.frozenAt,
         snapshotCreatedAt: activeSnapshot.createdAt,
         measurementCount: activeSnapshot.measurements.length,
+        eligibility,
+        sources,
       };
-      // 事实哈希：同输入重放必须一致；补充字段也纳入绑定，避免「同 hash 不同解释」。
+      // 事实哈希：同输入重放必须一致；补充字段与逐项来源也纳入绑定，避免
+      // 「同 hash 不同解释」。
       const factsHash = sha256({
-        kind: "PERFORMANCE_SCORE_FROM_FACTS/v1",
+        kind: "PERFORMANCE_SCORE_FROM_FACTS/v2",
         tenantId,
         facts,
         supplements: metricInputs
@@ -1420,11 +1681,32 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
       });
 
       const warnings: string[] = [];
+      if (policyBinding.blocker) {
+        warnings.push(
+          `${policyBinding.blocker}：本次评分标记 BLOCKED，不得作为正式评价依据`,
+        );
+      }
       if (!coverageComplete) {
         warnings.push(
           `指标覆盖不完整：快照缺少 ${missingMetricIds.join(
             "、",
           )}，结果仅供复核参考，不得作为正式评价依据`,
+        );
+      }
+      if (!qualityAllValid) {
+        warnings.push(
+          `快照质量状态非 VALID 的指标：${invalidQualityMetricIds.join(
+            "、",
+          )}，结果标记 INCOMPLETE，补齐测量后可重算`,
+        );
+      }
+      if (
+        eligibility === "INCOMPLETE" &&
+        coverageComplete &&
+        qualityAllValid
+      ) {
+        warnings.push(
+          "结果未达到正式资格（complete/scoreable 为 false），不得作为正式评价依据",
         );
       }
       if (metricInputs.length > 0) {
@@ -1433,33 +1715,151 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         );
       }
 
-      const record = await platformStore.savePolicyEngineRecord({
+      // 评分记录与快照消费的落库顺序（PG 适配器只支持按既有 id 更新记录）：
+      // 1) 先写评分记录：草稿状态不可能是 COMPUTED，保存失败则快照不消费；
+      // 2) 同一存储方法原子消费快照（consumedByRecordId = 记录 id）；
+      // 3) 只有 FORMAL 才把记录升级为 COMPUTED；升级失败回滚消费，绝不留下
+      //    「已算出正式分但事实未被消费」或「事实被烧掉但记录不存在」。
+      const basePayload = {
+        source: PERFORMANCE_SOURCE_LOCKED_FACTS,
+        eligibility,
+        blockers,
+        factsHash,
+        facts,
+        request: {
+          cycleId: body.cycleId,
+          personId: body.personId,
+          policyVersionId: body.policyVersionId,
+          metricInputs,
+        },
+        measurements,
+        result,
+      };
+      let record = await platformStore.savePolicyEngineRecord({
         tenantId,
         recordType: "PERFORMANCE_SCORE",
         personId: body.personId,
         period: goalCard.period,
-        status: result.complete ? "COMPUTED" : "INCOMPLETE",
-        payload: {
-          source: PERFORMANCE_SOURCE_LOCKED_FACTS,
-          factsHash,
-          facts,
-          request: {
-            cycleId: body.cycleId,
-            personId: body.personId,
-            policyVersionId: body.policyVersionId,
-            metricInputs,
-          },
-          measurements,
-          result,
-        },
+        // 草稿记录永远不是 COMPUTED：只有 FORMAL 且消费成功后才升级。
+        status: eligibility === "FORMAL" ? "INCOMPLETE" : recordStatus,
+        payload: basePayload,
       });
+
+      let consumedSnapshot:
+        | {
+            status: string;
+            consumedByRecordId?: string;
+            consumedByPersonId?: string;
+            consumedAt?: string;
+          }
+        | undefined;
+      try {
+        consumedSnapshot =
+          await snapshotStore.consumeMetricMeasurementSnapshotForScore({
+            snapshotId: activeSnapshot.id,
+            consumedByRecordId: record.id,
+            consumedByPersonId: actorPersonId,
+          });
+      } catch (error) {
+        // 消费失败：把草稿标记为 BLOCKED（best-effort），绝不留正式状态。
+        try {
+          await platformStore.updatePolicyEngineRecord({
+            tenantId,
+            recordId: record.id,
+            status: "BLOCKED",
+            payload: {
+              ...basePayload,
+              blockers: [...blockers, "SNAPSHOT_CONSUMPTION_FAILED"],
+              snapshotConsumption: {
+                snapshotId: activeSnapshot.id,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            },
+          });
+        } catch (updateError) {
+          request.log.error(
+            { err: updateError, recordId: record.id },
+            "failed to mark score record BLOCKED after snapshot consumption failure",
+          );
+        }
+        if (
+          error instanceof ConflictError &&
+          error.message.startsWith("SNAPSHOT_ALREADY_CONSUMED")
+        ) {
+          throw new SnapshotAlreadyConsumedError(error.message);
+        }
+        throw error;
+      }
+
+      if (eligibility === "FORMAL") {
+        try {
+          record = await platformStore.updatePolicyEngineRecord({
+            tenantId,
+            recordId: record.id,
+            status: "COMPUTED",
+            payload: {
+              ...basePayload,
+              snapshotConsumption: {
+                snapshotId: activeSnapshot.id,
+                consumedByRecordId: record.id,
+                consumedByPersonId: actorPersonId,
+                consumedAt: consumedSnapshot.consumedAt,
+              },
+            },
+          });
+        } catch (error) {
+          try {
+            await snapshotStore.releaseMetricMeasurementSnapshotConsumption({
+              snapshotId: activeSnapshot.id,
+              consumedByRecordId: record.id,
+            });
+          } catch (releaseError) {
+            request.log.error(
+              {
+                err: releaseError,
+                snapshotId: activeSnapshot.id,
+                recordId: record.id,
+              },
+              "failed to release metric snapshot after score record persistence failure",
+            );
+          }
+          // 草稿最多留在 INCOMPLETE/BLOCKED，绝不留下「正式」假象。
+          try {
+            await platformStore.updatePolicyEngineRecord({
+              tenantId,
+              recordId: record.id,
+              status: "BLOCKED",
+              payload: {
+                ...basePayload,
+                blockers: [...blockers, "RECORD_PERSISTENCE_FAILED"],
+              },
+            });
+          } catch (updateError) {
+            request.log.error(
+              { err: updateError, recordId: record.id },
+              "failed to mark score record BLOCKED after persistence failure",
+            );
+          }
+          throw error;
+        }
+      }
+
       return data(
         {
           ...result,
           source: PERFORMANCE_SOURCE_LOCKED_FACTS,
+          eligibility,
           factsHash,
           facts,
+          policyVersion: policyFacts,
           coverage: { complete: coverageComplete, missingMetricIds },
+          snapshot: {
+            id: activeSnapshot.id,
+            status: consumedSnapshot?.status ?? activeSnapshot.status,
+            consumedByRecordId: consumedSnapshot?.consumedByRecordId,
+            consumedAt: consumedSnapshot?.consumedAt,
+          },
+          blockers,
           warnings,
           recordId: record.id,
         },

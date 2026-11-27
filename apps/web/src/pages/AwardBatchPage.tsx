@@ -14,6 +14,7 @@ import {
   Textarea,
 } from "../components/ui.js";
 import { PersonSelect } from "../components/PersonSelect.js";
+import { AwardPaymentWorkbench } from "../components/awards/PaymentWorkbench.js";
 import { useToast } from "../contexts/ToastContext.js";
 import { api, ApiError } from "../lib/api.js";
 import { useApiQuery, useDocumentTitle } from "../lib/hooks.js";
@@ -156,9 +157,7 @@ export function AwardBatchPage() {
   const [currency, setCurrency] = useState("CNY");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [ackTarget, setAckTarget] = useState<AwardBatchView | null>(null);
-  const [ackRef, setAckRef] = useState("");
-  const [ackError, setAckError] = useState<string | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   function updateLine(index: number, patch: Partial<AwardLine>) {
@@ -217,12 +216,6 @@ export function AwardBatchPage() {
   async function command(batch: AwardBatchView, action: string) {
     setBusyId(batch.id);
     try {
-      if (action === "ACKNOWLEDGE") {
-        setAckTarget(batch);
-        setAckRef("");
-        setAckError(null);
-        return;
-      }
       await api(`/api/v1/incentive-award-batches/${batch.id}/commands`, {
         method: "POST",
         body: { command: action },
@@ -245,24 +238,27 @@ export function AwardBatchPage() {
     }
   }
 
-  async function submitAck(event: FormEvent) {
-    event.preventDefault();
-    if (!ackTarget) return;
-    setAckError(null);
-    try {
-      await api(`/api/v1/incentive-award-batches/${ackTarget.id}/commands`, {
-        method: "POST",
-        body: { command: "ACKNOWLEDGE", paymentRef: ackRef.trim() },
-      });
-      toast.success("回执已记录", ackRef.trim());
-      setAckTarget(null);
-      batches.reload();
-    } catch (caught) {
-      setAckError(caught instanceof ApiError ? caught.message : "回执失败");
-    }
+  const list = batches.data ?? [];
+  const selectedBatch =
+    list.find((batch) => batch.id === selectedBatchId) ?? null;
+  const canViewPayments = roles.some((role) =>
+    ["admin", "manager", "finance"].includes(role),
+  );
+
+  function togglePaymentPanel(batch: AwardBatchView) {
+    setSelectedBatchId((current) =>
+      current === batch.id ? null : batch.id,
+    );
   }
 
-  const list = batches.data ?? [];
+  function closePaymentPanel() {
+    const closingId = selectedBatchId;
+    setSelectedBatchId(null);
+    if (!closingId) return;
+    window.setTimeout(() => {
+      document.getElementById(`award-toggle-${closingId}`)?.focus();
+    }, 0);
+  }
 
   return (
     <div className="page">
@@ -411,21 +407,33 @@ export function AwardBatchPage() {
             />
           ) : (
             <div className="table-wrap">
-              <table className="table">
+              <table className="data-table">
+                <caption className="sr-only">
+                  发放批次台账：批次号、奖项/周期、明细数、总额、状态与操作
+                </caption>
                 <thead>
                   <tr>
-                    <th>批次号</th>
-                    <th>奖项 / 周期</th>
-                    <th>明细</th>
-                    <th className="cell-num">总额</th>
-                    <th>状态</th>
-                    <th>创建时间</th>
-                    <th />
+                    <th scope="col">批次号</th>
+                    <th scope="col">奖项 / 周期</th>
+                    <th scope="col">明细</th>
+                    <th scope="col" className="cell-num">
+                      总额
+                    </th>
+                    <th scope="col">状态</th>
+                    <th scope="col">创建时间</th>
+                    <th scope="col">
+                      <span className="sr-only">操作</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {list.map((batch) => (
-                    <tr key={batch.id}>
+                    <tr
+                      key={batch.id}
+                      className={
+                        selectedBatchId === batch.id ? "is-selected" : undefined
+                      }
+                    >
                       <td>
                         <span className="cell-primary">{batch.batchNo}</span>
                         <span className="cell-sub">
@@ -462,27 +470,40 @@ export function AwardBatchPage() {
                             ),
                           )}
                           {canFinance && batch.status === "EXPORTED" ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  window.open(
-                                    `/api/v1/incentive-award-batches/${batch.id}/export`,
-                                    "_blank",
-                                  );
-                                }}
-                              >
-                                下载
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                onClick={() => void command(batch, "ACKNOWLEDGE")}
-                              >
-                                回执
-                              </Button>
-                            </>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                window.open(
+                                  `/api/v1/incentive-award-batches/${batch.id}/export`,
+                                  "_blank",
+                                );
+                              }}
+                            >
+                              下载
+                            </Button>
+                          ) : null}
+                          {canViewPayments ? (
+                            <Button
+                              id={`award-toggle-${batch.id}`}
+                              size="sm"
+                              variant={
+                                selectedBatchId === batch.id
+                                  ? "ghost"
+                                  : "secondary"
+                              }
+                              aria-expanded={selectedBatchId === batch.id}
+                              aria-controls={
+                                selectedBatchId === batch.id
+                                  ? `award-payment-${batch.id}`
+                                  : undefined
+                              }
+                              onClick={() => togglePaymentPanel(batch)}
+                            >
+                              {selectedBatchId === batch.id
+                                ? "收起对账"
+                                : "支付与对账"}
+                            </Button>
                           ) : null}
                           {["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(
                             batch.status,
@@ -504,42 +525,17 @@ export function AwardBatchPage() {
             </div>
           )}
         </Panel>
-      </div>
 
-      <Modal
-        open={Boolean(ackTarget)}
-        title={`发放回执 · ${ackTarget?.batchNo ?? ""}`}
-        onClose={() => setAckTarget(null)}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setAckTarget(null)}>
-              取消
-            </Button>
-            <Button variant="primary" type="submit" form="award-ack-form">
-              确认回执
-            </Button>
-          </>
-        }
-      >
-        <form id="award-ack-form" onSubmit={submitAck} className="form-grid">
-          {ackError ? (
-            <div className="field--full">
-              <InfoNotice tone="warning">{ackError}</InfoNotice>
-            </div>
-          ) : null}
-          <FormField
-            label="银行/财务回执引用"
-            className="field--full"
-            hint="例如银行批次号、付款流水号"
-          >
-            <TextInput
-              value={ackRef}
-              onChange={(event) => setAckRef(event.target.value)}
-              required
-            />
-          </FormField>
-        </form>
-      </Modal>
+        {selectedBatch ? (
+          <AwardPaymentWorkbench
+            key={`${selectedBatch.id}:${selectedBatch.status}`}
+            batch={selectedBatch}
+            canPay={canFinance}
+            onClose={closePaymentPanel}
+            onChanged={() => batches.reload()}
+          />
+        ) : null}
+      </div>
 
       <Modal
         open={importOpen}

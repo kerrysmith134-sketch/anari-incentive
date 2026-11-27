@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-26T22:34:24.854Z",
+  "generatedAt": "2026-11-27T14:50:55.127Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",
@@ -590,6 +590,21 @@
       "file": "118_jev_decisions.sql",
       "bytes": 8611,
       "sha256": "fc0b8a76f6dbf3c509c5143c5bc74941f1b2653f3f53de082d07b38ee03a4799"
+    },
+    {
+      "file": "119_payment_atomicity.sql",
+      "bytes": 4116,
+      "sha256": "6a794ce42dcb9f073f01df4078efffb75a809e09f08595c8b07e8113aa643f95"
+    },
+    {
+      "file": "120_jev_verification_binding.sql",
+      "bytes": 4578,
+      "sha256": "7756846d764464dbee565444cf2f7892dff7a6d714604a540ecca9125e70d882"
+    },
+    {
+      "file": "121_metric_snapshot_consumption.sql",
+      "bytes": 7236,
+      "sha256": "d108202caa643682313cddb84cf5d6d445efd85f38cee0ae7f4e8d5e9709b492"
     }
   ]
 }

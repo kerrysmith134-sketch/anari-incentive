@@ -63,9 +63,13 @@ import type {
   PolicyEngineRecord,
   IncentiveAwardBatch,
   IncentiveAwardBatchReconciliation,
+  IncentiveAwardGlJournalRef,
   IncentiveAwardPayment,
+  IncentiveAwardPaymentAudit,
+  IncentiveAwardPaymentCreditAccount,
   IncentiveAwardPaymentStatus,
   IncentiveAwardType,
+  GlJournal,
   NoticeAcknowledgementOverview,
   NoticeType,
   PlatformIdentity,
@@ -120,6 +124,11 @@ import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyRepor
 import type { IncentivePort } from "../../store-ports.js";
 import type { MemoryPlatformStoreBase, MemoryPlatformStoreBaseShape } from "./base.memory.js";
 
+/** 复式记账入参（与 Budget mixin 的 createJournalEntry 保持一致）。 */
+type AwardPaymentJournalInput = Parameters<
+  MemoryPlatformStoreBaseShape["createJournalEntry"]
+>[0];
+
 /** 迁移 117：支付金额必须是可解析的正定点金额（1e6 标度）。 */
 function awardPaymentAmount(value: string): bigint {
   try {
@@ -145,10 +154,104 @@ function awardPaymentAccountingPeriod(
   return period;
 }
 
+/** 迁移 119：幂等载荷的记账维度（显式值或服务端缺省）。 */
+interface AwardPaymentLedgerDimensions {
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: IncentiveAwardPaymentCreditAccount;
+}
+
+function awardPaymentDimensions(
+  input: {
+    legalEntityId?: string;
+    accountingPeriod?: string;
+    creditAccount?: IncentiveAwardPaymentCreditAccount;
+  },
+  fallbackPaidAt: string | undefined,
+): AwardPaymentLedgerDimensions {
+  const explicitPeriod = input.accountingPeriod?.trim();
+  if (
+    explicitPeriod &&
+    !/^\d{4}-(0[1-9]|1[0-2])$/.test(explicitPeriod)
+  ) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_ACCOUNTING_PERIOD_INVALID: ${explicitPeriod}`,
+    );
+  }
+  const paidAt = fallbackPaidAt?.trim() || now();
+  return {
+    legalEntityId: input.legalEntityId?.trim() || "DEFAULT",
+    accountingPeriod:
+      explicitPeriod ||
+      (fallbackPaidAt ? awardPaymentAccountingPeriod(undefined, paidAt) : undefined),
+    creditAccount: input.creditAccount ?? GL_ACCOUNT_CODES.CASH,
+  };
+}
+
+/**
+ * 迁移 119：同一 payment_ref 的幂等重放必须携带完全一致的记账维度。
+ * accountingPeriod 未显式给出时不比较（服务端缺省可能来自首次落库时间）。
+ */
+function assertAwardPaymentIdempotent(
+  existing: IncentiveAwardPayment,
+  expected: {
+    status: IncentiveAwardPaymentStatus;
+    amount: bigint;
+    currency: string;
+    dimensions: AwardPaymentLedgerDimensions;
+    explicitAccountingPeriod?: string;
+  },
+): void {
+  const sameDimensions =
+    existing.legalEntityId === expected.dimensions.legalEntityId &&
+    existing.creditAccount === expected.dimensions.creditAccount &&
+    (!expected.explicitAccountingPeriod ||
+      existing.accountingPeriod === expected.explicitAccountingPeriod);
+  if (
+    existing.status !== expected.status ||
+    awardPaymentAmount(existing.amount) !== expected.amount ||
+    existing.currency.trim().toUpperCase() !== expected.currency ||
+    !sameDimensions
+  ) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_IDEMPOTENCY_CONFLICT: ref ${existing.paymentRef} already recorded with a different payload`,
+    );
+  }
+}
+
+/** 迁移 119：支付对账需要的 PAYMENT 凭证投影。 */
+function awardPaymentJournalRefs(
+  journals: Iterable<GlJournal>,
+  tenantId: string,
+  paidPaymentIds: ReadonlySet<string>,
+): IncentiveAwardGlJournalRef[] {
+  if (paidPaymentIds.size === 0) return [];
+  return [...journals]
+    .filter(
+      (journal) =>
+        journal.tenantId === tenantId &&
+        journal.documentType === "PAYMENT" &&
+        paidPaymentIds.has(journal.documentId),
+    )
+    .map((journal) => ({
+      documentId: journal.documentId,
+      totalDebit: journal.totalDebit,
+      totalCredit: journal.totalCredit,
+    }));
+}
+
 export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorParameters<typeof MemoryPlatformStoreBase>) => MemoryPlatformStoreBaseShape) {
   return class extends Base implements IncentivePort {
     /** 迁移 117：奖励批次单行支付回执（幂等键 = batch+line+payment_ref）。 */
     private readonly incentiveAwardPayments = new Map<string, IncentiveAwardPayment>();
+    /**
+     * 迁移 119：支付审计链。与支付回执在同一个原子写入块内追加；
+     * 任一步失败（含审计）都会回滚本次新增的支付/凭证/审计。
+     */
+    private readonly incentiveAwardPaymentAudits = new Map<
+      string,
+      IncentiveAwardPaymentAudit
+    >();
 
     async createStrategicPoolCase(input: {
       tenantId: string;
@@ -951,12 +1054,19 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
       paymentRef?: string;
     }): Promise<IncentiveAwardBatch> {
       return this.withCommandLock(`award:${input.tenantId}:${input.batchId}`, async () => {
-        // 迁移 117：回执前必须所有行足额 PAID 且已付合计 = 批次 total_amount。
+        // 迁移 117/119：回执前必须所有行足额 PAID、已付合计 = 批次
+        // total_amount，且每条 PAID 都有同一事务内写出的平衡 GL 凭证。
         if (input.command === "ACKNOWLEDGE") {
           const reconciliation = await this.getIncentiveAwardBatchReconciliation(
             input.tenantId,
             input.batchId,
           );
+          if (!reconciliation.glComplete) {
+            throw new ConflictError(
+              `AWARD_GL_MISSING: paid lines ${reconciliation.missingJournalLineIds.join(",")} ` +
+                "have no balanced PAYMENT journal",
+            );
+          }
           if (reconciliation.status !== "RECONCILED") {
             throw new ConflictError(
               `AWARD_BATCH_NOT_RECONCILED: paid ${reconciliation.paidAmount}/${reconciliation.totalAmount} ` +
@@ -980,10 +1090,26 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
     }
 
+    /**
+     * 迁移 119：GL 账本由 Budget mixin 持有（private Map）。这里只读取其
+     * 引用做对账与回滚；不改变字段所属 mixin，也不写入其它租户数据。
+     */
+    private awardGlJournals(): Map<string, GlJournal> | undefined {
+      return (
+        this as unknown as { glJournals?: Map<string, GlJournal> }
+      ).glJournals;
+    }
+
     private reconcileAwardBatch(
       batch: IncentiveAwardBatch,
       payments: IncentiveAwardPayment[],
     ): IncentiveAwardBatchReconciliation {
+      const paidPaymentIds = new Set(
+        payments
+          .filter((payment) => payment.status === "PAID")
+          .map((payment) => payment.id),
+      );
+      const journalMap = this.awardGlJournals();
       return reconcileIncentiveAwardBatch({
         batchId: batch.id,
         batchNo: batch.batchNo,
@@ -1003,6 +1129,9 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
           paymentRef: payment.paymentRef,
           status: payment.status,
         })),
+        journals: journalMap
+          ? awardPaymentJournalRefs(journalMap.values(), batch.tenantId, paidPaymentIds)
+          : [],
       });
     }
 
@@ -1015,6 +1144,42 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         batch,
         this.awardPaymentsForBatch(tenantId, batchId),
       );
+    }
+
+    /** 迁移 119：PAID 回执记账；测试可覆盖以模拟 GL 写入失败。 */
+    protected async postAwardPaymentJournal(
+      input: AwardPaymentJournalInput,
+    ): Promise<GlJournal> {
+      return this.createJournalEntry(input);
+    }
+
+    /** 迁移 119：支付审计追加；测试可覆盖以模拟审计写入失败。 */
+    protected async recordAwardPaymentAudit(
+      input: Omit<IncentiveAwardPaymentAudit, "id" | "occurredAt">,
+    ): Promise<void> {
+      const event: IncentiveAwardPaymentAudit = {
+        id: randomUUID(),
+        ...input,
+        occurredAt: now(),
+      };
+      this.incentiveAwardPaymentAudits.set(event.id, event);
+    }
+
+    async listIncentiveAwardPaymentAudits(
+      tenantId: string,
+      batchId: string,
+    ): Promise<IncentiveAwardPaymentAudit[]> {
+      await this.getIncentiveAwardBatch(tenantId, batchId);
+      return [...this.incentiveAwardPaymentAudits.values()]
+        .filter(
+          (event) =>
+            event.tenantId === tenantId && event.batchId === batchId,
+        )
+        .sort(
+          (left, right) =>
+            left.occurredAt.localeCompare(right.occurredAt) ||
+            left.id.localeCompare(right.id),
+        );
     }
 
     async recordIncentiveAwardPayments(input: {
@@ -1031,7 +1196,36 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         failureCode?: string;
         legalEntityId?: string;
         accountingPeriod?: string;
-        creditAccount?: "CASH" | "PAYABLE";
+        creditAccount?: IncentiveAwardPaymentCreditAccount;
+      }>;
+    }): Promise<{
+      payments: IncentiveAwardPayment[];
+      reconciliation: IncentiveAwardBatchReconciliation;
+      createdPaymentIds: string[];
+    }> {
+      // 与 ACK 共用同一把批次命令锁：ACK 读支付/GL/对账并推进状态时，
+      // 不可能与并发支付交错（Memory 的单进程事务模拟）。
+      return this.withCommandLock(
+        `award:${input.tenantId}:${input.batchId}`,
+        async () => this.recordIncentiveAwardPaymentsLocked(input),
+      );
+    }
+
+    private async recordIncentiveAwardPaymentsLocked(input: {
+      tenantId: string;
+      batchId: string;
+      actorPersonId: string;
+      payments: Array<{
+        lineId: string;
+        paymentRef: string;
+        status: IncentiveAwardPaymentStatus;
+        amount: string;
+        currency: string;
+        paidAt?: string;
+        failureCode?: string;
+        legalEntityId?: string;
+        accountingPeriod?: string;
+        creditAccount?: IncentiveAwardPaymentCreditAccount;
       }>;
     }): Promise<{
       payments: IncentiveAwardPayment[];
@@ -1042,17 +1236,38 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         input.tenantId,
         input.batchId,
       );
-      if (!["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status)) {
+      const acknowledged = batch.status === "ACKNOWLEDGED";
+      if (acknowledged) {
+        // ACK 后历史 PAID 不可改：只允许独立的 RETURNED（退款/退票）留痕。
+        const illegal = input.payments.find(
+          (payment) => payment.status !== "RETURNED",
+        );
+        if (illegal) {
+          throw new ConflictError(
+            `AWARD_BATCH_ALREADY_ACKNOWLEDGED: batch ${batch.batchNo} is ACKNOWLEDGED; ` +
+              "only RETURNED receipts may be recorded after acknowledgement",
+          );
+        }
+      } else if (!["LOCKED", "EXPORTED"].includes(batch.status)) {
         throw new ConflictError(
           `AWARD_BATCH_NOT_PAYABLE: batch ${batch.batchNo} is ${batch.status}; ` +
-            "payments are accepted only after LOCK/EXPORT/ACKNOWLEDGE",
+            "payments are accepted only after LOCK/EXPORT",
         );
       }
+
       const lineById = new Map(batch.lines.map((line) => [line.id, line]));
       const batchCurrency = batch.currency.trim().toUpperCase();
       const results: IncentiveAwardPayment[] = [];
       const createdPaymentIds: string[] = [];
       const seenInRequest = new Map<string, IncentiveAwardPayment>();
+      const plannedInRequest = new Map<string, IncentiveAwardPayment>();
+      type Slot =
+        | { kind: "existing"; payment: IncentiveAwardPayment }
+        | { kind: "planned"; payment: IncentiveAwardPayment; journal?: AwardPaymentJournalInput };
+      const slots: Slot[] = [];
+
+      // 第一段：纯校验 + 幂等解析，不写入任何状态。任何一个输入不合法，
+      // 整个请求都拒绝，不会留下“前几条已落库”的半截结果。
       for (const raw of input.payments) {
         const paymentRef = raw.paymentRef.trim();
         if (!paymentRef) {
@@ -1085,9 +1300,11 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         if (paidAt && Number.isNaN(Date.parse(paidAt))) {
           throw new ConflictError(`AWARD_PAYMENT_PAID_AT_INVALID: ${paidAt}`);
         }
+        const dimensions = awardPaymentDimensions(raw, paidAt);
         const idempotencyKey = `${line.id}:${paymentRef}`;
         const existing =
           seenInRequest.get(idempotencyKey) ??
+          plannedInRequest.get(idempotencyKey) ??
           [...this.incentiveAwardPayments.values()].find(
             (payment) =>
               payment.tenantId === input.tenantId &&
@@ -1096,19 +1313,18 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
               payment.paymentRef === paymentRef,
           );
         if (existing) {
-          const samePayload =
-            existing.status === raw.status &&
-            awardPaymentAmount(existing.amount) === amount &&
-            existing.currency === currency;
-          if (!samePayload) {
-            throw new ConflictError(
-              `AWARD_PAYMENT_IDEMPOTENCY_CONFLICT: ref ${paymentRef} already recorded with a different payload`,
-            );
-          }
+          assertAwardPaymentIdempotent(existing, {
+            status: raw.status,
+            amount,
+            currency,
+            dimensions,
+            explicitAccountingPeriod: raw.accountingPeriod?.trim() || undefined,
+          });
           seenInRequest.set(idempotencyKey, existing);
-          results.push(existing);
+          slots.push({ kind: "existing", payment: existing });
           continue;
         }
+
         const timestamp = now();
         const payment: IncentiveAwardPayment = {
           id: randomUUID(),
@@ -1122,39 +1338,91 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
           status: raw.status,
           paidAt: paidAt || undefined,
           failureCode: raw.failureCode?.trim() || undefined,
+          legalEntityId: dimensions.legalEntityId,
+          accountingPeriod: dimensions.accountingPeriod,
+          creditAccount: dimensions.creditAccount,
           createdAt: timestamp,
         };
-        // 只有 PAID 才是会计事实：借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE。
-        // FAILED/RETURNED 只留痕，不生成凭证。
-        if (payment.status === "PAID") {
-          await this.createJournalEntry({
-            tenantId: input.tenantId,
-            documentType: "PAYMENT",
-            documentId: payment.id,
-            legalEntityId: raw.legalEntityId?.trim() || "DEFAULT",
-            accountingPeriod: awardPaymentAccountingPeriod(
-              raw.accountingPeriod,
-              payment.paidAt ?? timestamp,
-            ),
-            currency,
-            description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
-            lines: [
-              {
-                accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
-                debit: payment.amount,
-              },
-              {
-                accountCode: raw.creditAccount ?? GL_ACCOUNT_CODES.CASH,
-                credit: payment.amount,
-              },
-            ],
-          });
-        }
-        this.incentiveAwardPayments.set(payment.id, payment);
-        seenInRequest.set(idempotencyKey, payment);
-        results.push(payment);
-        createdPaymentIds.push(payment.id);
+        plannedInRequest.set(idempotencyKey, payment);
+        slots.push({
+          kind: "planned",
+          payment,
+          // 只有 PAID 才是会计事实：借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE。
+          journal:
+            payment.status === "PAID"
+              ? {
+                  tenantId: input.tenantId,
+                  documentType: "PAYMENT",
+                  documentId: payment.id,
+                  legalEntityId: dimensions.legalEntityId,
+                  accountingPeriod:
+                    dimensions.accountingPeriod ??
+                    awardPaymentAccountingPeriod(undefined, payment.paidAt ?? timestamp),
+                  currency,
+                  description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
+                  lines: [
+                    {
+                      accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
+                      debit: payment.amount,
+                    },
+                    {
+                      accountCode: dimensions.creditAccount,
+                      credit: payment.amount,
+                    },
+                  ],
+                }
+              : undefined,
+        });
       }
+
+      // 第二段：在同一原子块内写 GL、支付、审计。任一步抛错都回滚本次
+      // 新增的全部记录（不只当前一条），Memory 与 PG 的“整体回滚”对齐。
+      const paymentsBefore = new Set(this.incentiveAwardPayments.keys());
+      const journalMap = this.awardGlJournals();
+      const journalsBefore = new Set(journalMap?.keys() ?? []);
+      const auditsBefore = new Set(this.incentiveAwardPaymentAudits.keys());
+      try {
+        for (const slot of slots) {
+          if (slot.kind === "existing") {
+            results.push(slot.payment);
+            continue;
+          }
+          if (slot.journal) {
+            await this.postAwardPaymentJournal(slot.journal);
+          }
+          this.incentiveAwardPayments.set(slot.payment.id, slot.payment);
+          await this.recordAwardPaymentAudit({
+            tenantId: input.tenantId,
+            batchId: input.batchId,
+            paymentId: slot.payment.id,
+            action: "INCENTIVE_AWARD_PAYMENT_RECORDED",
+            actorType: "USER",
+            actorId: input.actorPersonId,
+            reason:
+              `${slot.payment.status} ref=${slot.payment.paymentRef} ` +
+              `amount=${slot.payment.amount} ${slot.payment.currency} ` +
+              `line=${slot.payment.lineId}`,
+          });
+          results.push(slot.payment);
+          createdPaymentIds.push(slot.payment.id);
+        }
+      } catch (error) {
+        for (const id of [...this.incentiveAwardPayments.keys()]) {
+          if (!paymentsBefore.has(id)) this.incentiveAwardPayments.delete(id);
+        }
+        if (journalMap) {
+          for (const id of [...journalMap.keys()]) {
+            if (!journalsBefore.has(id)) journalMap.delete(id);
+          }
+        }
+        for (const id of [...this.incentiveAwardPaymentAudits.keys()]) {
+          if (!auditsBefore.has(id)) {
+            this.incentiveAwardPaymentAudits.delete(id);
+          }
+        }
+        throw error;
+      }
+
       return {
         payments: results,
         reconciliation: this.reconcileAwardBatch(

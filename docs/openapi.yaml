@@ -4829,11 +4829,15 @@ paths:
   /api/v1/decision-cases/{id}:
     get:
       tags: [Decisions]
-      summary: Decision case with evidence, separated judgments, verifications and record
+      summary: Decision case with evidence, separated judgments, verifications, links and record
       description: |
         Human judgments and AI suggestions are returned in separate arrays
         (`judgments.human` / `judgments.ai`) so a suggestion can never be
-        mistaken for an authorized decision.
+        mistaken for an authorized decision. Each verification carries the
+        `verifiedCaseVersion` / `evidenceHash` / `judgmentsHash` it bound and a
+        derived `stale` flag (stale means evidence or judgments changed after
+        the verification). `links` lists business objects (evaluation,
+        contribution, appeal, eligibility, budget) that reference this case.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -4855,7 +4859,10 @@ paths:
       description: |
         The server recomputes the canonical sha256 of `content` and rejects a
         mismatch with 409 EVIDENCE_HASH_MISMATCH. Evidence is append-only and
-        the same source/content pair cannot be appended twice.
+        the same source/content pair cannot be appended twice. Since 120 the
+        content is retained as a server-side verification copy so every
+        content_hash can be recomputed at verification time; the detail
+        endpoint does not return it.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -4886,9 +4893,13 @@ paths:
       summary: Submit an independent judgment (human or AI suggestion)
       description: |
         `HUMAN` judgments must use the authenticated person as `actorId`.
-        `AI_MODEL` judgments record `modelRef` and remain advisory. The same
-        actor may submit only one judgment per case; a second attempt returns
-        409 JUDGMENT_IMMUTABLE and never rewrites the first.
+        `AI_MODEL` judgments record `modelRef` and remain advisory; writing one
+        requires either the `platform_admin` role or a matching
+        `x-decision-ai-token` header (env `DECISION_AI_TOKEN`, at least 32
+        characters). A normal business token receives 403
+        AI_JUDGMENT_FORBIDDEN. The same actor may submit only one judgment per
+        case; a second attempt returns 409 JUDGMENT_IMMUTABLE and never
+        rewrites the first.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -4918,11 +4929,24 @@ paths:
   /api/v1/decision-cases/{id}/verify:
     post:
       tags: [Decisions]
-      summary: Record a verification (conflict of interest, evidence coverage, rules)
+      summary: Run the five server-side verification checkers
       description: |
-        The latest verification decides whether the case is READY. A decision
-        is rejected with 409 while no verification exists or the latest one
-        did not pass.
+        The server executes all five checkers and owns the `passed` result:
+        ConflictChecker (the prospective decider cannot be any HUMAN judgment
+        actor; an AI actor can never decide), EvidenceIntegrityChecker (every
+        evidence content_hash is recomputed and PERFORMANCE / CONTRIBUTION /
+        APPEAL need at least one FOR or AGAINST evidence), CoverageChecker
+        (PERFORMANCE / CONTRIBUTION need two independent source types and both
+        sides, unless a side is explicitly declared missing in
+        `context.missingEvidence`), RuleChecker (a human judgment must exist,
+        AI judgments stay advisory and the case status must be mutable) and
+        FreshnessChecker (binds case.version / evidenceHash / judgmentsHash).
+        A client-supplied `passed` / `checks` / `findings` is accepted only
+        for backward compatibility and is ignored: the server result always
+        wins. A failed verification returns 409
+        DECISION_VERIFICATION_FAILED with the check results in
+        `error.details`; the failed run is still stored for audit, but it can
+        never authorize a decision.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -4933,7 +4957,44 @@ paths:
               $ref: "#/components/schemas/RecordDecisionVerification"
       responses:
         "201":
-          description: Verification recorded
+          description: Verification passed and was recorded with its fact binding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/decision-cases/{id}/link:
+    post:
+      tags: [Decisions]
+      summary: Link a business object to a decision case
+      description: |
+        Business objects (performance evaluation, contribution assessment,
+        appeal, incentive eligibility, budget) reference a case without
+        changing their existing routes. The resource type must match the case
+        kind (409 DECISION_LINK_KIND_MISMATCH); the same resource can only be
+        linked once (409 DECISION_LINK_ALREADY_RECORDED). Links are
+        append-only and returned by the case detail endpoint.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkDecisionCase"
+      responses:
+        "201":
+          description: Business object linked to the case
           content:
             application/json:
               schema:
@@ -4957,8 +5018,11 @@ paths:
         Requires a human independent judgment, a passing verification, and a
         decider distinct from every HUMAN judgment actor (self-decision returns
         409 SELF_DECISION_FORBIDDEN). An AI_MODEL actor can never decide. The
-        record is one-per-case and cannot be rewritten; a second decision
-        returns 409 DECISION_RECORD_IMMUTABLE.
+        latest passing verification must still match the current case version,
+        evidence hash and judgments hash; any evidence or judgment added after
+        verification returns 409 DECISION_STALE_VERIFICATION and requires a new
+        verification. The record is one-per-case and cannot be rewritten; a
+        second decision returns 409 DECISION_RECORD_IMMUTABLE.
       parameters:
         - $ref: "#/components/parameters/IdPath"
       requestBody:
@@ -11767,13 +11831,22 @@ paths:
       tags: [Policy]
       summary: 基于锁定事实计算绩效得分
       description: >-
-        只从已锁定目标卡（指标/权重/目标）与已通过 contentHash 复核的冻结计量
-        快照（metricId/value）构造评分输入，客户端不得提交测量值。缺锁定卡或
-        无有效快照返回 409 PERFORMANCE_FACTS_NOT_READY；metricInputs 试图提供
-        或覆盖 rawValue/value/applicable/acceptanceScore/eventAdjustment 等权威
-        字段返回 409 PERFORMANCE_INPUT_OVERRIDES_FACTS。响应含
-        source=LOCKED_FACTS 与 factsHash（锁定卡 + 快照 id/version/hash 的稳定
-        sha256，同输入重放一致）。
+        只从已锁定目标卡（指标/权重/目标）与唯一一张已通过 contentHash 复核的
+        冻结计量快照（metricId/value）构造评分输入，客户端不得提交测量值。
+        响应含 eligibility：FORMAL（complete && scoreable、指标全覆盖且逐项
+        quality=VALID、制度版本已发布且与周期绑定一致）才写 COMPUTED；
+        INCOMPLETE（缺指标/质量非 VALID）写 INCOMPLETE；BLOCKED（制度版本
+        缺失/未发布/不适用）写 BLOCKED，分数仅作参考。任何成功保存的评分都会
+        在存储层原子消费所用快照（consumedByRecordId），已消费快照再次评分
+        409 SNAPSHOT_ALREADY_CONSUMED。缺锁定卡/无有效快照 409 PERFORMANCE_FACTS_NOT_READY；
+        多张锁定卡或冻结快照 409 PERFORMANCE_FACTS_AMBIGUOUS；快照已消费
+        409 SNAPSHOT_ALREADY_CONSUMED；制度版本与周期绑定不一致
+        409 POLICY_VERSION_MISMATCH；快照缺 sourceRef/sourceSystem/
+        sourceRecordId/sourceVersion 409 PERFORMANCE_SOURCE_TRACE_MISSING；
+        metricInputs 提供或覆盖 rawValue/value/applicable/acceptanceScore/
+        eventAdjustment 等权威字段 409 PERFORMANCE_INPUT_OVERRIDES_FACTS。
+        响应含 source=LOCKED_FACTS 与 factsHash（锁定卡 + 快照 id/version/hash
+        + 逐项来源的稳定 sha256，同输入重放一致）。
       requestBody:
         required: true
         content:
@@ -11789,7 +11862,11 @@ paths:
                 type: object
                 additionalProperties: true
         "409":
-          description: PERFORMANCE_FACTS_NOT_READY 或 PERFORMANCE_INPUT_OVERRIDES_FACTS
+          description: >-
+            PERFORMANCE_FACTS_NOT_READY / PERFORMANCE_FACTS_AMBIGUOUS /
+            SNAPSHOT_ALREADY_CONSUMED / POLICY_VERSION_MISMATCH /
+            PERFORMANCE_SOURCE_TRACE_MISSING /
+            PERFORMANCE_INPUT_OVERRIDES_FACTS
           content:
             application/json:
               schema:
@@ -12580,11 +12657,16 @@ paths:
       tags: [Policy]
       summary: 记录制度激励发放支付回执
       description: >-
-        记录单行（可批量 payments[]）支付回执。批次必须 LOCKED/EXPORTED/ACKNOWLEDGED，
-        行必须属于该批次，金额与批次行一致、币种一致（否则 409）。
-        唯一键 (batch, line, payment_ref) 幂等：重复回执返回原记录（200），
-        每笔 PAID 生成借贷平衡的 GL 凭证（借 INCENTIVE_EXPENSE / 贷 CASH 或 PAYABLE），
+        记录单行（可批量 payments[]）支付回执。ACK 前批次必须 LOCKED/EXPORTED，
+        ACKNOWLEDGED 后只接受独立的 RETURNED（退款/退票）记录，普通支付返回
+        409 AWARD_BATCH_ALREADY_ACKNOWLEDGED。行必须属于该批次，金额与批次行
+        一致、币种一致（否则 409）。
+        支付记录、每笔 PAID 的平衡 GL 凭证（借 INCENTIVE_EXPENSE / 贷 CASH 或
+        PAYABLE）与支付审计事件在同一个 DB 事务内提交，任一步失败整体回滚；
         FAILED/RETURNED 只留痕不记账。
+        唯一键 (batch, line, payment_ref) 幂等：重复回执返回原记录（200），
+        同一 ref 的 status/amount/currency/legalEntityId/accountingPeriod/
+        creditAccount 任一不同返回 409 AWARD_PAYMENT_IDEMPOTENCY_CONFLICT。
       parameters:
         - name: id
           in: path
@@ -12616,14 +12698,20 @@ paths:
         "404":
           description: 批次不存在或属于其他租户
         "409":
-          description: 批次状态/行归属/金额/币种不符，或同一 payment_ref 载荷冲突
+          description: >-
+            批次状态（AWARD_BATCH_NOT_PAYABLE / AWARD_BATCH_ALREADY_ACKNOWLEDGED）、
+            行归属、金额、币种不符，或同一 payment_ref 的载荷/记账维度冲突
   /api/v1/incentive-award-batches/{id}/reconciliation:
     get:
       tags: [Policy]
       summary: 查询制度激励发放批次对账
       description: >-
-        返回每行已付/未付/差异、总数与批次对账状态
-        （RECONCILED=全部足额，PARTIAL=少付，VARIANCE=多付或行级错配）。
+        返回每行已付/未付/差异、总数、glComplete、missingJournalLineIds 与
+        批次对账状态。只有金额一致（每行差异为 0、已付合计 = total_amount）
+        且每条 PAID 都有按 documentId 可查的平衡 PAYMENT 凭证时才
+        RECONCILED；金额足额但凭证缺失为 GL_INCOMPLETE；PARTIAL=少付；
+        VARIANCE=多付或行级错配。missingJournalLineIds 列出有 PAID 回执
+        但缺平衡凭证的批次行 id。
       parameters:
         - name: id
           in: path
@@ -13696,7 +13784,11 @@ components:
 
     CreateMetricMeasurementSnapshot:
       type: object
-      required: [cycleId, personId, rubricVersionId, measurements, frozenBy]
+      description: >-
+        frozenBy 由服务端按会话身份注入，请求体不可携带。正式评分
+        （score-from-facts）要求每项测量都带齐 sourceRef/sourceSystem/
+        sourceRecordId/sourceVersion。
+      required: [cycleId, personId, rubricVersionId, measurements]
       properties:
         cycleId:
           $ref: "#/components/schemas/Uuid"
@@ -13725,14 +13817,18 @@ components:
                 type: string
               sourceRef:
                 type: string
+              sourceSystem:
+                type: string
+              sourceRecordId:
+                type: string
+              sourceVersion:
+                type: string
               observedAt:
                 type: string
                 format: date-time
               qualityStatus:
                 type: string
                 enum: [VALID, MISSING, STALE, CONFLICTED]
-        frozenBy:
-          $ref: "#/components/schemas/Uuid"
 
     ScorePerformanceFromFacts:
       type: object
@@ -13746,7 +13842,10 @@ components:
           type: string
           minLength: 1
           maxLength: 128
-          description: 本次评分绑定的制度版本；必须与评价周期绑定的版本一致
+          description: >-
+            本次评分绑定的制度版本。周期已绑定版本时必须完全一致，否则 409
+            POLICY_VERSION_MISMATCH；周期未绑定版本时以本字段为准并校验其在本
+            周期内有效。版本不存在或未 PUBLISHED 时结果只能是 BLOCKED。
         metricInputs:
           type: array
           maxItems: 200
@@ -14868,12 +14967,21 @@ components:
                 type: string
                 minLength: 1
                 maxLength: 64
+                description: >-
+                  PAID 回执的记账法人主体；缺省 DEFAULT。持久化并纳入
+                  payment_ref 幂等载荷。
               accountingPeriod:
                 type: string
                 pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+                description: >-
+                  PAID 回执的会计期间；缺省取 paidAt 的 YYYY-MM。持久化并
+                  纳入 payment_ref 幂等载荷。
               creditAccount:
                 type: string
                 enum: [CASH, PAYABLE]
+                description: >-
+                  PAID 回执的贷方科目；缺省 CASH。持久化并纳入 payment_ref
+                  幂等载荷。
 
     DecideAccountingPeriodChange:
       type: object
@@ -16530,7 +16638,7 @@ components:
           minLength: 1
           maxLength: 256
         content:
-          description: Evidence payload; used only to recompute the hash, never stored.
+          description: Evidence payload; the hash is recomputed now and the content is retained as a server-side verification copy (never returned by the detail endpoint).
         contentHash:
           type: string
           pattern: "^(sha256:)?[0-9a-fA-F]{64}$"
@@ -16581,25 +16689,38 @@ components:
 
     RecordDecisionVerification:
       type: object
-      required: [checks, passed]
+      description: |
+        The server owns checks/findings/passed. The legacy fields `passed`,
+        `checks` and `findings` are accepted for backward compatibility but
+        ignored; the server result always wins. A passing verification binds
+        the case version and the evidence / judgment hashes at verification
+        time.
       properties:
+        passed:
+          type: boolean
+          deprecated: true
+          description: Ignored; the server computes the authoritative result.
         checks:
           type: object
           additionalProperties: true
-          description: Machine-readable results for conflict/coverage/rule checks.
+          deprecated: true
+          description: Ignored; the server computes the authoritative result.
         findings:
           type: array
           maxItems: 200
           items:
             type: object
             additionalProperties: true
-          default: []
-        passed:
-          type: boolean
+          deprecated: true
+          description: Ignored; the server computes the authoritative result.
         verifiedBy:
           allOf:
             - $ref: "#/components/schemas/Uuid"
           description: Defaults to the authenticated person.
+        decidedBy:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Optional prospective decider; the ConflictChecker pre-checks it, and decide re-checks the real decider.
 
     DecideDecisionCase:
       type: object
@@ -16616,6 +16737,27 @@ components:
           allOf:
             - $ref: "#/components/schemas/Uuid"
           description: Optional HUMAN judgment to cite; defaults to the latest human judgment.
+
+    LinkDecisionCase:
+      type: object
+      required: [resourceType, resourceId]
+      properties:
+        resourceType:
+          type: string
+          enum: [PERFORMANCE_EVALUATION, CONTRIBUTION_ASSESSMENT, APPEAL, INCENTIVE_ELIGIBILITY, BUDGET]
+        resourceId:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Business object id; may be an external system identifier.
+        note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        linkedBy:
+          allOf:
+            - $ref: "#/components/schemas/Uuid"
+          description: Defaults to the authenticated person.
 
     ResolveAppeal:
       type: object

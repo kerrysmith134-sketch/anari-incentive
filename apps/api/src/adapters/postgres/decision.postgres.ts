@@ -6,24 +6,32 @@
  */
 import type { PoolClient, QueryResultRow } from "pg";
 import {
+  DECISION_LINK_KIND_BY_RESOURCE_TYPE,
+  canonicalDecisionJson,
   decisionCaseStatusAfterCollection,
   decisionCaseStatusAfterVerification,
   decisionEvidenceAggregateHash,
   decisionEvidenceHashMatches,
+  decisionEvidenceRequirementFinding,
+  decisionJudgmentsAggregateHash,
+  decisionVerificationIsCurrent,
   humanDecisionJudgments,
   isDecisionCaseMutable,
   normalizeDecisionHash,
+  runDecisionVerification,
   selectFinalHumanJudgment,
   type AppendDecisionEvidenceInput,
   type CreateDecisionCaseInput,
   type DecideDecisionCaseInput,
   type DecisionCase,
   type DecisionCaseDetail,
+  type DecisionCaseLink,
   type DecisionEvidence,
   type DecisionJudgment,
   type DecisionJsonObject,
   type DecisionRecord,
   type DecisionVerification,
+  type LinkDecisionCaseInput,
   type RecordDecisionVerificationInput,
   type SubmitDecisionJudgmentInput,
 } from "@anari/domain";
@@ -34,6 +42,14 @@ import type {
   PgPlatformStoreBase,
   PgPlatformStoreBaseShape,
 } from "./base.postgres.js";
+
+/** 决策域冲突统一把 "CODE: detail" 前缀暴露为 HTTP error.code。 */
+function decisionConflict(message: string): ConflictError {
+  const code = message.split(":", 1)[0]?.trim() || "DECISION_CONFLICT";
+  const error = new ConflictError(message);
+  Object.defineProperty(error, "code", { value: code, configurable: true });
+  return error;
+}
 
 function timestampOf(value: unknown): string {
   return value instanceof Date
@@ -72,8 +88,11 @@ export function PgDecisionMixin(
       };
     }
 
-    private mapDecisionEvidence(row: QueryResultRow): DecisionEvidence {
-      return {
+    private mapDecisionEvidence(
+      row: QueryResultRow,
+      includeContent = false,
+    ): DecisionEvidence {
+      const evidence: DecisionEvidence = {
         id: row.id,
         tenantId: row.tenant_id,
         caseId: row.case_id,
@@ -87,6 +106,17 @@ export function PgDecisionMixin(
             : decimalText(String(row.weight)),
         createdAt: timestampOf(row.created_at),
       };
+      // content 只在服务端校验路径读取；详情接口不返回原始内容。
+      // 存储为 canonical JSON 文本，JSON.parse 后重算即可得到同一 hash
+      // （包括 content 本身为 null 的合法证据）。
+      if (includeContent && row.content !== null && row.content !== undefined) {
+        try {
+          evidence.content = JSON.parse(String(row.content));
+        } catch {
+          evidence.content = undefined;
+        }
+      }
+      return evidence;
     }
 
     private mapDecisionJudgment(row: QueryResultRow): DecisionJudgment {
@@ -119,7 +149,27 @@ export function PgDecisionMixin(
         findings: jsonArray(row.findings),
         passed: Boolean(row.passed),
         verifiedBy: row.verified_by,
+        verifiedCaseVersion:
+          row.verified_case_version === null ||
+          row.verified_case_version === undefined
+            ? 0
+            : Number(row.verified_case_version),
+        evidenceHash: row.evidence_hash ?? "",
+        judgmentsHash: row.judgments_hash ?? "",
         verifiedAt: timestampOf(row.verified_at),
+      };
+    }
+
+    private mapDecisionLink(row: QueryResultRow): DecisionCaseLink {
+      return {
+        id: row.id,
+        tenantId: row.tenant_id,
+        caseId: row.case_id,
+        resourceType: row.resource_type,
+        resourceId: row.resource_id,
+        note: row.note ?? undefined,
+        linkedBy: row.linked_by,
+        linkedAt: timestampOf(row.linked_at),
       };
     }
 
@@ -142,7 +192,7 @@ export function PgDecisionMixin(
       caseId: string,
     ): void {
       if (!isDecisionCaseMutable(decisionCase.status)) {
-        throw new ConflictError(
+        throw decisionConflict(
           `DECISION_CASE_NOT_MUTABLE: case ${caseId} is ${decisionCase.status}`,
         );
       }
@@ -161,6 +211,23 @@ export function PgDecisionMixin(
       );
       return rows.map((row: QueryResultRow) =>
         this.mapDecisionJudgment(row),
+      );
+    }
+
+    private async loadEvidence(
+      client: PoolClient,
+      tenantId: string,
+      caseId: string,
+      includeContent = false,
+    ): Promise<DecisionEvidence[]> {
+      const { rows } = await client.query(
+        `SELECT * FROM decision_evidence
+          WHERE tenant_id=$1 AND case_id=$2
+          ORDER BY created_at ASC, id ASC`,
+        [tenantId, caseId],
+      );
+      return rows.map((row: QueryResultRow) =>
+        this.mapDecisionEvidence(row, includeContent),
       );
     }
 
@@ -190,7 +257,7 @@ export function PgDecisionMixin(
       input: AppendDecisionEvidenceInput,
     ): Promise<DecisionEvidence> {
       if (!decisionEvidenceHashMatches(input.content, input.contentHash)) {
-        throw new ConflictError(
+        throw decisionConflict(
           `EVIDENCE_HASH_MISMATCH: content does not match ${input.contentHash}`,
         );
       }
@@ -212,8 +279,8 @@ export function PgDecisionMixin(
           const { rows } = await client.query(
             `INSERT INTO decision_evidence
                (tenant_id, case_id, source_type, source_id, content_hash,
-                supports, weight, created_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                supports, weight, created_at, content)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
              RETURNING *`,
             [
               input.tenantId,
@@ -224,12 +291,14 @@ export function PgDecisionMixin(
               input.supports,
               input.weight ?? null,
               new Date().toISOString(),
+              // 服务端复核副本：canonical JSON 文本，校验时重算 content_hash。
+              canonicalDecisionJson(input.content),
             ],
           );
           inserted = rows[0] as QueryResultRow;
         } catch (error) {
           if ((error as { code?: string }).code === "23505") {
-            throw new ConflictError(
+            throw decisionConflict(
               "EVIDENCE_ALREADY_RECORDED: identical evidence is already on this case",
             );
           }
@@ -256,7 +325,7 @@ export function PgDecisionMixin(
         input.confidence !== undefined &&
         (input.confidence < 0 || input.confidence > 1)
       ) {
-        throw new ConflictError(
+        throw decisionConflict(
           "CONFIDENCE_OUT_OF_RANGE: confidence must be between 0 and 1",
         );
       }
@@ -301,7 +370,7 @@ export function PgDecisionMixin(
           inserted = rows[0] as QueryResultRow;
         } catch (error) {
           if ((error as { code?: string }).code === "23505") {
-            throw new ConflictError(
+            throw decisionConflict(
               `JUDGMENT_IMMUTABLE: ${input.actorType} ${input.actorId} already judged this case`,
             );
           }
@@ -336,26 +405,43 @@ export function PgDecisionMixin(
         const decisionCase = this.mapDecisionCase(caseRow);
         this.requireMutableCase(decisionCase, input.caseId);
 
+        const evidence = await this.loadEvidence(
+          client,
+          input.tenantId,
+          input.caseId,
+          true,
+        );
+        const judgments = await this.loadJudgments(
+          client,
+          input.tenantId,
+          input.caseId,
+        );
+        // 权威结果只来自服务端 5 个 checker；passed 不接受客户端声明。
+        const result = runDecisionVerification({
+          case: decisionCase,
+          evidence,
+          judgments,
+          decidedBy: input.decidedBy,
+        });
+
         const { rows } = await client.query(
           `INSERT INTO decision_verifications
              (tenant_id, case_id, checks, findings, passed, verified_by,
-              verified_at)
-           VALUES ($1,$2,$3::jsonb,$4::jsonb,$5,$6,$7)
+              verified_at, verified_case_version, evidence_hash, judgments_hash)
+           VALUES ($1,$2,$3::jsonb,$4::jsonb,$5,$6,$7,$8,$9,$10)
            RETURNING *`,
           [
             input.tenantId,
             input.caseId,
-            JSON.stringify(input.checks ?? {}),
-            JSON.stringify(input.findings ?? []),
-            input.passed,
+            JSON.stringify(result.checks),
+            JSON.stringify(result.findings),
+            result.passed,
             input.verifiedBy,
             new Date().toISOString(),
+            decisionCase.version + 1,
+            result.binding.evidenceHash,
+            result.binding.judgmentsHash,
           ],
-        );
-        const { rows: humanRows } = await client.query(
-          `SELECT count(*)::int AS count FROM decision_judgments
-            WHERE tenant_id=$1 AND case_id=$2 AND actor_type='HUMAN'`,
-          [input.tenantId, input.caseId],
         );
         await client.query(
           `UPDATE decision_cases
@@ -365,12 +451,59 @@ export function PgDecisionMixin(
             input.tenantId,
             input.caseId,
             decisionCaseStatusAfterVerification(
-              input.passed,
-              Number((humanRows[0] as QueryResultRow).count) > 0,
+              result.passed,
+              humanDecisionJudgments(judgments).length > 0,
             ),
           ],
         );
         return this.mapDecisionVerification(rows[0] as QueryResultRow);
+      });
+    }
+
+    async linkDecisionCase(
+      input: LinkDecisionCaseInput,
+    ): Promise<DecisionCaseLink> {
+      return this.transactionFor(input.tenantId, async (client) => {
+        const { rows: caseRows } = await client.query(
+          `SELECT * FROM decision_cases WHERE tenant_id=$1 AND id=$2`,
+          [input.tenantId, input.caseId],
+        );
+        const caseRow = caseRows[0] as QueryResultRow | undefined;
+        if (!caseRow) notFound("DecisionCase", input.caseId);
+        const decisionCase = this.mapDecisionCase(caseRow);
+        const expectedKind =
+          DECISION_LINK_KIND_BY_RESOURCE_TYPE[input.resourceType];
+        if (expectedKind !== decisionCase.kind) {
+          throw decisionConflict(
+            `DECISION_LINK_KIND_MISMATCH: ${input.resourceType} requires a ${expectedKind} case, got ${decisionCase.kind}`,
+          );
+        }
+        try {
+          const { rows } = await client.query(
+            `INSERT INTO decision_case_links
+               (tenant_id, case_id, resource_type, resource_id, note,
+                linked_by, linked_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             RETURNING *`,
+            [
+              input.tenantId,
+              input.caseId,
+              input.resourceType,
+              input.resourceId,
+              input.note ?? null,
+              input.linkedBy,
+              new Date().toISOString(),
+            ],
+          );
+          return this.mapDecisionLink(rows[0] as QueryResultRow);
+        } catch (error) {
+          if ((error as { code?: string }).code === "23505") {
+            throw decisionConflict(
+              "DECISION_LINK_ALREADY_RECORDED: this business object already references the case",
+            );
+          }
+          throw error;
+        }
       });
     }
 
@@ -394,25 +527,69 @@ export function PgDecisionMixin(
           [input.tenantId, input.caseId],
         );
         if (recordRows[0]) {
-          throw new ConflictError(
+          throw decisionConflict(
             "DECISION_RECORD_IMMUTABLE: this case already has a final decision",
           );
         }
         this.requireMutableCase(decisionCase, input.caseId);
 
+        const evidence = await this.loadEvidence(
+          client,
+          input.tenantId,
+          input.caseId,
+        );
+        const evidenceRequirement = decisionEvidenceRequirementFinding(
+          decisionCase.kind,
+          evidence,
+        );
+        if (evidenceRequirement) {
+          throw decisionConflict(
+            `EVIDENCE_REQUIRED: ${decisionCase.kind} decision requires at least one FOR or AGAINST evidence`,
+          );
+        }
         const judgments = await this.loadJudgments(
           client,
           input.tenantId,
           input.caseId,
         );
+        const currentFacts = {
+          caseVersion: decisionCase.version,
+          evidenceHash: decisionEvidenceAggregateHash(evidence),
+          judgmentsHash: decisionJudgmentsAggregateHash(judgments),
+        };
+
+        const { rows: verificationRows } = await client.query(
+          `SELECT * FROM decision_verifications
+            WHERE tenant_id=$1 AND case_id=$2
+            ORDER BY seq ASC`,
+          [input.tenantId, input.caseId],
+        );
+        const latest = verificationRows.at(-1) as QueryResultRow | undefined;
+        if (!latest) {
+          throw decisionConflict(
+            "DECISION_VERIFICATION_REQUIRED: record a verification before deciding",
+          );
+        }
+        if (!latest.passed) {
+          throw decisionConflict(
+            "DECISION_VERIFICATION_NOT_PASSED: the latest verification did not pass",
+          );
+        }
+        const latestVerification = this.mapDecisionVerification(latest);
+        if (!decisionVerificationIsCurrent(latestVerification, currentFacts)) {
+          throw decisionConflict(
+            "DECISION_STALE_VERIFICATION: evidence or judgments changed after the latest passing verification",
+          );
+        }
+
         const human = humanDecisionJudgments(judgments);
         if (human.length === 0) {
-          throw new ConflictError(
+          throw decisionConflict(
             "HUMAN_JUDGMENT_REQUIRED: a human independent judgment is required",
           );
         }
         if (human.some((judgment) => judgment.actorId === input.decidedBy)) {
-          throw new ConflictError(
+          throw decisionConflict(
             "SELF_DECISION_FORBIDDEN: the decider submitted a human judgment on this case",
           );
         }
@@ -423,26 +600,8 @@ export function PgDecisionMixin(
               judgment.actorId === input.decidedBy,
           )
         ) {
-          throw new ConflictError(
+          throw decisionConflict(
             "AI_MODEL_CANNOT_DECIDE: an AI judgment actor cannot authorize the final decision",
-          );
-        }
-
-        const { rows: verificationRows } = await client.query(
-          `SELECT * FROM decision_verifications
-            WHERE tenant_id=$1 AND case_id=$2
-            ORDER BY seq ASC`,
-          [input.tenantId, input.caseId],
-        );
-        const latest = verificationRows.at(-1) as QueryResultRow | undefined;
-        if (!latest) {
-          throw new ConflictError(
-            "DECISION_VERIFICATION_REQUIRED: record a verification before deciding",
-          );
-        }
-        if (!latest.passed) {
-          throw new ConflictError(
-            "DECISION_VERIFICATION_NOT_PASSED: the latest verification did not pass",
           );
         }
 
@@ -451,20 +610,11 @@ export function PgDecisionMixin(
           input.finalJudgmentId,
         );
         if (!finalJudgment) {
-          throw new ConflictError(
+          throw decisionConflict(
             "FINAL_JUDGMENT_MUST_BE_HUMAN: the final judgment must be a human judgment on this case",
           );
         }
 
-        const { rows: evidenceRows } = await client.query(
-          `SELECT * FROM decision_evidence
-            WHERE tenant_id=$1 AND case_id=$2
-            ORDER BY created_at ASC, id ASC`,
-          [input.tenantId, input.caseId],
-        );
-        const evidence = evidenceRows.map((row: QueryResultRow) =>
-          this.mapDecisionEvidence(row),
-        );
         const version = decisionCase.version + 1;
         let inserted: QueryResultRow;
         try {
@@ -480,7 +630,7 @@ export function PgDecisionMixin(
               finalJudgment.id,
               input.decidedBy,
               input.rationale,
-              decisionEvidenceAggregateHash(evidence),
+              currentFacts.evidenceHash,
               version,
               new Date().toISOString(),
             ],
@@ -488,7 +638,7 @@ export function PgDecisionMixin(
           inserted = rows[0] as QueryResultRow;
         } catch (error) {
           if ((error as { code?: string }).code === "23505") {
-            throw new ConflictError(
+            throw decisionConflict(
               "DECISION_RECORD_IMMUTABLE: this case already has a final decision",
             );
           }
@@ -536,19 +686,43 @@ export function PgDecisionMixin(
             WHERE tenant_id=$1 AND case_id=$2`,
           [tenantId, caseId],
         );
+        const { rows: linkRows } = await client.query(
+          `SELECT * FROM decision_case_links
+            WHERE tenant_id=$1 AND case_id=$2
+            ORDER BY linked_at ASC, id ASC`,
+          [tenantId, caseId],
+        );
+        const decisionCase = this.mapDecisionCase(caseRow);
+        const evidence = evidenceRows.map((row: QueryResultRow) =>
+          this.mapDecisionEvidence(row),
+        );
+        const currentFacts = {
+          // 决定动作只把案件推进到 DECIDED（版本 +1），事实未变。
+          caseVersion:
+            decisionCase.status === "DECIDED"
+              ? decisionCase.version - 1
+              : decisionCase.version,
+          evidenceHash: decisionEvidenceAggregateHash(evidence),
+          judgmentsHash: decisionJudgmentsAggregateHash(judgments),
+        };
         return {
-          case: this.mapDecisionCase(caseRow),
-          evidence: evidenceRows.map((row: QueryResultRow) =>
-            this.mapDecisionEvidence(row),
-          ),
+          case: decisionCase,
+          evidence,
           judgments: {
             human: humanDecisionJudgments(judgments),
             ai: judgments.filter(
               (judgment) => judgment.actorType === "AI_MODEL",
             ),
           },
-          verifications: verificationRows.map((row: QueryResultRow) =>
-            this.mapDecisionVerification(row),
+          verifications: verificationRows.map((row: QueryResultRow) => {
+            const verification = this.mapDecisionVerification(row);
+            return {
+              ...verification,
+              stale: !decisionVerificationIsCurrent(verification, currentFacts),
+            };
+          }),
+          links: linkRows.map((row: QueryResultRow) =>
+            this.mapDecisionLink(row),
           ),
           record: recordRows[0]
             ? this.mapDecisionRecord(recordRows[0] as QueryResultRow)

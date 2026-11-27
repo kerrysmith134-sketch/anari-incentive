@@ -63,7 +63,10 @@ import type {
   PolicyEngineRecord,
   IncentiveAwardBatch,
   IncentiveAwardBatchReconciliation,
+  IncentiveAwardGlJournalRef,
   IncentiveAwardPayment,
+  IncentiveAwardPaymentAudit,
+  IncentiveAwardPaymentCreditAccount,
   IncentiveAwardPaymentStatus,
   IncentiveAwardType,
   NoticeAcknowledgementOverview,
@@ -112,6 +115,7 @@ import {
   adverseActionTransitions,
   assertTransition,
   GL_ACCOUNT_CODES,
+  GL_ACCOUNT_SEED,
   reconcileIncentiveAwardBatch,
 } from "@anari/domain";
 import { ConflictError, NotFoundError } from "../../store.js";
@@ -119,6 +123,11 @@ import type { PlatformStore } from "../../platform-store.js";
 import { formatInvoiceAmount, now, notFound, surveyAverage, aggregateSurveyReport, iso, isoDate, decimalText, addUtcMonths, computeEquityVesting, money } from "../shared.js";
 import type { IncentivePort } from "../../store-ports.js";
 import type { PgPlatformStoreBase, PgPlatformStoreBaseShape } from "./base.postgres.js";
+
+/** 复式记账入参（与 Budget mixin 的 createJournalEntry 保持一致）。 */
+type AwardPaymentJournalInput = Parameters<
+  PgPlatformStoreBaseShape["createJournalEntry"]
+>[0];
 
 /** 迁移 117：支付金额必须是可解析的正定点金额（1e6 标度）。 */
 function awardPaymentAmount(value: string): bigint {
@@ -158,22 +167,75 @@ function mapAwardPaymentRow(row: QueryResultRow): IncentiveAwardPayment {
     status: row.status,
     paidAt: iso(row.paid_at),
     failureCode: row.failure_code ?? undefined,
+    legalEntityId: row.legal_entity_id ?? "DEFAULT",
+    accountingPeriod: row.accounting_period ?? undefined,
+    creditAccount: (row.credit_account ?? GL_ACCOUNT_CODES.CASH) as IncentiveAwardPaymentCreditAccount,
     createdAt: iso(row.created_at) ?? new Date().toISOString(),
   };
 }
 
+/** 迁移 119：幂等载荷的记账维度（显式值或服务端缺省）。 */
+interface AwardPaymentLedgerDimensions {
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: IncentiveAwardPaymentCreditAccount;
+}
+
+function awardPaymentDimensions(
+  input: {
+    legalEntityId?: string;
+    accountingPeriod?: string;
+    creditAccount?: IncentiveAwardPaymentCreditAccount;
+  },
+  fallbackPaidAt: string | undefined,
+): AwardPaymentLedgerDimensions {
+  const explicitPeriod = input.accountingPeriod?.trim();
+  if (
+    explicitPeriod &&
+    !/^\d{4}-(0[1-9]|1[0-2])$/.test(explicitPeriod)
+  ) {
+    throw new ConflictError(
+      `AWARD_PAYMENT_ACCOUNTING_PERIOD_INVALID: ${explicitPeriod}`,
+    );
+  }
+  return {
+    legalEntityId: input.legalEntityId?.trim() || "DEFAULT",
+    accountingPeriod:
+      explicitPeriod ||
+      (fallbackPaidAt
+        ? awardPaymentAccountingPeriod(undefined, fallbackPaidAt.trim())
+        : undefined),
+    creditAccount: input.creditAccount ?? GL_ACCOUNT_CODES.CASH,
+  };
+}
+
 /**
- * 幂等回执必须携带完全相同的载荷；同 ref 不同金额/状态说明调用方把两笔
- * 不同的银行流水塞进了同一个 ref，必须 409 让人工介入，不能静默取旧值。
+ * 幂等回执必须携带完全相同的载荷；同 ref 不同状态/金额/币种/记账维度
+ * 说明调用方把两笔不同的银行流水塞进了同一个 ref，必须 409 让人工介入，
+ * 不能静默取旧值。
+ *
+ * accountingPeriod 未显式给出时不比较：服务端缺省可能来自首次落库时间。
  */
 function assertIdempotentAwardPayment(
   existing: IncentiveAwardPayment,
-  expected: { status: IncentiveAwardPaymentStatus; amount: bigint; currency: string },
+  expected: {
+    status: IncentiveAwardPaymentStatus;
+    amount: bigint;
+    currency: string;
+    dimensions: AwardPaymentLedgerDimensions;
+    explicitAccountingPeriod?: string;
+  },
 ): void {
+  const sameDimensions =
+    existing.legalEntityId === expected.dimensions.legalEntityId &&
+    existing.creditAccount === expected.dimensions.creditAccount &&
+    (!expected.explicitAccountingPeriod ||
+      existing.accountingPeriod === expected.explicitAccountingPeriod);
   if (
     existing.status !== expected.status ||
     awardPaymentAmount(existing.amount) !== expected.amount ||
-    existing.currency.trim().toUpperCase() !== expected.currency
+    existing.currency.trim().toUpperCase() !== expected.currency ||
+    !sameDimensions
   ) {
     throw new ConflictError(
       `AWARD_PAYMENT_IDEMPOTENCY_CONFLICT: ref ${existing.paymentRef} already recorded with a different payload`,
@@ -1421,6 +1483,266 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       return this.loadIncentiveAwardBatch(this.pool, rows[0]!);
     }
 
+    /**
+     * 迁移 119：在调用方的事务 client 上锁批次行。付款与 ACK 都必须先拿到
+     * 这把行锁，随后读支付/GL/对账才不会被并发写入穿插。
+     */
+    private async lockIncentiveAwardBatch(
+      client: PoolClient,
+      tenantId: string,
+      batchId: string,
+    ): Promise<IncentiveAwardBatch> {
+      const { rows } = await client.query(
+        `SELECT * FROM incentive_award_batches
+          WHERE tenant_id=$1 AND id=$2
+          FOR UPDATE`,
+        [tenantId, batchId],
+      );
+      if (!rows[0]) notFound("IncentiveAwardBatch", batchId);
+      return this.loadIncentiveAwardBatch(client, rows[0]);
+    }
+
+    private async ensureAwardPaymentGlAccounts(
+      client: PoolClient,
+      tenantId: string,
+    ): Promise<void> {
+      for (const seed of GL_ACCOUNT_SEED) {
+        await client.query(
+          `INSERT INTO gl_accounts
+             (tenant_id, code, name, account_type, normal_balance)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (tenant_id, code) DO NOTHING`,
+          [tenantId, seed.code, seed.name, seed.accountType, seed.normalBalance],
+        );
+      }
+    }
+
+    /**
+     * 迁移 119：PAID 回执的 GL 凭证写入。
+     *
+     * 不能复用 Budget mixin 的 createJournalEntry：该方法自己开
+     * transactionFor(新连接)，会把凭证提交到支付事务之外，GL 写失败时
+     * 支付也回滚不了。这里必须使用**同一个 client**，与支付、审计同生共死。
+     */
+    protected async postAwardPaymentJournal(
+      client: PoolClient,
+      input: AwardPaymentJournalInput,
+    ): Promise<void> {
+      const currency = input.currency.trim();
+      if (!/^[A-Z]{3}$/.test(currency)) {
+        throw new ConflictError(`INVALID_JOURNAL_CURRENCY: ${input.currency}`);
+      }
+      if (input.lines.length < 2) {
+        throw new ConflictError(
+          "JOURNAL_LINES_REQUIRED: a journal must have at least two lines",
+        );
+      }
+      let totalDebit = 0n;
+      let totalCredit = 0n;
+      const normalized: Array<{
+        accountCode: string;
+        debit: string;
+        credit: string;
+      }> = [];
+      for (const [index, line] of input.lines.entries()) {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(line.accountCode)) {
+          throw new ConflictError(`INVALID_GL_ACCOUNT: ${line.accountCode}`);
+        }
+        const debit = line.debit === undefined ? 0n : parseDecimal(line.debit);
+        const credit =
+          line.credit === undefined ? 0n : parseDecimal(line.credit);
+        if (debit < 0n || credit < 0n) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_AMOUNT: line ${index + 1} has a negative amount`,
+          );
+        }
+        if ((debit > 0n) === (credit > 0n)) {
+          throw new ConflictError(
+            `INVALID_JOURNAL_LINE: line ${index + 1} must have exactly one of debit/credit greater than zero`,
+          );
+        }
+        totalDebit += debit;
+        totalCredit += credit;
+        normalized.push({
+          accountCode: line.accountCode,
+          debit: formatDecimal(debit),
+          credit: formatDecimal(credit),
+        });
+      }
+      if (totalDebit !== totalCredit || totalDebit === 0n) {
+        throw new ConflictError(
+          `JOURNAL_NOT_BALANCED: debits ${formatDecimal(totalDebit)} != credits ${formatDecimal(totalCredit)}`,
+        );
+      }
+      await this.ensureAwardPaymentGlAccounts(client, input.tenantId);
+      const journalNo =
+        input.journalNo ?? `JE-${input.documentType}-${input.documentId}`;
+      let journal: QueryResultRow | undefined;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO gl_journals
+             (tenant_id, journal_no, document_type, document_id,
+              legal_entity_id, accounting_period, currency, description,
+              source_fact_id, total_debit, total_credit)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (tenant_id, document_type, document_id) DO NOTHING
+           RETURNING *`,
+          [
+            input.tenantId,
+            journalNo,
+            input.documentType,
+            input.documentId,
+            input.legalEntityId,
+            input.accountingPeriod,
+            currency,
+            input.description ?? null,
+            input.sourceFactId ?? null,
+            formatDecimal(totalDebit),
+            formatDecimal(totalCredit),
+          ],
+        );
+        journal = rows[0];
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "23503") {
+          throw new ConflictError(
+            "UNKNOWN_GL_ACCOUNT: journal line references an account that is not seeded for this tenant",
+          );
+        }
+        if (code === "23514") {
+          throw new ConflictError(
+            "JOURNAL_INVALID: journal failed database balance/amount checks",
+          );
+        }
+        throw error;
+      }
+      if (!journal) {
+        // 幂等：同一业务文档已生成凭证（补记/重放不重复出凭证）。
+        const { rows: existing } = await client.query(
+          `SELECT * FROM gl_journals
+            WHERE tenant_id=$1 AND document_type=$2 AND document_id=$3`,
+          [input.tenantId, input.documentType, input.documentId],
+        );
+        if (!existing[0]) {
+          throw new ConflictError(
+            `JOURNAL_CONFLICT: ${input.documentType}/${input.documentId}`,
+          );
+        }
+        return;
+      }
+      for (const [index, line] of normalized.entries()) {
+        await client.query(
+          `INSERT INTO gl_journal_lines
+             (tenant_id, journal_id, line_no, account_code,
+              debit, credit, currency)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [
+            input.tenantId,
+            journal.id,
+            index + 1,
+            line.accountCode,
+            line.debit,
+            line.credit,
+            currency,
+          ],
+        );
+      }
+    }
+
+    /**
+     * 迁移 119：支付审计与支付同事务写入 audit_events。审计链的 sequence /
+     * prev_hash / event_hash 由 003 的触发器在同一事务内补齐；这里绝不
+     * try/catch 吞错——审计写不进去，支付也必须回滚。
+     */
+    protected async appendAwardPaymentAudit(
+      client: PoolClient,
+      entry: {
+        tenantId: string;
+        batchId: string;
+        paymentId: string;
+        actorPersonId: string;
+        reason: string;
+      },
+    ): Promise<void> {
+      // audit_events.actor_id 是 uuid：服务账号的 "system" 不能直接落库。
+      const actorId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        entry.actorPersonId,
+      )
+        ? entry.actorPersonId
+        : null;
+      await client.query(
+        `INSERT INTO audit_events
+          (tenant_id, sequence, actor_type, actor_id, action, object_type,
+           object_id, before_hash, after_hash, reason, correlation_id,
+           prev_hash, event_hash)
+         VALUES ($1,0,$2,$3,'INCENTIVE_AWARD_PAYMENT_RECORDED',
+                 'INCENTIVE_AWARD_PAYMENT',$4,NULL,NULL,$5,$6,'','')`,
+        [
+          entry.tenantId,
+          actorId ? "USER" : "SYSTEM",
+          actorId,
+          entry.paymentId,
+          entry.reason,
+          randomUUID(),
+        ],
+      );
+    }
+
+    /** 迁移 119：在同一事务 client 上读支付 + PAYMENT 凭证并做对账。 */
+    private async reconcileAwardBatchWithClient(
+      client: PoolClient,
+      batch: IncentiveAwardBatch,
+    ): Promise<IncentiveAwardBatchReconciliation> {
+      const { rows: paymentRows } = await client.query(
+        `SELECT * FROM incentive_award_payments
+          WHERE tenant_id=$1 AND batch_id=$2
+          ORDER BY created_at, id`,
+        [batch.tenantId, batch.id],
+      );
+      const payments = paymentRows.map((row: QueryResultRow) =>
+        mapAwardPaymentRow(row),
+      );
+      const paidPaymentIds = payments
+        .filter((payment) => payment.status === "PAID")
+        .map((payment) => payment.id);
+      let journals: IncentiveAwardGlJournalRef[] = [];
+      if (paidPaymentIds.length > 0) {
+        const { rows: journalRows } = await client.query(
+          `SELECT document_id, total_debit, total_credit
+             FROM gl_journals
+            WHERE tenant_id=$1 AND document_type='PAYMENT'
+              AND document_id = ANY($2::text[])`,
+          [batch.tenantId, paidPaymentIds],
+        );
+        journals = journalRows.map((row: QueryResultRow) => ({
+          documentId: row.document_id,
+          totalDebit: decimalText(String(row.total_debit)) ?? "0",
+          totalCredit: decimalText(String(row.total_credit)) ?? "0",
+        }));
+      }
+      return reconcileIncentiveAwardBatch({
+        batchId: batch.id,
+        batchNo: batch.batchNo,
+        batchStatus: batch.status,
+        currency: batch.currency,
+        totalAmount: batch.totalAmount,
+        lines: batch.lines.map((line) => ({
+          id: line.id,
+          personId: line.personId,
+          amount: line.amount,
+          currency: line.currency,
+        })),
+        payments: payments.map((payment) => ({
+          id: payment.id,
+          lineId: payment.lineId,
+          amount: payment.amount,
+          paymentRef: payment.paymentRef,
+          status: payment.status,
+        })),
+        journals,
+      });
+    }
+
     async commandIncentiveAwardBatch(input: {
       tenantId: string;
       batchId: string;
@@ -1434,125 +1756,147 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
       actorPersonId: string;
       paymentRef?: string;
     }): Promise<IncentiveAwardBatch> {
-      const batch = await this.getIncentiveAwardBatch(
-        input.tenantId,
-        input.batchId,
-      );
-      const transition: Record<string, [string, string]> = {
-        SUBMIT: ["DRAFT", "PENDING_APPROVAL"],
-        APPROVE: ["PENDING_APPROVAL", "APPROVED"],
-        LOCK: ["APPROVED", "LOCKED"],
-        EXPORT: ["LOCKED", "EXPORTED"],
-        ACKNOWLEDGE: ["EXPORTED", "ACKNOWLEDGED"],
-        CANCEL: [batch.status, "CANCELLED"],
-      };
-      const expected = transition[input.command];
-      if (!expected || batch.status !== expected[0]) {
-        throw new ConflictError(
-          `cannot ${input.command} incentive award batch in status ${batch.status}`,
-        );
-      }
-      if (
-        input.command === "CANCEL" &&
-        !["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(batch.status)
-      ) {
-        throw new ConflictError(
-          `cannot CANCEL incentive award batch after it is ${batch.status}`,
-        );
-      }
-      if (
-        input.command === "APPROVE" &&
-        input.actorPersonId === batch.createdBy
-      ) {
-        throw new ConflictError(
-          "AWARD_BATCH_SELF_APPROVAL: creator cannot approve the batch",
-        );
-      }
-      if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
-        throw new ConflictError("payment reference is required to acknowledge");
-      }
-      // 迁移 117：回执前必须所有行足额 PAID 且已付合计 = 批次 total_amount。
-      // 读检查与 UPDATE 之间最多一个并发支付窗口；UPDATE 仍以 status=$7
-      // 做乐观门禁，回执本身不会把未对账批次推进到 ACKNOWLEDGED。
-      if (input.command === "ACKNOWLEDGE") {
-        const reconciliation = await this.getIncentiveAwardBatchReconciliation(
+      // 迁移 119：命令在同一事务内锁批次行 → 读支付/GL/对账 → 更新状态。
+      // 两个并发 ACK 会串行在 FOR UPDATE 上，后到者看到已 ACKNOWLEDGED
+      // 后以 409 失败，只有第一个成功。
+      return this.transactionFor(input.tenantId, async (client) => {
+        const batch = await this.lockIncentiveAwardBatch(
+          client,
           input.tenantId,
           input.batchId,
         );
-        if (reconciliation.status !== "RECONCILED") {
+        const transition: Record<string, [string, string]> = {
+          SUBMIT: ["DRAFT", "PENDING_APPROVAL"],
+          APPROVE: ["PENDING_APPROVAL", "APPROVED"],
+          LOCK: ["APPROVED", "LOCKED"],
+          EXPORT: ["LOCKED", "EXPORTED"],
+          ACKNOWLEDGE: ["EXPORTED", "ACKNOWLEDGED"],
+          CANCEL: [batch.status, "CANCELLED"],
+        };
+        const expected = transition[input.command];
+        if (!expected || batch.status !== expected[0]) {
           throw new ConflictError(
-            `AWARD_BATCH_NOT_RECONCILED: paid ${reconciliation.paidAmount}/${reconciliation.totalAmount} ` +
-              `(status ${reconciliation.status}, unpaid ${reconciliation.unpaidAmount})`,
+            `cannot ${input.command} incentive award batch in status ${batch.status}`,
           );
         }
-      }
-      const { rows } = await this.tenantQuery(input.tenantId,
-        `UPDATE incentive_award_batches
-            SET status=$3,
-                approved_by = CASE WHEN $4='APPROVE' THEN $5 ELSE approved_by END,
-                approved_at = CASE WHEN $4='APPROVE' THEN now() ELSE approved_at END,
-                locked_at = CASE WHEN $4='LOCK' THEN now() ELSE locked_at END,
-                exported_at = CASE WHEN $4='EXPORT' THEN now() ELSE exported_at END,
-                acknowledged_at = CASE WHEN $4='ACKNOWLEDGE' THEN now() ELSE acknowledged_at END,
-                payment_ref = CASE WHEN $4='ACKNOWLEDGE' THEN $6 ELSE payment_ref END,
-                updated_at=now(),
-                version=version+1
-          WHERE tenant_id=$1 AND id=$2 AND status=$7
-          RETURNING *`,
-        [
-          input.tenantId,
-          input.batchId,
-          expected[1],
-          input.command,
-          input.actorPersonId,
-          input.paymentRef?.trim() ?? null,
-          expected[0],
-        ],
-      );
-      if (!rows[0]) {
-        // A concurrent command won the transition; treat it like a stale state.
-        throw new ConflictError(
-          `incentive award batch ${input.batchId} changed concurrently; retry the command`,
+        if (
+          input.command === "CANCEL" &&
+          !["DRAFT", "PENDING_APPROVAL", "APPROVED"].includes(batch.status)
+        ) {
+          throw new ConflictError(
+            `cannot CANCEL incentive award batch after it is ${batch.status}`,
+          );
+        }
+        if (
+          input.command === "APPROVE" &&
+          input.actorPersonId === batch.createdBy
+        ) {
+          throw new ConflictError(
+            "AWARD_BATCH_SELF_APPROVAL: creator cannot approve the batch",
+          );
+        }
+        if (input.command === "ACKNOWLEDGE" && !input.paymentRef?.trim()) {
+          throw new ConflictError(
+            "payment reference is required to acknowledge",
+          );
+        }
+        if (input.command === "ACKNOWLEDGE") {
+          const reconciliation = await this.reconcileAwardBatchWithClient(
+            client,
+            batch,
+          );
+          if (!reconciliation.glComplete) {
+            throw new ConflictError(
+              `AWARD_GL_MISSING: paid lines ${reconciliation.missingJournalLineIds.join(",")} ` +
+                "have no balanced PAYMENT journal",
+            );
+          }
+          if (reconciliation.status !== "RECONCILED") {
+            throw new ConflictError(
+              `AWARD_BATCH_NOT_RECONCILED: paid ${reconciliation.paidAmount}/${reconciliation.totalAmount} ` +
+                `(status ${reconciliation.status}, unpaid ${reconciliation.unpaidAmount})`,
+            );
+          }
+        }
+        const { rows } = await client.query(
+          `UPDATE incentive_award_batches
+              SET status=$3,
+                  approved_by = CASE WHEN $4='APPROVE' THEN $5 ELSE approved_by END,
+                  approved_at = CASE WHEN $4='APPROVE' THEN now() ELSE approved_at END,
+                  locked_at = CASE WHEN $4='LOCK' THEN now() ELSE locked_at END,
+                  exported_at = CASE WHEN $4='EXPORT' THEN now() ELSE exported_at END,
+                  acknowledged_at = CASE WHEN $4='ACKNOWLEDGE' THEN now() ELSE acknowledged_at END,
+                  payment_ref = CASE WHEN $4='ACKNOWLEDGE' THEN $6 ELSE payment_ref END,
+                  updated_at=now(),
+                  version=version+1
+            WHERE tenant_id=$1 AND id=$2 AND status=$7
+            RETURNING *`,
+          [
+            input.tenantId,
+            input.batchId,
+            expected[1],
+            input.command,
+            input.actorPersonId,
+            input.paymentRef?.trim() ?? null,
+            expected[0],
+          ],
         );
-      }
-      return this.loadIncentiveAwardBatch(this.pool, rows[0]);
+        if (!rows[0]) {
+          throw new ConflictError(
+            `incentive award batch ${input.batchId} changed concurrently; retry the command`,
+          );
+        }
+        return this.loadIncentiveAwardBatch(client, rows[0]);
+      });
     }
 
     async getIncentiveAwardBatchReconciliation(
       tenantId: string,
       batchId: string,
     ): Promise<IncentiveAwardBatchReconciliation> {
-      await this.assertTenant(tenantId);
-      const batch = await this.getIncentiveAwardBatch(tenantId, batchId);
-      const { rows } = await this.tenantQuery(
-        tenantId,
-        `SELECT * FROM incentive_award_payments
-          WHERE tenant_id=$1 AND batch_id=$2
-          ORDER BY created_at, id`,
-        [tenantId, batchId],
-      );
-      return reconcileIncentiveAwardBatch({
-        batchId: batch.id,
-        batchNo: batch.batchNo,
-        batchStatus: batch.status,
-        currency: batch.currency,
-        totalAmount: batch.totalAmount,
-        lines: batch.lines.map((line) => ({
-          id: line.id,
-          personId: line.personId,
-          amount: line.amount,
-          currency: line.currency,
-        })),
-        payments: rows.map((row: QueryResultRow) => {
-          const payment = mapAwardPaymentRow(row);
-          return {
-            id: payment.id,
-            lineId: payment.lineId,
-            amount: payment.amount,
-            paymentRef: payment.paymentRef,
-            status: payment.status,
-          };
-        }),
+      return this.transactionFor(tenantId, async (client) => {
+        const batch = await this.lockIncentiveAwardBatch(
+          client,
+          tenantId,
+          batchId,
+        );
+        return this.reconcileAwardBatchWithClient(client, batch);
+      });
+    }
+
+    async listIncentiveAwardPaymentAudits(
+      tenantId: string,
+      batchId: string,
+    ): Promise<IncentiveAwardPaymentAudit[]> {
+      return this.transactionFor(tenantId, async (client) => {
+        const { rows: batches } = await client.query(
+          "SELECT 1 FROM incentive_award_batches WHERE tenant_id=$1 AND id=$2",
+          [tenantId, batchId],
+        );
+        if (!batches[0]) notFound("IncentiveAwardBatch", batchId);
+        const { rows } = await client.query(
+          `SELECT audit.*
+             FROM audit_events audit
+             JOIN incentive_award_payments payment
+               ON payment.tenant_id = audit.tenant_id
+              AND payment.id = audit.object_id
+            WHERE audit.tenant_id=$1
+              AND audit.object_type='INCENTIVE_AWARD_PAYMENT'
+              AND payment.batch_id=$2
+            ORDER BY audit.occurred_at, audit.sequence`,
+          [tenantId, batchId],
+        );
+        return rows.map((row: QueryResultRow) => ({
+          id: row.id,
+          tenantId: row.tenant_id,
+          batchId,
+          paymentId: row.object_id,
+          action: row.action,
+          actorType: row.actor_type,
+          actorId: row.actor_id ?? undefined,
+          reason: row.reason ?? undefined,
+          occurredAt: iso(row.occurred_at) ?? new Date().toISOString(),
+        }));
       });
     }
 
@@ -1570,163 +1914,257 @@ export function PgIncentiveMixin(Base: abstract new (...args: ConstructorParamet
         failureCode?: string;
         legalEntityId?: string;
         accountingPeriod?: string;
-        creditAccount?: "CASH" | "PAYABLE";
+        creditAccount?: IncentiveAwardPaymentCreditAccount;
       }>;
     }): Promise<{
       payments: IncentiveAwardPayment[];
       reconciliation: IncentiveAwardBatchReconciliation;
       createdPaymentIds: string[];
     }> {
-      await this.assertTenant(input.tenantId);
-      const batch = await this.getIncentiveAwardBatch(
-        input.tenantId,
-        input.batchId,
-      );
-      if (!["LOCKED", "EXPORTED", "ACKNOWLEDGED"].includes(batch.status)) {
-        throw new ConflictError(
-          `AWARD_BATCH_NOT_PAYABLE: batch ${batch.batchNo} is ${batch.status}; ` +
-            "payments are accepted only after LOCK/EXPORT/ACKNOWLEDGE",
+      // 迁移 119：支付、GL 凭证、审计事件全部在同一个事务里。先锁批次行，
+      // 再读/写支付；任一步失败由 transactionFor 整体 ROLLBACK。
+      return this.transactionFor(input.tenantId, async (client) => {
+        const batch = await this.lockIncentiveAwardBatch(
+          client,
+          input.tenantId,
+          input.batchId,
         );
-      }
-      const lineById = new Map(batch.lines.map((line) => [line.id, line]));
-      const batchCurrency = batch.currency.trim().toUpperCase();
-      const results: IncentiveAwardPayment[] = [];
-      const createdPaymentIds: string[] = [];
-      const seenInRequest = new Map<string, IncentiveAwardPayment>();
-      for (const raw of input.payments) {
-        const paymentRef = raw.paymentRef.trim();
-        if (!paymentRef) {
-          throw new ConflictError("AWARD_PAYMENT_REF_REQUIRED");
-        }
-        const line = lineById.get(raw.lineId);
-        if (!line) {
-          throw new ConflictError(
-            `AWARD_PAYMENT_LINE_NOT_IN_BATCH: line ${raw.lineId} is not part of batch ${batch.batchNo}`,
+        const acknowledged = batch.status === "ACKNOWLEDGED";
+        if (acknowledged) {
+          const illegal = input.payments.find(
+            (payment) => payment.status !== "RETURNED",
           );
-        }
-        const amount = awardPaymentAmount(raw.amount);
-        const lineAmount = awardPaymentAmount(line.amount);
-        if (amount !== lineAmount) {
-          throw new ConflictError(
-            `AWARD_PAYMENT_AMOUNT_MISMATCH: ${formatDecimal(amount)} != line amount ${formatDecimal(lineAmount)} (${line.id})`,
-          );
-        }
-        const currency = raw.currency.trim().toUpperCase();
-        if (
-          currency !== line.currency.trim().toUpperCase() ||
-          currency !== batchCurrency
-        ) {
-          throw new ConflictError(
-            `AWARD_PAYMENT_CURRENCY_MISMATCH: ${currency} != ${line.currency}`,
-          );
-        }
-        const paidAt =
-          raw.status === "PAID" ? (raw.paidAt ?? now()) : raw.paidAt;
-        if (paidAt && Number.isNaN(Date.parse(paidAt))) {
-          throw new ConflictError(`AWARD_PAYMENT_PAID_AT_INVALID: ${paidAt}`);
-        }
-        const expectedPayload = { status: raw.status, amount, currency };
-        const idempotencyKey = `${line.id}:${paymentRef}`;
-        let payment = seenInRequest.get(idempotencyKey);
-        if (!payment) {
-          const { rows: existingRows } = await this.tenantQuery(
-            input.tenantId,
-            `SELECT * FROM incentive_award_payments
-              WHERE tenant_id=$1 AND batch_id=$2 AND line_id=$3
-                AND payment_ref=$4`,
-            [input.tenantId, input.batchId, line.id, paymentRef],
-          );
-          if (existingRows[0]) {
-            payment = mapAwardPaymentRow(existingRows[0]);
-            assertIdempotentAwardPayment(payment, expectedPayload);
+          if (illegal) {
+            throw new ConflictError(
+              `AWARD_BATCH_ALREADY_ACKNOWLEDGED: batch ${batch.batchNo} is ACKNOWLEDGED; ` +
+                "only RETURNED receipts may be recorded after acknowledgement",
+            );
           }
-        } else {
-          assertIdempotentAwardPayment(payment, expectedPayload);
-        }
-        if (!payment) {
-          const paymentId = randomUUID();
-          const { rows } = await this.tenantQuery(
-            input.tenantId,
-            `INSERT INTO incentive_award_payments
-               (id, tenant_id, batch_id, line_id, person_id, amount, currency,
-                payment_ref, status, paid_at, failure_code)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-             ON CONFLICT (tenant_id, batch_id, line_id, payment_ref)
-             DO NOTHING
-             RETURNING *`,
-            [
-              paymentId,
-              input.tenantId,
-              input.batchId,
-              line.id,
-              line.personId,
-              formatDecimal(amount),
-              currency,
-              paymentRef,
-              raw.status,
-              paidAt ?? null,
-              raw.failureCode?.trim() || null,
-            ],
+        } else if (!["LOCKED", "EXPORTED"].includes(batch.status)) {
+          throw new ConflictError(
+            `AWARD_BATCH_NOT_PAYABLE: batch ${batch.batchNo} is ${batch.status}; ` +
+              "payments are accepted only after LOCK/EXPORT",
           );
-          if (rows[0]) {
-            payment = mapAwardPaymentRow(rows[0]);
-            createdPaymentIds.push(payment.id);
-          } else {
-            // 并发写入同一幂等键：读回既有回执并校验载荷一致。
-            const { rows: raced } = await this.tenantQuery(
-              input.tenantId,
+        }
+
+        const lineById = new Map(batch.lines.map((line) => [line.id, line]));
+        const batchCurrency = batch.currency.trim().toUpperCase();
+        const results: IncentiveAwardPayment[] = [];
+        const createdPaymentIds: string[] = [];
+        const seenInRequest = new Map<
+          string,
+          { payment: IncentiveAwardPayment }
+        >();
+        const plannedInRequest = new Map<
+          string,
+          {
+            payment: IncentiveAwardPayment;
+            journal?: AwardPaymentJournalInput;
+          }
+        >();
+        type Slot =
+          | { kind: "existing"; payment: IncentiveAwardPayment }
+          | {
+              kind: "planned";
+              payment: IncentiveAwardPayment;
+              journal?: AwardPaymentJournalInput;
+            };
+        const slots: Slot[] = [];
+
+        // 第一段：纯校验 + 幂等解析（同一事务内的读），不写任何状态。
+        for (const raw of input.payments) {
+          const paymentRef = raw.paymentRef.trim();
+          if (!paymentRef) {
+            throw new ConflictError("AWARD_PAYMENT_REF_REQUIRED");
+          }
+          const line = lineById.get(raw.lineId);
+          if (!line) {
+            throw new ConflictError(
+              `AWARD_PAYMENT_LINE_NOT_IN_BATCH: line ${raw.lineId} is not part of batch ${batch.batchNo}`,
+            );
+          }
+          const amount = awardPaymentAmount(raw.amount);
+          const lineAmount = awardPaymentAmount(line.amount);
+          if (amount !== lineAmount) {
+            throw new ConflictError(
+              `AWARD_PAYMENT_AMOUNT_MISMATCH: ${formatDecimal(amount)} != line amount ${formatDecimal(lineAmount)} (${line.id})`,
+            );
+          }
+          const currency = raw.currency.trim().toUpperCase();
+          if (
+            currency !== line.currency.trim().toUpperCase() ||
+            currency !== batchCurrency
+          ) {
+            throw new ConflictError(
+              `AWARD_PAYMENT_CURRENCY_MISMATCH: ${currency} != ${line.currency}`,
+            );
+          }
+          const paidAt =
+            raw.status === "PAID" ? (raw.paidAt ?? now()) : raw.paidAt;
+          if (paidAt && Number.isNaN(Date.parse(paidAt))) {
+            throw new ConflictError(`AWARD_PAYMENT_PAID_AT_INVALID: ${paidAt}`);
+          }
+          const dimensions = awardPaymentDimensions(raw, paidAt);
+          const expectedPayload = {
+            status: raw.status,
+            amount,
+            currency,
+            dimensions,
+            explicitAccountingPeriod: raw.accountingPeriod?.trim() || undefined,
+          };
+          const idempotencyKey = `${line.id}:${paymentRef}`;
+          let payment = seenInRequest.get(idempotencyKey)?.payment;
+          if (!payment) {
+            payment = plannedInRequest.get(idempotencyKey)?.payment;
+          }
+          if (!payment) {
+            const { rows: existingRows } = await client.query(
               `SELECT * FROM incentive_award_payments
                 WHERE tenant_id=$1 AND batch_id=$2 AND line_id=$3
                   AND payment_ref=$4`,
               [input.tenantId, input.batchId, line.id, paymentRef],
             );
+            if (existingRows[0]) {
+              payment = mapAwardPaymentRow(existingRows[0]);
+            }
+          }
+          if (payment) {
+            assertIdempotentAwardPayment(payment, expectedPayload);
+            seenInRequest.set(idempotencyKey, { payment });
+            slots.push({ kind: "existing", payment });
+            continue;
+          }
+
+          const timestamp = now();
+          const created: IncentiveAwardPayment = {
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            batchId: input.batchId,
+            lineId: line.id,
+            personId: line.personId,
+            amount: formatDecimal(amount),
+            currency,
+            paymentRef,
+            status: raw.status,
+            paidAt: paidAt || undefined,
+            failureCode: raw.failureCode?.trim() || undefined,
+            legalEntityId: dimensions.legalEntityId,
+            accountingPeriod: dimensions.accountingPeriod,
+            creditAccount: dimensions.creditAccount,
+            createdAt: timestamp,
+          };
+          const journal: AwardPaymentJournalInput | undefined =
+            created.status === "PAID"
+              ? {
+                  tenantId: input.tenantId,
+                  documentType: "PAYMENT",
+                  documentId: created.id,
+                  legalEntityId: dimensions.legalEntityId,
+                  accountingPeriod:
+                    dimensions.accountingPeriod ??
+                    awardPaymentAccountingPeriod(
+                      undefined,
+                      created.paidAt ?? timestamp,
+                    ),
+                  currency,
+                  description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
+                  lines: [
+                    {
+                      accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
+                      debit: created.amount,
+                    },
+                    {
+                      accountCode: dimensions.creditAccount,
+                      credit: created.amount,
+                    },
+                  ],
+                }
+              : undefined;
+          plannedInRequest.set(idempotencyKey, { payment: created, journal });
+          slots.push({ kind: "planned", payment: created, journal });
+        }
+
+        // 第二段：写入。支付 → GL → 审计，全部使用同一个 client。
+        for (const slot of slots) {
+          if (slot.kind === "existing") {
+            results.push(slot.payment);
+            continue;
+          }
+          const { rows } = await client.query(
+            `INSERT INTO incentive_award_payments
+               (id, tenant_id, batch_id, line_id, person_id, amount, currency,
+                payment_ref, status, paid_at, failure_code,
+                legal_entity_id, accounting_period, credit_account)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+             ON CONFLICT (tenant_id, batch_id, line_id, payment_ref)
+             DO NOTHING
+             RETURNING *`,
+            [
+              slot.payment.id,
+              input.tenantId,
+              input.batchId,
+              slot.payment.lineId,
+              slot.payment.personId,
+              slot.payment.amount,
+              slot.payment.currency,
+              slot.payment.paymentRef,
+              slot.payment.status,
+              slot.payment.paidAt ?? null,
+              slot.payment.failureCode ?? null,
+              slot.payment.legalEntityId,
+              slot.payment.accountingPeriod ?? null,
+              slot.payment.creditAccount,
+            ],
+          );
+          let payment = rows[0] ? mapAwardPaymentRow(rows[0]) : undefined;
+          if (!payment) {
+            // 行锁下不应发生；若发生则按幂等重放处理。
+            const { rows: raced } = await client.query(
+              `SELECT * FROM incentive_award_payments
+                WHERE tenant_id=$1 AND batch_id=$2 AND line_id=$3
+                  AND payment_ref=$4`,
+              [
+                input.tenantId,
+                input.batchId,
+                slot.payment.lineId,
+                slot.payment.paymentRef,
+              ],
+            );
             if (!raced[0]) {
               throw new ConflictError(
-                `AWARD_PAYMENT_CONFLICT: ${paymentRef} could not be recorded`,
+                `AWARD_PAYMENT_CONFLICT: ${slot.payment.paymentRef} could not be recorded`,
               );
             }
             payment = mapAwardPaymentRow(raced[0]);
-            assertIdempotentAwardPayment(payment, expectedPayload);
+            results.push(payment);
+            continue;
           }
-        }
-        // 只有 PAID 才是会计事实：借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE。
-        // FAILED/RETURNED 只留痕，不生成凭证。createJournalEntry 以
-        // (PAYMENT, payment.id) 幂等，因此补记/重放都不会重复出凭证。
-        if (payment.status === "PAID") {
-          await this.createJournalEntry({
+          if (slot.journal) {
+            await this.postAwardPaymentJournal(client, slot.journal);
+          }
+          await this.appendAwardPaymentAudit(client, {
             tenantId: input.tenantId,
-            documentType: "PAYMENT",
-            documentId: payment.id,
-            legalEntityId: raw.legalEntityId?.trim() || "DEFAULT",
-            accountingPeriod: awardPaymentAccountingPeriod(
-              raw.accountingPeriod,
-              payment.paidAt ?? payment.createdAt,
-            ),
-            currency,
-            description: `Incentive award payment ${batch.batchNo} line ${line.id} ref ${paymentRef}`,
-            lines: [
-              {
-                accountCode: GL_ACCOUNT_CODES.INCENTIVE_EXPENSE,
-                debit: payment.amount,
-              },
-              {
-                accountCode: raw.creditAccount ?? GL_ACCOUNT_CODES.CASH,
-                credit: payment.amount,
-              },
-            ],
+            batchId: input.batchId,
+            paymentId: payment.id,
+            actorPersonId: input.actorPersonId,
+            reason:
+              `${payment.status} ref=${payment.paymentRef} ` +
+              `amount=${payment.amount} ${payment.currency} ` +
+              `line=${payment.lineId}`,
           });
+          results.push(payment);
+          createdPaymentIds.push(payment.id);
         }
-        seenInRequest.set(idempotencyKey, payment);
-        results.push(payment);
-      }
-      return {
-        payments: results,
-        reconciliation: await this.getIncentiveAwardBatchReconciliation(
-          input.tenantId,
-          input.batchId,
-        ),
-        createdPaymentIds,
-      };
+
+        return {
+          payments: results,
+          reconciliation: await this.reconcileAwardBatchWithClient(
+            client,
+            batch,
+          ),
+          createdPaymentIds,
+        };
+      });
     }
   };
 }
