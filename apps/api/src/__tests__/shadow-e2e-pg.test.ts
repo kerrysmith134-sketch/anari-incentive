@@ -303,7 +303,7 @@ describePg("anonymized shadow E2E on real PostgreSQL", () => {
           (sum, line) => sum + Number(line.amount),
           0,
         ),
-      })),
+      })).sort((left, right) => left.currency.localeCompare(right.currency)),
     ).toEqual([
       { currency: "CNY", lineCount: 2, amount: 28400 },
       { currency: "USD", lineCount: 1, amount: 1000 },
