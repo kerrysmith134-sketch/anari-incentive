@@ -317,7 +317,7 @@ export function AnnualReviewPanel({
               </div>
             )}
           </div>
-          <p className="subtle" style={{ fontSize: 11.5 }}>
+          <p className="subtle" style={{ fontSize: 12 }}>
             Window {formatDate(review.data.from)} – {formatDate(review.data.to)}.
             Generated {formatDateTime(review.data.generatedAt)}.
           </p>
