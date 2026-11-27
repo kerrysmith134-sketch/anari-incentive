@@ -295,7 +295,7 @@ export function MarginalSweepModal({
               </tbody>
             </table>
           </div>
-          <p className="subtle" style={{ fontSize: 11.5 }}>
+          <p className="subtle" style={{ fontSize: 12 }}>
             {marginalResult.note}
           </p>
         </div>
