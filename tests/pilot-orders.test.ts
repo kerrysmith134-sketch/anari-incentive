@@ -88,18 +88,21 @@ describe("pilot order import preflight", () => {
       currency: "CNY",
       periodStart: "2026-10-01",
       periodEnd: "2026-10-31",
+      orderId: order.orderId,
+      qualityStatus: "VALID",
+      payload: { orderId: order.orderId, cycleId: "cycle-1" },
     };
 
-    expect(planPilotOrderImports([order], [], []).map((item) => item.action))
+    expect(planPilotOrderImports([order], [], [], "cycle-1").map((item) => item.action))
       .toEqual(["CREATE_BOTH"]);
     expect(
-      planPilotOrderImports([order], ["试点订单 SO-001"], []).map((item) => item.action),
+      planPilotOrderImports([order], ["试点订单 SO-001"], [], "cycle-1").map((item) => item.action),
     ).toEqual(["CREATE_FINANCIAL_FACT"]);
     expect(
-      planPilotOrderImports([order], [], [fact]).map((item) => item.action),
+      planPilotOrderImports([order], [], [fact], "cycle-1").map((item) => item.action),
     ).toEqual(["CREATE_WORK_PACKAGE"]);
     expect(
-      planPilotOrderImports([order], ["试点订单 SO-001"], [fact]).map((item) => item.action),
+      planPilotOrderImports([order], ["试点订单 SO-001"], [fact], "cycle-1").map((item) => item.action),
     ).toEqual(["SKIP"]);
   });
 
@@ -110,7 +113,7 @@ describe("pilot order import preflight", () => {
       planPilotOrderImports(
         [order],
         ["试点订单 SO-001"],
-        [{ sourceRecordId: order.orderId, amount: "128000.51", currency: "CNY", periodStart: "2026-10-01", periodEnd: "2026-10-31" }],
+        [{ sourceRecordId: order.orderId, amount: "128000.51", currency: "CNY", periodStart: "2026-10-01", periodEnd: "2026-10-31", orderId: order.orderId, qualityStatus: "VALID", payload: { orderId: order.orderId, cycleId: "cycle-1" } }],
       ),
     ).toThrow(/controlled finance correction/i);
   });
@@ -119,16 +122,17 @@ describe("pilot order import preflight", () => {
     const [order] = parsePilotOrdersCsv(csv(ROW));
     if (!order) throw new Error("test order missing");
     expect(() =>
-      planPilotOrderImports([order], ["试点订单 SO-001", "试点订单 SO-001"], []),
+      planPilotOrderImports([order], ["试点订单 SO-001", "试点订单 SO-001"], [], "cycle-1"),
     ).toThrow(/multiple work packages/i);
     expect(() =>
       planPilotOrderImports(
         [order],
         [],
         [
-          { sourceRecordId: order.orderId, amount: order.grossProfit, currency: order.currency, periodStart: order.periodStart, periodEnd: order.periodEnd },
-          { sourceRecordId: order.orderId, amount: order.grossProfit, currency: order.currency, periodStart: order.periodStart, periodEnd: order.periodEnd },
+          { sourceRecordId: order.orderId, amount: order.grossProfit, currency: order.currency, periodStart: order.periodStart, periodEnd: order.periodEnd, orderId: order.orderId, qualityStatus: "VALID", payload: { orderId: order.orderId, cycleId: "cycle-1" } },
+          { sourceRecordId: order.orderId, amount: order.grossProfit, currency: order.currency, periodStart: order.periodStart, periodEnd: order.periodEnd, orderId: order.orderId, qualityStatus: "VALID", payload: { orderId: order.orderId, cycleId: "cycle-1" } },
         ],
+        "cycle-1",
       ),
     ).toThrow(/multiple PILOT_IMPORT financial facts/i);
   });

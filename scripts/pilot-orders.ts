@@ -24,6 +24,9 @@ export interface ExistingPilotFinancialFact {
   currency: string;
   periodStart?: string | Date;
   periodEnd?: string | Date;
+  orderId?: string;
+  qualityStatus: string;
+  payload?: Record<string, unknown>;
 }
 
 export type PilotImportAction =
@@ -213,6 +216,7 @@ export function planPilotOrderImports(
   orders: PilotOrder[],
   existingWorkPackageTitles: string[],
   existingFinancialFacts: ExistingPilotFinancialFact[],
+  cycleId: string,
 ): PilotImportPlan[] {
   const titleCounts = new Map<string, number>();
   for (const title of existingWorkPackageTitles) {
@@ -234,14 +238,22 @@ export function planPilotOrderImports(
     }
     const existingFact = factBySourceId.get(order.orderId);
     if (existingFact) {
+      const storedOrderId =
+        existingFact.orderId ??
+        (typeof existingFact.payload?.orderId === "string"
+          ? existingFact.payload.orderId
+          : undefined);
       const same =
+        existingFact.qualityStatus === "VALID" &&
+        storedOrderId === order.orderId &&
+        existingFact.payload?.cycleId === cycleId &&
         amountMicros(existingFact.amount) === amountMicros(order.grossProfit) &&
         existingFact.currency.toUpperCase() === order.currency &&
         normaliseDate(existingFact.periodStart) === order.periodStart &&
         normaliseDate(existingFact.periodEnd) === order.periodEnd;
       if (!same) {
         throw new Error(
-          `PILOT_IMPORT financial fact for order "${order.orderId}" differs from the CSV; do not overwrite an existing fact—use the controlled finance correction/revision workflow`,
+          `PILOT_IMPORT financial fact for order "${order.orderId}" differs from the CSV, is not VALID, or is not attributed to cycle "${cycleId}"; do not overwrite an existing fact—use the controlled finance correction/revision workflow`,
         );
       }
     }

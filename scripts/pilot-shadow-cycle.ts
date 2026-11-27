@@ -55,6 +55,12 @@ async function runImport(): Promise<void> {
 
   // Parse and validate the entire file before any mutation. A tenant-scoped
   // advisory lock prevents two importer processes creating the same WP/fact.
+  const cycleId = arg("cycle");
+  if (!cycleId) {
+    console.error("import requires --cycle <cycleId> so pilot facts are attributable to one evaluation cycle");
+    process.exitCode = 1;
+    return;
+  }
   const orders = parsePilotOrdersCsv(readFileSync(ordersPath, "utf8"));
   const lockClient = await pool.connect();
   const lockKey = `anari-incentive:pilot-import:${tenantId}`;
@@ -62,6 +68,7 @@ async function runImport(): Promise<void> {
   try {
     await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
     lockAcquired = true;
+    await store.getEvaluationCycle(cycleId);
     const persons = await platformStore.listPersons(tenantId);
     const personByCode = new Map<string, string>();
     for (const person of persons) {
@@ -113,7 +120,11 @@ async function runImport(): Promise<void> {
         currency: fact.currency,
         periodStart: fact.periodStart,
         periodEnd: fact.periodEnd,
+        orderId: fact.orderId,
+        qualityStatus: fact.qualityStatus,
+        payload: fact.payload,
       })),
+      cycleId,
     );
     const resolvedByOrderId = new Map(
       resolvedOrders.map((item) => [item.order.orderId, item]),
@@ -162,6 +173,7 @@ async function runImport(): Promise<void> {
           factType: "GROSS_PROFIT",
           periodStart: item.order.periodStart,
           periodEnd: item.order.periodEnd,
+          orderId: item.order.orderId,
           amount: item.order.grossProfit,
           currency: item.order.currency,
           qualityStatus: "VALID",
@@ -212,9 +224,14 @@ async function runReport(): Promise<void> {
       ),
     )[0];
 
+  const cycleFinancialFacts = (await platformStore.listFinancialFacts(tenantId)).filter(
+    (fact) => fact.payload?.cycleId === cycleId,
+  );
   const inputs: PilotMetricInputs = {
     cycle: { id: cycle.id, startsAt: cycle.startsAt, endsAt: cycle.endsAt },
-    facts: (await platformStore.listFinancialFacts(tenantId)).map((fact) => ({
+    // The pilot report intentionally requires explicit cycle attribution;
+    // period overlap alone can pull unrelated orders into a 5–10 order sample.
+    facts: cycleFinancialFacts.map((fact) => ({
       id: fact.id,
       amount: fact.amount,
       currency: fact.currency,
@@ -222,6 +239,11 @@ async function runReport(): Promise<void> {
       payload: fact.payload,
       periodStart: fact.periodStart,
       periodEnd: fact.periodEnd,
+      factType: fact.factType,
+      postingStatus: fact.recognitionStatus,
+      orderId:
+        fact.orderId ??
+        (typeof fact.payload?.orderId === "string" ? fact.payload.orderId : undefined),
     })),
     benchmarkRun: benchmarkRun
       ? {
