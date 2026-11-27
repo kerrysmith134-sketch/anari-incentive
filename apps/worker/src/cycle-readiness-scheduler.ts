@@ -10,9 +10,9 @@ export interface CycleReadinessCandidate {
  * Worker readiness checks are read-only, so scanning each cycle is safe.
  * Returning a fresh array avoids mutating the persistence adapter's result.
  */
-export function selectCycleReadinessTargets(
-  cycles: readonly CycleReadinessCandidate[],
-): CycleReadinessCandidate[] {
+export function selectCycleReadinessTargets<TCycle extends CycleReadinessCandidate>(
+  cycles: readonly TCycle[],
+): TCycle[] {
   return cycles
     .filter((cycle) => cycle.status !== "SETTLED")
     .slice()
