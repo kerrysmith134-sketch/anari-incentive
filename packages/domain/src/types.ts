@@ -1209,6 +1209,29 @@ export interface IncentiveAwardPayment {
 }
 
 /**
+ * 对账响应里的历史支付回执投影（PAID / FAILED / RETURNED 全量）。
+ *
+ * 与 IncentiveAwardPayment 的差别：不返回 tenantId / batchId / createdAt，
+ * 只保留财务工作台展示与审计追溯需要的字段。失败与退回回执同样是历史
+ * 事实，必须能被看到，但绝不参与「已付」金额累计。
+ */
+export interface IncentiveAwardReconciliationPayment {
+  id: UUID;
+  lineId: UUID;
+  personId: UUID;
+  amount: DecimalString;
+  currency: string;
+  paymentRef: string;
+  status: IncentiveAwardPaymentStatus;
+  /** 仅 PAID 必有（服务端缺省为记录时间）；FAILED/RETURNED 可能缺省。 */
+  paidAt?: string;
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: IncentiveAwardPaymentCreditAccount;
+  failureCode?: string;
+}
+
+/**
  * 迁移 119：支付审计事件（与支付回执同事务写入）。
  * PG 落 audit_events；Memory 落 adapter 内的追加链（同样受事务回滚保护）。
  */
@@ -1289,6 +1312,12 @@ export interface IncentiveAwardBatchReconciliation {
    */
   status: IncentiveAwardBatchReconciliationStatus;
   lines: IncentiveAwardReconciliationLine[];
+  /**
+   * 该批次的全部历史支付回执（PAID / FAILED / RETURNED），
+   * 按 paidAt（缺省 createdAt）倒序。仅用于留痕展示：
+   * 只有 PAID 计入 paidAmount，本数组不影响 RECONCILED 判定。
+   */
+  payments: IncentiveAwardReconciliationPayment[];
 }
 
 /** 对账用的 PAYMENT 凭证投影（按 gl_journals.document_id 关联支付回执）。 */
@@ -1323,6 +1352,68 @@ function awardMicrosToAmount(value: bigint): DecimalString {
   return `${negative ? "-" : ""}${integer}${fraction ? `.${fraction}` : ""}`;
 }
 
+/** 对账函数收到的历史回执输入（adapter 必须给出投影所需的全部字段）。 */
+interface AwardReconciliationPaymentSource {
+  id: string;
+  lineId: string;
+  personId: string;
+  amount: DecimalString;
+  currency: string;
+  paymentRef: string;
+  status: IncentiveAwardPaymentStatus;
+  paidAt?: string;
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: IncentiveAwardPaymentCreditAccount;
+  failureCode?: string;
+  createdAt: string;
+}
+
+/** 历史回执排序时间：优先 paidAt，回落到 createdAt（毫秒）。 */
+function awardPaymentSortMillis(payment: {
+  paidAt?: string;
+  createdAt: string;
+}): number {
+  const parsed = Date.parse(payment.paidAt ?? payment.createdAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * 历史回执投影：把全部回执变成对账响应里的 `payments`。
+ *
+ * 全量返回 PAID / FAILED / RETURNED（失败与退回也要能被财务看到），
+ * 按 paidAt（缺省 createdAt）倒序；同一毫秒再按 createdAt、id 倒序，
+ * 保证 Memory 与 PG 两条存储路径的顺序稳定。该投影只影响展示，
+ * 不参与已付金额与 RECONCILED 判定。
+ */
+function projectReconciliationPayments(
+  payments: ReadonlyArray<AwardReconciliationPaymentSource>,
+): IncentiveAwardReconciliationPayment[] {
+  return [...payments]
+    .sort((left, right) => {
+      const byTime =
+        awardPaymentSortMillis(right) - awardPaymentSortMillis(left);
+      if (byTime !== 0) return byTime;
+      const byCreated = right.createdAt.localeCompare(left.createdAt);
+      if (byCreated !== 0) return byCreated;
+      return right.id.localeCompare(left.id);
+    })
+    .map((payment) => ({
+      id: payment.id,
+      lineId: payment.lineId,
+      personId: payment.personId,
+      amount: payment.amount,
+      currency: payment.currency,
+      paymentRef: payment.paymentRef,
+      status: payment.status,
+      paidAt: payment.paidAt,
+      legalEntityId: payment.legalEntityId,
+      accountingPeriod: payment.accountingPeriod,
+      creditAccount: payment.creditAccount,
+      failureCode: payment.failureCode,
+    }));
+}
+
 /**
  * 奖励批次对账投影（纯函数，Memory 与 PG adapter 共用，保证两条存储路径
  * 给出完全相同的已付/未付/差异与状态）。
@@ -1337,6 +1428,10 @@ function awardMicrosToAmount(value: bigint): DecimalString {
  * 迁移 119：`journals` 是同一事务内读到的 PAYMENT 凭证投影。缺省视为
  * 没有任何凭证——只要存在 PAID 回执，glComplete 即为 false；这样任何
  * 忘记传凭证的调用方都不会被误判成 RECONCILED。
+ *
+ * 历史回执扩展（无 schema 变更）：返回值额外带 `payments`（全部历史
+ * PAID/FAILED/RETURNED，倒序）。它只做留痕展示，不改变已付/未付/
+ * 差异/GL 口径，也不参与 RECONCILED 判定。
  */
 export function reconcileIncentiveAwardBatch(input: {
   batchId: string;
@@ -1350,13 +1445,7 @@ export function reconcileIncentiveAwardBatch(input: {
     amount: DecimalString;
     currency: string;
   }>;
-  payments: ReadonlyArray<{
-    id: string;
-    lineId: string;
-    amount: DecimalString;
-    paymentRef: string;
-    status: string;
-  }>;
+  payments: ReadonlyArray<AwardReconciliationPaymentSource>;
   journals?: ReadonlyArray<IncentiveAwardGlJournalRef>;
 }): IncentiveAwardBatchReconciliation {
   const paidByLine = new Map<string, bigint>();
@@ -1476,6 +1565,8 @@ export function reconcileIncentiveAwardBatch(input: {
     missingJournalLineIds,
     status,
     lines,
+    // 历史回执只用于展示：只有 PAID 参与上面的金额与状态计算。
+    payments: projectReconciliationPayments(input.payments),
   };
 }
 

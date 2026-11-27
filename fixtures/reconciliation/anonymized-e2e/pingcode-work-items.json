@@ -1,0 +1,131 @@
+{
+  "_fixture": {
+    "kind": "PINGCODE_WORK_ITEM_PAGE",
+    "anonymized": true,
+    "capturedAt": "2026-11-25T10:00:00.000Z",
+    "note": "Raw PingCode page shape (values[]). Contribution weights live under extensions because PingCode itself does not expose attribution; they are the only shadow-chain extension and are read explicitly by scripts/shadow-e2e.ts.",
+    "extensionKey": "extensions.contributions"
+  },
+  "page_size": 100,
+  "page_index": 0,
+  "total": 2,
+  "values": [
+    {
+      "id": "66f000000000000000000101",
+      "url": "https://open.pingcode.com/v2/pjm/workitems/66f000000000000000000101",
+      "short_id": "AnonWi1",
+      "html_url": "https://example.pingcode.com/pjm/workitems/AnonWi1",
+      "project": {
+        "id": "project-anon-001",
+        "identifier": "SCR",
+        "name": "Anonymized delivery project",
+        "template_type": "scrum",
+        "is_archived": 0,
+        "is_deleted": 0
+      },
+      "identifier": 101,
+      "whole_identifier": "SCR-101",
+      "title": "Anonymized delivery work item A",
+      "type": {
+        "id": "type-story-anon",
+        "name": "用户故事",
+        "group": "requirement",
+        "icon": "story"
+      },
+      "assignee": {
+        "id": "pc-anon-001",
+        "name": "anon-a",
+        "display_name": "Anonymized employee A"
+      },
+      "reporter": {
+        "id": "pc-anon-002",
+        "name": "anon-b",
+        "display_name": "Anonymized employee B"
+      },
+      "sprint": {
+        "id": "sprint-anon-01",
+        "name": "Sprint 2026-11 A",
+        "start": { "date": 1793491200, "with_time": 0 },
+        "due": { "date": 1795996800, "with_time": 0 },
+        "status": "completed"
+      },
+      "state": {
+        "id": "state-done-anon",
+        "name": "已完成",
+        "type": "completed"
+      },
+      "created_at": 1793491200,
+      "updated_at": 1795564800,
+      "completed_at": 1795564800,
+      "is_archived": 0,
+      "is_deleted": 0
+    },
+    {
+      "id": "66f000000000000000000102",
+      "url": "https://open.pingcode.com/v2/pjm/workitems/66f000000000000000000102",
+      "short_id": "AnonWi2",
+      "html_url": "https://example.pingcode.com/pjm/workitems/AnonWi2",
+      "project": {
+        "id": "project-anon-001",
+        "identifier": "SCR",
+        "name": "Anonymized delivery project",
+        "template_type": "scrum",
+        "is_archived": 0,
+        "is_deleted": 0
+      },
+      "identifier": 102,
+      "whole_identifier": "SCR-102",
+      "title": "Anonymized delivery work item B",
+      "type": {
+        "id": "type-task-anon",
+        "name": "任务",
+        "group": "task",
+        "icon": "task"
+      },
+      "assignee": {
+        "id": "pc-anon-002",
+        "name": "anon-b",
+        "display_name": "Anonymized employee B"
+      },
+      "reporter": {
+        "id": "pc-anon-003",
+        "name": "anon-c",
+        "display_name": "Anonymized employee C"
+      },
+      "sprint": {
+        "id": "sprint-anon-01",
+        "name": "Sprint 2026-11 A",
+        "start": { "date": 1793491200, "with_time": 0 },
+        "due": { "date": 1795996800, "with_time": 0 },
+        "status": "completed"
+      },
+      "state": {
+        "id": "state-done-anon",
+        "name": "已完成",
+        "type": "completed"
+      },
+      "created_at": 1793491200,
+      "updated_at": 1795651200,
+      "completed_at": 1795651200,
+      "is_archived": 0,
+      "is_deleted": 0
+    }
+  ],
+  "extensions": {
+    "contributions": {
+      "SCR-101": [
+        { "employeeCode": "E001", "role": "OWNER", "weight": "0.30" },
+        { "employeeCode": "E002", "role": "CONTRIBUTOR", "weight": "0.10" }
+      ],
+      "SCR-102": [
+        { "employeeCode": "E002", "role": "OWNER", "weight": "0.25" },
+        { "employeeCode": "E001", "role": "CONTRIBUTOR", "weight": "0.15" }
+      ]
+    },
+    "orderOwnerAttribution": {
+      "employeeCode": "E003",
+      "weight": "0.20",
+      "sourceRecordId": "AN-O-2026-0101"
+    }
+  }
+}

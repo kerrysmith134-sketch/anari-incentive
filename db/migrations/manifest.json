@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T14:50:55.127Z",
+  "generatedAt": "2026-11-27T15:43:06.823Z",
   "migrations": [
     {
       "file": "001_core_schema.sql",

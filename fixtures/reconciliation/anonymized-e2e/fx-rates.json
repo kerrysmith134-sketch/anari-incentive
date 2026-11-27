@@ -1,0 +1,11 @@
+{
+  "fixtureVersion": "2026-11-27",
+  "asOf": "2026-11-30",
+  "base": "USD",
+  "quote": "CNY",
+  "rate": "7.10",
+  "minorUnits": 2,
+  "rounding": "HALF_UP",
+  "source": "ANONYMIZED_FIXTURE",
+  "note": "Static shadow-chain translation rate. Payout currency is per legal entity (ENTITY-CN-01=CNY, ENTITY-US-01=USD). Each USD incentive line is translated to CNY individually and half-up rounded to 2 decimals before the CNY award batch is created."
+}

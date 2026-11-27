@@ -1,0 +1,164 @@
+{
+  "fixtureVersion": "2026-11-27",
+  "anonymized": true,
+  "rubricVersionId": "44444444-4444-4444-8444-444444444444",
+  "period": "MONTHLY",
+  "note": "Metric set is identical to the published monthly performance template (017/018): weights sum to 100%. M-001 anchors are expressed in the paying legal entity's functional currency, which is how this fixture carries the USD/CNY dimension into the locked goal card and frozen snapshot.",
+  "metrics": [
+    {
+      "metricId": "M-001",
+      "name": "订单毛利达成额",
+      "period": "MONTHLY",
+      "applicableRoles": ["*"],
+      "weight": "70",
+      "metricType": "PIECEWISE_LINEAR",
+      "dataSource": "Commercial order",
+      "sourceFields": ["gross_profit_usd"],
+      "calculationRule": "Anchor raw amount is the order gross profit translated into the entity functional currency.",
+      "ownerRole": "Sales manager",
+      "evidenceRule": "Traceable to the imported Commercial order",
+      "applicabilityRule": "Sales roles in the cycle",
+      "exceptionRule": "No order → N/A",
+      "approvalRule": "Manager lock",
+      "version": 1,
+      "scoringAnchorsByCurrency": {
+        "CNY": [
+          { "raw": "0", "score": "0" },
+          { "raw": "710000", "score": "100" }
+        ],
+        "USD": [
+          { "raw": "0", "score": "0" },
+          { "raw": "100000", "score": "100" }
+        ]
+      }
+    },
+    {
+      "metricId": "M-002",
+      "name": "岗位胜任能力考试",
+      "period": "MONTHLY",
+      "applicableRoles": ["*"],
+      "weight": "15",
+      "metricType": "POSITIVE_LINEAR",
+      "dataSource": "Anonymized delivery acceptance",
+      "sourceFields": [],
+      "calculationRule": "score = raw / target * 100",
+      "ownerRole": "HR",
+      "evidenceRule": "Traceable to PingCode work item or Commercial acceptance",
+      "applicabilityRule": "All employees",
+      "exceptionRule": "No exam → N/A",
+      "approvalRule": "HR lock",
+      "version": 1,
+      "target": "100",
+      "maxScore": "100"
+    },
+    {
+      "metricId": "M-003",
+      "name": "价值观落地",
+      "period": "MONTHLY",
+      "applicableRoles": ["*"],
+      "weight": "15",
+      "metricType": "INTERVAL_EVENT",
+      "dataSource": "Anonymized delivery events",
+      "sourceFields": [],
+      "calculationRule": "score = 100 + event adjustment, clamped to [minScore, maxScore]",
+      "ownerRole": "Manager",
+      "evidenceRule": "Event must reference a fixture work item or order",
+      "applicabilityRule": "All employees",
+      "exceptionRule": "No event → 0 adjustment",
+      "approvalRule": "Manager lock",
+      "version": 1,
+      "minScore": "0",
+      "maxScore": "110"
+    }
+  ],
+  "byEmployee": {
+    "E001": {
+      "goalCardRoleCode": "ANON_SALES",
+      "measurements": [
+        {
+          "metricId": "M-001",
+          "name": "订单毛利达成额",
+          "value": "710000",
+          "unit": "CNY",
+          "source": "COMMERCIAL_ORDER",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/commercial-chain.json#order",
+          "sourceSystem": "COMMERCIAL",
+          "sourceRecordId": "AN-O-2026-0101",
+          "sourceVersion": "3",
+          "observedAt": "2026-11-30T00:00:00.000Z",
+          "qualityStatus": "VALID"
+        },
+        {
+          "metricId": "M-002",
+          "name": "岗位胜任能力考试",
+          "value": "95",
+          "unit": "SCORE",
+          "source": "PINGCODE_WORK_ITEM",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/0",
+          "sourceSystem": "PINGCODE",
+          "sourceRecordId": "SCR-101",
+          "sourceVersion": "1",
+          "observedAt": "2026-11-25T00:00:00.000Z",
+          "qualityStatus": "VALID"
+        },
+        {
+          "metricId": "M-003",
+          "name": "价值观落地",
+          "value": "2",
+          "unit": "SCORE",
+          "source": "PINGCODE_WORK_ITEM",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/0",
+          "sourceSystem": "PINGCODE",
+          "sourceRecordId": "SCR-101",
+          "sourceVersion": "1",
+          "observedAt": "2026-11-25T00:00:00.000Z",
+          "qualityStatus": "VALID"
+        }
+      ]
+    },
+    "E003": {
+      "goalCardRoleCode": "ANON_OVERSEAS_SALES",
+      "measurements": [
+        {
+          "metricId": "M-001",
+          "name": "订单毛利达成额",
+          "value": "100000",
+          "unit": "USD",
+          "source": "COMMERCIAL_ORDER",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/commercial-chain.json#order",
+          "sourceSystem": "COMMERCIAL",
+          "sourceRecordId": "AN-O-2026-0101",
+          "sourceVersion": "3",
+          "observedAt": "2026-11-30T00:00:00.000Z",
+          "qualityStatus": "VALID"
+        },
+        {
+          "metricId": "M-002",
+          "name": "岗位胜任能力考试",
+          "value": "92",
+          "unit": "SCORE",
+          "source": "COMMERCIAL_ACCEPTANCE",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/commercial-chain.json#order.confirmed_at",
+          "sourceSystem": "COMMERCIAL",
+          "sourceRecordId": "AN-O-2026-0101",
+          "sourceVersion": "3",
+          "observedAt": "2026-11-20T08:00:00.000Z",
+          "qualityStatus": "VALID"
+        },
+        {
+          "metricId": "M-003",
+          "name": "价值观落地",
+          "value": "2",
+          "unit": "SCORE",
+          "source": "PINGCODE_WORK_ITEM",
+          "sourceRef": "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/1",
+          "sourceSystem": "PINGCODE",
+          "sourceRecordId": "SCR-102",
+          "sourceVersion": "1",
+          "observedAt": "2026-11-25T00:00:00.000Z",
+          "qualityStatus": "VALID"
+        }
+      ]
+    }
+  }
+}

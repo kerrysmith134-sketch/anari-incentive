@@ -3630,6 +3630,42 @@ export type SubmitDecisionJudgmentBody = z.infer<
 >;
 
 /**
+ * vLLM decision AI 建议请求（POST /decision-cases/:id/ai-suggestion）。
+ *
+ * - 只允许指定审查维度；模型/端点/超时来自服务端 env，客户端不能覆盖，
+ *   避免调用方把证据发往任意地址或伪造模型标识；
+ * - 省略 dimensions 时由路由按 case.kind 取默认维度；
+ * - 维度必须唯一（重复维度会让“每维一个结论”的校验失去意义）。
+ */
+export const decisionAiSuggestionSchema = z
+  .object({
+    dimensions: z
+      .array(z.string().trim().min(1).max(64))
+      .min(1)
+      .max(20)
+      .optional(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    const dimensions = body.dimensions;
+    if (!dimensions) return;
+    const seen = new Set<string>();
+    dimensions.forEach((dimension, index) => {
+      if (seen.has(dimension)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "dimensions must be unique",
+          path: ["dimensions", index],
+        });
+      }
+      seen.add(dimension);
+    });
+  });
+export type DecisionAiSuggestionBody = z.infer<
+  typeof decisionAiSuggestionSchema
+>;
+
+/**
  * 120：校验结果由服务端 5 个 checker 产出。passed / checks / findings 仅为
  * 向后兼容而接受，服务端一律忽略，绝不计入权威结果。`decidedBy` 只是可选的
  * 拟授权人，用于在 verify 阶段提前发现利益冲突；最终仍以 decide 时的真实

@@ -1125,9 +1125,17 @@ export function MemoryIncentiveMixin(Base: abstract new (...args: ConstructorPar
         payments: payments.map((payment) => ({
           id: payment.id,
           lineId: payment.lineId,
+          personId: payment.personId,
           amount: payment.amount,
+          currency: payment.currency,
           paymentRef: payment.paymentRef,
           status: payment.status,
+          paidAt: payment.paidAt,
+          legalEntityId: payment.legalEntityId,
+          accountingPeriod: payment.accountingPeriod,
+          creditAccount: payment.creditAccount,
+          failureCode: payment.failureCode,
+          createdAt: payment.createdAt,
         })),
         journals: journalMap
           ? awardPaymentJournalRefs(journalMap.values(), batch.tenantId, paidPaymentIds)

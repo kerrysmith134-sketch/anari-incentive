@@ -1,0 +1,136 @@
+{
+  "fixtureVersion": "2026-11-27",
+  "anonymized": true,
+  "accountingPeriod": "2026-11",
+  "currencyPair": ["USD", "CNY"],
+  "order": {
+    "orderNumber": "AN-O-2026-0101",
+    "currency": "USD",
+    "totalUsd": "400000.00",
+    "grossProfitUsd": "100000.00",
+    "grossProfitRate": "0.25"
+  },
+  "fx": {
+    "base": "USD",
+    "quote": "CNY",
+    "rate": "7.10",
+    "rounding": "HALF_UP",
+    "minorUnits": 2
+  },
+  "pool": {
+    "rate": "0.05",
+    "capUsd": "1000000.00",
+    "poolUsd": "5000.00"
+  },
+  "participants": [
+    {
+      "employeeCode": "E001",
+      "personId": "11111111-1111-4111-8111-111111111111",
+      "legalEntityId": "ENTITY-CN-01",
+      "payoutCurrency": "CNY",
+      "attributionWeight": "0.45",
+      "sourceUsd": "2250.00",
+      "payoutAmount": "15975.00",
+      "sourceRecordId": "SCR-101",
+      "sourceRefs": [
+        "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/0",
+        "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/1"
+      ],
+      "weightParts": [
+        { "ref": "pingcode-work-items.json#values/0#E001", "weight": "0.30" },
+        { "ref": "pingcode-work-items.json#values/1#E001", "weight": "0.15" }
+      ]
+    },
+    {
+      "employeeCode": "E002",
+      "personId": "11111111-1111-4111-8111-111111111112",
+      "legalEntityId": "ENTITY-CN-01",
+      "payoutCurrency": "CNY",
+      "attributionWeight": "0.35",
+      "sourceUsd": "1750.00",
+      "payoutAmount": "12425.00",
+      "sourceRecordId": "SCR-102",
+      "sourceRefs": [
+        "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/0",
+        "fixtures/reconciliation/anonymized-e2e/pingcode-work-items.json#values/1"
+      ],
+      "weightParts": [
+        { "ref": "pingcode-work-items.json#values/0#E002", "weight": "0.10" },
+        { "ref": "pingcode-work-items.json#values/1#E002", "weight": "0.25" }
+      ]
+    },
+    {
+      "employeeCode": "E003",
+      "personId": "11111111-1111-4111-8111-111111111113",
+      "legalEntityId": "ENTITY-US-01",
+      "payoutCurrency": "USD",
+      "attributionWeight": "0.20",
+      "sourceUsd": "1000.00",
+      "payoutAmount": "1000.00",
+      "sourceRecordId": "AN-O-2026-0101",
+      "sourceRefs": [
+        "fixtures/reconciliation/anonymized-e2e/commercial-chain.json#order"
+      ],
+      "weightParts": [
+        { "ref": "pingcode-work-items.json#extensions/orderOwnerAttribution", "weight": "0.20" }
+      ]
+    }
+  ],
+  "batches": [
+    {
+      "key": "CNY",
+      "batchNo": "ANON-SHADOW-2026-11-CNY",
+      "currency": "CNY",
+      "legalEntityId": "ENTITY-CN-01",
+      "total": "28400.00",
+      "lineCount": 2,
+      "participants": ["E001", "E002"]
+    },
+    {
+      "key": "USD",
+      "batchNo": "ANON-SHADOW-2026-11-USD",
+      "currency": "USD",
+      "legalEntityId": "ENTITY-US-01",
+      "total": "1000.00",
+      "lineCount": 1,
+      "participants": ["E003"]
+    }
+  ],
+  "gl": {
+    "expenseAccount": "INCENTIVE_EXPENSE",
+    "creditAccount": "CASH",
+    "cnyTotal": "28400.00",
+    "usdTotal": "1000.00",
+    "usdEquivalentTotal": "5000.00"
+  },
+  "performance": {
+    "expectedFinalScore": {
+      "E001": "99.55",
+      "E003": "99.1"
+    },
+    "expectedEligibility": "FORMAL",
+    "expectedRecordStatus": "COMPUTED"
+  },
+  "jev": {
+    "kind": "PERFORMANCE",
+    "subjectType": "PERFORMANCE_SCORE",
+    "expectedVerifier": "E001",
+    "expectedHumanJudge": "E002",
+    "expectedDecider": "E003",
+    "requiredEvidenceSourceTypes": ["WORK_ITEM", "SYSTEM_METRIC"]
+  },
+  "expectedCounts": {
+    "employees": 3,
+    "legalEntities": 2,
+    "cycles": 1,
+    "workItems": 2,
+    "commercialOrders": 1,
+    "workPackages": 3,
+    "calculationLines": 3,
+    "ledgerEntries": 3,
+    "awardBatches": 2,
+    "awardLines": 3,
+    "payments": 3,
+    "glJournals": 3
+  }
+}

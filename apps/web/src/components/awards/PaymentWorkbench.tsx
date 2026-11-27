@@ -41,6 +41,7 @@ import {
   missingJournalLineIdSet,
 } from "./gl.js";
 import {
+  CREDIT_ACCOUNT_LABELS,
   LINE_STATUS_LABELS,
   PAYMENT_STATUS_LABELS,
   RECONCILIATION_LABELS,
@@ -49,9 +50,8 @@ import {
   reconciliationTone,
   type AwardBatchSummary,
   type AwardPaymentPayload,
-  type AwardPaymentReceipt,
   type AwardReconciliation,
-  type RecordAwardPaymentsResult,
+  type AwardReconciliationPayment,
   type SubmitOutcome,
 } from "./types.js";
 
@@ -59,10 +59,12 @@ import {
  * 批次详情里的「支付与对账」工作台。
  *
  * - 读取迁移 117 的对账投影，展示每行应付/已付/未付/差异/支付状态/GL 状态；
+ * - 用对账响应里的 `payments` 展示该批次全部历史回执（成功/失败/退回），
+ *   不再局限于当前页面会话；
  * - 未付行逐行录入支付回执（POST /payments）；
  * - 支持前端解析 CSV / 粘贴回执并逐行提交，逐行显示失败原因；
  * - ACK 只有在 reconciliation=RECONCILED 且 glComplete 时才启用；
- * - 已 ACKNOWLEDGED 的批次隐藏普通支付入口，提示走冲正流程。
+ * - 已 ACKNOWLEDGED 的批次整体只读：隐藏普通支付入口，历史回执仅展示。
  *
  * GL 状态来自迁移 119 的对账投影（glComplete / missingJournalLineIds），
  * 与后端 ACK 门禁使用同一份事实，前端不再自行扫描凭证。
@@ -86,9 +88,6 @@ export function AwardPaymentWorkbench({
   const ackErrorId = `${headingId}-ack-error`;
   const ackFormId = `${headingId}-ack-form`;
 
-  const [receipts, setReceipts] = useState<
-    Record<string, AwardPaymentReceipt>
-  >({});
   const [ackOpen, setAckOpen] = useState(false);
   const [ackRef, setAckRef] = useState("");
   const [ackError, setAckError] = useState<string | null>(null);
@@ -115,22 +114,16 @@ export function AwardPaymentWorkbench({
   const glMissingLines = reconciliation?.missingJournalLineIds.length ?? 0;
 
   const receiptsByLine = useMemo(() => {
-    const map = new Map<string, AwardPaymentReceipt[]>();
-    for (const receipt of Object.values(receipts)) {
+    const map = new Map<string, AwardReconciliationPayment[]>();
+    for (const receipt of reconciliation?.payments ?? []) {
       const list = map.get(receipt.lineId) ?? [];
       list.push(receipt);
       map.set(receipt.lineId, list);
     }
     return map;
-  }, [receipts]);
+  }, [reconciliation]);
 
-  const problemReceipts = useMemo(
-    () =>
-      Object.values(receipts)
-        .filter((receipt) => receipt.status !== "PAID")
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
-    [receipts],
-  );
+  const historicalPayments = reconciliation?.payments ?? [];
 
   const acknowledged = batch.status === "ACKNOWLEDGED";
   const payableStatus = ["LOCKED", "EXPORTED"].includes(batch.status);
@@ -149,16 +142,11 @@ export function AwardPaymentWorkbench({
     payment: AwardPaymentPayload,
   ): Promise<SubmitOutcome> {
     try {
-      const result = await api<RecordAwardPaymentsResult>(
-        `/api/v1/incentive-award-batches/${batch.id}/payments`,
-        { method: "POST", body: { payments: [payment] } },
-      );
-      setReceipts((current) => {
-        const next = { ...current };
-        for (const receipt of result.payments) {
-          next[receipt.id] = receipt;
-        }
-        return next;
+      // 回执落库后由调用方 refresh() 重新拉取对账，历史回执统一来自
+      // reconciliation.payments，避免前端会话状态与后端事实分叉。
+      await api(`/api/v1/incentive-award-batches/${batch.id}/payments`, {
+        method: "POST",
+        body: { payments: [payment] },
       });
       return { ok: true };
     } catch (caught) {
@@ -583,21 +571,26 @@ export function AwardPaymentWorkbench({
               </>
             ) : null}
 
-            {problemReceipts.length > 0 ? (
+            {historicalPayments.length > 0 ? (
               <section
-                aria-labelledby={`${headingId}-problems`}
+                aria-labelledby={`${headingId}-history`}
                 style={{ marginTop: 22 }}
               >
                 <SectionHeading
-                  id={`${headingId}-problems`}
-                  title="本次会话的失败 / 退回回执"
-                  hint="仅显示当前页面会话内记录的回执；对账接口不返回历史失败/退回明细。"
+                  id={`${headingId}-history`}
+                  title="历史支付回执"
+                  hint={
+                    acknowledged
+                      ? "批次已回执：以下历史回执（含失败/退回）为只读留痕，不可修改；如需调整请走冲正流程。"
+                      : "来自对账接口 payments 的全部历史回执（成功/失败/退回），只读留痕，不会改变已付金额。"
+                  }
                 />
                 <div className="table-wrap">
                   <table className="data-table">
                     <caption className="sr-only">
-                      当前会话记录的失败或退回支付回执，共{" "}
-                      {problemReceipts.length} 笔
+                      批次 {reconciliation.batchNo} 的历史支付回执，共{" "}
+                      {historicalPayments.length} 笔，包含已支付、支付失败与
+                      已退回；按支付时间倒序
                     </caption>
                     <thead>
                       <tr>
@@ -607,15 +600,21 @@ export function AwardPaymentWorkbench({
                           金额
                         </th>
                         <th scope="col">状态</th>
-                        <th scope="col">失败原因</th>
-                        <th scope="col">记录时间</th>
+                        <th scope="col">失败 / 退回原因</th>
+                        <th scope="col">法人主体</th>
+                        <th scope="col">会计期间</th>
+                        <th scope="col">贷方科目</th>
+                        <th scope="col">支付时间</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {problemReceipts.map((receipt) => (
+                      {historicalPayments.map((receipt) => (
                         <tr key={receipt.id}>
                           <th scope="row" className="cell-primary">
                             {displayName(receipt.personId, people)}
+                            <span className="cell-sub mono">
+                              {shortId(receipt.personId)}
+                            </span>
                           </th>
                           <td className="mono">{receipt.paymentRef}</td>
                           <td className="cell-num mono">
@@ -627,8 +626,17 @@ export function AwardPaymentWorkbench({
                             </Badge>
                           </td>
                           <td>{receipt.failureCode ?? "—"}</td>
+                          <td className="mono">{receipt.legalEntityId}</td>
+                          <td className="mono">
+                            {receipt.accountingPeriod ?? "—"}
+                          </td>
+                          <td>
+                            {CREDIT_ACCOUNT_LABELS[receipt.creditAccount]}
+                          </td>
                           <td className="nowrap">
-                            {formatDateTime(receipt.createdAt)}
+                            {receipt.paidAt
+                              ? formatDateTime(receipt.paidAt)
+                              : "—"}
                           </td>
                         </tr>
                       ))}

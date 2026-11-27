@@ -417,6 +417,9 @@ export function registerLedgerRoutes(deps: {
       .send(data(result, request));
   });
 
+  // 对账响应 = 行级已付/未付/差异 + GL 完整性 + 历史支付回执 payments。
+  // payments 返回该批次全部 PAID/FAILED/RETURNED（按 paidAt 缺省 createdAt
+  // 倒序），供工作台展示失败/退回留痕；金额与 RECONCILED 判定仍只看 PAID。
   app.get("/api/v1/incentive-award-batches/:id/reconciliation", async (request) => {
     requireRoles(request, "manager", "finance");
     return data(

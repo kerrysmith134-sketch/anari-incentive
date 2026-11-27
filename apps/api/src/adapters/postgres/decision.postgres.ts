@@ -653,6 +653,25 @@ export function PgDecisionMixin(
       });
     }
 
+    /** 只读幂等查询：同一 (subjectType, subjectId) 只返回最早创建的案件。 */
+    async findDecisionCaseBySubject(
+      tenantId: string,
+      subjectType: string,
+      subjectId: string,
+    ): Promise<DecisionCase | undefined> {
+      const { rows } = await this.tenantQuery(
+        tenantId,
+        `SELECT * FROM decision_cases
+          WHERE tenant_id=$1 AND subject_type=$2 AND subject_id=$3
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1`,
+        [tenantId, subjectType, subjectId],
+      );
+      return rows[0]
+        ? this.mapDecisionCase(rows[0] as QueryResultRow)
+        : undefined;
+    }
+
     async getDecisionCase(
       tenantId: string,
       caseId: string,

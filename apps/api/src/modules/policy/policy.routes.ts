@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { sha256 } from "@anari/policy-dsl";
 import { ForbiddenError } from "@anari/auth";
 import type {
+  DecisionPort,
   MetricSnapshotConsumptionPort,
   PolicygovPort,
 } from "../../store-ports.js";
@@ -52,6 +53,9 @@ import {
   type EquityGrantCase,
   type PerformanceGoalCard,
   type TaskPod,
+  type DecisionCase,
+  type DecisionEvidence,
+  type PolicyEngineRecord,
 } from "@anari/domain";
 import {
   businessUnitCommissionCalculationSchema,
@@ -157,6 +161,196 @@ class PolicyVersionMismatchError extends Error {
   constructor(message: string) {
     super(message);
   }
+}
+
+/**
+ * 只有 FORMAL 评分才能进入 JEV：INCOMPLETE/BLOCKED 是参考分，不能成为
+ * 评价决定的证据来源。
+ */
+class PerformanceNotFormalError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_NOT_FORMAL";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * 评分记录里的事实与 factsHash 对不上：fail-closed，绝不写入一条
+ * 「hash 承诺与内容不一致」的 JEV 证据。
+ */
+class PerformanceFactsHashMismatchError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_FACTS_HASH_MISMATCH";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 评分记录类型不匹配（只有 PERFORMANCE_SCORE 可以关联绩效案件）。 */
+class PerformanceRecordTypeError extends Error {
+  readonly statusCode = 409;
+  readonly code = "PERFORMANCE_RECORD_TYPE_MISMATCH";
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/** 评分记录负载里的事实绑定（factsHash 的原文承诺）。 */
+interface PerformanceFactsBinding {
+  kind: string;
+  tenantId: string;
+  facts: unknown;
+  supplements: Array<{
+    metricId: string;
+    naReason: string | null;
+    sampleSize: number | null;
+    evidenceRefs: string[];
+  }>;
+}
+
+/**
+ * 从评分记录 payload 复原 factsHash 的原文承诺。
+ *
+ * 评分时 factsHash = sha256({kind, tenantId, facts, supplements})，因此这里
+ * 必须逐字段复原（含 null 归一与 metricId 排序），再重算比对；复原不出来
+ * 就 fail-closed，绝不用「随便一个 hash」冒充证据承诺。
+ */
+function performanceFactsBindingOf(
+  record: PolicyEngineRecord,
+): {
+  binding: PerformanceFactsBinding;
+  factsHash: string;
+  payload: {
+    eligibility?: string;
+    factsHash?: string;
+    facts?: Record<string, unknown>;
+    request?: {
+      cycleId?: string;
+      personId?: string;
+      metricInputs?: Array<Record<string, unknown>>;
+    };
+  };
+} {
+  const payload = (record.payload ?? {}) as {
+    eligibility?: string;
+    factsHash?: string;
+    facts?: Record<string, unknown>;
+    request?: {
+      cycleId?: string;
+      personId?: string;
+      metricInputs?: Array<Record<string, unknown>>;
+    };
+  };
+  if (payload.eligibility !== "FORMAL") {
+    throw new PerformanceNotFormalError(
+      `评分记录 ${record.id} 的资格是 ${payload.eligibility ?? "UNKNOWN"}：只有 FORMAL 评分才能关联 JEV 案件`,
+    );
+  }
+  const declaredHash = typeof payload.factsHash === "string"
+    ? payload.factsHash
+    : "";
+  if (!declaredHash) {
+    throw new PerformanceFactsHashMismatchError(
+      `评分记录 ${record.id} 缺少 factsHash，无法作为 JEV 证据`,
+    );
+  }
+  const metricInputs = Array.isArray(payload.request?.metricInputs)
+    ? payload.request!.metricInputs
+    : [];
+  const binding: PerformanceFactsBinding = {
+    kind: "PERFORMANCE_SCORE_FROM_FACTS/v2",
+    tenantId: record.tenantId,
+    facts: payload.facts,
+    supplements: metricInputs
+      .map((input) => ({
+        metricId: String(input.metricId),
+        naReason: (input.naReason as string | undefined) ?? null,
+        sampleSize: (input.sampleSize as number | undefined) ?? null,
+        evidenceRefs: [
+          ...((input.evidenceRefs as string[] | undefined) ?? []),
+        ].sort(),
+      }))
+      .sort((left, right) => left.metricId.localeCompare(right.metricId)),
+  };
+  return { binding, factsHash: declaredHash, payload };
+}
+
+/**
+ * score-from-facts 的 JEV 衔接（幂等）：同一 recordId 只关联一个
+ * PERFORMANCE 案件、只写一条 PERFORMANCE_SCORE 证据。
+ *
+ * - 幂等键是 (subjectType="PERFORMANCE_SCORE", subjectId=recordId)，通过
+ *   findDecisionCaseBySubject 只读查询找到已有案件，不重复开案；
+ * - 证据 content 是可重算的事实绑定，contentHash 必须等于 factsHash；
+ * - 已存在案件时只在证据缺失时补写（例如上次写到一半），不会重复追加。
+ */
+async function ensurePerformanceScoreDecisionCase(input: {
+  platformStore: PolicygovPort & DecisionPort;
+  tenantId: string;
+  record: PolicyEngineRecord;
+  createdBy: string;
+}): Promise<{
+  decisionCase: DecisionCase;
+  evidence: DecisionEvidence[];
+  created: boolean;
+}> {
+  const { platformStore, tenantId, record, createdBy } = input;
+  const { binding, factsHash, payload } = performanceFactsBindingOf(record);
+  const recomputed = sha256(binding);
+  if (recomputed !== factsHash) {
+    throw new PerformanceFactsHashMismatchError(
+      `评分记录 ${record.id} 的 factsHash ${factsHash} 与重算结果 ${recomputed} 不一致：不得作为 JEV 证据`,
+    );
+  }
+  let decisionCase = await platformStore.findDecisionCaseBySubject(
+    tenantId,
+    "PERFORMANCE_SCORE",
+    record.id,
+  );
+  let created = false;
+  if (!decisionCase) {
+    created = true;
+    const facts = payload.facts ?? {};
+    decisionCase = await platformStore.createDecisionCase({
+      tenantId,
+      kind: "PERFORMANCE",
+      subjectType: "PERFORMANCE_SCORE",
+      subjectId: record.id,
+      context: {
+        flow: "PERFORMANCE_SCORE",
+        cycleId: payload.request?.cycleId ?? null,
+        personId: record.personId ?? payload.request?.personId ?? null,
+        period: record.period ?? null,
+        eligibility: "FORMAL",
+        factsHash,
+        finalScore: (facts as { finalScore?: unknown }).finalScore ?? null,
+        kp: (facts as { kp?: unknown }).kp ?? null,
+        snapshotId: (facts as { snapshotId?: unknown }).snapshotId ?? null,
+      },
+      createdBy,
+    });
+  }
+  let detail = await platformStore.getDecisionCase(tenantId, decisionCase.id);
+  if (
+    !detail.evidence.some(
+      (entry) =>
+        entry.sourceType === "PERFORMANCE_SCORE" &&
+        entry.sourceId === record.id,
+    )
+  ) {
+    await platformStore.appendDecisionEvidence({
+      tenantId,
+      caseId: decisionCase.id,
+      sourceType: "PERFORMANCE_SCORE",
+      sourceId: record.id,
+      content: binding,
+      contentHash: factsHash,
+      supports: "FOR",
+    });
+    detail = await platformStore.getDecisionCase(tenantId, decisionCase.id);
+  }
+  return { decisionCase, evidence: detail.evidence, created };
 }
 
 /** 评分来源标记：只有 LOCKED_FACTS 可作为正式评价依据。 */
@@ -341,7 +535,8 @@ type LockedGoalCardPayload = Omit<PerformanceGoalCard, "tenantId"> & {
 
 
 export interface PolicyEngineDeps {
-  platformStore: PolicygovPort;
+  /** 制度引擎端口 + JEV 决策端口（同一门面实例，绩效正式结果要进 JEV）。 */
+  platformStore: PolicygovPort & DecisionPort;
   storeFor: (request: FastifyRequest) => IncentiveStore;
   countEvent: (event: string) => void;
 }
@@ -1665,8 +1860,9 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         sources,
       };
       // 事实哈希：同输入重放必须一致；补充字段与逐项来源也纳入绑定，避免
-      // 「同 hash 不同解释」。
-      const factsHash = sha256({
+      // 「同 hash 不同解释」。这个对象同时是 JEV 证据的原文承诺——证据
+      // contentHash 必须等于 factsHash，服务端重算才对得上。
+      const factsBinding = {
         kind: "PERFORMANCE_SCORE_FROM_FACTS/v2",
         tenantId,
         facts,
@@ -1678,7 +1874,8 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
             evidenceRefs: [...(input.evidenceRefs ?? [])].sort(),
           }))
           .sort((left, right) => left.metricId.localeCompare(right.metricId)),
-      });
+      };
+      const factsHash = sha256(factsBinding);
 
       const warnings: string[] = [];
       if (policyBinding.blocker) {
@@ -1735,6 +1932,8 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
         measurements,
         result,
       };
+      // JEV 案件 id：只有 FORMAL 才会产生；响应回传，便于前端/审计直接跳转。
+      let decisionCaseId: string | undefined;
       let record = await platformStore.savePolicyEngineRecord({
         tenantId,
         recordType: "PERFORMANCE_SCORE",
@@ -1793,12 +1992,24 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
 
       if (eligibility === "FORMAL") {
         try {
+          // 正式结果必须进入 JEV：先创建/关联 PERFORMANCE 案件并写入一条
+          // PERFORMANCE_SCORE 证据（contentHash = factsHash），成功后才把记录
+          // 升级为 COMPUTED。JEV 写入失败与记录落库失败同路径回滚，绝不留下
+          // 「正式但不可审计」的评分。
+          const decisionCase = await ensurePerformanceScoreDecisionCase({
+            platformStore,
+            tenantId,
+            record,
+            createdBy: actorPersonId,
+          });
+          decisionCaseId = decisionCase.decisionCase.id;
           record = await platformStore.updatePolicyEngineRecord({
             tenantId,
             recordId: record.id,
             status: "COMPUTED",
             payload: {
               ...basePayload,
+              decisionCaseId: decisionCase.decisionCase.id,
               snapshotConsumption: {
                 snapshotId: activeSnapshot.id,
                 consumedByRecordId: record.id,
@@ -1862,7 +2073,90 @@ export function registerPolicyEngineRoutes(deps: PolicyEngineDeps): FastifyPlugi
           blockers,
           warnings,
           recordId: record.id,
+          // FORMAL 结果对应的 JEV 案件（kind=PERFORMANCE，subject=评分记录）。
+          decisionCaseId: decisionCaseId ?? null,
         },
+        request,
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // 正式评分的 JEV 案件（幂等）。
+    //
+    // score-from-facts 已经为 FORMAL 结果自动建案；这两个端点用于：
+    // - GET：审计/前端读取「这条正式评分属于哪个 JEV 案件」；
+    // - POST：对历史 FORMAL 记录补建（或重放时修复半途失败），同一
+    //   recordId 只关联一次，重复调用返回 created=false 与同一案件。
+    // -------------------------------------------------------------------------
+    app.post("/api/v1/policy/performance/scores/:id/decision-case", async (request, reply) => {
+      requireRoles(request, "manager", "finance");
+      const createdBy = ownPersonId(request);
+      if (!createdBy) {
+        throw new ForbiddenError(
+          "linking a performance score decision case requires an employee identity",
+        );
+      }
+      const tenantId = tenantOf(request);
+      const record = await platformStore.getPolicyEngineRecord(
+        tenantId,
+        idOf(request),
+      );
+      if (record.recordType !== "PERFORMANCE_SCORE") {
+        throw new PerformanceRecordTypeError(
+          `记录 ${record.id} 的类型是 ${record.recordType}，不是 PERFORMANCE_SCORE`,
+        );
+      }
+      const ensured = await ensurePerformanceScoreDecisionCase({
+        platformStore,
+        tenantId,
+        record,
+        createdBy,
+      });
+      return reply.status(ensured.created ? 201 : 200).send(
+        data(
+          {
+            created: ensured.created,
+            subjectType: "PERFORMANCE_SCORE",
+            subjectId: record.id,
+            case: ensured.decisionCase,
+            evidence: ensured.evidence,
+          },
+          request,
+        ),
+      );
+    });
+
+    app.get("/api/v1/policy/performance/scores/:id/decision-case", async (request) => {
+      requireRoles(request, "manager", "finance");
+      const tenantId = tenantOf(request);
+      const record = await platformStore.getPolicyEngineRecord(
+        tenantId,
+        idOf(request),
+      );
+      if (record.recordType !== "PERFORMANCE_SCORE") {
+        throw new PerformanceRecordTypeError(
+          `记录 ${record.id} 的类型是 ${record.recordType}，不是 PERFORMANCE_SCORE`,
+        );
+      }
+      const decisionCase = await platformStore.findDecisionCaseBySubject(
+        tenantId,
+        "PERFORMANCE_SCORE",
+        record.id,
+      );
+      if (!decisionCase) {
+        return data(
+          {
+            recordId: record.id,
+            case: null,
+            evidence: [],
+            judgments: { human: [], ai: [] },
+            record: null,
+          },
+          request,
+        );
+      }
+      return data(
+        await platformStore.getDecisionCase(tenantId, decisionCase.id),
         request,
       );
     });

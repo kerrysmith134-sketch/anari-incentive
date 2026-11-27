@@ -442,6 +442,26 @@ export function MemoryDecisionMixin(
       );
     }
 
+    /** 只读幂等查询：同一 (subjectType, subjectId) 只返回最早创建的案件。 */
+    async findDecisionCaseBySubject(
+      tenantId: string,
+      subjectType: string,
+      subjectId: string,
+    ): Promise<DecisionCase | undefined> {
+      // Map 的插入顺序即创建顺序；同一对象理论上只有一案，取最早一条
+      // 保证重复调用（含并发写入后的重放）返回稳定答案。
+      for (const decisionCase of this.decisionCases.values()) {
+        if (
+          decisionCase.tenantId === tenantId &&
+          decisionCase.subjectType === subjectType &&
+          decisionCase.subjectId === subjectId
+        ) {
+          return decisionCase;
+        }
+      }
+      return undefined;
+    }
+
     async getDecisionCase(
       tenantId: string,
       caseId: string,

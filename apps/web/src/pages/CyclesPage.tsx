@@ -40,7 +40,10 @@ import type {
   Rubric,
   WorkPackage,
 } from "../lib/types.js";
-import type { CalculationRunView } from "../lib/ops-types.js";
+import type { CalculationRunView, EvidenceView } from "../lib/ops-types.js";
+import { EvidenceChecklist } from "../components/decisions/EvidenceChecklist.js";
+import { AiSuggestionPanel, type AiDraftView } from "../components/decisions/AiSuggestionPanel.js";
+import { DecisionCaseModal } from "../components/decisions/DecisionCaseModal.js";
 
 const CYCLE_TYPES = ["MONTHLY", "QUARTERLY", "ANNUAL", "CUSTOM"];
 const TIMEZONES = [
@@ -100,9 +103,24 @@ export function CyclesPage() {
   const [reviewRubric, setReviewRubric] = useState("");
   const [scoresText, setScoresText] = useState("{}");
   const [rationale, setRationale] = useState("");
+  // 人工独立判断（先于 AI 建议）与最终决定是两组独立字段，互不复用。
+  const [independentScoresText, setIndependentScoresText] = useState("{}");
+  const [independentRationale, setIndependentRationale] = useState("");
+  const [independentLocked, setIndependentLocked] = useState(false);
+  // evidenceOpened 只统计真实打开过的证据 id（去重），不是列表渲染数。
+  const [openedEvidenceIds, setOpenedEvidenceIds] = useState<string[]>([]);
+  const [evidenceDetail, setEvidenceDetail] = useState<EvidenceView | null>(null);
+  const [caseDecision, setCaseDecision] = useState<EvaluationDecision | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const runs = useApiQuery<CalculationRunView[]>("/api/v1/calculation-runs");
   const workPackages = useApiQuery<WorkPackage[]>("/api/v1/work-packages");
+  // 复核证据清单：只在该草稿复核时加载，用于真实统计 evidenceOpened。
+  const reviewEvidence = useApiQuery<EvidenceView[]>(
+    reviewDraft
+      ? `/api/v1/evidence?subjectType=PERSON&subjectId=${encodeURIComponent(reviewDraft.personId)}`
+      : null,
+    reviewDraft?.id ?? null,
+  );
   const [runOpen, setRunOpen] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runSubmitting, setRunSubmitting] = useState(false);
@@ -418,16 +436,23 @@ export function CyclesPage() {
     setReviewRubric(
       selected?.rubricVersionId ?? rubrics.data?.[0]?.id ?? "",
     );
+    // 两组字段分别初始化：独立判断 ≠ 最终决定。
     setScoresText("{}");
     setRationale("");
+    setIndependentScoresText("{}");
+    setIndependentRationale("");
+    setIndependentLocked(false);
+    setOpenedEvidenceIds([]);
     setReviewError(null);
   }
 
-  async function submitDecision() {
-    if (!reviewDraft) return;
-    let scores: Record<string, number>;
+  /** 0–5 得分 JSON；空对象合法（无数字分的维度另有认定状态约束）。 */
+  function parseScores(raw: string): {
+    scores?: Record<string, number>;
+    error?: string;
+  } {
     try {
-      const parsed = JSON.parse(scoresText || "{}") as unknown;
+      const parsed = JSON.parse(raw || "{}") as unknown;
       if (
         !parsed ||
         typeof parsed !== "object" ||
@@ -436,21 +461,75 @@ export function CyclesPage() {
           (value) => typeof value !== "number" || value < 0 || value > 5,
         )
       ) {
-        throw new Error("得分必须是 0–5 的数字对象");
+        return { error: "得分必须是 0–5 的数字对象" };
       }
-      scores = parsed as Record<string, number>;
-    } catch (caught) {
-      setReviewError(
-        caught instanceof Error ? caught.message : "Scores must be valid JSON.",
-      );
+      return { scores: parsed as Record<string, number> };
+    } catch {
+      return { error: "得分必须是合法 JSON 对象" };
+    }
+  }
+
+  function openEvidence(node: EvidenceView) {
+    // 只有真实打开（进入详情）的证据才计数；重复打开同一 id 不重复计数。
+    setOpenedEvidenceIds((previous) =>
+      previous.includes(node.id) ? previous : [...previous, node.id],
+    );
+    setEvidenceDetail(node);
+  }
+
+  function aiDraftFor(decision: EvaluationDecision | null): AiDraftView | null {
+    if (!decision) return null;
+    const candidate = (drafts.data ?? []).find(
+      (draft) =>
+        draft.generatedByType === "AGENT" &&
+        draft.cycleId === decision.cycleId &&
+        draft.personId === decision.personId &&
+        draft.evidenceSnapshotHash === decision.evidenceSnapshotHash,
+    );
+    return candidate ? (candidate as AiDraftView) : null;
+  }
+
+  /** 锁定独立判断：校验通过后才会展示 AI 建议、允许提交最终决定。 */
+  function lockIndependent() {
+    const parsed = parseScores(independentScoresText);
+    if (parsed.error) {
+      setReviewError(`独立判断：${parsed.error}`);
+      return;
+    }
+    if (independentRationale.trim().length < 3) {
+      setReviewError("独立判断理由必须至少 3 个字符。");
+      return;
+    }
+    setReviewError(null);
+    setIndependentLocked(true);
+  }
+
+  async function submitDecision() {
+    if (!reviewDraft) return;
+    if (!independentLocked) {
+      setReviewError("先填写并锁定独立判断，再提交最终决定。");
+      return;
+    }
+    const independent = parseScores(independentScoresText);
+    if (independent.error || !independent.scores) {
+      setReviewError(`独立判断：${independent.error}`);
+      return;
+    }
+    const finalScores = parseScores(scoresText);
+    if (finalScores.error || !finalScores.scores) {
+      setReviewError(`最终决定：${finalScores.error}`);
       return;
     }
     if (!reviewRubric) {
       setReviewError("必须选择评分标准版本。");
       return;
     }
+    if (independentRationale.trim().length < 3) {
+      setReviewError("独立判断理由必须至少 3 个字符。");
+      return;
+    }
     if (rationale.trim().length < 3) {
-      setReviewError("必须填写至少 3 个字符的理由。");
+      setReviewError("最终决定理由必须至少 3 个字符。");
       return;
     }
     setSubmitting(true);
@@ -462,13 +541,14 @@ export function CyclesPage() {
           reviewerPersonId: reviewer,
           rubricVersionId: reviewRubric,
           decision,
-          scores,
+          // 最终决定字段只来自「最终决定」表单。
+          scores: finalScores.scores,
           rationale: rationale.trim(),
-          // ATT-06: the reviewer's independent judgement is recorded before
-          // comparing with the AI draft.
-          independentScores: scores,
-          independentRationale: rationale.trim(),
-          evidenceOpened: 0,
+          // ATT-06：独立判断字段只来自「独立判断」表单，不再复制最终值。
+          independentScores: independent.scores,
+          independentRationale: independentRationale.trim(),
+          // 真实打开过的证据数（去重），不是列表条数。
+          evidenceOpened: openedEvidenceIds.length,
         },
       });
       toast.success(
@@ -482,7 +562,7 @@ export function CyclesPage() {
     } catch (caught) {
       setReviewError(
         caught instanceof ApiError
-          ? caught.message
+          ? `${caught.code}: ${caught.message}`
           : caught instanceof Error
             ? caught.message
             : "无法记录决策。",
@@ -931,7 +1011,11 @@ export function CyclesPage() {
               )}
             </Panel>
 
-            <Panel title="已批决策" subtitle="仅人工决策" flush>
+            <Panel
+              title="已批决策"
+              subtitle="仅人工决策；每条必须留下 JEV record 才能最终批准"
+              flush
+            >
               {decisions.error ? (
                 <div style={{ padding: 16 }}>
                   <ErrorNotice error={decisions.error} onRetry={decisions.reload} />
@@ -955,6 +1039,7 @@ export function CyclesPage() {
                         <th>版本</th>
                         <th>状态</th>
                         <th>已批准</th>
+                        <th>JEV</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -976,6 +1061,16 @@ export function CyclesPage() {
                             {item.approvedAt
                               ? formatDateTime(item.approvedAt)
                               : "—"}
+                          </td>
+                          <td className="cell-actions">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setCaseDecision(item)}
+                              aria-label={`打开评价决定 ${item.id} 的 JEV 案件`}
+                            >
+                              JEV 案件
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -1653,18 +1748,28 @@ export function CyclesPage() {
       <Modal
         open={Boolean(reviewDraft)}
         title="复核评价草稿"
-        description="批准会写入版本化决策；复核人不得是草稿对象本人。"
-        onClose={() => setReviewDraft(null)}
+        description="先记录人工独立判断，再把最终决定写成正式决策；AI 建议只读且不能成为决定。"
+        onClose={() => {
+          setReviewDraft(null);
+          setEvidenceDetail(null);
+        }}
         wide
         footer={
           <>
-            <Button variant="ghost" onClick={() => setReviewDraft(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setReviewDraft(null);
+                setEvidenceDetail(null);
+              }}
+            >
               取消
             </Button>
             <Button
               variant={decision === "REJECT" ? "danger" : "primary"}
               onClick={submitDecision}
               loading={submitting}
+              disabled={!independentLocked}
             >
               {decision === "REJECT" ? "驳回草稿" : "批准评价"}
             </Button>
@@ -1694,95 +1799,238 @@ export function CyclesPage() {
                   label: "草稿版本",
                   value: `v${reviewDraft.version}`,
                 },
+                {
+                  label: "草稿状态",
+                  value: <Badge status={reviewDraft.status} />,
+                },
               ]}
             />
-            <div className="form-grid">
-              <FormField label="决策" htmlFor="draft-decision">
-                <Select
-                  id="draft-decision"
-                  value={decision}
-                  onChange={(event) =>
-                    setDecision(event.target.value as "APPROVE" | "REJECT")
-                  }
+
+            <section aria-label="人工独立判断">
+              <div className="detail-section__title">
+                ① 人工独立判断（先于 AI 建议）
+              </div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                这组字段只写入独立判断（independentScores /
+                independentRationale），不会复制最终决定的值。
+              </p>
+              <div className="form-grid">
+                <FormField
+                  label="独立得分（JSON）"
+                  htmlFor="independent-scores"
+                  className="field--full"
+                  hint='先独立打分，例如 {"QUALITY":4}。取值 0–5。'
                 >
-                  <option value="APPROVE">批准</option>
-                  <option value="REJECT">驳回</option>
-                </Select>
-              </FormField>
-              <FormField label="复核人" htmlFor="draft-reviewer">
-                <PersonSelect
-                  id="draft-reviewer"
-                  value={reviewer}
-                  onChange={setReviewer}
-                />
-              </FormField>
-              <FormField
-                label="评分标准版本"
-                htmlFor="draft-rubric"
-                className="field--full"
-                hint="决策会记录所用的评分标准版本。"
-              >
-                {activeRubrics.length > 0 ? (
-                  <Select
-                    id="draft-rubric"
-                    value={reviewRubric}
-                    onChange={(event) => setReviewRubric(event.target.value)}
+                  <Textarea
+                    id="independent-scores"
+                    value={independentScoresText}
+                    onChange={(event) =>
+                      setIndependentScoresText(event.target.value)
+                    }
+                    className="input mono"
+                    spellCheck={false}
+                    disabled={independentLocked}
+                  />
+                </FormField>
+                <FormField
+                  label="独立判断理由"
+                  htmlFor="independent-rationale"
+                  className="field--full"
+                  hint="至少 3 个字符；这是先于 AI 建议记录的人工判断。"
+                >
+                  <Textarea
+                    id="independent-rationale"
+                    value={independentRationale}
+                    onChange={(event) =>
+                      setIndependentRationale(event.target.value)
+                    }
                     required
+                    disabled={independentLocked}
+                  />
+                </FormField>
+              </div>
+              <div className="chip-row">
+                <Button
+                  size="sm"
+                  variant={independentLocked ? "ghost" : "primary"}
+                  onClick={lockIndependent}
+                  disabled={independentLocked}
+                >
+                  {independentLocked ? "独立判断已锁定" : "锁定独立判断"}
+                </Button>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {independentLocked
+                    ? "独立判断已记录，下面才展示 AI 建议（只读）。"
+                    : "锁定独立判断后才能查看 AI 建议与提交最终决定。"}
+                </span>
+              </div>
+            </section>
+
+            <section aria-label="AI 建议（只读）">
+              <div className="detail-section__title">② AI 建议（只读）</div>
+              <AiSuggestionPanel
+                draft={reviewDraft}
+                revealed={independentLocked}
+              />
+            </section>
+
+            <section aria-label="最终决定">
+              <div className="detail-section__title">③ 最终决定</div>
+              {/* 最终决定字段与独立判断完全分开；前者是正式 record。 */}
+              <div className="form-grid">
+                <FormField label="决策" htmlFor="draft-decision">
+                  <Select
+                    id="draft-decision"
+                    value={decision}
+                    onChange={(event) =>
+                      setDecision(event.target.value as "APPROVE" | "REJECT")
+                    }
                   >
-                    <option value="">Select a rubric…</option>
-                    {activeRubrics.map((rubric) => (
-                      <option key={rubric.id} value={rubric.id}>
-                        {rubric.code} v{rubric.version} · {rubric.name}
-                      </option>
-                    ))}
+                    <option value="APPROVE">批准</option>
+                    <option value="REJECT">驳回</option>
                   </Select>
-                ) : (
-                  <TextInput
-                    id="draft-rubric"
-                    value={reviewRubric}
-                    onChange={(event) => setReviewRubric(event.target.value)}
-                    placeholder="评分标准版本 UUID"
+                </FormField>
+                <FormField label="复核人" htmlFor="draft-reviewer">
+                  <PersonSelect
+                    id="draft-reviewer"
+                    value={reviewer}
+                    onChange={setReviewer}
+                  />
+                </FormField>
+                <FormField
+                  label="评分标准版本"
+                  htmlFor="draft-rubric"
+                  className="field--full"
+                  hint="决策会记录所用的评分标准版本。"
+                >
+                  {activeRubrics.length > 0 ? (
+                    <Select
+                      id="draft-rubric"
+                      value={reviewRubric}
+                      onChange={(event) => setReviewRubric(event.target.value)}
+                      required
+                    >
+                      <option value="">Select a rubric…</option>
+                      {activeRubrics.map((rubric) => (
+                        <option key={rubric.id} value={rubric.id}>
+                          {rubric.code} v{rubric.version} · {rubric.name}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <TextInput
+                      id="draft-rubric"
+                      value={reviewRubric}
+                      onChange={(event) => setReviewRubric(event.target.value)}
+                      placeholder="评分标准版本 UUID"
+                      required
+                    />
+                  )}
+                </FormField>
+                <FormField
+                  label="最终得分（JSON）"
+                  htmlFor="draft-scores"
+                  className="field--full"
+                  hint='最终决定的维度得分，例如 {"QUALITY":4}。取值 0–5；独立得分不会被自动带入。'
+                >
+                  <Textarea
+                    id="draft-scores"
+                    value={scoresText}
+                    onChange={(event) => setScoresText(event.target.value)}
+                    className="input mono"
+                    spellCheck={false}
+                  />
+                </FormField>
+                <FormField
+                  label="最终决定理由"
+                  htmlFor="draft-rationale"
+                  className="field--full"
+                  hint="至少 3 个字符；随正式决策一并留存。"
+                >
+                  <Textarea
+                    id="draft-rationale"
+                    value={rationale}
+                    onChange={(event) => setRationale(event.target.value)}
                     required
                   />
-                )}
-              </FormField>
-              <FormField
-                label="得分（JSON）"
-                htmlFor="draft-scores"
-                className="field--full"
-                hint='Optional dimension scores, e.g. {"execution":4.2,"ownership":3.8}. Values 0–5.'
-              >
-                <Textarea
-                  id="draft-scores"
-                  value={scoresText}
-                  onChange={(event) => setScoresText(event.target.value)}
-                  className="input mono"
-                  spellCheck={false}
+                </FormField>
+              </div>
+            </section>
+
+            <section aria-label="复核证据">
+              <div className="detail-section__title">④ 证据（真实打开计数）</div>
+              <EvidenceChecklist
+                evidence={reviewEvidence.data ?? []}
+                openedIds={openedEvidenceIds}
+                onOpen={openEvidence}
+                loading={reviewEvidence.loading}
+              />
+              {reviewEvidence.error ? (
+                <ErrorNotice
+                  title="证据加载失败"
+                  error={reviewEvidence.error}
+                  onRetry={reviewEvidence.reload}
                 />
-              </FormField>
-              <FormField
-                label="理由"
-                htmlFor="draft-rationale"
-                className="field--full"
-                hint="至少 3 个字符；随决策一并留存。"
-              >
-                <Textarea
-                  id="draft-rationale"
-                  value={rationale}
-                  onChange={(event) => setRationale(event.target.value)}
-                  required
-                />
-              </FormField>
-            </div>
-            {reviewDraft.generatedByType === "AGENT" ? (
-              <InfoNotice>
-                This draft was generated by an agent. The model output is
-                advisory; your decision is the formal record.
-              </InfoNotice>
-            ) : null}
+              ) : null}
+            </section>
           </div>
         ) : null}
       </Modal>
+
+      <Modal
+        open={Boolean(evidenceDetail)}
+        title="证据详情"
+        description="只读；打开动作会计入决定的 evidenceOpened（同一 id 只计一次）。"
+        onClose={() => setEvidenceDetail(null)}
+        wide
+      >
+        {evidenceDetail ? (
+          <div className="stack">
+            <DefinitionList
+              items={[
+                {
+                  label: "证据",
+                  value: <span className="mono">{evidenceDetail.id}</span>,
+                },
+                { label: "来源系统", value: evidenceDetail.sourceSystem },
+                { label: "类型", value: evidenceDetail.evidenceType },
+                {
+                  label: "质量",
+                  value: <Badge status={evidenceDetail.qualityStatus} />,
+                },
+                {
+                  label: "观测时间",
+                  value: formatDateTime(evidenceDetail.observedAt),
+                },
+                {
+                  label: "payloadHash",
+                  value: (
+                    <span className="mono">
+                      {shortId(evidenceDetail.payloadHash, 24)}
+                    </span>
+                  ),
+                },
+              ]}
+            />
+            <div className="detail-section">
+              <div className="detail-section__title">normalizedPayload</div>
+              <pre className="code-block">
+                {JSON.stringify(evidenceDetail.normalizedPayload ?? {}, null, 2)}
+              </pre>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <DecisionCaseModal
+        decision={caseDecision}
+        aiDraft={aiDraftFor(caseDecision)}
+        onClose={() => setCaseDecision(null)}
+        onChanged={() => {
+          decisions.reload();
+          drafts.reload();
+        }}
+      />
     </>
   );
 }

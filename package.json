@@ -35,6 +35,7 @@
     "demo:cycle": "tsx scripts/demo-cycle.ts",
     "shadow:settle": "tsx scripts/shadow-settlement.ts",
     "shadow:consolidate": "tsx scripts/shadow-consolidation.ts",
+    "shadow:e2e": "tsx scripts/shadow-e2e.ts",
     "pilot:import": "tsx scripts/pilot-shadow-cycle.ts import",
     "pilot:report": "tsx scripts/pilot-shadow-cycle.ts report",
     "test:e2e": "playwright test",

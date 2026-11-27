@@ -1,0 +1,62 @@
+{
+  "fixtureVersion": "2026-11-27",
+  "anonymized": true,
+  "note": "Synthetic identities only. No real employee, customer, bank or contract data. Person ids are provider-issued uuids reused from the demo tenant so the real API routes can run unchanged.",
+  "tenantId": "tenant-demo",
+  "cycle": {
+    "referenceKey": "2026-11-MONTHLY",
+    "name": "2026-11 anonymized shadow cycle",
+    "cycleType": "MONTHLY",
+    "startsAt": "2026-11-01T00:00:00.000Z",
+    "endsAt": "2026-11-30T23:59:59.000Z",
+    "timezone": "Asia/Shanghai"
+  },
+  "legalEntities": [
+    {
+      "id": "ENTITY-CN-01",
+      "displayName": "Anonymized legal entity CN",
+      "jurisdiction": "CN",
+      "functionalCurrency": "CNY",
+      "accountingPeriod": "2026-11"
+    },
+    {
+      "id": "ENTITY-US-01",
+      "displayName": "Anonymized legal entity US",
+      "jurisdiction": "US",
+      "functionalCurrency": "USD",
+      "accountingPeriod": "2026-11"
+    }
+  ],
+  "employees": [
+    {
+      "personId": "11111111-1111-4111-8111-111111111111",
+      "employeeCode": "E001",
+      "displayName": "Anonymized employee A",
+      "legalEntityId": "ENTITY-CN-01",
+      "payoutCurrency": "CNY",
+      "workLocation": "SZ",
+      "pingcodeUserId": "pc-anon-001",
+      "sourceRecordId": "SCR-101"
+    },
+    {
+      "personId": "11111111-1111-4111-8111-111111111112",
+      "employeeCode": "E002",
+      "displayName": "Anonymized employee B",
+      "legalEntityId": "ENTITY-CN-01",
+      "payoutCurrency": "CNY",
+      "workLocation": "SZ",
+      "pingcodeUserId": "pc-anon-002",
+      "sourceRecordId": "SCR-102"
+    },
+    {
+      "personId": "11111111-1111-4111-8111-111111111113",
+      "employeeCode": "E003",
+      "displayName": "Anonymized employee C",
+      "legalEntityId": "ENTITY-US-01",
+      "payoutCurrency": "USD",
+      "workLocation": "US",
+      "pingcodeUserId": "pc-anon-003",
+      "sourceRecordId": "AN-O-2026-0101"
+    }
+  ]
+}

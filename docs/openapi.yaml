@@ -10676,6 +10676,142 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/evaluation-decisions/{id}/decision-case:
+    post:
+      tags: [Evaluation, Decisions]
+      summary: 为评价决定创建/关联 JEV 案件
+      description: |
+        评价决定必须通过 JEV：本端点幂等创建（或复用）一个
+        `kind=PERFORMANCE` 的 decision case，
+        `subjectType=EVALUATION_DECISION`、`subjectId=评价决定 id`。
+
+        - 同一评价决定只关联一个案件；重复调用返回 200 `created=false`，
+          不会重复建案或重复追加证据；
+        - 证据两条：`EVALUATION_DECISION`（决定事实，含 scores/rationale/
+          evidenceSnapshotHash）与 `INDEPENDENT_JUDGMENT`（先于 AI 建议的
+          独立判断；缺失时退回 `EVIDENCE_SNAPSHOT`），contentHash 由服务端
+          用 canonical sha256 计算；反证缺失在案件 `context.evidenceGaps`
+          显式声明，绝不伪造 AGAINST 证据；
+        - 评价决定已记录的独立判断会物化为一条 HUMAN judgment
+          （actorId=reviewerPersonId），同一 actor 只写一次。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 案件已存在（幂等复用）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "201":
+          description: 案件已创建并写入证据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      tags: [Evaluation, Decisions]
+      summary: 读取评价决定的 JEV 案件
+      description: |
+        返回案件详情（证据、人工/AI 判断分表、校验、record）并附带
+        `decision.jev`：`{ required, caseId, caseStatus, recordId, decided,
+        decidedBy, decidedAt }`。没有案件时返回 `case: null` 与
+        `decided: false`，前端据此提示先创建/关联案件。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 案件详情或空状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/evaluation-decisions/{id}/decision-case/decide:
+    post:
+      tags: [Evaluation, Decisions]
+      summary: 评价决定的 JEV 授权决定（推进为 JEV_DECIDED）
+      description: |
+        只处理 `subjectType=EVALUATION_DECISION` 的 JEV 案件：
+        - 没有案件 409 `DECISION_CASE_REQUIRED`；
+        - 决定人必须与案件上所有 HUMAN judgment actor 不同（自决 409
+          `SELF_DECISION_FORBIDDEN`），AI_MODEL actor 永远不能决定
+          （409 `AI_MODEL_CANNOT_DECIDE`）；
+        - 必须有最新一次通过的服务端校验且绑定未过期
+          （409 `DECISION_VERIFICATION_REQUIRED` /
+          `DECISION_VERIFICATION_NOT_PASSED` / `DECISION_STALE_VERIFICATION`）；
+        - 成功后写一条不可改写的 decision record，响应 `decision.jev`
+          为 `{ decided: true, recordId, decidedAt }`；重复决定 409
+          `DECISION_RECORD_IMMUTABLE`。
+
+        评价决定本身是 append-only 历史；「推进状态」以 JEV decision record
+        为唯一事实（PENDING_JEV → JEV_DECIDED）。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideDecisionCase"
+      responses:
+        "200":
+          description: 决定已记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
+  /api/v1/evaluation-decisions/{id}/final-approval:
+    post:
+      tags: [Evaluation, Decisions]
+      summary: 最终批准门禁（必须已有 JEV record）
+      description: |
+        评价决定进入最终批准前必须已有 JEV decision record，否则 409
+        `DECISION_CASE_REQUIRED`（details 区分「没有案件」与「案件尚未决定」）。
+        本端点是幂等门禁：只校验并回传 `{ approved, decision, case, record }`，
+        不修改评价决定（append-only）。没有 record 的评价决定不能进入最终
+        批准，这是「评价决定必须通过 JEV」的服务端强制点。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 门禁通过
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+
   /api/v1/auth/password/login:
     post:
       tags: [Platform]
@@ -11846,7 +11982,13 @@ paths:
         metricInputs 提供或覆盖 rawValue/value/applicable/acceptanceScore/
         eventAdjustment 等权威字段 409 PERFORMANCE_INPUT_OVERRIDES_FACTS。
         响应含 source=LOCKED_FACTS 与 factsHash（锁定卡 + 快照 id/version/hash
-        + 逐项来源的稳定 sha256，同输入重放一致）。
+        + 逐项来源的稳定 sha256，同输入重放一致）。产生 FORMAL 结果时同时
+        自动创建/关联一个 kind=PERFORMANCE 的 JEV 案件
+        （subjectType=PERFORMANCE_SCORE，subjectId=评分记录 id），并写入一条
+        sourceType=PERFORMANCE_SCORE、contentHash=factsHash 的证据；同一
+        recordId 只关联一次，响应回传 decisionCaseId。JEV 写入失败与记录
+        落库失败同路径回滚（快照恢复 FROZEN、记录写 BLOCKED），不会留下
+        「正式但不可审计」的评分。
       requestBody:
         required: true
         content:
@@ -11884,6 +12026,77 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/v1/policy/performance/scores/{id}/decision-case:
+    post:
+      tags: [Policy, Decisions]
+      summary: 为正式评分记录创建/关联 JEV 案件（幂等）
+      description: |
+        `score-from-facts` 产生 FORMAL 结果时已自动建案；本端点对历史记录补建
+        或在半途失败后重放：
+
+        - 幂等键 `(subjectType=PERFORMANCE_SCORE, subjectId=评分记录 id)`，
+          同一 recordId 只关联一案；重复调用返回 200 `created=false`；
+        - 只接受 `eligibility=FORMAL` 的记录（否则 409
+          `PERFORMANCE_NOT_FORMAL`），并从记录 payload 复原 factsHash 的原文
+          承诺后重算比对（不一致 409 `PERFORMANCE_FACTS_HASH_MISMATCH`）；
+        - 写入一条 `PERFORMANCE_SCORE` 证据，`contentHash = factsHash`。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 案件已存在（幂等复用）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "201":
+          description: 案件已创建并写入证据
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            PERFORMANCE_NOT_FORMAL / PERFORMANCE_FACTS_HASH_MISMATCH /
+            PERFORMANCE_RECORD_TYPE_MISMATCH
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      tags: [Policy, Decisions]
+      summary: 读取评分记录的 JEV 案件
+      description: 返回案件详情（证据/判断/校验/record）；没有案件时返回 case 为 null 的空状态。
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: 案件详情或空状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: PERFORMANCE_RECORD_TYPE_MISMATCH
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /api/v1/policy/performance/monthly-wage:
     post:
       tags: [Policy]
@@ -12706,10 +12919,12 @@ paths:
       tags: [Policy]
       summary: 查询制度激励发放批次对账
       description: >-
-        返回每行已付/未付/差异、总数、glComplete、missingJournalLineIds 与
-        批次对账状态。只有金额一致（每行差异为 0、已付合计 = total_amount）
-        且每条 PAID 都有按 documentId 可查的平衡 PAYMENT 凭证时才
-        RECONCILED；金额足额但凭证缺失为 GL_INCOMPLETE；PARTIAL=少付；
+        返回每行已付/未付/差异、总数、glComplete、missingJournalLineIds、
+        批次对账状态，以及该批次的全部历史支付回执 `payments`
+        （PAID/FAILED/RETURNED，按 paidAt 缺省 createdAt 倒序；失败与退回
+        仅留痕，不影响金额口径）。只有金额一致（每行差异为 0、已付合计 =
+        total_amount）且每条 PAID 都有按 documentId 可查的平衡 PAYMENT 凭证
+        时才 RECONCILED；金额足额但凭证缺失为 GL_INCOMPLETE；PARTIAL=少付；
         VARIANCE=多付或行级错配。missingJournalLineIds 列出有 PAID 回执
         但缺平衡凭证的批次行 id。
       parameters:
@@ -12727,6 +12942,16 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+                properties:
+                  payments:
+                    type: array
+                    description: >-
+                      该批次全部历史支付回执（PAID / FAILED / RETURNED），
+                      按 paidAt（缺省 createdAt）倒序。只有 PAID 计入
+                      paidAmount；FAILED/RETURNED 仅留痕，不改变
+                      RECONCILED 判定。
+                    items:
+                      $ref: "#/components/schemas/IncentiveAwardReconciliationPayment"
         "404":
           description: 批次不存在或属于其他租户
   /api/v1/incentive-award-batches/{id}/export:
@@ -14925,6 +15150,52 @@ components:
               credit:
                 type: string
                 pattern: "^\\d+(\\.\\d{1,6})?$"
+
+    IncentiveAwardReconciliationPayment:
+      type: object
+      description: >-
+        对账响应 `payments[]` 里的一条历史支付回执投影。全量返回
+        PAID / FAILED / RETURNED；失败与退回回执只留痕，不计入已付金额。
+      required:
+        [id, lineId, personId, amount, currency, paymentRef, status,
+         legalEntityId, creditAccount]
+      properties:
+        id: { type: string, format: uuid }
+        lineId: { type: string, format: uuid }
+        personId: { type: string, format: uuid }
+        amount:
+          type: string
+          pattern: "^\\d+(\\.\\d{1,6})?$"
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          pattern: "^[A-Za-z]{3}$"
+        paymentRef:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: string
+          enum: [PAID, FAILED, RETURNED]
+        paidAt:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            仅 PAID 必有（缺省为记录时间）；FAILED/RETURNED 可能缺省为 null。
+        legalEntityId:
+          type: string
+          description: PAID 回执的记账法人主体；缺省 DEFAULT。
+        accountingPeriod:
+          type: [string, "null"]
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+          description: 会计期间；FAILED/RETURNED 可能缺省为 null。
+        creditAccount:
+          type: string
+          enum: [CASH, PAYABLE]
+        failureCode:
+          type: [string, "null"]
+          description: FAILED/RETURNED 的失败或退回原因（可选）。
 
     RecordIncentiveAwardPayments:
       type: object

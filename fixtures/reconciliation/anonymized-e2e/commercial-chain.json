@@ -1,0 +1,138 @@
+{
+  "_fixture": {
+    "kind": "COMMERCIAL_CHAIN",
+    "anonymized": true,
+    "capturedAt": "2026-11-20T08:00:00.000Z",
+    "note": "Commercial API response shapes. The order object is the raw Commercial order element (items/total_amount_usd/owner_id). Account→Opportunity→Quote→Contract are included because the order import contract requires an existing ACCEPTED quote and SIGNED contract; they are not extra business scenarios.",
+    "orderGrossProfitField": "gross_profit_usd",
+    "orderGrossProfitRateField": "gross_profit_rate"
+  },
+  "sourceSystem": "ANON_CRM",
+  "account": {
+    "id": "55555555-5555-4555-8555-555555555551",
+    "external_account_id": "ACC-ANON-01",
+    "name": "Anonymized customer",
+    "alias": "ANON",
+    "type": "distributor",
+    "country": "US",
+    "credit_rating": "A",
+    "owner_id": "11111111-1111-4111-8111-111111111113",
+    "owner_name": "Anonymized employee C",
+    "created_at": "2026-03-04T09:00:00.000Z",
+    "updated_at": "2026-11-20T08:00:00.000Z"
+  },
+  "opportunity": {
+    "id": "55555555-5555-4555-8555-555555555552",
+    "external_opportunity_id": "OPP-ANON-01",
+    "account_id": "55555555-5555-4555-8555-555555555551",
+    "name": "Anonymized 400k order",
+    "stage": "won",
+    "estimated_amount_usd": "500000.00",
+    "currency": "USD",
+    "owner_id": "11111111-1111-4111-8111-111111111113",
+    "created_at": "2026-09-01T00:00:00.000Z"
+  },
+  "quote": {
+    "id": "55555555-5555-4555-8555-555555555553",
+    "quote_number": "AN-Q-2026-0101",
+    "opportunity_id": "55555555-5555-4555-8555-555555555552",
+    "customer_id": "55555555-5555-4555-8555-555555555551",
+    "customer_name": "Anonymized customer",
+    "items": [
+      {
+        "id": "55555555-5555-4555-8555-55555555556a",
+        "product_id": "77777777-7777-4777-8777-777777777771",
+        "product_name": "AC Charger 22kW (anonymized)",
+        "sku": "ANON-AC-22",
+        "quantity": 10,
+        "unit_price_usd": "12000.00",
+        "discounted_price_usd": "12000.00",
+        "total_usd": "120000.00"
+      },
+      {
+        "id": "55555555-5555-4555-8555-55555555556b",
+        "product_id": "88888888-8888-4888-8888-888888888881",
+        "product_name": "DC Fast Charger 120kW (anonymized)",
+        "sku": "ANON-DC-120",
+        "quantity": 2,
+        "unit_price_usd": "190000.00",
+        "discounted_price_usd": "190000.00",
+        "total_usd": "380000.00"
+      }
+    ],
+    "subtotal_usd": "500000.00",
+    "discount_total_usd": "0.00",
+    "total_usd": "500000.00",
+    "currency": "USD",
+    "status": "accepted",
+    "trade_terms": "FOB",
+    "payment_terms": "T/T 30% advance, 70% before shipment",
+    "issued_at": "2026-09-10T00:00:00.000Z",
+    "accepted_at": "2026-09-20T00:00:00.000Z"
+  },
+  "contract": {
+    "id": "55555555-5555-4555-8555-555555555554",
+    "contract_number": "CTR-ANON-01",
+    "quote_id": "55555555-5555-4555-8555-555555555553",
+    "quote_number": "AN-Q-2026-0101",
+    "customer_id": "55555555-5555-4555-8555-555555555551",
+    "customer_name": "Anonymized customer",
+    "total_amount_usd": "450000.00",
+    "currency": "USD",
+    "status": "signed",
+    "signed_at": "2026-10-01T00:00:00.000Z"
+  },
+  "order": {
+    "id": "55555555-5555-4555-8555-555555555555",
+    "order_number": "AN-O-2026-0101",
+    "quotation_id": "55555555-5555-4555-8555-555555555553",
+    "customer_id": "55555555-5555-4555-8555-555555555551",
+    "customer_name": "Anonymized customer",
+    "items": [
+      {
+        "id": "55555555-5555-4555-8555-55555555557a",
+        "product_id": "77777777-7777-4777-8777-777777777771",
+        "product_name": "AC Charger 22kW (anonymized)",
+        "sku": "ANON-AC-22",
+        "quantity": 10,
+        "unit_price_usd": "12000.00",
+        "discount_percent": 0,
+        "discounted_price_usd": "12000.00",
+        "total_usd": "120000.00",
+        "shipped_qty": 10,
+        "unshipped_qty": 0,
+        "over_shipped_qty": 0
+      },
+      {
+        "id": "55555555-5555-4555-8555-55555555557b",
+        "product_id": "88888888-8888-4888-8888-888888888881",
+        "product_name": "DC Fast Charger 120kW (anonymized)",
+        "sku": "ANON-DC-120",
+        "quantity": 2,
+        "unit_price_usd": "140000.00",
+        "discount_percent": 0,
+        "discounted_price_usd": "140000.00",
+        "total_usd": "280000.00",
+        "shipped_qty": 2,
+        "unshipped_qty": 0,
+        "over_shipped_qty": 0
+      }
+    ],
+    "total_amount_usd": "400000.00",
+    "currency": "USD",
+    "shipping_estimate_usd": "0.00",
+    "insurance_usd": "0.00",
+    "duty_usd": "0.00",
+    "status": "confirmed",
+    "payment_terms": "T/T 30% advance, 70% before shipment",
+    "trade_terms": "FOB",
+    "notes": "Anonymized shadow E2E order",
+    "version": 3,
+    "owner_id": "11111111-1111-4111-8111-111111111113",
+    "owner_name": "Anonymized employee C",
+    "quote_version": 1,
+    "gross_profit_usd": "100000.00",
+    "gross_profit_rate": "0.25",
+    "confirmed_at": "2026-11-20T08:00:00.000Z"
+  }
+}

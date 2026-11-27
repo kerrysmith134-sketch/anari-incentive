@@ -405,6 +405,7 @@ import { registerRewardsRoutes } from "./modules/rewards/rewards.routes.js";
 import { registerSettlementRoutes } from "./modules/settlement/settlement-budget.routes.js";
 import { registerWorkPackageRoutes } from "./modules/workpackages/work-packages.routes.js";
 import { registerDecisionRoutes } from "./modules/decisions/decision.routes.js";
+import { registerDecisionAiRoutes } from "./modules/decisions/decision-ai.routes.js";
 
 type IdParams = { id: string };
 
@@ -1407,6 +1408,8 @@ export function buildApp(
   app.register(registerApprovalRoutes({ platformStore, countEvent }));
   // 118：通用 JEV Decision Record（五类决策共用；AI 仅建议，人工授权决定）。
   app.register(registerDecisionRoutes({ platformStore }));
+  // vLLM decision AI 建议：需 admin/manager + 服务凭据；失败不落 judgment。
+  app.register(registerDecisionAiRoutes({ platformStore }));
   app.register(registerClawbackRoutes({ platformStore, storeFor, countEvent, notifyBestEffort }));
   app.register(registerEvaluationRoutes({ platformStore, storeFor, countEvent }));
   app.register(registerNotificationRoutes({ storeFor }));

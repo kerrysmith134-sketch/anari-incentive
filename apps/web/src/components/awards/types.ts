@@ -48,6 +48,23 @@ export interface AwardReconciliationLine {
   paymentRefs: string[];
 }
 
+/** 对账接口返回的历史支付回执行（PAID / FAILED / RETURNED 全量）。 */
+export interface AwardReconciliationPayment {
+  id: string;
+  lineId: string;
+  personId: string;
+  amount: string;
+  currency: string;
+  paymentRef: string;
+  status: AwardPaymentStatus;
+  /** 仅 PAID 必有；FAILED/RETURNED 可能缺省。 */
+  paidAt?: string;
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: AwardCreditAccount;
+  failureCode?: string;
+}
+
 export interface AwardReconciliation {
   batchId: string;
   batchNo: string;
@@ -68,6 +85,8 @@ export interface AwardReconciliation {
   missingJournalLineIds: string[];
   status: AwardReconciliationStatus;
   lines: AwardReconciliationLine[];
+  /** 全部历史支付回执（含失败/退回），按 paidAt 缺省 createdAt 倒序。 */
+  payments: AwardReconciliationPayment[];
 }
 
 export interface AwardPaymentReceipt {

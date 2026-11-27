@@ -1178,6 +1178,11 @@ export interface IncentivePort {
   /**
    * 行级已付/未付/差异、GL 完整性与批次对账状态
    * （RECONCILED/PARTIAL/VARIANCE/GL_INCOMPLETE）。
+   *
+   * 响应同时带上该批次的全部历史支付回执 `payments`
+   * （PAID/FAILED/RETURNED，按 paidAt 缺省 createdAt 倒序）。
+   * 这些历史回执只用于工作台留痕展示：只有 PAID 计入 paidAmount，
+   * FAILED/RETURNED 不改变金额口径，也不影响 RECONCILED 判定。
    */
   getIncentiveAwardBatchReconciliation(
     tenantId: string,
@@ -2244,4 +2249,16 @@ export interface DecisionPort {
     tenantId: string,
     caseId: string,
   ): Promise<DecisionCaseDetail>;
+  /**
+   * 按被决策对象查找案件（只读查询，不新增 mutator）。
+   *
+   * 绩效评分（PERFORMANCE_SCORE）与评价决定（EVALUATION_DECISION）都以
+   * `subjectType + subjectId` 作为幂等键：同一对象只关联一个案件，重复
+   * 写入必须复用已有案件而不是再开一案。
+   */
+  findDecisionCaseBySubject(
+    tenantId: string,
+    subjectType: string,
+    subjectId: string,
+  ): Promise<DecisionCase | undefined>;
 }

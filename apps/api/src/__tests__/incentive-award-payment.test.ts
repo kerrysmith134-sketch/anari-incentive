@@ -7,7 +7,9 @@
  * - 每笔 PAID 生成借贷平衡的 GL 凭证（借 INCENTIVE_EXPENSE / 贷 CASH|PAYABLE），
  *   FAILED / RETURNED 不生成；
  * - ACKNOWLEDGE 前置条件：所有行 PAID 且已付合计 = total_amount，否则 409；
- * - 跨租户批次 → 404。
+ * - 跨租户批次 → 404；
+ * - 对账响应 `payments` 返回全部历史 PAID/FAILED/RETURNED（倒序），
+ *   历史失败/退回不影响金额口径与 RECONCILED 判定，ACK 后只读。
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -227,6 +229,22 @@ async function acknowledge(batchId: string) {
     `/api/v1/incentive-award-batches/${batchId}/commands`,
     { command: "ACKNOWLEDGE", paymentRef: "BANK-ACK" },
   );
+}
+
+/** 对账响应 `payments[]` 的期望形状（历史回执全量投影）。 */
+interface HistoricalPayment {
+  id: string;
+  lineId: string;
+  personId: string;
+  amount: string;
+  currency: string;
+  paymentRef: string;
+  status: "PAID" | "FAILED" | "RETURNED";
+  paidAt?: string;
+  legalEntityId: string;
+  accountingPeriod?: string;
+  creditAccount: "CASH" | "PAYABLE";
+  failureCode?: string;
 }
 
 describe("incentive award payments: partial → reconciled", () => {
@@ -594,6 +612,181 @@ describe("incentive award payments: tenant isolation", () => {
 
     // 原租户不受影响。
     expect((await reconcile(batch.id)).paidAmount).toBe("0");
+  });
+});
+
+// ---------------------------------------------------------------------
+// 对账响应并入历史支付回执：成功/失败/退回全量、倒序、只读。
+// ---------------------------------------------------------------------
+describe("incentive award payments: historical receipts in reconciliation", () => {
+  it("returns every PAID, FAILED and RETURNED receipt, newest first", async () => {
+    const batch = await createBatch("PAY-HIST-1", [
+      { personId: MEMBER, amount: "300" },
+      { personId: ADMIN, amount: "200" },
+    ]);
+    await promote(batch.id);
+    const [first, second] = batch.lines;
+
+    // 历史失败 / 退回回执：必须留痕，但绝不进入已付金额。
+    expect(
+      (
+        await pay(batch.id, [
+          payment(first!.id, "HIST-FAIL", "300", {
+            status: "FAILED",
+            failureCode: "R01",
+            paidAt: "2026-11-03T09:00:00.000Z",
+            legalEntityId: "LE-CN-01",
+            accountingPeriod: "2026-11",
+          }),
+        ])
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await pay(batch.id, [
+          payment(first!.id, "HIST-RETURN", "300", {
+            status: "RETURNED",
+            failureCode: "REFUND",
+            paidAt: "2026-11-04T09:00:00.000Z",
+          }),
+        ])
+      ).status,
+    ).toBe(201);
+
+    // 真正的已付回执：故意让 paidAt 与写入顺序相反，验证服务端倒序。
+    expect(
+      (
+        await pay(batch.id, [
+          payment(first!.id, "HIST-PAID-1", "300", {
+            paidAt: "2026-11-05T09:00:00.000Z",
+            legalEntityId: "LE-CN-02",
+            accountingPeriod: "2026-11",
+            creditAccount: "PAYABLE",
+          }),
+        ])
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await pay(batch.id, [
+          payment(second!.id, "HIST-PAID-2", "200", {
+            paidAt: "2026-11-02T09:00:00.000Z",
+          }),
+        ])
+      ).status,
+    ).toBe(201);
+
+    const reconciliation = await reconcile(batch.id);
+    const payments = reconciliation.payments as HistoricalPayment[];
+
+    // 历史失败/退回不改变金额与状态：只有 PAID 计入。
+    expect(reconciliation.status).toBe("RECONCILED");
+    expect(reconciliation.glComplete).toBe(true);
+    expect(reconciliation.paidAmount).toBe("500");
+    expect(reconciliation.unpaidAmount).toBe("0");
+    expect(reconciliation.variance).toBe("0");
+    expect(payments.map((entry) => entry.paymentRef)).toEqual([
+      "HIST-PAID-1",
+      "HIST-RETURN",
+      "HIST-FAIL",
+      "HIST-PAID-2",
+    ]);
+
+    expect(payments[0]).toMatchObject({
+      lineId: first!.id,
+      personId: MEMBER,
+      amount: "300",
+      currency: "CNY",
+      paymentRef: "HIST-PAID-1",
+      status: "PAID",
+      paidAt: "2026-11-05T09:00:00.000Z",
+      legalEntityId: "LE-CN-02",
+      accountingPeriod: "2026-11",
+      creditAccount: "PAYABLE",
+    });
+    expect(payments[0]!.failureCode).toBeUndefined();
+    expect(payments[1]).toMatchObject({
+      lineId: first!.id,
+      personId: MEMBER,
+      status: "RETURNED",
+      failureCode: "REFUND",
+      paidAt: "2026-11-04T09:00:00.000Z",
+    });
+    expect(payments[2]).toMatchObject({
+      lineId: first!.id,
+      personId: MEMBER,
+      status: "FAILED",
+      failureCode: "R01",
+      legalEntityId: "LE-CN-01",
+      accountingPeriod: "2026-11",
+    });
+    expect(payments[3]).toMatchObject({
+      lineId: second!.id,
+      personId: ADMIN,
+      amount: "200",
+      status: "PAID",
+      paidAt: "2026-11-02T09:00:00.000Z",
+    });
+
+    // ACK 后历史回执是同一份只读事实：仍在、仍倒序、金额口径不变。
+    expect((await acknowledge(batch.id)).status).toBe(200);
+    const afterAck = await reconcile(batch.id);
+    const frozen = afterAck.payments as HistoricalPayment[];
+    expect(afterAck.status).toBe("RECONCILED");
+    expect(afterAck.paidAmount).toBe("500");
+    expect(frozen.map((entry) => entry.id)).toEqual(
+      payments.map((entry) => entry.id),
+    );
+
+    // 已 ACK：普通支付被拒绝，历史回执不会被改写。
+    const rejected = await pay(batch.id, [
+      payment(second!.id, "HIST-AFTER-ACK", "200"),
+    ]);
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error.message).toMatch(
+      /AWARD_BATCH_ALREADY_ACKNOWLEDGED/,
+    );
+    const stillFrozen = (await reconcile(batch.id))
+      .payments as HistoricalPayment[];
+    expect(stillFrozen).toHaveLength(4);
+    expect(stillFrozen.map((entry) => entry.paymentRef)).toEqual(
+      payments.map((entry) => entry.paymentRef),
+    );
+  });
+
+  it("does not return another tenant's historical receipts", async () => {
+    const batch = await createBatch("PAY-HIST-T1", [
+      { personId: MEMBER, amount: "70" },
+    ]);
+    await promote(batch.id);
+    await pay(batch.id, [
+      payment(batch.lines[0]!.id, "CROSS-FAIL", "70", {
+        status: "FAILED",
+        failureCode: "R02",
+      }),
+      payment(batch.lines[0]!.id, "CROSS-PAID", "70"),
+    ]);
+
+    const other = otherTenantApp();
+    const denied = await call(
+      "GET",
+      `/api/v1/incentive-award-batches/${batch.id}/reconciliation`,
+      undefined,
+      other,
+    );
+    expect(denied.status).toBe(404);
+    const leaked = JSON.stringify(denied.body);
+    expect(leaked).not.toContain("CROSS-FAIL");
+    expect(leaked).not.toContain("CROSS-PAID");
+    expect(leaked).not.toContain('"payments"');
+
+    // 原租户仍能看到全部历史回执。
+    const own = (await reconcile(batch.id))
+      .payments as HistoricalPayment[];
+    expect(own.map((entry) => entry.paymentRef).sort()).toEqual([
+      "CROSS-FAIL",
+      "CROSS-PAID",
+    ]);
   });
 });
 
@@ -1292,6 +1485,20 @@ describe("migration 119: PG transaction boundary (fake pool)", () => {
     expect(db.journalLines).toHaveLength(2);
     expect(db.audits).toHaveLength(1);
     expect(db.audits[0]!.object_id).toBe(db.payments[0]!.id);
+
+    // PG 路径同样把支付回执投影进对账响应的 payments[]。
+    expect(result.reconciliation.payments).toHaveLength(1);
+    expect(result.reconciliation.payments[0]).toMatchObject({
+      id: db.payments[0]!.id,
+      lineId: PG_LINE,
+      personId: PG_PERSON,
+      amount: "100",
+      currency: "CNY",
+      paymentRef: "PG-PAY-1",
+      status: "PAID",
+      legalEntityId: "DEFAULT",
+      creditAccount: "CASH",
+    });
 
     const log = db.queryLog;
     expect(log[0]).toBe("begin");

@@ -1,0 +1,4 @@
+employee_code,contract_code,employment_type,start_date,end_date,work_location,legal_entity,currency,fixed_monthly_salary,minimum_monthly_wage,tax_rate,social_insurance_rate,deduction_cap_rate,variable_share_cap_rate,consent_signature_ref
+E001,CTR-ANON-E001,full_time,2026-01-01,2026-12-31,SZ,ENTITY-CN-01,CNY,20000.00,2690.00,0,0,0.2,1,CONSENT-ANON-E001
+E002,CTR-ANON-E002,full_time,2026-01-01,2026-12-31,SZ,ENTITY-CN-01,CNY,18000.00,2690.00,0,0,0.2,1,CONSENT-ANON-E002
+E003,CTR-ANON-E003,full_time,2026-01-01,2026-12-31,US,ENTITY-US-01,USD,15000.00,0,0,0,0.2,1,CONSENT-ANON-E003
