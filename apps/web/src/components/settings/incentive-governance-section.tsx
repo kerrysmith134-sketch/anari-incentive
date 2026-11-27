@@ -853,7 +853,7 @@ export function IncentiveGovernanceSection({
               </table>
             </div>
             {schedule.scheduleHash ? (
-              <p className="subtle" style={{ fontSize: 11.5 }}>
+              <p className="subtle" style={{ fontSize: 12 }}>
                 Schedule hash {schedule.scheduleHash.slice(0, 24)}…
               </p>
             ) : null}
