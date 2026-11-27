@@ -58,8 +58,10 @@ async function runImport(): Promise<void> {
   const orders = parsePilotOrdersCsv(readFileSync(ordersPath, "utf8"));
   const lockClient = await pool.connect();
   const lockKey = `anari-incentive:pilot-import:${tenantId}`;
-  await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+  let lockAcquired = false;
   try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    lockAcquired = true;
     const persons = await platformStore.listPersons(tenantId);
     const personByCode = new Map<string, string>();
     for (const person of persons) {
@@ -177,9 +179,11 @@ async function runImport(): Promise<void> {
       `pilot import done: workPackagesCreated=${workPackagesCreated} financialFactsCreated=${financialFactsCreated} skippedComplete=${skippedComplete} (tenant ${tenantId})`,
     );
   } finally {
-    await lockClient
-      .query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey])
-      .catch(() => undefined);
+    if (lockAcquired) {
+      await lockClient
+        .query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey])
+        .catch(() => undefined);
+    }
     lockClient.release();
   }
 }
