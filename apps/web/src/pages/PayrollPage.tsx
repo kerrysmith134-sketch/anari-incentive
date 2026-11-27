@@ -2451,7 +2451,7 @@ function TaxStudio() {
                   <strong>{formatPercent(effectiveRate, 1)}</strong>
                 </div>
               </div>
-              <p className="subtle" style={{ fontSize: 11.5 }}>
+              <p className="subtle" style={{ fontSize: 12 }}>
                 速算扣除数 {formatMoney(result.quickDeduction, "CNY")} ·
                 仅供估算，使用前请以法定申报口径复核。
               </p>
