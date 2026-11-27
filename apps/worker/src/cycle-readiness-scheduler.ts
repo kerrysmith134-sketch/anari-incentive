@@ -22,3 +22,24 @@ export function selectCycleReadinessTargets(
         left.id.localeCompare(right.id),
     );
 }
+
+export async function runCycleReadinessSweep<TCycle extends CycleReadinessCandidate>(
+  cycles: readonly TCycle[],
+  run: (cycle: TCycle) => Promise<{ ready: boolean }>,
+  onError?: (cycle: TCycle, error: unknown) => void,
+): Promise<string[]> {
+  const targets = selectCycleReadinessTargets(cycles);
+  if (targets.length === 0) return ["readiness:NO_OPEN_CYCLE"];
+
+  const outcomes: string[] = [];
+  for (const cycle of targets) {
+    try {
+      const report = await run(cycle);
+      outcomes.push(`readiness:${cycle.id}:${report.ready ? "READY" : "NOT_READY"}`);
+    } catch (error) {
+      outcomes.push(`readiness:${cycle.id}:FAILED`);
+      onError?.(cycle, error);
+    }
+  }
+  return outcomes;
+}

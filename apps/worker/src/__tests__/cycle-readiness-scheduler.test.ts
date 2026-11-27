@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { selectCycleReadinessTargets } from "../cycle-readiness-scheduler.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  runCycleReadinessSweep,
+  selectCycleReadinessTargets,
+} from "../cycle-readiness-scheduler.js";
 
 describe("selectCycleReadinessTargets", () => {
   it("returns every unsettled monthly/quarterly/annual cycle oldest first", () => {
@@ -39,5 +42,43 @@ describe("selectCycleReadinessTargets", () => {
         { id: "old", status: "SETTLED", startsAt: "2025-01-01T00:00:00.000Z" },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("runCycleReadinessSweep", () => {
+  it("continues after one cycle fails and records a cycle-scoped failure", async () => {
+    const calls: string[] = [];
+    const failures: string[] = [];
+    const outcomes = await runCycleReadinessSweep(
+      [
+        { id: "later", status: "OPEN", startsAt: "2026-04-01T00:00:00.000Z" },
+        { id: "broken", status: "OPEN", startsAt: "2026-02-01T00:00:00.000Z" },
+        { id: "first", status: "OPEN", startsAt: "2026-01-01T00:00:00.000Z" },
+      ],
+      async (cycle) => {
+        calls.push(cycle.id);
+        if (cycle.id === "broken") throw new Error("malformed cycle");
+        return { ready: cycle.id === "first" };
+      },
+      (cycle) => failures.push(cycle.id),
+    );
+
+    expect(calls).toEqual(["first", "broken", "later"]);
+    expect(failures).toEqual(["broken"]);
+    expect(outcomes).toEqual([
+      "readiness:first:READY",
+      "readiness:broken:FAILED",
+      "readiness:later:NOT_READY",
+    ]);
+  });
+
+  it("reports no open cycle instead of falling back to a settled cycle", async () => {
+    const run = vi.fn(async () => ({ ready: true }));
+    const outcomes = await runCycleReadinessSweep(
+      [{ id: "settled", status: "SETTLED", startsAt: "2025-01-01T00:00:00.000Z" }],
+      run,
+    );
+    expect(outcomes).toEqual(["readiness:NO_OPEN_CYCLE"]);
+    expect(run).not.toHaveBeenCalled();
   });
 });

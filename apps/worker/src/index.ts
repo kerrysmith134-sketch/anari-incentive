@@ -20,7 +20,7 @@ import {
   type TokenProvider,
 } from "@anari/auth";
 import { HttpAgentContext } from "./http-context.js";
-import { selectCycleReadinessTargets } from "./cycle-readiness-scheduler.js";
+import { runCycleReadinessSweep } from "./cycle-readiness-scheduler.js";
 import { PgOutboxSource } from "@anari/agent-persistence";
 
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:3000";
@@ -336,28 +336,18 @@ async function runBoundedWorkflowsForTenant(tenant: string): Promise<void> {
   // 3) 周期准备度：扫描所有未结算周期，按 startsAt 从早到晚处理。
   // 单个周期失败单独记录，不能阻断同租户其余月度/季度/年度周期的检查。
   try {
-    const cycles = selectCycleReadinessTargets(
-      await agentContext.listEvaluationCycles(),
+    outcomes.push(
+      ...await runCycleReadinessSweep(
+        await agentContext.listEvaluationCycles(),
+        (cycle) =>
+          new CycleReadinessWorkflow(agentContext).run({ cycleId: cycle.id }),
+        (cycle, error) =>
+          console.error(
+            `[bounded] cycle-readiness failed (${tenant}, ${cycle.id})`,
+            error,
+          ),
+      ),
     );
-    if (cycles.length === 0) {
-      outcomes.push("readiness:NO_OPEN_CYCLE");
-    }
-    for (const cycle of cycles) {
-      try {
-        const report = await new CycleReadinessWorkflow(agentContext).run({
-          cycleId: cycle.id,
-        });
-        outcomes.push(
-          `readiness:${cycle.id}:${report.ready ? "READY" : "NOT_READY"}`,
-        );
-      } catch (error) {
-        outcomes.push(`readiness:${cycle.id}:FAILED`);
-        console.error(
-          `[bounded] cycle-readiness failed (${tenant}, ${cycle.id})`,
-          error,
-        );
-      }
-    }
   } catch (error) {
     outcomes.push("readiness:LIST_FAILED");
     console.error(`[bounded] cycle-readiness list failed (${tenant})`, error);
