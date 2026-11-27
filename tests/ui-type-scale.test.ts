@@ -30,19 +30,18 @@ const sources = [
   ...walk(join(process.cwd(), "apps", "web", "src", "components")),
 ];
 
-const INLINE_RE = /font-size:\s*(['"]?)(8|9|10|11)px\1/g;
-
 describe("NP-031: 最小字号 12px 门禁", () => {
   it("样式与组件中不存在 8–11px 字号", () => {
     const violations: string[] = [];
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
-      for (const match of text.matchAll(/font-size:\s*(8|9|10|11)px/g)) {
-        violations.push(`${file}: ${match[0]}`);
+      for (const match of text.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)) {
+        if (Number(match[1]) < 12) {
+          violations.push(`${file}: ${match[0]}`);
+        }
       }
     }
     expect(violations).toEqual([]);
-    void INLINE_RE;
   });
 
   it("12px 存量在位（元数据层提升已生效）", () => {
