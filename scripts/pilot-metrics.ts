@@ -14,18 +14,18 @@
 export interface PilotFactInput {
   id?: string;
   amount: string;
-  /** NP-008：币种必须与运行一致；缺省 CNY。 */
-  currency?: string;
+  /** 财务事实必须显式提供币种；不允许以默认币种参与对账。 */
+  currency: string;
   qualityStatus: string;
   payload: Record<string, unknown>;
   periodStart?: string;
   periodEnd?: string;
-  /** NP-ALGO-001：财务事实类型（GROSS_PROFIT/REVENUE/COST/REFUND/ADJUSTMENT…）。 */
-  factType?: string;
-  /** NP-ALGO-001：过账状态（DRAFT/POSTED；草稿不参与对账）。 */
-  postingStatus?: string;
-  /** NP-ALGO-001：关联订单 id（用于订单级对账）。 */
-  orderId?: string;
+  /** NP-ALGO-001：财务事实类型必须显式提供，不允许默认成毛利。 */
+  factType: string;
+  /** NP-ALGO-001：过账状态必须显式提供，不允许默认成 POSTED。 */
+  postingStatus: string;
+  /** 订单级来源追溯键；试点毛利事实必须绑定到具体订单。 */
+  orderId: string;
 }
 
 export interface PilotRunInput {
@@ -33,8 +33,8 @@ export interface PilotRunInput {
   mode: string;
   status: string;
   orderGrossProfit?: string;
-  /** NP-008：运行订单币种（缺省 CNY）。 */
-  currency?: string;
+  /** 运行币种必须显式提供，缺失时财务对账失败。 */
+  currency: string;
   /** NP-ALGO-001：运行关联订单 id（订单级对账基准）。 */
   orderId?: string;
 }
@@ -175,57 +175,70 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
     inWindow(claim.createdAt, input.cycle.startsAt, input.cycle.endsAt),
   );
 
-  // 1) 财务差异：facts（payload.cycleId 优先，否则期间重叠）vs 运行毛利。
+  // 1) 财务差异：仅使用明确归属本周期的事实；禁止按会计期间重叠兜底。
   const cycleFacts = input.facts.filter((fact) => {
     if (fact.qualityStatus === "INVALID" || fact.qualityStatus === "MISSING") {
       return false;
     }
-    const payloadCycle = fact.payload?.cycleId;
-    if (typeof payloadCycle === "string" && payloadCycle.length > 0) {
-      return payloadCycle === input.cycle.id;
-    }
-    const startsBeforeEnd = !fact.periodEnd || fact.periodEnd >= input.cycle.startsAt;
-    const endsAfterStart = !fact.periodStart || fact.periodStart <= input.cycle.endsAt;
-    return startsBeforeEnd && endsAfterStart;
+    return fact.payload?.cycleId === input.cycle.id;
   });
   let declaredMicros = 0n;
   let factError: string | undefined;
-  // NP-008：没有任何财务事实不得 PASS（无从对账）；混币种不得相加。
+  // 没有本周期事实不得 PASS；混币种、缺少类型/订单/状态均 fail-closed。
   if (cycleFacts.length === 0) {
-    factError = "no financial facts matched this cycle";
+    factError = "no financial facts explicitly attributed to this cycle";
+  }
+  if (cycleFacts.some((fact) => !fact.currency?.trim())) {
+    factError = "financial facts are missing currency";
   }
   const factCurrencies = new Set(
-    cycleFacts.map((fact) => (fact.currency ?? "CNY").toUpperCase()),
+    cycleFacts.map((fact) => fact.currency.toUpperCase()),
   );
-  const runCurrency = (input.benchmarkRun?.currency ?? "CNY").toUpperCase();
-  if (factCurrencies.size > 1) {
+  const runCurrency = input.benchmarkRun?.currency?.trim().toUpperCase() ?? "";
+  if (input.benchmarkRun && !runCurrency) {
+    factError = "benchmark run has no currency";
+  } else if (factCurrencies.size > 1) {
     factError = `mixed financial-fact currencies: ${[...factCurrencies].join("/")}`;
   } else if (
     cycleFacts.length > 0 &&
+    runCurrency &&
     !factCurrencies.has(runCurrency)
   ) {
     factError = `financial facts currency ${[...factCurrencies].join("/")} does not match run currency ${runCurrency}`;
   }
-  // NP-ALGO-001：按 factType 分组——只有 GROSS_PROFIT/REVENUE 参与毛利
-  // 对比；COST/REFUND/ADJUSTMENT 作为桥接项披露；DRAFT 不参与对账。
+  // NP-ALGO-001：只有 GROSS_PROFIT/REVENUE 进入现有毛利比较口径；
+  // 其它已知类型作为桥接项披露；DRAFT 不参与对账。
+  const factTypeOf = (fact: PilotFactInput) =>
+    String(fact.factType ?? "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+  const postingStatusOf = (fact: PilotFactInput) =>
+    String(fact.postingStatus ?? "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
   const comparable = cycleFacts.filter((fact) => {
-    const type = (fact.factType ?? "GROSS_PROFIT").toUpperCase();
+    const type = factTypeOf(fact);
     return type === "GROSS_PROFIT" || type === "REVENUE";
   });
   const bridgeByType: Record<string, { count: number; totalMicros: string }> = {};
   const draftExcluded = comparable.filter(
-    (fact) => (fact.postingStatus ?? "POSTED").toUpperCase() !== "POSTED",
+    (fact) => postingStatusOf(fact) === "DRAFT",
   ).length;
   const postedComparable = comparable.filter(
-    (fact) => (fact.postingStatus ?? "POSTED").toUpperCase() === "POSTED",
+    (fact) => postingStatusOf(fact) === "POSTED",
   );
-  if (cycleFacts.length > 0 && postedComparable.length === 0) {
+  const unknownPostingStatus = comparable.filter(
+    (fact) => !["DRAFT", "POSTED"].includes(postingStatusOf(fact)),
+  );
+  if (unknownPostingStatus.length > 0) {
+    factError = "financial facts contain an unrecognised posting status";
+  }
+  if (postedComparable.some((fact) => !fact.orderId?.trim())) {
+    factError = "POSTED GROSS_PROFIT/REVENUE financial facts are missing orderId";
+  }
+  if (cycleFacts.length > 0 && postedComparable.length === 0 && !factError) {
     factError =
       "no POSTED GROSS_PROFIT/REVENUE financial facts matched this cycle; DRAFT facts are excluded";
   }
 
   for (const fact of cycleFacts) {
-    const type = (fact.factType ?? "GROSS_PROFIT").toUpperCase();
+    const type = factTypeOf(fact);
     if (type === "GROSS_PROFIT" || type === "REVENUE") continue;
     const key = type;
     bridgeByType[key] = bridgeByType[key] ?? { count: 0, totalMicros: "0" };
@@ -254,7 +267,9 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
     (input.benchmarkRun.status === "APPROVED" || input.benchmarkRun.status === "LOCKED");
   if (!eligibleRun) {
     runError = "no FORMAL APPROVED/LOCKED calculation run for this cycle";
-  } else if (typeof input.benchmarkRun?.orderGrossProfit !== "string") {
+  } else if (!input.benchmarkRun.currency?.trim()) {
+    runError = "benchmark run has no currency";
+  } else if (typeof input.benchmarkRun.orderGrossProfit !== "string") {
     runError = "benchmark run has no grossProfit in its input snapshot";
   } else {
     try {

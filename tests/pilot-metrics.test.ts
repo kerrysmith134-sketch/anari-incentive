@@ -29,6 +29,9 @@ function baseInputs(overrides: Partial<PilotMetricInputs> = {}): PilotMetricInpu
         amount: "100000.00",
         currency: "CNY",
         qualityStatus: "VALID",
+        factType: "GROSS_PROFIT",
+        postingStatus: "POSTED",
+        orderId: "SO-001",
         payload: { cycleId: CYCLE.id },
       },
     ],
@@ -124,6 +127,7 @@ describe("AUD-022 pilot metrics", () => {
           mode: "FORMAL",
           status: "LOCKED",
           orderGrossProfit: "99999.999999",
+          currency: "CNY",
         },
       }),
     );
@@ -250,8 +254,8 @@ describe("AUD-022 pilot metrics", () => {
     const mixed = computePilotMetrics(
       baseInputs({
         facts: [
-          { amount: "100000", currency: "CNY", qualityStatus: "VALID", payload: { cycleId: CYCLE.id } },
-          { amount: "10", currency: "USD", qualityStatus: "VALID", payload: { cycleId: CYCLE.id } },
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
+          { amount: "10", currency: "USD", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", orderId: "SO-002", payload: { cycleId: CYCLE.id } },
         ],
       }),
     );
@@ -289,9 +293,9 @@ describe("AUD-022 pilot metrics", () => {
     const report = computePilotMetrics(
       baseInputs({
         facts: [
-          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", payload: { cycleId: CYCLE.id } },
-          { amount: "5000", currency: "CNY", qualityStatus: "VALID", factType: "COST", payload: { cycleId: CYCLE.id } },
-          { amount: "2000", currency: "CNY", qualityStatus: "VALID", factType: "REFUND", payload: { cycleId: CYCLE.id } },
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
+          { amount: "5000", currency: "CNY", qualityStatus: "VALID", factType: "COST", postingStatus: "POSTED", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
+          { amount: "2000", currency: "CNY", qualityStatus: "VALID", factType: "REFUND", postingStatus: "POSTED", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
         ],
         benchmarkRun: {
           id: "run-1", mode: "FORMAL", status: "LOCKED", orderGrossProfit: "100000", currency: "CNY",
@@ -309,13 +313,35 @@ describe("AUD-022 pilot metrics", () => {
     const report = computePilotMetrics(
       baseInputs({
         facts: [
-          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", payload: { cycleId: CYCLE.id } },
-          { amount: "999999", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "DRAFT", payload: { cycleId: CYCLE.id } },
+          { amount: "100000", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "POSTED", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
+          { amount: "999999", currency: "CNY", qualityStatus: "VALID", factType: "GROSS_PROFIT", postingStatus: "DRAFT", orderId: "SO-001", payload: { cycleId: CYCLE.id } },
         ],
       }),
     );
     expect(report.financial.verdict).toBe("PASS");
     expect(report.financial.draftExcluded).toBe(1);
+  });
+
+  it("does not infer cycle attribution from an overlapping accounting period", () => {
+    const report = computePilotMetrics(
+      baseInputs({
+        facts: [
+          {
+            amount: "100000",
+            currency: "CNY",
+            qualityStatus: "VALID",
+            factType: "GROSS_PROFIT",
+            postingStatus: "POSTED",
+            orderId: "SO-001",
+            periodStart: "2026-10-01",
+            periodEnd: "2026-10-31",
+            payload: {},
+          },
+        ],
+      }),
+    );
+    expect(report.financial.verdict).toBe("FAIL");
+    expect(report.financial.detail).toContain("explicitly attributed");
   });
 
   it("a cycle containing only DRAFT gross-profit facts cannot pass the financial gate", () => {
@@ -328,6 +354,7 @@ describe("AUD-022 pilot metrics", () => {
             qualityStatus: "VALID",
             factType: "GROSS_PROFIT",
             postingStatus: "DRAFT",
+            orderId: "SO-001",
             payload: { cycleId: CYCLE.id },
           },
         ],
