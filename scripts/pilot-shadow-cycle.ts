@@ -180,6 +180,7 @@ async function runImport(): Promise<void> {
           payload: {
             orderId: item.order.orderId,
             sourceTitle: item.order.title,
+            cycleId,
             importedBy: "pilot-shadow-cycle",
           },
         });

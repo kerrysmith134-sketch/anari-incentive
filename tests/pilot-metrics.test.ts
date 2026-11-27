@@ -318,6 +318,27 @@ describe("AUD-022 pilot metrics", () => {
     expect(report.financial.draftExcluded).toBe(1);
   });
 
+  it("a cycle containing only DRAFT gross-profit facts cannot pass the financial gate", () => {
+    const report = computePilotMetrics(
+      baseInputs({
+        facts: [
+          {
+            amount: "100000",
+            currency: "CNY",
+            qualityStatus: "VALID",
+            factType: "GROSS_PROFIT",
+            postingStatus: "DRAFT",
+            payload: { cycleId: CYCLE.id },
+          },
+        ],
+      }),
+    );
+    expect(report.financial.verdict).toBe("FAIL");
+    expect(report.financial.declaredMicros).toBe("0");
+    expect(report.financial.detail).toContain("no POSTED");
+    expect(report.financial.draftExcluded).toBe(1);
+  });
+
   it("金额严格解析：>6 位小数/非数字直接报错（不静默丢精度）", () => {
     expect(amountToMicros("100000.00")).toBe(100_000_000_000n);
     expect(amountToMicros("-0.000001")).toBe(-1n);

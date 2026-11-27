@@ -219,6 +219,11 @@ export function computePilotMetrics(input: PilotMetricInputs): PilotMetricsRepor
   const postedComparable = comparable.filter(
     (fact) => (fact.postingStatus ?? "POSTED").toUpperCase() === "POSTED",
   );
+  if (cycleFacts.length > 0 && postedComparable.length === 0) {
+    factError =
+      "no POSTED GROSS_PROFIT/REVENUE financial facts matched this cycle; DRAFT facts are excluded";
+  }
+
   for (const fact of cycleFacts) {
     const type = (fact.factType ?? "GROSS_PROFIT").toUpperCase();
     if (type === "GROSS_PROFIT" || type === "REVENUE") continue;
