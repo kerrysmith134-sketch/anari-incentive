@@ -17,13 +17,31 @@ SO-2026-001,储能柜海外订单 A,华东销售+产品中心联合交付,E001,E
 
 - `participants`：`员工编号:责任角色`，`|` 分隔；编号必须已在目录中
   （否则报错 `unknown employee code ... sync the directory first`）。
-- 幂等：同一 `order_id` 重复导入只会跳过（标题「试点订单 <order_id>」已存在）。
-- 导入只创建**工作包**（含成员/角色）；申报、补证、归属、评价、影子计算、
+- `owner_employee_code` 必须作为唯一的 `OWNER` 成员；若参与人清单未列出负责人，
+  导入器会补入负责人。重复订单号、重复成员、字段数错误、非法币种/金额/日期都会
+  在写库前被拒绝。
+- 文件支持 UTF-8 BOM。导入器先解析和验证整份 CSV，再核对人员目录、已存在工作包
+  和 `PILOT_IMPORT/GROSS_PROFIT` 财务事实；不会因为某一行后续失败而先写入前面
+  的有效行。
+- 幂等恢复：相同订单的工作包与财务事实均存在且金额/币种/期间一致时跳过；若只存在
+  一侧，仅补齐缺失的一侧。若已有财务事实与 CSV 的金额/币种/期间不同，则 fail-closed，
+  不调用会追加财务修订记录的 upsert；应交由财务走受控更正/修订流程。
+- 同一租户的导入进程使用 PostgreSQL advisory lock 串行化，避免两个导入命令并发
+  创建同一批工作包。锁只约束此导入工具，不替代业务 API 的全局唯一约束。
+- 导入只创建**工作包**和试点毛利财务事实；申报、补证、归属、评价、影子计算、
   确认都在 UI 里由人完成。
+
+先 dry-run（需要数据库读取权限，但不写数据）：
+
+```bash
+DATABASE_URL=postgres://... npm run pilot:import -- --orders fixtures/orders-anonymized/orders.example.csv --dry-run
+```
+
+实际导入：
 
 ```bash
 DATABASE_URL=postgres://... npm run pilot:import -- --orders fixtures/orders-anonymized/orders.example.csv
-# created=N skipped=M
+# workPackagesCreated=N financialFactsCreated=M skippedComplete=K
 ```
 
 ## 2. 人工完成影子周期
