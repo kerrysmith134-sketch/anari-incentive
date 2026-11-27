@@ -143,6 +143,7 @@ describe("AUD-022 pilot metrics", () => {
           mode: "SHADOW",
           status: "LOCKED",
           orderGrossProfit: "100000",
+          currency: "CNY",
         },
       }),
     );

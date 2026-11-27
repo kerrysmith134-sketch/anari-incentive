@@ -244,7 +244,7 @@ async function runReport(): Promise<void> {
       postingStatus: fact.recognitionStatus,
       orderId:
         fact.orderId ??
-        (typeof fact.payload?.orderId === "string" ? fact.payload.orderId : undefined),
+        (typeof fact.payload?.orderId === "string" ? fact.payload.orderId : ""),
     })),
     benchmarkRun: benchmarkRun
       ? {
@@ -252,7 +252,7 @@ async function runReport(): Promise<void> {
           mode: benchmarkRun.mode,
           status: benchmarkRun.status,
           orderGrossProfit: benchmarkRun.inputSnapshot?.order?.grossProfit,
-          currency: benchmarkRun.inputSnapshot?.order?.currency,
+          currency: benchmarkRun.inputSnapshot?.order?.currency ?? "",
         }
       : undefined,
     claims: (await store.listClaims()).map((claim) => ({
