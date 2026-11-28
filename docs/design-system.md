@@ -14,7 +14,7 @@ without making the console feel assembled from different products.
    hierarchy and spacing keep the page scannable. Numbers align; prose wraps.
 3. **Colour never carries meaning alone.** Status is a labelled badge with a
    marker, not a coloured dot by itself. Focus is always visible.
-4. **One accent.** Deep evergreen is the product accent; categorical data hues
+4. **One accent.** ANARI blue is the product accent; categorical data hues
    are only introduced when a chart or meter genuinely needs identity. Status
    colours are reserved for status.
 5. **Selected dark mode.** Dark palette values are chosen for the dark surface,

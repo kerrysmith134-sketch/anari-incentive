@@ -570,7 +570,7 @@ export function AiProposalsTab({
                       </span>
                     ))}
                   </div>
-                  <p className="subtle" style={{ fontSize: 11.5, marginTop: 8 }}>
+                  <p className="subtle" style={{ fontSize: 12, marginTop: 8 }}>
                     Snapshot {shortId(selected.evidenceSnapshotHash, 16)}
                   </p>
                 </div>
@@ -747,7 +747,7 @@ export function AiProposalsTab({
                         <strong>决策备注：</strong> {selected.decisionNote}
                       </div>
                     ) : null}
-                    <p className="subtle" style={{ fontSize: 11.5, marginTop: 6 }}>
+                    <p className="subtle" style={{ fontSize: 12, marginTop: 6 }}>
                       Decided by {displayName(selected.decidedBy, people)}
                       {selected.reviewDurationSeconds !== undefined
                         ? ` · review ${selected.reviewDurationSeconds}s`

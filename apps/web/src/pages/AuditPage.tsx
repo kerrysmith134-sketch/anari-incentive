@@ -167,7 +167,7 @@ export function AuditPage() {
                 },
               ]}
             />
-            <p className="subtle" style={{ fontSize: 11.5 }}>
+            <p className="subtle" style={{ fontSize: 12 }}>
               {anchor.data.note}
             </p>
           </>

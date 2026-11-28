@@ -996,7 +996,7 @@ function EquityTab({
                     </div>
                   </div>
                 </div>
-                <p className="subtle" style={{ fontSize: 11.5 }}>
+                <p className="subtle" style={{ fontSize: 12 }}>
                   As of {formatDateTime(vesting.data.asOf)}
                 </p>
               </>
@@ -1406,7 +1406,7 @@ function BountiesTab({
                   </Button>
                 ) : null}
                 {bounty.status === "ACCEPTED" ? (
-                  <span className="subtle" style={{ fontSize: 11.5 }}>
+                  <span className="subtle" style={{ fontSize: 12 }}>
                     Paid ref {bounty.paymentRef ?? "not recorded"}
                   </span>
                 ) : null}

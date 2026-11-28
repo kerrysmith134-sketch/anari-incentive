@@ -25,24 +25,32 @@ function walk(dir: string): string[] {
   return out;
 }
 
+// Scan the complete web source tree, not only shared styles/components:
+ // page-level inline styles and future CSS files must not bypass this gate.
 const sources = [
-  ...walk(join(process.cwd(), "apps", "web", "src", "styles")),
-  ...walk(join(process.cwd(), "apps", "web", "src", "components")),
+  ...walk(join(process.cwd(), "apps", "web", "src")),
 ];
 
-const INLINE_RE = /font-size:\s*(['"]?)(8|9|10|11)px\1/g;
-
 describe("NP-031: 最小字号 12px 门禁", () => {
-  it("样式与组件中不存在 8–11px 字号", () => {
+  it("整个 Web 源码中的 CSS/inline font-size 均不低于 12px", () => {
     const violations: string[] = [];
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
-      for (const match of text.matchAll(/font-size:\s*(8|9|10|11)px/g)) {
-        violations.push(`${file}: ${match[0]}`);
+      const declarations = [
+        ...[...text.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map(
+          (match) => ({ token: match[0], pixels: Number(match[1]) }),
+        ),
+        ...[...text.matchAll(/fontSize:\s*["']?(\d+(?:\.\d+)?)(px)?["']?/g)].map(
+          (match) => ({ token: match[0], pixels: Number(match[1]) }),
+        ),
+      ];
+      for (const declaration of declarations) {
+        if (declaration.pixels < 12) {
+          violations.push(`${file}: ${declaration.token}`);
+        }
       }
     }
     expect(violations).toEqual([]);
-    void INLINE_RE;
   });
 
   it("12px 存量在位（元数据层提升已生效）", () => {

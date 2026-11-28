@@ -279,7 +279,7 @@ export function MyAiPage() {
             )}
           </Panel>
 
-          <p className="subtle" style={{ marginTop: 18, fontSize: 11.5 }}>
+          <p className="subtle" style={{ marginTop: 18, fontSize: 12 }}>
             生成于 {formatDateTime(record.data.generatedAt)}。AI 结论仅作建议，
             不直接产生金额或正式决定。可申诉的决定编号：
             {record.data.explanation.appealTargets.join("、") || "无"}。
