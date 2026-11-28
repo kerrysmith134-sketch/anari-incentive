@@ -289,6 +289,37 @@ describePg("anonymized shadow E2E on real PostgreSQL", () => {
       },
     ]);
 
+    // Regression: header reads and RLS-protected line reads must share the
+    // same tenant-scoped transaction; otherwise list/get return empty lines.
+    const platformStore = new PgPlatformStore(pool);
+    const loadedBatches = await platformStore.listIncentiveAwardBatches(
+      tenant.tenantId,
+    );
+    expect(
+      loadedBatches.map((batch) => ({
+        currency: batch.currency,
+        lineCount: batch.lines.length,
+        amount: batch.lines.reduce(
+          (sum, line) => sum + Number(line.amount),
+          0,
+        ),
+      })).sort((left, right) => left.currency.localeCompare(right.currency)),
+    ).toEqual([
+      { currency: "CNY", lineCount: 2, amount: 28400 },
+      { currency: "USD", lineCount: 1, amount: 1000 },
+    ]);
+    const loadedCny = loadedBatches.find((batch) => batch.currency === "CNY");
+    expect(loadedCny).toBeDefined();
+    const loadedCnyById = await platformStore.getIncentiveAwardBatch(
+      tenant.tenantId,
+      loadedCny!.id,
+    );
+    expect(loadedCnyById.lines).toHaveLength(2);
+    expect(loadedCnyById.lines.reduce(
+      (sum, line) => sum + Number(line.amount),
+      0,
+    )).toBe(28400);
+
     const lines = await rowsForTenant<{ currency: string; n: number; total: string }>(
       tenant.tenantId,
       `SELECT currency, count(*)::int AS n, sum(amount)::text AS total
