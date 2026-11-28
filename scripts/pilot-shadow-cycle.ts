@@ -17,11 +17,11 @@
  */
 import { readFileSync } from "node:fs";
 import { Pool } from "pg";
-import { parseCsv } from "@anari/connectors";
 import { PgStore } from "../apps/api/src/pg-store.js";
 import { PgPlatformStore } from "../apps/api/src/platform-store.js";
 import { createPlatformPool } from "../apps/api/src/platform-pool.js";
 import { computePilotMetrics, type PilotMetricInputs } from "./pilot-metrics.js";
+import { parsePilotOrdersCsv, planPilotOrderImports } from "./pilot-orders.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -30,6 +30,7 @@ function arg(name: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 const json = args.includes("--json");
+const dryRun = args.includes("--dry-run");
 const tenantId =
   arg("tenant") ?? process.env.TENANT_ID ?? "00000000-0000-4000-8000-000000000001";
 
@@ -44,16 +45,6 @@ const platformPool = createPlatformPool(databaseUrl);
 const store = new PgStore(pool, tenantId);
 const platformStore = new PgPlatformStore(platformPool);
 
-function columnIndex(header: string[], name: string): number {
-  const index = header.findIndex(
-    (column) => column.trim().toLowerCase() === name,
-  );
-  if (index < 0) {
-    throw new Error(`orders CSV missing column "${name}"; got ${header.join(",")}`);
-  }
-  return index;
-}
-
 async function runImport(): Promise<void> {
   const ordersPath = arg("orders");
   if (!ordersPath) {
@@ -61,99 +52,153 @@ async function runImport(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const rows = parseCsv(readFileSync(ordersPath, "utf8").trim());
-  const header = rows[0] ?? [];
-  const idx = {
-    orderId: columnIndex(header, "order_id"),
-    title: columnIndex(header, "title"),
-    objective: columnIndex(header, "objective"),
-    owner: columnIndex(header, "owner_employee_code"),
-    participants: columnIndex(header, "participants"),
-    grossProfit: columnIndex(header, "gross_profit"),
-    currency: columnIndex(header, "currency"),
-    periodStart: columnIndex(header, "period_start"),
-    periodEnd: columnIndex(header, "period_end"),
-  };
 
-  const persons = await platformStore.listPersons(tenantId);
-  const personByCode = new Map(persons.map((person) => [person.employeeCode, person.id]));
-  const existing = new Set(
-    (await store.listWorkPackages()).map((wp) => wp.title),
-  );
-
-  let created = 0;
-  let skipped = 0;
-  for (const row of rows.slice(1)) {
-    const orderId = (row[idx.orderId] ?? "").trim();
-    if (!orderId) continue;
-    const title = `试点订单 ${orderId}`;
-    if (existing.has(title)) {
-      skipped += 1;
-      continue;
+  // Parse and validate the entire file before any mutation. A tenant-scoped
+  // advisory lock prevents two importer processes creating the same WP/fact.
+  const cycleId = arg("cycle");
+  if (!cycleId) {
+    console.error("import requires --cycle <cycleId> so pilot facts are attributable to one evaluation cycle");
+    process.exitCode = 1;
+    return;
+  }
+  const orders = parsePilotOrdersCsv(readFileSync(ordersPath, "utf8"));
+  const lockClient = await pool.connect();
+  const lockKey = `anari-incentive:pilot-import:${tenantId}`;
+  let lockAcquired = false;
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    lockAcquired = true;
+    await store.getEvaluationCycle(cycleId);
+    const persons = await platformStore.listPersons(tenantId);
+    const personByCode = new Map<string, string>();
+    for (const person of persons) {
+      if (!person.employeeCode) continue;
+      if (personByCode.has(person.employeeCode)) {
+        throw new Error(`employee directory contains duplicate employee code "${person.employeeCode}"`);
+      }
+      personByCode.set(person.employeeCode, person.id);
     }
-    const participants = (row[idx.participants] ?? "")
-      .split("|")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const [code, role] = entry.split(":");
-        const personId = personByCode.get((code ?? "").trim());
+
+    // Resolve all employees before the first write; a bad last row must not
+    // leave a partially imported file.
+    const resolvedOrders = orders.map((order) => {
+      const ownerPersonId = personByCode.get(order.ownerEmployeeCode);
+      if (!ownerPersonId) {
+        throw new Error(
+          `unknown owner employee code "${order.ownerEmployeeCode}" for order ${order.orderId}; sync the directory first`,
+        );
+      }
+      const members = order.participants.map((participant) => {
+        const personId = personByCode.get(participant.employeeCode);
         if (!personId) {
           throw new Error(
-            `unknown employee code "${code}" for order ${orderId}; sync the directory first`,
+            `unknown employee code "${participant.employeeCode}" for order ${order.orderId}; sync the directory first`,
           );
         }
         return {
           personId,
-          responsibilityCode: (role ?? "CONTRIBUTOR").trim().toUpperCase(),
+          responsibilityCode: participant.role,
           expectedOutput: "交付验收单",
         };
       });
-    const ownerCode = (row[idx.owner] ?? "").trim();
-    const ownerPersonId = personByCode.get(ownerCode);
-    if (!ownerPersonId) {
-      throw new Error(
-        `unknown owner employee code "${ownerCode}" for order ${orderId}`,
-      );
-    }
-    if (!participants.some((member) => member.personId === ownerPersonId)) {
-      participants.unshift({
-        personId: ownerPersonId,
-        responsibilityCode: "OWNER",
-        expectedOutput: "交付验收单",
-      });
-    }
-    const grossProfit = (row[idx.grossProfit] ?? "").trim();
-    const currency = (row[idx.currency] ?? "CNY").trim().toUpperCase();
-    await store.createWorkPackage({
-      title,
-      objective:
-        `${(row[idx.objective] ?? "试点订单交付").trim()} ` +
-        `（订单毛利 ${grossProfit} ${currency}；试点导入，勿改标题）`,
-      ownerPersonId,
-      members: participants,
-      acceptanceCriteria: ["客户验收单", "交付事实可核对"],
+      return { order, ownerPersonId, members };
     });
-    // NP-019：毛利/币种必须落成 FinancialFact（否则对账侧永远"无事实"）。
-    if (grossProfit) {
-      await platformStore.createFinancialFact({
-        tenantId,
+
+    const [workPackages, financialFacts] = await Promise.all([
+      store.listWorkPackages(),
+      platformStore.listFinancialFacts(tenantId, {
         sourceSystem: "PILOT_IMPORT",
-        sourceRecordId: orderId,
         factType: "GROSS_PROFIT",
-        periodStart: (row[idx.periodStart] ?? "").trim() || undefined,
-        periodEnd: (row[idx.periodEnd] ?? "").trim() || undefined,
-        amount: grossProfit,
-        currency,
-        qualityStatus: "VALID",
-        payload: { orderId, importedBy: "pilot-shadow-cycle" },
-      });
+      }),
+    ]);
+    const plan = planPilotOrderImports(
+      resolvedOrders.map((item) => item.order),
+      workPackages.map((workPackage) => workPackage.title),
+      financialFacts.map((fact) => ({
+        sourceRecordId: fact.sourceRecordId,
+        amount: fact.amount,
+        currency: fact.currency,
+        periodStart: fact.periodStart,
+        periodEnd: fact.periodEnd,
+        orderId: fact.orderId,
+        qualityStatus: fact.qualityStatus,
+        payload: fact.payload,
+      })),
+      cycleId,
+    );
+    const resolvedByOrderId = new Map(
+      resolvedOrders.map((item) => [item.order.orderId, item]),
+    );
+
+    if (dryRun) {
+      const summary = plan.map((item) => ({
+        orderId: item.order.orderId,
+        action: item.action,
+        workPackage: item.createWorkPackage ? "CREATE" : "EXISTS",
+        financialFact: item.createFinancialFact ? "CREATE" : "MATCHED",
+      }));
+      if (json) console.log(JSON.stringify({ dryRun: true, tenantId, summary }, null, 2));
+      else {
+        console.log(`PILOT IMPORT DRY RUN (tenant ${tenantId})`);
+        for (const item of summary) {
+          console.log(`- ${item.orderId}: ${item.action} (work package ${item.workPackage}; financial fact ${item.financialFact})`);
+        }
+      }
+      return;
     }
-    created += 1;
+
+    let workPackagesCreated = 0;
+    let financialFactsCreated = 0;
+    let skippedComplete = 0;
+    for (const item of plan) {
+      const resolved = resolvedByOrderId.get(item.order.orderId);
+      if (!resolved) throw new Error(`internal preflight error for order ${item.order.orderId}`);
+      if (item.createWorkPackage) {
+        await store.createWorkPackage({
+          title: `试点订单 ${item.order.orderId}`,
+          objective:
+            `${item.order.title}：${item.order.objective} ` +
+            `（订单毛利 ${item.order.grossProfit} ${item.order.currency}；试点导入，勿改标题）`,
+          ownerPersonId: resolved.ownerPersonId,
+          members: resolved.members,
+          acceptanceCriteria: ["客户验收单", "交付事实可核对"],
+        });
+        workPackagesCreated += 1;
+      }
+      if (item.createFinancialFact) {
+        await platformStore.createFinancialFact({
+          tenantId,
+          sourceSystem: "PILOT_IMPORT",
+          sourceRecordId: item.order.orderId,
+          factType: "GROSS_PROFIT",
+          periodStart: item.order.periodStart,
+          periodEnd: item.order.periodEnd,
+          orderId: item.order.orderId,
+          amount: item.order.grossProfit,
+          currency: item.order.currency,
+          qualityStatus: "VALID",
+          payload: {
+            orderId: item.order.orderId,
+            sourceTitle: item.order.title,
+            cycleId,
+            importedBy: "pilot-shadow-cycle",
+          },
+        });
+        financialFactsCreated += 1;
+      }
+      if (item.action === "SKIP") skippedComplete += 1;
+    }
+    console.log(
+      `pilot import done: workPackagesCreated=${workPackagesCreated} financialFactsCreated=${financialFactsCreated} skippedComplete=${skippedComplete} (tenant ${tenantId})`,
+    );
+  } finally {
+    if (lockAcquired) {
+      await lockClient
+        .query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey])
+        .catch(() => undefined);
+    }
+    lockClient.release();
   }
-  console.log(
-    `pilot import done: created=${created} skipped=${skipped} (tenant ${tenantId})`,
-  );
 }
 
 async function runReport(): Promise<void> {
@@ -180,9 +225,14 @@ async function runReport(): Promise<void> {
       ),
     )[0];
 
+  const cycleFinancialFacts = (await platformStore.listFinancialFacts(tenantId)).filter(
+    (fact) => fact.payload?.cycleId === cycleId,
+  );
   const inputs: PilotMetricInputs = {
     cycle: { id: cycle.id, startsAt: cycle.startsAt, endsAt: cycle.endsAt },
-    facts: (await platformStore.listFinancialFacts(tenantId)).map((fact) => ({
+    // The pilot report intentionally requires explicit cycle attribution;
+    // period overlap alone can pull unrelated orders into a 5–10 order sample.
+    facts: cycleFinancialFacts.map((fact) => ({
       id: fact.id,
       amount: fact.amount,
       currency: fact.currency,
@@ -190,6 +240,11 @@ async function runReport(): Promise<void> {
       payload: fact.payload,
       periodStart: fact.periodStart,
       periodEnd: fact.periodEnd,
+      factType: fact.factType,
+      postingStatus: fact.recognitionStatus,
+      orderId:
+        fact.orderId ??
+        (typeof fact.payload?.orderId === "string" ? fact.payload.orderId : ""),
     })),
     benchmarkRun: benchmarkRun
       ? {
@@ -197,7 +252,7 @@ async function runReport(): Promise<void> {
           mode: benchmarkRun.mode,
           status: benchmarkRun.status,
           orderGrossProfit: benchmarkRun.inputSnapshot?.order?.grossProfit,
-          currency: benchmarkRun.inputSnapshot?.order?.currency,
+          currency: benchmarkRun.inputSnapshot?.order?.currency ?? "",
         }
       : undefined,
     claims: (await store.listClaims()).map((claim) => ({
