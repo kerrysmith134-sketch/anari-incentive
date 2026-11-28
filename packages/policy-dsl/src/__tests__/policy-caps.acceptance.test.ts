@@ -170,7 +170,10 @@ describe("POLICY ACCEPTANCE GATE: performance cycle caps (绩效周期上限单�
       expect(acceptanceDoc).toContain(entry.multiplier);
     }
     expect(acceptanceDoc).toContain("CAP-AUDIT-2026-11-21");
-    expect(acceptanceDoc).toContain("PENDING_BUSINESS_WRITTEN_CONFIRMATION");
+    // PR#3 已按 2026-11-27 审计把冲突状态从 PENDING 改为已决议（消除文档矛盾）：
+    // 现行口径保留 110/150/105，外部审计提议（130/150）决议不采纳。
+    expect(acceptanceDoc).toContain("DECIDED_NOT_ADOPTED");
+    expect(acceptanceDoc).not.toContain("PENDING_BUSINESS_WRITTEN_CONFIRMATION");
     expect(acceptanceDoc).toContain("1.30");
     expect(acceptanceDoc).toContain("2026-11-25 业务确认");
   });
